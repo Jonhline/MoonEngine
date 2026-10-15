@@ -15,6 +15,7 @@
 uint8_t *gt4_glyph_sdf(const uint8_t *rgba, int w, int h, int scale, int *out_w, int *out_h);
 
 /* Optional presentation-only checkpoints; identical atlas output. */
-uint8_t *gt4_glyph_sdf_presented(const uint8_t *rgba,int w,int h,int scale,int *out_w,int *out_h,void (*progress)(void *),void *user);
+uint8_t *gt4_glyph_sdf_presented(const uint8_t *rgba, int w, int h, int scale, int *out_w,
+                                 int *out_h, void (*progress)(void *), void *user);
 
 #endif

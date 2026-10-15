@@ -8,7 +8,7 @@ Este é um inventário verificável do material examinado, não uma garantia de 
 
 - `tools/analysis/audit_gt4_secrets.py`: extrator somente de leitura de metadados de scripts locais.
 - [GT4_EVENT_INVENTORY.md](GT4_EVENT_INVENTORY.md): todas as 143 famílias de eventos extraídas das tabelas de halls e fabricantes do script examinado.
-- `GT4_REWARD_INVENTORY.json`, gerado localmente do disco por `tools/analysis/audit_gt4_secrets.py`: 172 registros de condições/recompensas e 25 desbloqueios por tempo do catálogo US. Inclui carros e conteúdo adicional; não significa 172 carros diferentes.
+- `GT4_REWARD_INVENTORY.json`, gerado localmente por `tools/analysis/audit_gt4_secrets.py`: 172 registros de condições/recompensas e 25 desbloqueios por tempo do catálogo US. Inclui carros e conteúdo adicional; não significa 172 carros diferentes.
 - `build/secret-audit/inventory.json`: sequências de comandos, módulos, linhas Adhoc e instruções dos manipuladores ocultos.
 - `build/secret-audit/usedcar-inventory.json`: metadados dos 400 estoques semanais extraídos do disco, incluindo ocorrências dos black cars.
 - Os `.adc`, modelos, texturas e outros assets continuam locais em `build/`/no disco. Os arquivos de documentação não contêm os scripts compilados.
@@ -197,7 +197,7 @@ Não importar o gato de Photo Travel, cachorro de Bern, foguete de Daytona, OVNI
 
 Separar três classes: (1) acessível no retail com condição real; (2) comportamento de debug deixado no retail, como Secret/Monitor e craft; (3) assets ou código sem caminho normal. Apenas a existência de um circuito, carro, fabricante ou modo residual não justifica disponibilizá-lo ao jogador.
 
-A pesquisa de Xenn e o OpenAdhoc são referências de engenharia reversa, mas comparar versão/origem antes de usar: [pesquisa de conteúdo não utilizado](https://www.gtplanet.net/forum/threads/xenns-gt4-research-topic.251394/), [OpenAdhoc](https://github.com/Nenkai/OpenAdhoc). TCRF foi localizada por busca e referenciada pelo descobridor dos cheats, porém sua página não pôde ser lida diretamente nesta sessão; não foi tratada como prova de conteúdo que não conseguimos examinar.
+A pesquisa de Xenn e o OpenAdhoc são referências de engenharia reversa, mas comparar versão/origem antes de usar: [pesquisa de conteúdo não utilizado](https://www.gtplanet.net/forum/threads/xenns-gt4-research-topic.251394/), [OpenAdhoc](https://github.com/Nenkai/OpenAdhoc). TCRF foi localizada por busca e referenciada pelo descobridor dos cheats, porém sua página não pôde ser lida diretamente nessa investigação; não foi tratada como prova de conteúdo que não conseguimos examinar.
 
 Preservar bugs originais observáveis quando o objetivo for equivalência retail. Se for oferecido um modo corrigido, documentá-lo separadamente. Exemplos que merecem investigação incluem cheat de Mission Hall, peculiaridades de cálculo/prêmio e diferenças regionais. Exploits físicos, wheelies, wall riding e glitches de Arcade precisam de casos reprodutíveis e versão identificada; não foram certificados nesta rodada.
 

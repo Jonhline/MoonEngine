@@ -17,10 +17,10 @@ typedef struct race_smoke race_smoke;
 /* what the physics hands over for a wheel (func_003667A8's 0x3C bytes) */
 typedef struct {
     int wheel, surface;
-    float pos[3];      /* the contact point, render frame */
-    float shade;       /* +0x18: the ground's light under it */
-    float plane[4];    /* the ground's plane (normal, d) */
-    float amount;      /* +0x2C: how much it smokes */
+    float pos[3];   /* the contact point, render frame */
+    float shade;    /* +0x18: the ground's light under it */
+    float plane[4]; /* the ground's plane (normal, d) */
+    float amount;   /* +0x2C: how much it smokes */
 } race_smoke_wheel;
 
 /* a square to draw: its corners in view space (x right, y up, z towards
@@ -40,11 +40,12 @@ void race_smoke_update(race_smoke *s, float dt);
 /* the live particles as squares for a camera at eye with the world to
    view rows (right, up, back), sorted far to near (func_003E9018) when the
    course blends them (Env0 +0x918 0x44); returns how many */
-int race_smoke_quads(const race_smoke *s, const float eye[3], const float rows[9], race_smoke_quad *out, int max);
+int race_smoke_quads(const race_smoke *s, const float eye[3], const float rows[9],
+                     race_smoke_quad *out, int max);
 /* Env0 +0x918: 0x44 (Cs - Cd) * As + Cd, 0x48 Cs * As + Cd */
 int race_smoke_blend(const race_smoke *s);
 int race_smoke_live(const race_smoke *s);
 /* Film SMOK records, as read by 003E96B8; replace without emission/ticks. */
-int race_smoke_snapshot(race_smoke *s,const uint8_t (*records)[33],int count);
+int race_smoke_snapshot(race_smoke *s, const uint8_t (*records)[33], int count);
 
 #endif

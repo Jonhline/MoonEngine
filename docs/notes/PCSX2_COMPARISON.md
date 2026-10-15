@@ -2,7 +2,7 @@
 
 Lista do que ainda precisa ser comparado com o jogo original no PCSX2, como
 fazer cada comparação e como ela vira automática. A nota V do
-`docs/FIDELITY.md` continua sendo do usuário: a automação só prepara o lado a
+`docs/FIDELITY.md` registra as notas: a automação só prepara o lado a
 lado e a medida; quem aprova é você.
 
 ## 1. A ideia: o savestate é a referência
@@ -176,7 +176,7 @@ sequência (câmeras, HUD, sombra, fumaça); cada savestate leva um segundo.
 - Os casos que passarem viram teste do `ctest` com a referência local, como
   os testes com o disco já fazem (ficam de fora quando o arquivo não existe).
 
-Prova da ideia (12/10/2026), slot 03 do usuário (Ka em Laguna Seca, câmera
+Prova da ideia (12/10/2026), slot 03 da referência (Ka em Laguna Seca, câmera
 de trás): `eeMemory.bin` do `.p2s` em `OPENGT4_RACE_SNAPSHOT`, `--drive
 --race-course laguna --window 640x480`, quadro lado a lado com o
 `Screenshot.png`. Pista, céu, fundo e carro saem no mesmo lugar. Falta para

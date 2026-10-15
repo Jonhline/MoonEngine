@@ -1,114 +1,34 @@
-# Native menu navigation
+# Menu navigation
 
-`menu.c` owns the active page stack and input dispatch. Destinations and
-next-project names come from the disc's Adhoc scripts, not label-to-screen
-mapping in the app. Cached projects preserve focus while visiting Options.
+Implementation: `src/core/menu.c and src/platform/sdl/pad_sdl.c`.
 
-## Engine bridge
+Original Adhoc scripts choose destinations and handle key events. The native bridge maintains pages, focus, widget state and deferred callbacks. Input bubbles through widgets and page handlers; project changes occur after script callbacks. Host input is translated to the key symbols expected by the scripts.
 
-- SelectBox follows ordered children, skipping invisible/insensitive items.
-  Other buttons use directional geometry (distance plus alignment penalty),
-  a provisional native policy rather than a verified PS2 algorithm.
-- `setFocus`, `index`/`focus_index`, `insensitive`, `onFocusEnter`,
-  `onFocusLeave`, and `onValueChanged` connect scripts with native widgets.
-- Activate/cancel bubbles from the focused widget to its parents. The original
-  target remains `event.widget`. Nonzero returns consume an event; the observed
-  scripts return 2 for consumed activation/cancel.
-- Deferred `pushPage` preserves the underlying page; `startPage` replaces the
-  top; `closePage` finalizes/pops the top and restores focus below. Reopening a
-  finalized page runs initialization again. Capacity: 32 pages.
-- `MFunctionEvent(fn, args...)` and `MScriptEvent(context, target, name, array)`
-  queue callbacks and pin their objects through GC. Up to 64 calls run per
-  tick; queue capacity is 128. Project changes occur after callbacks return.
-- `context.finish()` exposes `game.next_menu_project` only for the `menu`
-  sequence. Race/replay/movie sequences fail explicitly; races do not start.
-- `ConfirmDialog.open` calls a synchronous platform dialog and returns the
-  player's answer to the script. Message/title come from the game, while
-  native buttons currently say Yes/No. Original art/custom labels are pending.
-- `context.translate` preserves unmatched input for the nested translation
-  in OptionRoot.onCancel: `Exit?` becomes `Exit Options?`, then stays unchanged.
+## Evidence and limitations
 
-## Controls and verified routes
+The [development record](notes/MENU_NAVIGATION.md) retains addresses, experiments,
+test results and outstanding limitations. Older entries describe the state
+at their recorded date and may be superseded. Consult [Fidelity](FIDELITY.md)
+for per-item grades; implementation coverage is not full-game certification.
 
-Arrows: focus. In closed OptionMenu fields, Left/Right cycle values and
-Enter advances to the next available value; Up/Down move to another field.
-Escape cancels through the page script. F10: quit.
-F1/F2: debug screen browsing. PageUp/PageDown: debug project browsing.
+## Car and course favorites
 
-On US v2.00: Arcade opens GameRoot/SingleRace, directional focus reaches
-TimeTrial/SplitBattle/LANBattle, and cancel returns to TopRoot repeatably.
-Options opens OptionRoot. Declining its exit confirmation stays there;
-accepting returns to TopRoot with Options selected. GT Mode stops at the
-unimplemented save-data check; subsequent input still works. No save is faked.
+Every menu project exposes the original MFavorite interface on `main.game.favorite_car` and `favorite_course`: `clear`, `has`, `append`, `remove`, `buildLabelList`, `getSize`, `isFull`, and the original no-op `dump`. Each list holds 32 distinct 64-bit SpecDB keys in insertion order. Removing a key compacts the list and fills its former last slot with UINT64_MAX. Labels resolve through GENERIC_CAR, TUNED_CAR, then COURSE; the returned label list preserves insertion order.
 
-Ordinary buttons get a temporary thin focus border until actors and original
-visibility conditions are implemented. It is not the PS2 highlight. SelectBox
-shows its selected child alone. Rendering shows the top page only, without
-full modal compositing.
+The PC profile keeps `max`, `count`, and 32 `code`/`table` entries, also used by PS2 save import. Native methods are rebound after profile restoration and missing lists are initialized. Successful mutations mark the PC profile dirty so ordinary exit autosave captures the lists even when no option was changed; duplicate additions leave the profile clean. The favorites oracle compares the original constructor, list operations and serialized payload byte for byte. The disc menu test exercises the authored course toggle, Arcade list construction and save reload; both tests have deliberate failing variants.
 
-## Limits
+## Arcade race return and shoulder buttons
 
-GT Mode's newer render-context, fade, progress and shared-panel support is
-documented in [GT_MODE_UI.md](GT_MODE_UI.md). That page supersedes the older
-transition limitations below for the direct GT Mode presentation preview.
+Leaving the Arcade quick menu reloads the page saved in `major_menu_page` by the original `GameRoot` scripts. Normal selection returns to `CategoryRoot` (track type); favorites-only selection returns to `CourseRoot`. `ArcadeProject.onLoad` uses this page when `menuRef` retains a selected game mode, otherwise it opens `TopRoot`. The application reloads the Arcade project and copies shared game data plus its transient selection stack into the fresh VM. The outgoing hidden cursor, widgets, actors and showroom script locals are discarded. It then uses this authored destination instead of the previous car page. `arcade_return` compares both destinations against the disc's selection and reload bytecode, with a negative case that restores the wrong car destination.
 
-Raw onKeyPress/keysym mapping, mouse/controllers, complete shared state between
-projects, save data and non-menu sequences remain incomplete. Fades, moves,
-blinks and menu audio are covered in [MENU_PRESENTATION.md](MENU_PRESENTATION.md).
-Short numeric `sync()` waits present animation frames without re-entering the VM;
-other waits are not implemented. `transition` is nil, the cursor proxy accepts
-icon changes without drawing. Only common ConfirmDialog is supported; progress
-and memory-card dialogs are not. Automatic demo timeout is a native default of
-zero. Options are not written to saves/disc. Further screens can still report
-missing engine members; navigating to one does not imply its features work.
+L1 and R1 produce distinct key symbols `0xFFC8` and `0xFFD2` from `D_006192E4`. They are offered to the authored key handlers before the native root fallback. The original fallback `func_00235680` does not move focus for these two keys, and `quick-arcade` supplies no handler for them: they do not jump to the first or last pre-race icon. `pregrid_shoulders_oracle` executes that original fallback, checks the disc key table, and checks unchanged focus for each available icon before and after completion. Its negative case injects a directional move. Other pages can define their own shoulder-button actions; this proof is scoped to the generic fallback and Arcade pre-race.
 
-A one-million-instruction limit interrupts unsupported waits/loops and restores
-VM state for subsequent input. It is a diagnostic bound, not coroutine support.
-Missing noncritical members keep the existing nil-and-log behavior.
+`arcade_return` also covers the hidden-cursor return, preserved mode stack, cleared showroom locals, and authored CategoryRoot → CourseRoot → MakerRoot → CarRoot navigation with a populated car list. Dedicated negative cases hide the new cursor and empty that list. This is a state/navigation integration check; full PS2 transition imagery remains outside it.
 
-## Validation
+## Arcade specification line and rebuilt list selection
 
-CTest `menu_navigation` uses synthetic screens/native test callbacks only.
-It checks disabled/hidden selection, focus/value callbacks, bubbling, deferred
-pages, repeated initialize/finalize, focus restoration, events surviving GC,
-dialog answers, project requests, unsupported sequence rejection, loop
-interruption and recovery. No disc or BIOS is needed.
+`CarRoot.set_car_info` (arcade.ad L4116..4125) writes drivetrain, catalog power/RPM and torque/RPM into its ToolTipFace. The focus adapter preserves that scripted line when an item has no translated tooltip. Selection changes invoke the original `focus_callback(context, current, previous)` contract from `002B29C0 +0x9CC..0xA58`; Arcade registers `set_car` through this callback at L4077. This keeps the displayed car and specification line synchronized.
 
-Optional integration test:
+`setItemCount` clamps the current selection to the new list bounds, following `002B4A00 +0x2D0 -> 002B3AF8 +0x38..0x84`. An empty list has index -1; refilling selects zero. The authored car-page teardown empties its list, so opening another maker starts with its first car. Lists that retain their contents and explicit script-selected indices keep their original selection behavior; pre-race focus is not globally reset.
 
-```
-python tests/ui/run_menu_smoke.py <your-disc.iso>
-```
-
-Seven scenarios assert actual project/root/focus and save local captures/logs
-under ignored `build/menu_smoke/`. `--input` uses the same input entry point as
-SDL keys, not OS key simulation. `--dialog-answer yes|no` is an explicit test
-override for that run; normal confirmation is interactive.
-
-## Native option fields
-
-OptionMenu now participates as a single focus target instead of exposing its
-popup children. Logical indices exclude decorative faces. Left/Right wrap
-through available values, skipping hidden/disabled entries, then dispatch
-onValueChanged(context,index) and the parameter sound. Enter opens a dropdown over the page. Arrows select a pending value; Enter
-commits it once, while Escape closes without changing the value. Script setIndex and index
-assignments clamp to the value range without dispatching a user-input event.
-Drawing and navigation use the same value lookup.
-
-RaceRoot's original apply/reflect scripts now work with these controls. OK
-updates the option module and setNeedSave marks unsaved state. Cancel returns
-without applying edited widget values. Settings survive reopening the page in
-the same cached project, but are not persisted to disk or yet shared with every
-project. This does not implement game saves or race simulation.
-
-`python tests/ui/run_option_smoke.py <disc.iso>` checks four changed fields,
-OK/reopen, and Cancel/reopen using semantic indices in screenshot diagnostics.
-Synthetic tests cover disabled/hidden choices, callbacks, index clamping and
-focus recovery. Captures/logs stay in ignored build/option_smoke/.
-
-## Course catalog preview
-
-Arcade Single Race now reaches the disc-backed course selection in explicit
-`--preview-courses` mode, including direction and confirmation to MakerRoot.
-See [COURSE_CATALOG.md](COURSE_CATALOG.md) for controls, implementation, tests
-and remaining car/save/presentation work.
+`arcade_return` exercises the first specification line, subsequent car changes, and changing makers after selecting several cars. It compares each automatically updated line with the original script's explicit `set_car_info` output. Negative cases corrupt the line and restore a stale third-car index. This checks integration and state at zero tolerance, not complete PS2 text rasterization or every catalog formatter.

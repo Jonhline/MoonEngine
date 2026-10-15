@@ -7,7 +7,7 @@
 #include <windows.h>
 /* P: separately downloaded public-domain Tango PNGs. Missing/corrupt files
    leave their slots transparent; captions/navigation remain available. */
-HBITMAP launcher_icons_create(const char *folder,int size);
-void launcher_icon_draw(HDC dc,HBITMAP atlas,int icon,int x,int y,int size);
+HBITMAP launcher_icons_create(const char *folder, int size);
+void launcher_icon_draw(HDC dc, HBITMAP atlas, int icon, int x, int y, int size);
 #endif
 #endif

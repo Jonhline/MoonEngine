@@ -12,17 +12,20 @@
 #include <stdint.h>
 
 typedef struct {
-    const uint8_t *data;       /* whole course file, owned by the caller */
-    size_t         size;
-    size_t         world;      /* world model set (MDLS) offset */
-    size_t         runway;     /* runway (RNW4) offset */
-    float          length;     /* course length, metres */
-    int            grid_count;
-    int            road_vertex_count, road_tri_count;
-    size_t         grids, road_vertices, road_tris;   /* absolute offsets */
+    const uint8_t *data; /* whole course file, owned by the caller */
+    size_t size;
+    size_t world;  /* world model set (MDLS) offset */
+    size_t runway; /* runway (RNW4) offset */
+    float length;  /* course length, metres */
+    int grid_count;
+    int road_vertex_count, road_tri_count;
+    size_t grids, road_vertices, road_tris; /* absolute offsets */
 } gt4_course;
 
-typedef struct { float pos[3]; float heading; } gt4_grid;   /* heading in radians */
+typedef struct {
+    float pos[3];
+    float heading;
+} gt4_grid; /* heading in radians */
 
 /* Validates the header and the runway tables. 1 on success. */
 int gt4_course_open(gt4_course *c, const uint8_t *data, size_t size);
@@ -35,14 +38,21 @@ int gt4_course_height(const gt4_course *c, float x, float z, float y_limit, floa
 typedef struct gt4_course_surface gt4_course_surface;
 gt4_course_surface *gt4_course_surface_create(const gt4_course *c);
 void gt4_course_surface_free(gt4_course_surface *s);
-int gt4_course_surface_at(const gt4_course_surface *s,float x,float z,float ceiling,float *y,float normal[3]);
+int gt4_course_surface_at(const gt4_course_surface *s, float x, float z, float ceiling, float *y,
+                          float normal[3]);
 /* Same immutable query, retaining the winning RNW4 triangle for presentation. */
-int gt4_course_surface_triangle(const gt4_course_surface *s,float x,float z,float ceiling,float *y,float normal[3],int *triangle);
+int gt4_course_surface_triangle(const gt4_course_surface *s, float x, float z, float ceiling,
+                                float *y, float normal[3], int *triangle);
 
 /* Original Vls0: grid of candidate Voronoi nodes, each selecting an authored
    u16-count/u16-model-index list. Buffer belongs to the course. */
-typedef struct {const uint8_t *data;size_t size;unsigned models;} gt4_course_vision;
-int gt4_course_vision_open(gt4_course_vision *v,const uint8_t *data,size_t size,unsigned models);
+typedef struct {
+    const uint8_t *data;
+    size_t size;
+    unsigned models;
+} gt4_course_vision;
+int gt4_course_vision_open(gt4_course_vision *v, const uint8_t *data, size_t size, unsigned models);
 /* Returns the stored list and its node index; NULL on invalid position/grid. */
-const uint8_t *gt4_course_vision_select(const gt4_course_vision *v,const float position[3],unsigned *node);
+const uint8_t *gt4_course_vision_select(const gt4_course_vision *v, const float position[3],
+                                        unsigned *node);
 #endif

@@ -20,8 +20,8 @@ static int pad_fixed_read(void *ctx, uint32_t car, uint8_t *cmd, const uint8_t *
         pad_fixed_frame--;
         return 0;
     }
-    cmd[0] = 0;          /* digital */
-    cmd[1] = 1;          /* a digital pad */
+    cmd[0] = 0; /* digital */
+    cmd[1] = 1; /* a digital pad */
     cmd[2] = 0;
     cmd[3] = ev[3];
     memcpy(cmd + 4, &steer, 2);

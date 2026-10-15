@@ -1,7 +1,25 @@
-# Herança de dados US
+# Save games and legacy transfer
 
-GT4 americano importa créditos e licenças B/A do GT3 americano. O método interno inheritGT4pData também seleciona GT3 nessa edição.
+Native persistence is implemented in `src/core/save.c` and `save_state.c`;
+the application storage screens are in `src/app/save_ui.c`. Profiles,
+settings and native replay/media files use PC storage. The PS2 save reader
+in `src/core/save_ps2.c` handles legacy data separately.
 
-Coloque o GAMEDATA extraído em `<diretório dos perfis>/imports/BASCUS-97102GAMEDATA/BASCUS-97102GAMEDATA`. Abra um perfil e entre em Status no GT Mode. Os helpers originais oferecem transferência/importação. Limite:100000 créditos, uma vez por perfil. Licenças melhores são preservadas.
+## US GT3 transfer
 
-Aceita arquivo extraído, não imagens completas nem .psu. Testado com dados sintéticos e conferido pelo desmonte US; validação com save real pendente. Outras regiões e importação efetiva de Prologue ainda não suportadas.
+The US version transfers credits and B/A licenses from US GT3 data. Its
+internal `inheritGT4pData` path also selects GT3 data in this edition.
+Place extracted GAMEDATA at:
+
+```text
+<profile directory>/imports/BASCUS-97102GAMEDATA/BASCUS-97102GAMEDATA
+```
+
+Open a profile and enter GT Mode Status to use the transfer actions. The
+credit cap is 100,000, once per profile; better existing licenses are kept.
+This transfer input is an extracted file, not a complete card image or PSU.
+
+Synthetic data and US executable research cover the bridge. Validation with
+a real GT3 save remains pending; other regions and actual Prologue transfer
+are not supported by that proof. See [Fidelity](FIDELITY.md) and
+[media coverage](notes/PHOTO_MEDIA_COVERAGE.md) for separate import limits.

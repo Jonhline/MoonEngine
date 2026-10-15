@@ -11,7 +11,10 @@
 enum { GT4_SD_VOICES = 46, GT4_SD_EFFECTS = 48 };
 
 /* An effect handle (0x20 bytes in the caller: +0x18 voice, +0x1C id). */
-typedef struct { int voice; uint32_t id; } gt4_sd_handle;
+typedef struct {
+    int voice;
+    uint32_t id;
+} gt4_sd_handle;
 /* An ENGN controller (0055xxxx object): its two slots' hardware voices. */
 typedef struct {
     gt4_engine_control control;
@@ -23,7 +26,8 @@ typedef struct gt4_sd gt4_sd;
 /* Tables from CORE.GT4 in guest memory: the pan table D_006C8AC0 and the
    octave table D_00654738; `group_volume` per group (manager +0x4C +
    group*12), `stereo` the manager's +0. */
-gt4_sd *gt4_sd_open(const uint8_t *pan_table, const uint8_t *octave_table, const int32_t group_volume[8], int stereo);
+gt4_sd *gt4_sd_open(const uint8_t *pan_table, const uint8_t *octave_table,
+                    const int32_t group_volume[8], int stereo);
 void gt4_sd_close(gt4_sd *sd);
 
 /* 00462A88 for a tone: keep or get the handle's voice (0055A5F0 by

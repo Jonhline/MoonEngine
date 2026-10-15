@@ -23,45 +23,48 @@
 #define A1 ((uint32_t)c->r[5].uw[0])
 
 #define FIBER_STACK (4u * 1024 * 1024)
-#define CTX_SIZE    0x2a0u   /* saved context at the top of a thread stack */
+#define CTX_SIZE 0x2a0u /* saved context at the top of a thread stack */
 
 typedef struct {
-    ee_u128  r[32];
+    ee_u128 r[32];
     uint64_t hi, lo, hi1, lo1;
     uint32_t sa;
-    union { float f; uint32_t u; } fpr[32];
-    float    acc;
+    union {
+        float f;
+        uint32_t u;
+    } fpr[32];
+    float acc;
     uint32_t fcr31;
 } regs_t;
 
 typedef struct {
-    int      used, status, prio, init_prio;
-    int      wait_type, wait_id, wakeup_count;
-    int64_t  seq;             /* ready-queue order within a priority */
-    uint64_t wait_seq;        /* FIFO order among waiters */
+    int used, status, prio, init_prio;
+    int wait_type, wait_id, wakeup_count;
+    int64_t seq;       /* ready-queue order within a priority */
+    uint64_t wait_seq; /* FIFO order among waiters */
     uint32_t entry, stack, stack_size, gp, attr, option, arg;
-    int      is_main;
-    ee_fn    host_entry;      /* main thread only */
-    void    *fiber;
+    int is_main;
+    ee_fn host_entry; /* main thread only */
+    void *fiber;
 #ifndef _WIN32
     ucontext_t uc;
-    void    *uc_stack;
+    void *uc_stack;
 #endif
-    jmp_buf  top;             /* restart point after exit, inside the fiber */
-    regs_t   regs;
+    jmp_buf top; /* restart point after exit, inside the fiber */
+    regs_t regs;
 } thr_t;
 
 struct ee_sched {
-    ee_ctx  *c;
-    thr_t    t[EE_MAX_THREADS];
-    int      cur;
-    int64_t  seq, front_seq;
+    ee_ctx *c;
+    thr_t t[EE_MAX_THREADS];
+    int cur;
+    int64_t seq, front_seq;
     uint64_t wait_seq;
-    int      in_guest, in_idle, deferred;
+    int in_guest, in_idle, deferred;
     uint64_t switches;
 #ifdef _WIN32
-    void    *host_fiber;
-    int      converted;
+    void *host_fiber;
+    int converted;
 #else
     ucontext_t host_uc;
 #endif
@@ -72,17 +75,27 @@ struct ee_sched {
 static void save_regs(const ee_ctx *c, regs_t *r)
 {
     memcpy(r->r, c->r, sizeof r->r);
-    r->hi = c->hi; r->lo = c->lo; r->hi1 = c->hi1; r->lo1 = c->lo1; r->sa = c->sa;
+    r->hi = c->hi;
+    r->lo = c->lo;
+    r->hi1 = c->hi1;
+    r->lo1 = c->lo1;
+    r->sa = c->sa;
     memcpy(r->fpr, c->fpr, sizeof r->fpr);
-    r->acc = c->acc; r->fcr31 = c->fcr31;
+    r->acc = c->acc;
+    r->fcr31 = c->fcr31;
 }
 
 static void load_regs(ee_ctx *c, const regs_t *r)
 {
     memcpy(c->r, r->r, sizeof c->r);
-    c->hi = r->hi; c->lo = r->lo; c->hi1 = r->hi1; c->lo1 = r->lo1; c->sa = r->sa;
+    c->hi = r->hi;
+    c->lo = r->lo;
+    c->hi1 = r->hi1;
+    c->lo1 = r->lo1;
+    c->sa = r->sa;
     memcpy(c->fpr, r->fpr, sizeof c->fpr);
-    c->acc = r->acc; c->fcr31 = r->fcr31;
+    c->acc = r->acc;
+    c->fcr31 = r->fcr31;
 }
 
 /* ---- fibers ---- */
@@ -90,7 +103,10 @@ static void load_regs(ee_ctx *c, const regs_t *r)
 static void thread_body(struct ee_sched *s, int id);
 
 #ifdef _WIN32
-typedef struct { struct ee_sched *s; int id; } fiber_arg;
+typedef struct {
+    struct ee_sched *s;
+    int id;
+} fiber_arg;
 static fiber_arg fiber_args[EE_MAX_THREADS];
 
 static VOID CALLBACK fiber_proc(LPVOID p)
@@ -113,7 +129,10 @@ static void jump_to(struct ee_sched *s, int id)
 }
 #else
 static struct ee_sched *uc_sched;
-static void uc_proc(int id) { thread_body(uc_sched, id); }
+static void uc_proc(int id)
+{
+    thread_body(uc_sched, id);
+}
 
 static int make_fiber(struct ee_sched *s, int id)
 {
@@ -147,8 +166,8 @@ static int pick_ready(const struct ee_sched *s)
         const thr_t *t = &s->t[i];
         if (!t->used || t->status != EE_THS_READY)
             continue;
-        if (best < 0 || t->prio < s->t[best].prio
-            || (t->prio == s->t[best].prio && t->seq < s->t[best].seq))
+        if (best < 0 || t->prio < s->t[best].prio ||
+            (t->prio == s->t[best].prio && t->seq < s->t[best].seq))
             best = i;
     }
     return best;
@@ -166,7 +185,8 @@ static void switch_to(struct ee_sched *s, int next, const char *why)
 {
     ee_ctx *c = s->c;
     int prev = s->cur;
-    ee_trace(c, "\"ev\":\"thread_switch\",\"from\":%d,\"to\":%d,\"reason\":\"%s\"", prev, next, why);
+    ee_trace(c, "\"ev\":\"thread_switch\",\"from\":%d,\"to\":%d,\"reason\":\"%s\"", prev, next,
+             why);
     save_regs(c, &s->t[prev].regs);
     load_regs(c, &s->t[next].regs);
     s->t[next].status = EE_THS_RUN;
@@ -207,7 +227,7 @@ static void reschedule(struct ee_sched *s, const char *why)
 {
     ee_ctx *c = s->c;
     thr_t *cur = &s->t[s->cur];
-    if (c->sif && c->sif->in_handler) {   /* never switch inside a handler */
+    if (c->sif && c->sif->in_handler) { /* never switch inside a handler */
         s->deferred = 1;
         return;
     }
@@ -216,13 +236,13 @@ static void reschedule(struct ee_sched *s, const char *why)
         if (best < 0 || s->t[best].prio >= cur->prio)
             return;
         cur->status = EE_THS_READY;
-        cur->seq = --s->front_seq;        /* preempted: head of its queue */
+        cur->seq = --s->front_seq; /* preempted: head of its queue */
         switch_to(s, best, why);
         return;
     }
     for (;;) {
         int best = pick_ready(s);
-        if (best == s->cur) {             /* woken while idle, no switch */
+        if (best == s->cur) { /* woken while idle, no switch */
             cur->status = EE_THS_RUN;
             return;
         }
@@ -232,7 +252,8 @@ static void reschedule(struct ee_sched *s, const char *why)
         }
         if (!idle_interrupt(s))
             ee_end(c, EE_END_UNSUPPORTED, 0,
-                   "deadlock: thread %d waits (%s) and no thread or interrupt can run", s->cur, why);
+                   "deadlock: thread %d waits (%s) and no thread or interrupt can run", s->cur,
+                   why);
     }
 }
 
@@ -240,13 +261,14 @@ static void thread_body(struct ee_sched *s, int id)
 {
     ee_ctx *c = s->c;
     thr_t *t = &s->t[id];
-    setjmp(t->top);                       /* a restarted thread comes back here */
+    setjmp(t->top); /* a restarted thread comes back here */
     if (t->is_main) {
         t->host_entry(c);
         c->end_reason = EE_END_RETURNED;
         c->end_pc = 0;
         snprintf(c->end_detail, sizeof c->end_detail, "main thread entry returned");
-        ee_trace(c, "\"ev\":\"end\",\"reason\":%d,\"pc\":null,\"detail\":\"%s\"", EE_END_RETURNED, c->end_detail);
+        ee_trace(c, "\"ev\":\"end\",\"reason\":%d,\"pc\":null,\"detail\":\"%s\"", EE_END_RETURNED,
+                 c->end_detail);
         ee_sched_exit_to_host(c);
     }
     ee_call(c, t->entry, 0);
@@ -254,7 +276,7 @@ static void thread_body(struct ee_sched *s, int id)
     ee_trace(c, "\"ev\":\"thread_exit\",\"id\":%d,\"how\":\"return\"", id);
     t->status = EE_THS_DORMANT;
     reschedule(s, "exit");
-    longjmp(t->top, 1);                   /* restarted by StartThread */
+    longjmp(t->top, 1); /* restarted by StartThread */
 }
 
 /* ---- public ---- */
@@ -286,7 +308,7 @@ int ee_sched_run(ee_ctx *c, ee_fn entry)
     m->is_main = 1;
     m->host_entry = entry;
     m->status = EE_THS_RUN;
-    m->prio = m->init_prio = 0;           /* test input, see docs/analysis/THREADS.md */
+    m->prio = m->init_prio = 0; /* test input, see docs/analysis/THREADS.md */
     if (make_fiber(s, 1))
         return -1;
     s->cur = 1;
@@ -311,7 +333,7 @@ void ee_sched_exit_to_host(ee_ctx *c)
 #else
     swapcontext(&s->t[s->cur].uc, &s->host_uc);
 #endif
-    abort();                              /* the host never switches back */
+    abort(); /* the host never switches back */
 }
 
 void ee_sched_free(ee_ctx *c)
@@ -371,22 +393,29 @@ int32_t ee_k_create_thread(ee_ctx *c, int *ret_set, char *note, size_t n)
     uint32_t gp = ee_r32(c, p + 16);
     int prio = (int)ee_r32(c, p + 20);
     int id;
-    if (stack >= EE_RAM_SIZE || size < CTX_SIZE || size > EE_RAM_SIZE - stack || prio < 0 || prio > 127)
+    if (stack >= EE_RAM_SIZE || size < CTX_SIZE || size > EE_RAM_SIZE - stack || prio < 0 ||
+        prio > 127)
         ee_unsupported(c, 0, "CreateThread parameters outside the modelled range");
-    for (id = 2; id < EE_MAX_THREADS && s->t[id].used; id++) {}
+    for (id = 2; id < EE_MAX_THREADS && s->t[id].used; id++) {
+    }
     if (id == EE_MAX_THREADS)
         ee_unsupported(c, 0, "thread capacity");
     thr_t *t = &s->t[id];
-    void *keep = t->fiber;                /* fibers are reused, never deleted early */
+    void *keep = t->fiber; /* fibers are reused, never deleted early */
     memset(&t->regs, 0, sizeof t->regs);
     t->used = 1;
     t->fiber = keep;
     t->status = EE_THS_DORMANT;
-    t->entry = entry; t->stack = stack; t->stack_size = size; t->gp = gp;
+    t->entry = entry;
+    t->stack = stack;
+    t->stack_size = size;
+    t->gp = gp;
     t->prio = t->init_prio = prio;
     t->attr = ee_r32(c, p + 28);
     t->option = ee_r32(c, p + 32);
-    t->wait_type = EE_WAIT_NONE; t->wait_id = 0; t->wakeup_count = 0;
+    t->wait_type = EE_WAIT_NONE;
+    t->wait_id = 0;
+    t->wakeup_count = 0;
     t->is_main = 0;
     /* Initial context, same layout as SetupThread's: one 16-byte slot per GPR
        at stack + size - 0x2a0. The game reads and rewrites these before
@@ -398,8 +427,9 @@ int32_t ee_k_create_thread(ee_ctx *c, int *ret_set, char *note, size_t n)
     /* Return address: the root routine crt0 gave SetupThread (0x00100228 in
        this game), as the PCSX2 capture shows on this thread's stack. */
     ee_w32(c, ctx + 0x1f0, c->k.main_root ? c->k.main_root : EE_HLE_THREAD_EXIT);
-    snprintf(note, n, "id=%d func=0x%08x stack=0x%08x size=0x%x gp=0x%08x prio=%d attr=0x%x, DORMANT",
-             id, entry, stack, size, gp, prio, t->attr);
+    snprintf(note, n,
+             "id=%d func=0x%08x stack=0x%08x size=0x%x gp=0x%08x prio=%d attr=0x%x, DORMANT", id,
+             entry, stack, size, gp, prio, t->attr);
     *ret_set = 1;
     return id;
 }
@@ -422,10 +452,10 @@ int32_t ee_k_start_thread(ee_ctx *c, int *ret_set, char *note, size_t n)
     if (!t->fiber && make_fiber(s, id))
         ee_unsupported(c, 0, "cannot create a host fiber");
     make_ready(s, id);
-    snprintf(note, n, "id=%d arg=0x%08x entry=0x%08x prio=%d sp=0x%08x, READY",
-             id, arg, t->entry, t->prio, t->regs.r[29].uw[0]);
+    snprintf(note, n, "id=%d arg=0x%08x entry=0x%08x prio=%d sp=0x%08x, READY", id, arg, t->entry,
+             t->prio, t->regs.r[29].uw[0]);
     *ret_set = 1;
-    s->c->r[2].sd[0] = id;                /* v0 before a possible switch */
+    s->c->r[2].sd[0] = id; /* v0 before a possible switch */
     reschedule(s, "StartThread");
     return id;
 }
@@ -441,19 +471,23 @@ static void exit_current(struct ee_sched *s, int delete_it, const char *how)
     if (delete_it)
         t->used = 0;
     reschedule(s, how);
-    longjmp(t->top, 1);                   /* restarted later: begin at entry */
+    longjmp(t->top, 1); /* restarted later: begin at entry */
 }
 
 int32_t ee_k_exit_thread(ee_ctx *c, int *ret_set, char *note, size_t n)
 {
-    (void)ret_set; (void)note; (void)n;
+    (void)ret_set;
+    (void)note;
+    (void)n;
     exit_current(need(c, "ExitThread without scheduler"), 0, "ExitThread");
     return 0;
 }
 
 int32_t ee_k_exit_delete_thread(ee_ctx *c, int *ret_set, char *note, size_t n)
 {
-    (void)ret_set; (void)note; (void)n;
+    (void)ret_set;
+    (void)note;
+    (void)n;
     exit_current(need(c, "ExitDeleteThread without scheduler"), 1, "ExitDeleteThread");
     return 0;
 }
@@ -472,7 +506,8 @@ int32_t ee_k_delete_thread(ee_ctx *c, int *ret_set, char *note, size_t n)
 
 int32_t ee_k_get_thread_id(ee_ctx *c, int *ret_set, char *note, size_t n)
 {
-    (void)note; (void)n;
+    (void)note;
+    (void)n;
     *ret_set = 1;
     return c->sched ? c->sched->cur : c->k.cur_thread_id;
 }
@@ -499,8 +534,8 @@ int32_t ee_k_refer_thread_status(ee_ctx *c, int *ret_set, char *note, size_t n)
         ee_w32(c, p + 0x28, (uint32_t)t->wait_id);
         ee_w32(c, p + 0x2c, (uint32_t)t->wakeup_count);
     }
-    snprintf(note, n, "id=%d status=0x%x prio=%d stack=0x%08x size=0x%x; returns the status",
-             id, t->status, t->prio, t->stack, t->stack_size);
+    snprintf(note, n, "id=%d status=0x%x prio=%d stack=0x%08x size=0x%x; returns the status", id,
+             t->status, t->prio, t->stack, t->stack_size);
     *ret_set = 1;
     return t->status;
 }
@@ -518,7 +553,7 @@ int32_t ee_k_change_thread_priority(ee_ctx *c, int *ret_set, char *note, size_t 
     snprintf(note, n, "id=%d prio %d -> %d, returns old priority", id, old, prio);
     *ret_set = 1;
     c->r[2].sd[0] = old;
-    if (c->r[3].sw[0] > 0)                /* i-variant never switches */
+    if (c->r[3].sw[0] > 0) /* i-variant never switches */
         reschedule(s, "ChangeThreadPriority");
     return old;
 }
@@ -535,7 +570,7 @@ int32_t ee_k_rotate_ready_queue(ee_ctx *c, int *ret_set, char *note, size_t n)
         int best = pick_ready(s);
         if (best > 0 && s->t[best].prio == prio) {
             cur->status = EE_THS_READY;
-            cur->seq = ++s->seq;          /* to the back of its queue */
+            cur->seq = ++s->seq; /* to the back of its queue */
             switch_to(s, best, "RotateThreadReadyQueue");
         }
     }
@@ -575,7 +610,7 @@ int32_t ee_k_wakeup_thread(ee_ctx *c, int *ret_set, char *note, size_t n)
     }
     *ret_set = 1;
     c->r[2].sd[0] = id;
-    if (c->r[3].sw[0] > 0)                /* i-variant (negative number) never switches */
+    if (c->r[3].sw[0] > 0) /* i-variant (negative number) never switches */
         reschedule(s, "WakeupThread");
     return id;
 }
@@ -592,7 +627,8 @@ int32_t ee_k_create_sema(ee_ctx *c, int *ret_set, char *note, size_t n)
 {
     uint32_t p = A0;
     int id;
-    for (id = 1; id < 256 && c->sema[id].live; id++) {}
+    for (id = 1; id < 256 && c->sema[id].live; id++) {
+    }
     if (id == 256)
         ee_unsupported(c, 0, "semaphore capacity");
     c->sema[id].live = 1;
@@ -603,8 +639,8 @@ int32_t ee_k_create_sema(ee_ctx *c, int *ret_set, char *note, size_t n)
     c->sema[id].option = ee_r32(c, p + 20);
     if (c->sema[id].count < 0 || c->sema[id].max < c->sema[id].count)
         ee_unsupported(c, 0, "invalid semaphore counts");
-    snprintf(note, n, "id=%d count=%d max=%d init=%d attr=0x%x",
-             id, (int)ee_r32(c, p), c->sema[id].max, c->sema[id].init, c->sema[id].attr);
+    snprintf(note, n, "id=%d count=%d max=%d init=%d attr=0x%x", id, (int)ee_r32(c, p),
+             c->sema[id].max, c->sema[id].init, c->sema[id].attr);
     *ret_set = 1;
     return id;
 }
@@ -616,7 +652,8 @@ static int waiters(const ee_ctx *c, uint32_t id)
         return 0;
     for (int i = 1; i < EE_MAX_THREADS; i++) {
         const thr_t *t = &c->sched->t[i];
-        k += t->used && t->status == EE_THS_WAIT && t->wait_type == EE_WAIT_SEMA && t->wait_id == (int)id;
+        k += t->used && t->status == EE_THS_WAIT && t->wait_type == EE_WAIT_SEMA &&
+             t->wait_id == (int)id;
     }
     return k;
 }
@@ -643,11 +680,11 @@ int32_t ee_k_signal_sema(ee_ctx *c, int *ret_set, char *note, size_t n)
         int w = -1;
         for (int i = 1; i < EE_MAX_THREADS; i++) {
             thr_t *t = &s->t[i];
-            if (t->used && t->status == EE_THS_WAIT && t->wait_type == EE_WAIT_SEMA
-                && t->wait_id == (int)id && (w < 0 || t->wait_seq < s->t[w].wait_seq))
+            if (t->used && t->status == EE_THS_WAIT && t->wait_type == EE_WAIT_SEMA &&
+                t->wait_id == (int)id && (w < 0 || t->wait_seq < s->t[w].wait_seq))
                 w = i;
         }
-        if (w > 0) {                      /* hand the count to the first waiter */
+        if (w > 0) { /* hand the count to the first waiter */
             make_ready(s, w);
             snprintf(note, n, "id=%u woke thread %d", id, w);
             if (c->r[3].sw[0] > 0)
@@ -675,9 +712,8 @@ int32_t ee_k_wait_sema(ee_ctx *c, int *ret_set, char *note, size_t n)
     if (!c->sched || !c->sched->in_guest) {
         /* No scheduler: only a queued IOP reply can satisfy the wait. */
         while (!c->sema[id].count) {
-            if (!c->sif || !c->sif->count || c->sif->in_handler ||
-                !c->sif->enabled || !c->sif->chain ||
-                !(c->cop0[EE_COP0_STATUS] & EE_STATUS_EIE))
+            if (!c->sif || !c->sif->count || c->sif->in_handler || !c->sif->enabled ||
+                !c->sif->chain || !(c->cop0[EE_COP0_STATUS] & EE_STATUS_EIE))
                 ee_unsupported(c, 0, "WaitSema deadlock: no deliverable IOP reply");
             ee_sif_interrupt_point(c);
         }
@@ -709,7 +745,8 @@ int32_t ee_k_poll_sema(ee_ctx *c, int *ret_set, char *note, size_t n)
         snprintf(note, n, "id=%u count=%d", id, c->sema[id].count);
         return (int32_t)id;
     }
-    snprintf(note, n, "id=%u count=0; returns -1 (negative error, exact EE value not verified)", id);
+    snprintf(note, n, "id=%u count=0; returns -1 (negative error, exact EE value not verified)",
+             id);
     return -1;
 }
 

@@ -17,6 +17,12 @@ Sources: the GT Modding Hub description of compiled Adhoc and the
 instruction layouts of GTAdhocToolchain (MIT). Nothing from either is copied
 into the repository beyond the opcode numbering and operand layouts.
 
+Instruction names used by the port, including the `_OLD` suffix, follow
+Nenkai's GTAdhocToolchain/PDTools disassembler terminology. They are
+descriptive labels from that tool, not instruction names recovered from GT4. The compiled game
+scripts encode numeric opcodes; this naming convention does not change
+their numbering or execution.
+
 ## File format (version 5)
 
 `"ADCH005\0"`, then one code frame:
@@ -83,17 +89,11 @@ A screen's `onInitialize(context)` runs when it is first shown.
 `MScriptWatcher(context, func)` calls `func(context)` every `interval`
 frames once appended.
 
-Missing engine members are reported once per script line and evaluate to
-nil, so a screen keeps running. Current stand-ins, to be replaced by the
-real systems:
-
-| Object | Now | Later |
-|--------|-----|-------|
-| `main::game.option` | fresh-game defaults (`special_arcade_tuner = ""`, `wide_mode = 0`, `game_zone = "us"`) | options from the save data |
-| `main::sound.play` | native system-bank note effects | other banks, pitch automation, envelopes/reverb |
-| `MFadeActor`, `MMoveActor`, `MBlinkActor` | native time-based fade/move/blink | exact easing, rotation/anchor actors |
-| `MSystem.GetRegionCode` | `"us"` (the supported disc) | from the disc identification |
-| `context`, `pushEvent`, `MScriptEvent`, `MFunctionEvent`, `setFocus` | basic page stack, deferred callbacks, focus/activation, native confirmation | complete input semantics, dialogs styled like the game |
+The engine bridge exposes native implementations for the methods required
+by supported menu paths. Missing members can produce diagnostics or nil
+results; loading a script is not proof that every action is implemented.
+Older placeholder behavior is retained in the [development record](notes/ADHOC.md),
+rather than treated as a current interface contract.
 
 Each script entry is limited to one million interpreted instructions,
 including nested calls. An unsupported synchronous wait fails with a

@@ -58,3 +58,21 @@ splat/undefined_*_auto.txt
 
 # PCSX2 reference captures (game memory, never commit)
 captures/
+
+# Local Switch SDK products and console keys
+build-switch/
+*.nro
+*.nso
+*.nacp
+*.npdm
+*.nsp
+prod.keys
+title.keys
+keys.dat
+
+# Private release infrastructure (also stored outside the repository)
+publish.ini
+update-private.ini
+*.pem
+*.key
+*.ppk

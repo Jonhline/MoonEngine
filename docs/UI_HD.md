@@ -52,5 +52,5 @@ second run only processes images not cached yet.
 ## Limits
 
 Upscaled art is a reconstruction: small text inside images and fine
-details can differ from the originals. Classic keeps the disc's images
+details can differ from the originals. The game keeps the disc's images
 when the cache is absent or turned off.

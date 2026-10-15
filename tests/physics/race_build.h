@@ -12,6 +12,7 @@
 int phys_race_build(uint8_t *ram, const char *elf, uint32_t *conductor, char *msg, size_t len);
 /* The same for a race against the AI (the Arcade's), `cars` of them (1..6,
    the player's first) */
-int phys_race_build_arcade(uint8_t *ram, const char *elf, int cars, uint32_t *conductor, char *msg, size_t len);
+int phys_race_build_arcade(uint8_t *ram, const char *elf, int cars, uint32_t *conductor, char *msg,
+                           size_t len);
 
 #endif

@@ -1,7 +1,7 @@
 #ifndef OPENGT4_LOADING_SCREEN_H
 #define OPENGT4_LOADING_SCREEN_H
 #include "vol.h"
-void loading_screen_open(gt4_vol *vol,const char *disc);
+void loading_screen_open(gt4_vol *vol, const char *disc);
 void loading_screen_close(void);
 int loading_screen_active(void);
 int loading_screen_ready(void);

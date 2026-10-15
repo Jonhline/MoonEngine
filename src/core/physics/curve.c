@@ -20,7 +20,13 @@ void gt4_phys_fpu_enter(void)
 {
     fesetround(FE_TOWARDZERO);
 #if defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)
-    _mm_setcsr(_mm_getcsr() | 0x8040u);   /* FTZ | DAZ */
+    _mm_setcsr(_mm_getcsr() | 0x8040u); /* FTZ | DAZ */
+#elif defined(__SWITCH__) && defined(__aarch64__)
+    /* ARM FPCR.FZ flushes both denormal inputs and results for scalar FP. */
+    uint64_t fpcr;
+    __asm__ volatile("mrs %0, fpcr" : "=r"(fpcr));
+    fpcr |= UINT64_C(1) << 24;
+    __asm__ volatile("msr fpcr, %0\n\tisb" : : "r"(fpcr) : "memory");
 #endif
 }
 
@@ -33,9 +39,12 @@ static float eval(int n, const float *xs, const float *ys, float x)
 {
     int last = n - 1, i;
 
-    if (x <= xs[0]) return ys[0];
-    if (xs[last] <= x) return ys[last];
-    for (i = 1; i < last && !(x < xs[i]); i++) {}
+    if (x <= xs[0])
+        return ys[0];
+    if (xs[last] <= x)
+        return ys[last];
+    for (i = 1; i < last && !(x < xs[i]); i++) {
+    }
     return ys[i - 1] + (ys[i] - ys[i - 1]) * (x - xs[i - 1]) / (xs[i] - xs[i - 1]);
 }
 

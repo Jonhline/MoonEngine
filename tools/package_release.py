@@ -76,12 +76,12 @@ published at the project page given in README.txt.
 SDL2 - zlib License - https://www.libsdl.org/
 miniz - MIT License - https://github.com/richgel999/miniz
 stb_image - MIT License - third_party/stb in the source code (STB_LICENSE.txt)
-PDTools (Nenkai) - MIT License - third_party/PDTools in the source code
+PDTools (Nenkai) - MIT License - third_party/PDTools in the source code (PDTOOLS_LICENSE.txt)
 AMD FidelityFX Super Resolution 1 - MIT License - third_party/fsr1 in the source code
 ps2float (PCSX2) - GNU LGPL 3.0 or later - third_party/ps2float in the source code.
   It is linked into opengt4.exe; the complete source code of OpenGT4 is
   published, so the program can be rebuilt with a modified ps2float.
-Tango Icon Library - public domain - launcher_icons/SOURCE.txt
+{tango}
 {ffmpeg}"""
 
 FFMPEG_NOTICE = """FFmpeg - ffmpeg.exe is a separate program (an LGPL build), run as its own
@@ -95,7 +95,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("version")
     parser.add_argument("--build", type=Path, default=ROOT / "build-release" / "Release")
-    parser.add_argument("--icons", type=Path, required=True, help="the Tango launcher_icons folder")
+    parser.add_argument("--icons", type=Path, help="the Tango launcher_icons folder")
     parser.add_argument("--ffmpeg", type=Path, help="an ffmpeg.exe to bundle")
     parser.add_argument("--ffmpeg-license", type=Path, help="that FFmpeg build's LICENSE.txt")
     parser.add_argument("--repo", required=True, help="the project's public page")
@@ -104,7 +104,7 @@ def main():
     exe = args.build / "opengt4.exe"
     if not exe.is_file():
         sys.exit(f"missing {exe}: build the release first")
-    if not (args.icons / "SOURCE.txt").is_file():
+    if args.icons and not (args.icons / "SOURCE.txt").is_file():
         sys.exit(f"missing {args.icons / 'SOURCE.txt'}")
 
     name = f"OpenGT4-{args.version}-win64"
@@ -117,7 +117,8 @@ def main():
         shutil.rmtree(out)
     out.mkdir(parents=True)
     shutil.copy2(exe, out / "opengt4.exe")
-    shutil.copytree(args.icons, out / "launcher_icons")
+    if args.icons:
+        shutil.copytree(args.icons, out / "launcher_icons")
     if args.ffmpeg:
         if not args.ffmpeg_license:
             sys.exit("--ffmpeg needs --ffmpeg-license, the build's own license text")
@@ -126,10 +127,11 @@ def main():
     shutil.copy2(ROOT / "LICENSE", out / "LICENSE.txt")
     shutil.copy2(ROOT / "NOTICE", out / "NOTICE.txt")
     shutil.copy2(ROOT / "third_party" / "stb" / "LICENSE", out / "STB_LICENSE.txt")
+    shutil.copy2(ROOT / "third_party" / "PDTools" / "LICENSE", out / "PDTOOLS_LICENSE.txt")
     readme = README.format(version=args.version, repo=args.repo,
                            ffmpeg_note=FFMPEG_BUNDLED if args.ffmpeg else FFMPEG_MISSING)
     (out / "README.txt").write_text(readme.replace("\n", "\r\n"), encoding="utf-8", newline="")
-    notices = NOTICES.format(ffmpeg=FFMPEG_NOTICE if args.ffmpeg else "")
+    notices = NOTICES.format(tango="Tango Icon Library - public domain - launcher_icons/SOURCE.txt\n" if args.icons else "", ffmpeg=FFMPEG_NOTICE if args.ffmpeg else "")
     (out / "THIRD_PARTY_NOTICES.txt").write_text(notices.replace("\n", "\r\n"), encoding="utf-8", newline="")
 
     # nothing of the game may ride along

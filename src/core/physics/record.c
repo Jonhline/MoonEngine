@@ -8,13 +8,13 @@
 
 #include <string.h>
 
-#define GU8(a)  ((uint32_t)GT4_U8(a))
+#define GU8(a) ((uint32_t)GT4_U8(a))
 #define GU16(a) ((uint32_t)GT4_U16(a))
-#define GS8(a)  ((int32_t)(int8_t)GT4_U8(a))
+#define GS8(a) ((int32_t)(int8_t)GT4_U8(a))
 #define GS16(a) ((int32_t)(int16_t)GT4_U16(a))
-#define W8(a, v)  (GT4_U8(a) = (uint8_t)(v))
+#define W8(a, v) (GT4_U8(a) = (uint8_t)(v))
 #define W16(a, v) (GT4_U16(a) = (uint16_t)(v))
-#define RU8(r, o)  ((uint32_t)(r)[o])
+#define RU8(r, o) ((uint32_t)(r)[o])
 #define RU16(r, o) ((uint32_t)((r)[o] | (r)[(o) + 1] << 8))
 
 #define K(bits) gt4_f32(bits)
@@ -27,7 +27,10 @@ static uint64_t key_at(uint32_t gar, uint32_t off)
 {
     return (uint64_t)GT4_U32(gar + off) | (uint64_t)GT4_U32(gar + off + 4) << 32;
 }
-static int is_none(uint64_t key) { return key == ~(uint64_t)0; }
+static int is_none(uint64_t key)
+{
+    return key == ~(uint64_t)0;
+}
 
 /* func_00443ED0: the row of a key into buf (unchanged when there is none). */
 static int fetch(const gt4_specdb_src *db, uint64_t key, uint8_t *buf, size_t cap)
@@ -38,16 +41,18 @@ static int fetch(const gt4_specdb_src *db, uint64_t key, uint8_t *buf, size_t ca
 /* func_004452C0: a tuning level (1..levels) between base and max. */
 static int lerp(int base, int max, int levels, int level)
 {
-    if (levels < 2) return base;
+    if (levels < 2)
+        return base;
     return base + (max - base) * (level - 1) / (levels - 1);
 }
 
 /* func_004462E0 / func_00446320: a byte of the row of a tyre key, -1 without one. */
 static int tyre_byte(const gt4_specdb_src *db, uint32_t gar, uint32_t off, uint32_t at)
 {
-    uint8_t row[0x100] = { 0 };
+    uint8_t row[0x100] = {0};
     uint64_t key = key_at(gar, off);
-    if (is_none(key)) return -1;
+    if (is_none(key))
+        return -1;
     fetch(db, key, row, sizeof row);
     return row[at];
 }
@@ -229,7 +234,8 @@ static void gear(uint32_t gar, uint32_t rec, const uint8_t *row)
 {
     W16(rec + 0x152, RU16(row, 0x1e));
     W8(rec + 0x154, row[0x29]);
-    for (uint32_t k = 0; k < 12; k++) W16(rec + 0x138 + k * 2, GU16(gar + 0x110 + k * 2));
+    for (uint32_t k = 0; k < 12; k++)
+        W16(rec + 0x138 + k * 2, GU16(gar + 0x110 + k * 2));
     W16(rec + 0x150, GU16(gar + 0x128));
     W8(rec + 0x157, GU8(gar + 0x12a));
     W8(rec + 0x156, 0);
@@ -505,9 +511,11 @@ static void racing_modify(uint32_t gar, uint32_t rec, const uint8_t *row)
 }
 
 /* func_00442900 / func_00442AE8: the rpm points move up; power and torque factors */
-static void rev_parts(uint32_t rec, const uint8_t *row, uint32_t shift, uint32_t red, uint32_t a, uint32_t b)
+static void rev_parts(uint32_t rec, const uint8_t *row, uint32_t shift, uint32_t red, uint32_t a,
+                      uint32_t b)
 {
-    for (uint32_t k = 0; k < 16; k++) W8(rec + 0xc0 + k, GU8(rec + 0xc0 + k) + row[shift]);
+    for (uint32_t k = 0; k < 16; k++)
+        W8(rec + 0xc0 + k, GU8(rec + 0xc0 + k) + row[shift]);
     W8(rec + 0xbd, GU8(rec + 0xbd) + row[red]);
     power_parts(rec, row, a, b);
 }
@@ -559,8 +567,9 @@ static void ascc(uint32_t gar, uint32_t rec, const uint8_t *row)
     W8(rec + 0x1be, row[0x13]);
     W8(rec + 0x1bf, lerp(row[0x16], row[0x17], row[0x15], GT4_U8(gar + 0x15a)));
     W8(rec + 0x1b8, (row[3] & 3) | (row[9] & 3) << 2 | (row[0xe] & 3) << 4 | (row[0x14] & 3) << 6);
-    if (!GT4_U8(gar + 0x157)) W8(rec + 0x1b8, GU8(rec + 0x1b8) & 0xf0);          /* func_003F16C0 */
-    if (!GT4_U8(gar + 0x159))                                                    /* func_003F16D0 */
+    if (!GT4_U8(gar + 0x157))
+        W8(rec + 0x1b8, GU8(rec + 0x1b8) & 0xf0); /* func_003F16C0 */
+    if (!GT4_U8(gar + 0x159))                     /* func_003F16D0 */
         W8(rec + 0x1b8, GU8(rec + 0x1b8) & (GT4_U8(0x006224a8u) ? 0xcf : 0x0f));
 }
 
@@ -572,7 +581,8 @@ static void tcsc(uint32_t gar, uint32_t rec, const uint8_t *row)
     W8(rec + 0x1c0, row[3]);
     W8(rec + 0x1c1, row[4]);
     W8(rec + 0x1c3, lerp(row[7], row[8], row[6], l ? l : 1));
-    if (!GT4_U8(gar + 0x156)) W8(rec + 0x1c2, 0);                                 /* func_003F1748 */
+    if (!GT4_U8(gar + 0x156))
+        W8(rec + 0x1c2, 0); /* func_003F1748 */
 }
 
 /* func_004458D0: the VARIATION row of the car in the entry's colour
@@ -582,13 +592,16 @@ static int variation(const gt4_specdb_src *db, uint32_t gar, int color, uint8_t 
     uint64_t key = key_at(gar, 0x10);
     uint32_t id = (uint32_t)key, table = (uint32_t)(key >> 32);
     int count = 0;
-    while (db->row(db->ctx, table, id, (uint32_t)count, NULL, 0) > 0) count++;
-    if (!(color < count)) return 0;
+    while (db->row(db->ctx, table, id, (uint32_t)count, NULL, 0) > 0)
+        count++;
+    if (!(color < count))
+        return 0;
     for (int k = 0; k < count; k++) {
         uint32_t c;
         db->row(db->ctx, table, id, (uint32_t)k, buf, cap);
         memcpy(&c, buf + 4, 4);
-        if (c == (uint32_t)color + 1) return 1;
+        if (c == (uint32_t)color + 1)
+            return 1;
     }
     return 0;
 }
@@ -596,7 +609,8 @@ static int variation(const gt4_specdb_src *db, uint32_t gar, int color, uint8_t 
 /* float to u32 as the game converts (2^31 and up wrap into the sign bit) */
 static uint32_t f2u(float f)
 {
-    if (!(K(0x4f000000u) <= f)) return (uint32_t)(int32_t)f;
+    if (!(K(0x4f000000u) <= f))
+        return (uint32_t)(int32_t)f;
     return (uint32_t)(int32_t)(f - K(0x4f000000u)) | 0x80000000u;
 }
 
@@ -604,27 +618,36 @@ static uint32_t f2u(float f)
 static void dimensions(uint32_t rec, const uint8_t *row)
 {
     float f;
-    memcpy(&f, row + 0x14, 4); W16(rec + 0x16, f2u(f));
-    memcpy(&f, row + 0x10, 4); W16(rec + 0x18, f2u(f));
-    memcpy(&f, row + 0x18, 4); W16(rec + 0x12, f2u(f));
-    memcpy(&f, row + 0x1c, 4); W16(rec + 0x14, f2u(f));
-    memcpy(&f, row + 0x20, 4); W16(rec + 0x40, (int32_t)(f * 10000.0f));
+    memcpy(&f, row + 0x14, 4);
+    W16(rec + 0x16, f2u(f));
+    memcpy(&f, row + 0x10, 4);
+    W16(rec + 0x18, f2u(f));
+    memcpy(&f, row + 0x18, 4);
+    W16(rec + 0x12, f2u(f));
+    memcpy(&f, row + 0x1c, 4);
+    W16(rec + 0x14, f2u(f));
+    memcpy(&f, row + 0x20, 4);
+    W16(rec + 0x40, (int32_t)(f * 10000.0f));
 }
 
 /* func_004461F8: the car's class from GENERIC_CAR (+0x11) and the tyres */
 static int car_class(const gt4_specdb_src *db, uint32_t gar)
 {
-    uint8_t row[0x100] = { 0 };
+    uint8_t row[0x100] = {0};
     int c;
-    if (!fetch(db, key_at(gar, 0), row, sizeof row)) return 0;
+    if (!fetch(db, key_at(gar, 0), row, sizeof row))
+        return 0;
     c = row[0x11];
-    if (c == 1) return 3;
-    if (c == 2) return 2;
+    if (c == 1)
+        return 3;
+    if (c == 2)
+        return 2;
     if (c == 0 || c == 3) {
-        uint8_t t[0x100] = { 0 };
+        uint8_t t[0x100] = {0};
         uint64_t key = key_at(gar, 0xd0);
-        if (is_none(key)) return 0;
-        fetch(db, key, t, sizeof t);                                           /* func_00446820 */
+        if (is_none(key))
+            return 0;
+        fetch(db, key, t, sizeof t); /* func_00446820 */
         return t[6] > 0 ? 1 : 0;
     }
     return 0;
@@ -633,48 +656,79 @@ static int car_class(const gt4_specdb_src *db, uint32_t gar)
 /* func_004413C8 */
 void gt4_car_record_rows(const gt4_specdb_src *db, uint32_t gar, uint32_t rec)
 {
-    uint8_t s[0x200];                    /* the original's stack: rows stay when a key has none */
+    uint8_t s[0x200]; /* the original's stack: rows stay when a key has none */
 #define ROW(off, at) fetch(db, key_at(gar, off), s + (at), 0x100)
 #define ROW_IF(off) (!is_none(key_at(gar, off)) && (ROW(off, 0), 1))
     memset(s, 0, sizeof s);
     W8(rec + 0x10c, 100);
     W16(rec + 0x10a, 1000);
     W8(rec + 0x113, 0);
-    ROW(0x20, 0);    brake(rec, s);
-    ROW(0x28, 0x10); brake_controller(gar, rec, s + 0x10);
-    ROW(0x70, 0x20); steer(rec, s + 0x20);
-    ROW(0x30, 0);    chassis(db, gar, rec, s);
-    ROW(0x38, 0x50); engine(rec, s + 0x50);
-    ROW(0x40, 0);    drivetrain(rec, s);
-    ROW(0x48, 0);    gear(gar, rec, s);
-    ROW(0x50, 0);    suspension(gar, rec, s);
-    ROW(0x58, 0);    lsd(gar, rec, s);
-    ROW(0x60, 0);    tyres(db, rec, s, 0);
-    ROW(0x68, 0);    tyres(db, rec, s, 1);
-    if (ROW_IF(0x78)) lightweight(rec, s);
-    ROW(0x80, 0);    racing_modify(gar, rec, s);
-    if (ROW_IF(0x88)) power_parts(rec, s, 0, 2);          /* func_004428B8 */
-    if (ROW_IF(0x90)) rev_parts(rec, s, 7, 8, 0, 2);      /* func_00442900 */
-    if (ROW_IF(0x98)) power_parts(rec, s, 0, 2);          /* func_00442A58 */
-    if (ROW_IF(0xa0)) power_parts(rec, s, 0, 2);          /* func_00442AA0 */
-    if (ROW_IF(0xa8)) rev_parts(rec, s, 9, 0xa, 4, 6);    /* func_00442AE8 */
-    ROW(0xb0, 0);    turbo(gar, rec, s);
-    if (ROW_IF(0xb8)) clutch(rec, s);
-    if (ROW_IF(0xc0)) { clutch(rec, s); W8(rec + 0x161, s[7]); }   /* func_00442D60 */
-    if (ROW_IF(0xc8)) shaft(rec, s);
-    if (ROW_IF(0xd0)) power_parts(rec, s, 0, 2);          /* func_00442E80 */
-    if (ROW_IF(0xd8)) power_parts(rec, s, 0, 2);          /* func_00442EC8 */
-    if (ROW_IF(0x108)) power_parts(rec, s, 0, 2);         /* func_004431F8 */
-    ROW(0xe0, 0);    ascc(gar, rec, s);
-    ROW(0xe8, 0);    tcsc(gar, rec, s);
-    W8(rec + 5, GU8(gar + 0x15b));                        /* func_004430B8 */
+    ROW(0x20, 0);
+    brake(rec, s);
+    ROW(0x28, 0x10);
+    brake_controller(gar, rec, s + 0x10);
+    ROW(0x70, 0x20);
+    steer(rec, s + 0x20);
+    ROW(0x30, 0);
+    chassis(db, gar, rec, s);
+    ROW(0x38, 0x50);
+    engine(rec, s + 0x50);
+    ROW(0x40, 0);
+    drivetrain(rec, s);
+    ROW(0x48, 0);
+    gear(gar, rec, s);
+    ROW(0x50, 0);
+    suspension(gar, rec, s);
+    ROW(0x58, 0);
+    lsd(gar, rec, s);
+    ROW(0x60, 0);
+    tyres(db, rec, s, 0);
+    ROW(0x68, 0);
+    tyres(db, rec, s, 1);
+    if (ROW_IF(0x78))
+        lightweight(rec, s);
+    ROW(0x80, 0);
+    racing_modify(gar, rec, s);
+    if (ROW_IF(0x88))
+        power_parts(rec, s, 0, 2); /* func_004428B8 */
+    if (ROW_IF(0x90))
+        rev_parts(rec, s, 7, 8, 0, 2); /* func_00442900 */
+    if (ROW_IF(0x98))
+        power_parts(rec, s, 0, 2); /* func_00442A58 */
+    if (ROW_IF(0xa0))
+        power_parts(rec, s, 0, 2); /* func_00442AA0 */
+    if (ROW_IF(0xa8))
+        rev_parts(rec, s, 9, 0xa, 4, 6); /* func_00442AE8 */
+    ROW(0xb0, 0);
+    turbo(gar, rec, s);
+    if (ROW_IF(0xb8))
+        clutch(rec, s);
+    if (ROW_IF(0xc0)) {
+        clutch(rec, s);
+        W8(rec + 0x161, s[7]);
+    } /* func_00442D60 */
+    if (ROW_IF(0xc8))
+        shaft(rec, s);
+    if (ROW_IF(0xd0))
+        power_parts(rec, s, 0, 2); /* func_00442E80 */
+    if (ROW_IF(0xd8))
+        power_parts(rec, s, 0, 2); /* func_00442EC8 */
+    if (ROW_IF(0x108))
+        power_parts(rec, s, 0, 2); /* func_004431F8 */
+    ROW(0xe0, 0);
+    ascc(gar, rec, s);
+    ROW(0xe8, 0);
+    tcsc(gar, rec, s);
+    W8(rec + 5, GU8(gar + 0x15b)); /* func_004430B8 */
     W8(rec + 6, GU8(gar + 0x15c));
-    if (ROW_IF(0x100)) {}                                 /* func_004430D0 does nothing */
-    if (ROW_IF(0xf8)) {                                   /* func_004430D8 */
+    if (ROW_IF(0x100)) {
+    }                   /* func_004430D0 does nothing */
+    if (ROW_IF(0xf8)) { /* func_004430D8 */
         W8(rec + 0x11d, GU8(gar + 0x167));
         W16(rec + 0x11e, RU16(s, 0));
     }
-    if ((int8_t)GT4_U8(gar + 0x18) == -1) GT4_U8(gar + 0x18) = 0;
+    if ((int8_t)GT4_U8(gar + 0x18) == -1)
+        GT4_U8(gar + 0x18) = 0;
     variation(db, gar, (int8_t)GT4_U8(gar + 0x18), s, sizeof s);
     dimensions(rec, s);
     W8(rec + 0x25, GU8(rec + 0x24));
@@ -683,14 +737,16 @@ void gt4_car_record_rows(const gt4_specdb_src *db, uint32_t gar, uint32_t rec)
     ROW(0, 0);
     W8(rec + 1, s[0x13]);
     W8(rec + 4, s[0x14]);
-    for (uint32_t k = GU8(rec + 0x155) + 1; k < 12; k++) W16(rec + 0x138 + k * 2, 0xffff);
+    for (uint32_t k = GU8(rec + 0x155) + 1; k < 12; k++)
+        W16(rec + 0x138 + k * 2, 0xffff);
     for (uint32_t k = GU8(rec + 0xbf); k < 16; k++) {
         W8(rec + 0xc0 + k, 0xff);
         W16(rec + 0xd8 + k * 2, 0);
     }
     W8(rec + 7, GU8(gar + 0x163));
     W8(rec + 8, GU8(gar + 0x162));
-    if (GU16(gar + 0x15e)) W16(rec + 0x108, GU16(gar + 0x15e));
+    if (GU16(gar + 0x15e))
+        W16(rec + 0x108, GU16(gar + 0x15e));
 #undef ROW
 #undef ROW_IF
 }
@@ -703,15 +759,18 @@ void gt4_car_record(uint32_t rec, uint32_t gar, uint32_t mode, const gt4_specdb_
     memset(gt4_ptr(rec), 0, 0x600);
     gt4_car_record_rows(db, gar, rec);
     W8(rec, 2);
-    if (!GU8(rec + 0x11c)) W8(rec + 0x11c, GU8(cfg + 0x14a));
-    if (!GU8(rec + 0x112)) W8(rec + 0x112, GU8(cfg + 0x14b));
+    if (!GU8(rec + 0x11c))
+        W8(rec + 0x11c, GU8(cfg + 0x14a));
+    if (!GU8(rec + 0x112))
+        W8(rec + 0x112, GU8(cfg + 0x14b));
     kind = GU8(rec + 1);
     if (kind == 2 || kind == 3 || kind == 4) {
         W8(rec + 0x11c, 0);
         W8(rec + 0x112, 0);
     }
     if (kind == 2 && mode - 2 < 2) {
-        uint32_t a0 = GT4_U8(0x006224a0u), a1 = GT4_U8(0x006224a1u), a2 = GT4_U8(0x006224a2u), a3 = GT4_U8(0x006224a3u);
+        uint32_t a0 = GT4_U8(0x006224a0u), a1 = GT4_U8(0x006224a1u), a2 = GT4_U8(0x006224a2u),
+                 a3 = GT4_U8(0x006224a3u);
         W8(rec + 0xa8, 3);
         W16(rec + 0x66, GU16(rec + 0x66) + a1);
         W16(rec + 0x7e, GU16(rec + 0x7e) + a1);
@@ -724,10 +783,14 @@ void gt4_car_record(uint32_t rec, uint32_t gar, uint32_t mode, const gt4_specdb_
         W8(rec + 0x58, GT4_U8(0x006224a4u));
         W8(rec + 0x70, GT4_U8(0x006224a5u));
     }
-    if (!GS16(rec + 0x12)) W16(rec + 0x12, GS16(rec + 0x10) / 2);
-    if (!GS16(rec + 0x14)) W16(rec + 0x14, GS16(rec + 0x10) / 2);
-    if (GU8(cfg + 0x13d)) W8(rec + 0x25, (int32_t)GU8(rec + 0x24) * (int32_t)GU8(cfg + 0x13d) / 100);
-    if (GU8(cfg + 0x13e)) W8(rec + 0x26, (int32_t)GU8(rec + 0x24) * (int32_t)GU8(cfg + 0x13e) / 100);
+    if (!GS16(rec + 0x12))
+        W16(rec + 0x12, GS16(rec + 0x10) / 2);
+    if (!GS16(rec + 0x14))
+        W16(rec + 0x14, GS16(rec + 0x10) / 2);
+    if (GU8(cfg + 0x13d))
+        W8(rec + 0x25, (int32_t)GU8(rec + 0x24) * (int32_t)GU8(cfg + 0x13d) / 100);
+    if (GU8(cfg + 0x13e))
+        W8(rec + 0x26, (int32_t)GU8(rec + 0x24) * (int32_t)GU8(cfg + 0x13e) / 100);
     /* default steering curves (D_006A4028/30: six speeds, six angles) */
     if (!GU8(rec + 0x182)) {
         W8(rec + 0x182, 6);
@@ -739,33 +802,44 @@ void gt4_car_record(uint32_t rec, uint32_t gar, uint32_t mode, const gt4_specdb_
         memcpy(gt4_ptr(rec + 0x190), gt4_ptr(0x006a4028u), 6);
         memcpy(gt4_ptr(rec + 0x196), gt4_ptr(0x006a4030u), 6);
     }
-    if (!GU8(rec + 0x1aa)) W8(rec + 0x1aa, 0x8c);
-    if (!GU8(rec + 0x1ab)) W8(rec + 0x1ab, 100);
-    if (GU8(rec + 0x1c3) == 100) W8(rec + 0x1c2, 0);
+    if (!GU8(rec + 0x1aa))
+        W8(rec + 0x1aa, 0x8c);
+    if (!GU8(rec + 0x1ab))
+        W8(rec + 0x1ab, 100);
+    if (GU8(rec + 0x1c3) == 100)
+        W8(rec + 0x1c2, 0);
     /* surfaces: which tyre block each of the 24 surfaces uses */
     W8(rec + 0x1ff, 1);
     W8(rec + 0x207, 2);
     W8(rec + 0x1e0, 1);
-    for (uint32_t k = 0x1f2; k <= 0x1f5; k++) W8(rec + k, 1);
+    for (uint32_t k = 0x1f2; k <= 0x1f5; k++)
+        W8(rec + k, 1);
     W8(rec + 0x1fd, 1);
     W8(rec + 0x1fe, 1);
     W8(rec + 0x1f6, 2);
-    for (uint32_t k = 0x204; k <= 0x206; k++) W8(rec + k, 2);
+    for (uint32_t k = 0x204; k <= 0x206; k++)
+        W8(rec + k, 2);
     for (uint32_t t = 0; t < 6; t++) {
         uint32_t b = rec + t * 0xa8;
         for (uint32_t k = 0; k < 5; k++)
-            if (!GU8(b + 0x27e + k)) W8(b + 0x27e + k, 100);
-        if (!GU8(b + 0x210 + 0x73)) W8(b + 0x210 + 0x73, 0x50);
+            if (!GU8(b + 0x27e + k))
+                W8(b + 0x27e + k, 100);
+        if (!GU8(b + 0x210 + 0x73))
+            W8(b + 0x210 + 0x73, 0x50);
     }
     {
         uint32_t t = rec + 0x210;
-        if (!GU8(t + 0x78)) W8(t + 0x78, GU8(t + 0x64));
-        if (!GU8(t + 0x79)) W8(t + 0x79, GU8(t + 0x65));
-        if (!GU8(t + 0x7a)) W8(t + 0x7a, GU8(t + 0x6d));
+        if (!GU8(t + 0x78))
+            W8(t + 0x78, GU8(t + 0x64));
+        if (!GU8(t + 0x79))
+            W8(t + 0x79, GU8(t + 0x65));
+        if (!GU8(t + 0x7a))
+            W8(t + 0x7a, GU8(t + 0x6d));
     }
     for (uint32_t i = 0; i < 6; i++) {
         uint32_t t = rec + 0x210 + i * 0xa8;
-        if (!GU8(t + 2)) W8(t + 2, 0x2d);
+        if (!GU8(t + 2))
+            W8(t + 2, 0x2d);
         if (!GU8(t + 0xc)) {
             W8(t + 0xc, 6);
             for (uint32_t k = 0; k < 6; k++) {
@@ -774,6 +848,7 @@ void gt4_car_record(uint32_t rec, uint32_t gar, uint32_t mode, const gt4_specdb_
             }
         }
         for (uint32_t k = 0; k < 32; k++)
-            if (!GU8(t + 0x64 + k)) W8(t + 0x64 + k, GU8(rec + 0x274 + k));
+            if (!GU8(t + 0x64 + k))
+                W8(t + 0x64 + k, GU8(rec + 0x274 + k));
     }
 }

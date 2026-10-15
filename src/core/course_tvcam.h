@@ -13,11 +13,18 @@ typedef struct gt4_tvcam gt4_tvcam;
 
 /* the watched car: its place (the camera aims 0.4 above it) and distance
    along the course (car+0x5A8) */
-typedef struct { float pos[3]; float distance; } gt4_tvcam_target;
+typedef struct {
+    float pos[3];
+    float distance;
+} gt4_tvcam_target;
 
 /* the camera: eye, the point it looks at, roll and lens (degrees), the
    projection (003794A8) */
-typedef struct { float eye[3], target[3], roll, fov, sx, sy; int shot; float pitch, heading; } gt4_tvcam_view;
+typedef struct {
+    float eye[3], target[3], roll, fov, sx, sy;
+    int shot;
+    float pitch, heading;
+} gt4_tvcam_view;
 
 gt4_tvcam *gt4_tvcam_open(const uint8_t *course, size_t size);
 void gt4_tvcam_close(gt4_tvcam *c);
@@ -43,22 +50,23 @@ typedef struct gt4_dive gt4_dive;
 typedef struct {
     float pos[3], prev[3], distance, speed, cue;
     int cue_passed;
-    float place[3], yaw;   /* the car's drawn place and heading (radians, gt4_race_run_place) */
-    float rot[9];          /* its whole turn, rows (gt4_race_run_pose) */
-    float size[4];         /* its params: +0x0 +0x50, +0x4 -0x50, +0x8, +0xC */
+    float place[3], yaw; /* the car's drawn place and heading (radians, gt4_race_run_place) */
+    float rot[9];        /* its whole turn, rows (gt4_race_run_pose) */
+    float size[4];       /* its params: +0x0 +0x50, +0x4 -0x50, +0x8, +0xC */
     int (*ground)(void *ctx, float x, float y, float z, float *height);
     int (*course_point)(void *ctx, float d, float out[3]);
-    int (*has_point)(void *ctx, int i);   /* the car model has camera point i */
+    int (*has_point)(void *ctx, int i); /* the car model has camera point i */
     /* the course's checks: the ground triangle under p (-1 none), the
        wall check from -> to (func_003FE7B0), p's distance along it */
     int (*ground_id)(void *ctx, const float p[3]);
-    int (*wall)(void *ctx, float margin, const float from[3], const float to[3], float out[3], int *id);
+    int (*wall)(void *ctx, float margin, const float from[3], const float to[3], float out[3],
+                int *id);
     float (*distance_of)(void *ctx, const float p[3]);
     void *ctx;
 } gt4_dive_target;
 gt4_dive *gt4_dive_open(const uint8_t *course, size_t size);
 void gt4_dive_close(gt4_dive *d);
-float gt4_dive_length(const gt4_dive *d);   /* REP4 +0x14 */
+float gt4_dive_length(const gt4_dive *d); /* REP4 +0x14 */
 void gt4_dive_reset(gt4_dive *d);
 /* one 60 Hz tick: 1 the point camera's view in out; 2 a camera on the car,
    its model's point out->shot with the lens out->fov (degrees, 0 the

@@ -18,30 +18,31 @@ void race_game_close(race_game *g);
    the other cars (labels and paints, colors may be NULL; up to 5). The physics is set up at once; the
    models load on a thread (race_game_poll). 0 with msg on failure. */
 int race_game_start(race_game *g, const char *course, const char *car, int color,
-                    const char *const *others, const int *colors, int nothers, char *msg, size_t len);
+                    const char *const *others, const int *colors, int nothers, char *msg,
+                    size_t len);
 /* Prepared GT grid: consumes the descriptor synchronously, retains owned
    buffers for restart/replay, and draws paints from the constructed setups. */
-int race_game_start_prepared(race_game *g,const gt4_race_desc *desc,char *msg,size_t len);
+int race_game_start_prepared(race_game *g, const gt4_race_desc *desc, char *msg, size_t len);
 int race_game_license_active(const race_game *g);
 /* the race is a driving mission (RaceMission, desc.license 3) */
 int race_game_mission_active(const race_game *g);
-int race_game_license_result(const race_game *g,int32_t *state,uint32_t *time);
+int race_game_license_result(const race_game *g, int32_t *state, uint32_t *time);
 int race_game_license_retry(const race_game *g);
 /* Borrowed until the next start/close; player telemetry, no invented ghost. */
 const gt4_logger_sampler *race_game_license_log(const race_game *g);
 /* the Logger's tracks from the last race (Time Trial, licences): entries
    0 and 1 as they ran; 0 when there is nothing to show */
-int race_game_logger_source(const race_game *g,menu_logger_source *s);
+int race_game_logger_source(const race_game *g, menu_logger_source *s);
 /* the Logger's Load Track: the session replayed with no picture, the
    loaded best lap (the ghost) as the track asked for (0 A, 1 B) */
-int race_game_logger_load(race_game *,const gt4_replay_file *,int track,char *msg,size_t len);
-int race_game_logger_analyze(race_game *g,int track,char *msg,size_t len);
+int race_game_logger_load(race_game *, const gt4_replay_file *, int track, char *msg, size_t len);
+int race_game_logger_analyze(race_game *g, int track, char *msg, size_t len);
 /* the same, a frame at a time (00122FA8 on its thread): begin, step for
    budget seconds (1 done, 0 more, -1 failed; progress 0..1), end (ok 0:
    stopped, the race back as it was before the analysis) */
-int race_game_logger_analyze_begin(race_game *g,char *msg,size_t len);
-int race_game_logger_analyze_step(race_game *g,double budget,float *progress);
-void race_game_logger_analyze_end(race_game *g,int track,int ok);
+int race_game_logger_analyze_begin(race_game *g, char *msg, size_t len);
+int race_game_logger_analyze_step(race_game *g, double budget, float *progress);
+void race_game_logger_analyze_end(race_game *g, int track, int ok);
 /* the last race to a replay file (its tape lent) and a file's race back as
    the last one, for race_game_replay */
 int race_game_replay_export(const race_game *g, gt4_replay_file *r, int kind);
@@ -58,22 +59,23 @@ int race_game_wants_thumbnail(const race_game *g);
 void race_game_set_thumbnail(race_game *g, const uint8_t *rgba, int w, int h);
 int race_game_replay_import(race_game *g, const gt4_replay_file *r);
 /* Disc demonstrations use the same native pad playback as saved replays. */
-int race_game_read_replay(race_game *g,const char *name,gt4_replay_file *r,char *msg,size_t len);
+int race_game_read_replay(race_game *g, const char *name, gt4_replay_file *r, char *msg,
+                          size_t len);
 /* NULL code selects the current examination's owned label. */
-int race_game_license_demo(race_game *g,const char *code,char *msg,size_t len);
+int race_game_license_demo(race_game *g, const char *code, char *msg, size_t len);
 int race_game_demonstrating(const race_game *g);
-int race_game_end_demo(race_game *g,char *msg,size_t len);
-int race_game_restart(race_game *g,char *msg,size_t len);
+int race_game_end_demo(race_game *g, char *msg, size_t len);
+int race_game_restart(race_game *g, char *msg, size_t len);
 /* Refresh the saved player setup before restarting a prepared GT event.
    Does not mutate a running simulation or the physics implementation. */
-int race_game_setting(race_game *g,const uint8_t body[0x4b8]);
+int race_game_setting(race_game *g, const uint8_t body[0x4b8]);
 /* 0 loading, 1 ready, -1 failed (the race is dropped) */
 int race_game_poll(race_game *g);
 /* dt seconds of play: the controller read, the physics at 60 steps a
    second, the cars placed for drawing */
 void race_game_update(race_game *g, double dt);
 int race_game_draw(race_game *g);
-void race_game_pregrid_update(race_game *g,double dt);
+void race_game_pregrid_update(race_game *g, double dt);
 int race_game_draw_pregrid(race_game *g);
 /* MenuRaceBase's end/restart fade, after drawing all menu pages. */
 void race_game_draw_pregrid_overlay(race_game *g);
@@ -96,8 +98,8 @@ void race_game_inspect_toggle(race_game *g);
    Camera state is presentation only; controller driving stays live. */
 int race_game_cinematic(race_game *g);
 void race_game_cinematic_toggle(race_game *g);
-int race_game_cinematic_key(race_game *g,int key);
-void race_game_cinematic_mouse(race_game *g,int dx,int dy,int wheel);
+int race_game_cinematic_key(race_game *g, int key);
+void race_game_cinematic_mouse(race_game *g, int dx, int dy, int wheel);
 /* the race dropped (back to the menus) */
 void race_game_stop(race_game *g);
 int race_game_active(const race_game *g);
@@ -120,7 +122,7 @@ void race_game_set_replay_options(race_game *g, int display, int dive);
 /* the driving options of the next race_game_start: the tyres (the
    Arcade's index, -1 the car's own), the gearbox and the aids */
 void race_game_set_driving(race_game *g, int tire, int manual, int assist_asm, int assist_tcs);
-int race_game_set_transmission(race_game *g,int manual);
+int race_game_set_transmission(race_game *g, int manual);
 /* The Arcade's QuickTune at Start (00111DC0): 1 when the built race must
    be rebuilt to take it. Cleared for a newly selected race (00111B50). */
 int race_game_quick_tune(race_game *g, int tuned, int power, int weight, int front, int rear,
@@ -132,11 +134,11 @@ int race_game_gear_range(const race_game *g, int *gear, int *lo, int *hi);
 void race_game_set_laps(race_game *g, int laps);
 /* Power & Speed: car 0 through (1), its test (the laps word: 1 400 m, 2
    1000 m, 0/3 top speed), best time (ms) and top speed (m/s) */
-int race_game_machine_result(const race_game *g,int *test,uint32_t *time,float *speed);
+int race_game_machine_result(const race_game *g, int *test, uint32_t *time, float *speed);
 /* Two local humans; NULL restores the ordinary single-player start. */
-void race_game_set_split(race_game *g,const gt4_race_desc *options);
+void race_game_set_split(race_game *g, const gt4_race_desc *options);
 /* Owned garage selection for Arcade/Time Trial; NULL selects catalog. */
-void race_game_set_arcade_owned(race_game *g,const uint8_t *body);
+void race_game_set_arcade_owned(race_game *g, const uint8_t *body);
 int race_game_split(const race_game *g);
 int race_game_take_retry(race_game *g);
 /* the next races are the Arcade's Time Trial (00112620) */
@@ -148,24 +150,26 @@ void race_game_set_world_mode(race_game *g, int mode);
    event block. Returns 1 when the built race must be rebuilt. */
 int race_game_set_bspec(race_game *g, int on);
 int race_game_bspec(const race_game *g);
+void race_game_set_career(race_game *g,menu *career);
+int race_game_commit_bspec(race_game *g,menu *career);
 /* 003C12A8: race options +970, A/B-Spec takeover allowed at the box. */
-void race_game_set_pit_mode_change(race_game *g,int allowed);
+void race_game_set_pit_mode_change(race_game *g, int allowed);
 /* the player's best lap of the race just run (0x157529FF none) */
 uint32_t race_game_best_lap(const race_game *g);
-int race_game_player_wear(const race_game *g,uint8_t wear[32]);
-int race_game_player_distances(const race_game *g,uint32_t *a,uint32_t *b);
+int race_game_player_wear(const race_game *g, uint8_t wear[32]);
+int race_game_player_distances(const race_game *g, uint32_t *a, uint32_t *b);
 /* the race's driving mode, world+0xCC8 (0 A-Spec, 1 B-Spec): 00114498 /
    00119D38 score A-Spec points only for 0 or 2 */
 int race_game_driver_mode(const race_game *g);
-int race_game_player_hud(const race_game *g,gt4_race_hud *hud);
-int race_game_championship_grid(const race_game *g,gt4_race_desc *desc,uint8_t bodies[6][0x4b8]);
-int race_game_finish_order(const race_game *g,uint8_t order[6]);
-int race_game_quick_grid(const race_game *g,menu_quick_race *grid);
-int race_game_quick_results(const race_game *g,menu_quick_race *grid);
+int race_game_player_hud(const race_game *g, gt4_race_hud *hud);
+int race_game_championship_grid(const race_game *g, gt4_race_desc *desc, uint8_t bodies[6][0x4b8]);
+int race_game_finish_order(const race_game *g, uint8_t order[6]);
+int race_game_quick_grid(const race_game *g, menu_quick_race *grid);
+int race_game_quick_results(const race_game *g, menu_quick_race *grid);
 int race_game_event_position(const race_game *g);
 
 struct race_view;
 struct race_view *race_game_photo_view(race_game *);
-void race_game_photo_pause(race_game *,int on);
-int race_game_photo_camera_data(race_game *,float size[4],float *distance);
+void race_game_photo_pause(race_game *, int on);
+int race_game_photo_camera_data(race_game *, float size[4], float *distance);
 #endif

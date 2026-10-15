@@ -10,13 +10,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define GT4_REPLAY_OWNED 0x4b8   /* an owned car's body (gt4_race_desc.owned_car) */
-#define GT4_REPLAY_ROW 151       /* a decoded RACE row (gt4_race_desc.event_row) */
+#define GT4_REPLAY_OWNED 0x4b8 /* an owned car's body (gt4_race_desc.owned_car) */
+#define GT4_REPLAY_ROW 151     /* a decoded RACE row (gt4_race_desc.event_row) */
 
 enum { GT4_REPLAY_FULL = 0, GT4_REPLAY_BEST_LAP = 1 };
 
 typedef struct {
-    int kind;                    /* GT4_REPLAY_FULL or _BEST_LAP (the ghost) */
+    int kind; /* GT4_REPLAY_FULL or _BEST_LAP (the ghost) */
     /* the lineup as the Arcade starts it (race_game_start) */
     char course[32], car[96], others[5][96];
     int color, colors[5], nothers, has_colors;
@@ -64,13 +64,17 @@ typedef struct {
     uint8_t *disc_info;
     uint8_t *disc_icon; /* owned RGBA 64x64 from icon0.ico; never serialized */
     char license_code[32];
+    /* 00388E38 +6C..70 stores world+CC4 at GT4M+C: recorded A/B-Spec.
+       Disc-only metadata, absent from native replay serialization. */
+    int disc_bspec;
+    int disc_license, disc_event;
+    int disc_has_settings; /* GT4M +B0 resolves a RACE row even in Arcade. */
     /* RecorderCommand checkpoints (00346CA0), offsets into disc_info.
        Each segment's own command decoder resets at its declared boundary. */
-    int disc_license,disc_event;
-    unsigned disc_segments,disc_segments_2p;
-    size_t disc_segment_at_2p[3],disc_segment_steps_2p[3];
+    unsigned disc_segments, disc_segments_2p;
+    size_t disc_segment_at_2p[3], disc_segment_steps_2p[3];
     uint32_t disc_segment_offset_2p[3];
-    size_t disc_segment_at[3],disc_segment_steps[3];
+    size_t disc_segment_at[3], disc_segment_steps[3];
     uint32_t disc_segment_offset[3];
 } gt4_replay_file;
 #define GT4_REPLAY_GHOST_CAR 0x10a0

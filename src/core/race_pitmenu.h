@@ -16,17 +16,19 @@ typedef void (*race_pitmenu_sound)(void *user, const char *name);
 
 /* the menu's setup (003DCC50 / 003DD540) */
 typedef struct {
-    int tyres, feed, mode;     /* what may change: +0xE8, +0xEC, +0x100 */
-    int front, rear;           /* the car's compounds (cond+0xFB20), 0..12 */
-    unsigned owned[2];         /* the compounds the player has by axle
+    int tyres, feed, mode; /* what may change: +0xE8, +0xEC, +0x100 */
+    int front, rear;       /* the car's compounds (cond+0xFB20), 0..12 */
+    unsigned owned[2];     /* the compounds the player has by axle
                                   (004078D0, GT Mode), bits; 0 all */
-    int owned_filter;          /* distinguish zero owned compounds from Arcade */
-    int bspec;                 /* the driving mode now (+0xFC: world+0xCC8 1 or 3) */
+    int owned_filter;      /* distinguish zero owned compounds from Arcade */
+    int bspec;             /* the driving mode now (+0xFC: world+0xCC8 1 or 3) */
 } race_pitmenu_setup;
 
 /* the choice (EXIT): the compounds (0xFF none), the fuel, the driving
    mode (0 A-Spec, 1 B-Spec, 0xFF kept) */
-typedef struct { int front, rear, feed, mode; } race_pitmenu_choice;
+typedef struct {
+    int front, rear, feed, mode;
+} race_pitmenu_choice;
 
 race_pitmenu *race_pitmenu_open(gt4_vol *vol, race_pitmenu_sound sound, void *user);
 void race_pitmenu_close(race_pitmenu *m);

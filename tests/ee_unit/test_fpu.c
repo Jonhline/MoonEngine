@@ -9,20 +9,20 @@
 #include <stdio.h>
 
 static int fails;
-#define EXPECT(cond, ...)                                  \
-    do {                                                   \
-        if (!(cond)) {                                     \
-            fails++;                                       \
-            printf("FAIL %s:%d: ", __FILE__, __LINE__);    \
-            printf(__VA_ARGS__);                           \
-            printf("\n");                                  \
-        }                                                  \
+#define EXPECT(cond, ...)                                                                          \
+    do {                                                                                           \
+        if (!(cond)) {                                                                             \
+            fails++;                                                                               \
+            printf("FAIL %s:%d: ", __FILE__, __LINE__);                                            \
+            printf(__VA_ARGS__);                                                                   \
+            printf("\n");                                                                          \
+        }                                                                                          \
     } while (0)
 
-#define ONE   0x3f800000u
-#define TWO   0x40000000u
+#define ONE 0x3f800000u
+#define TWO 0x40000000u
 #define THREE 0x40400000u
-#define FMAX  0x7f7fffffu
+#define FMAX 0x7f7fffffu
 #define NFMAX 0xff7fffffu
 
 int main(void)
@@ -49,7 +49,8 @@ int main(void)
     EXPECT(ee_fpu_add(&c, 0x7f800000u, 0) == FMAX, "Inf input reads as FLT_MAX");
     EXPECT(!(c.fcr31 & EE_FPU_O), "FLT_MAX + 0 is not an overflow");
     r = ee_fpu_mul(&c, FMAX, TWO);
-    EXPECT(r == FMAX && (c.fcr31 & EE_FPU_O) && (c.fcr31 & EE_FPU_SO), "overflow, got %08x fcr %08x", r, c.fcr31);
+    EXPECT(r == FMAX && (c.fcr31 & EE_FPU_O) && (c.fcr31 & EE_FPU_SO),
+           "overflow, got %08x fcr %08x", r, c.fcr31);
     r = ee_fpu_mul(&c, NFMAX, TWO);
     EXPECT(r == NFMAX, "negative overflow, got %08x", r);
     /* O is cleared by the next operation, SO stays. */
@@ -59,7 +60,7 @@ int main(void)
     /* Denormals: input reads as zero; a denormal result becomes zero with U. */
     EXPECT(ee_fpu_add(&c, 0x00000001u, 0) == 0, "denormal input is zero");
     c.fcr31 = 0;
-    r = ee_fpu_mul(&c, 0x00800000u, 0x3f000000u);    /* 2^-126 * 0.5 */
+    r = ee_fpu_mul(&c, 0x00800000u, 0x3f000000u); /* 2^-126 * 0.5 */
     EXPECT(r == 0 && (c.fcr31 & EE_FPU_U) && (c.fcr31 & EE_FPU_SU), "underflow, got %08x", r);
 
     /* Division. */

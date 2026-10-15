@@ -22,11 +22,11 @@ typedef struct strb_player strb_player;
 typedef enum { STRB_UNDEF, STRB_NUM, STRB_STR, STRB_BOOL, STRB_OBJ, STRB_FUNC } strb_type;
 typedef struct {
     strb_type t;
-    double n;              /* STRB_NUM, STRB_BOOL */
-    char s[96];            /* STRB_STR */
-    void *obj;             /* STRB_OBJ: an instance; STRB_FUNC: the timeline it was made on */
-    int place;             /*           and its placement, -1 itself, -2 the Key object */
-    size_t code, pool;     /* STRB_FUNC: its DefineFunction record, the constant pool then in force */
+    double n;          /* STRB_NUM, STRB_BOOL */
+    char s[96];        /* STRB_STR */
+    void *obj;         /* STRB_OBJ: an instance; STRB_FUNC: the timeline it was made on */
+    int place;         /*           and its placement, -1 itself, -2 the Key object */
+    size_t code, pool; /* STRB_FUNC: its DefineFunction record, the constant pool then in force */
 } strb_value;
 
 typedef struct {
@@ -34,12 +34,14 @@ typedef struct {
     int (*call)(void *user, const char *name, const strb_value *args, int nargs, strb_value *ret);
     /* An extrender placement inside the instance named `name`, its box in
        the view's units, the colour multiplier (0..255) */
-    void (*ext)(void *user, const char *name, float x, float y, float w, float h, const uint8_t color[4]);
+    void (*ext)(void *user, const char *name, float x, float y, float w, float h,
+                const uint8_t color[4]);
     void *user;
     /* the same placement by its named instances from the root and the
        extrender's own name ("BAR3.chip"), for a host whose anonymous
        copies differ only by where they sit; NULL when unused */
-    void (*ext_path)(void *user, const char *path, float x, float y, float w, float h, const uint8_t color[4]);
+    void (*ext_path)(void *user, const char *path, float x, float y, float w, float h,
+                     const uint8_t color[4]);
     /* the palette of fonts named without "#": func_00490290 sets the
        text engine's (D_00624980 +0x2C) only on "#", so such a font draws
        with the one left by the texts before it (0 ink over outline, 1 ink
@@ -52,7 +54,8 @@ typedef struct {
 
 /* path: the movie on the disc; rt: the texts its edit texts' keys name
    (page `page`), NULL to show the keys */
-strb_player *strb_open(gt4_vol *vol, const char *path, const gt4_rtext *rt, const char *page, const strb_host *host);
+strb_player *strb_open(gt4_vol *vol, const char *path, const gt4_rtext *rt, const char *page,
+                       const strb_host *host);
 void strb_close(strb_player *p);
 /* Runs the movie for dt seconds at its own rate */
 void strb_tick(strb_player *p, double dt);

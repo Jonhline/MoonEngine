@@ -37,10 +37,10 @@ void ee_end(ee_ctx *c, int reason, uint32_t pc, const char *fmt, ...)
     va_start(ap, fmt);
     vsnprintf(c->end_detail, sizeof c->end_detail, fmt, ap);
     va_end(ap);
-    ee_trace(c, "\"ev\":\"end\",\"reason\":%d,\"pc\":\"0x%08x\",\"detail\":\"%s\"",
-             reason, pc, c->end_detail);
+    ee_trace(c, "\"ev\":\"end\",\"reason\":%d,\"pc\":\"0x%08x\",\"detail\":\"%s\"", reason, pc,
+             c->end_detail);
     if (ee_sched_active(c))
-        ee_sched_exit_to_host(c);         /* never returns */
+        ee_sched_exit_to_host(c); /* never returns */
     if (c->exit_jmp)
         longjmp(*c->exit_jmp, 1);
     abort();
@@ -59,7 +59,7 @@ void ee_unsupported(ee_ctx *c, uint32_t pc, const char *what)
 int ee_init(ee_ctx *c)
 {
     memset(c, 0, sizeof *c);
-    ee_fpu_enter();                       /* PS2 FPU rounding (toward zero) */
+    ee_fpu_enter(); /* PS2 FPU rounding (toward zero) */
     c->ram = calloc(1, EE_RAM_SIZE);
     c->spr = calloc(1, EE_SPR_SIZE);
     return (c->ram && c->spr) ? 0 : -1;
@@ -83,8 +83,8 @@ long ee_load_image(ee_ctx *c, const char *path, uint32_t vaddr)
     fseek(f, 0, SEEK_END);
     n = ftell(f);
     fseek(f, 0, SEEK_SET);
-    if (n < 0 || (uint64_t)vaddr + (uint64_t)n > EE_RAM_SIZE
-        || fread(c->ram + vaddr, 1, (size_t)n, f) != (size_t)n) {
+    if (n < 0 || (uint64_t)vaddr + (uint64_t)n > EE_RAM_SIZE ||
+        fread(c->ram + vaddr, 1, (size_t)n, f) != (size_t)n) {
         fclose(f);
         return -2;
     }
@@ -112,19 +112,21 @@ static int timer_decode(uint32_t phys, int *n, int *reg)
     return 1;
 }
 
-static const char *timer_reg_name[4] = { "COUNT", "MODE", "COMP", "HOLD" };
+static const char *timer_reg_name[4] = {"COUNT", "MODE", "COMP", "HOLD"};
 
 static uint32_t mmio_read(ee_ctx *c, uint32_t vaddr, uint32_t phys, int size)
 {
     int n, reg;
     uint32_t v;
-    if (ee_sif_mmio_read(c, phys, &v)) return v;
+    if (ee_sif_mmio_read(c, phys, &v))
+        return v;
     if (timer_decode(phys, &n, &reg)) {
         v = c->timer[n][reg];
         if (reg == 0)
             c->timer[n][0] = (c->timer[n][0] + 1) & 0xffff;
-        ee_trace(c, "\"ev\":\"mmio\",\"rw\":\"r\",\"addr\":\"0x%08x\",\"size\":%d,"
-                    "\"val\":\"0x%08x\",\"dev\":\"T%d_%s\",\"status\":\"%s\"",
+        ee_trace(c,
+                 "\"ev\":\"mmio\",\"rw\":\"r\",\"addr\":\"0x%08x\",\"size\":%d,"
+                 "\"val\":\"0x%08x\",\"dev\":\"T%d_%s\",\"status\":\"%s\"",
                  vaddr, size, v, n, timer_reg_name[reg], EE_STUBBED);
         return v;
     }
@@ -135,11 +137,13 @@ static uint32_t mmio_read(ee_ctx *c, uint32_t vaddr, uint32_t phys, int size)
 static void mmio_write(ee_ctx *c, uint32_t vaddr, uint32_t phys, int size, uint64_t v)
 {
     int n, reg;
-    if (ee_sif_mmio_write(c, phys, (uint32_t)v)) return;
+    if (ee_sif_mmio_write(c, phys, (uint32_t)v))
+        return;
     if (timer_decode(phys, &n, &reg)) {
         c->timer[n][reg] = (uint32_t)v & 0xffff;
-        ee_trace(c, "\"ev\":\"mmio\",\"rw\":\"w\",\"addr\":\"0x%08x\",\"size\":%d,"
-                    "\"val\":\"0x%08llx\",\"dev\":\"T%d_%s\",\"status\":\"%s\"",
+        ee_trace(c,
+                 "\"ev\":\"mmio\",\"rw\":\"w\",\"addr\":\"0x%08x\",\"size\":%d,"
+                 "\"val\":\"0x%08llx\",\"dev\":\"T%d_%s\",\"status\":\"%s\"",
                  vaddr, size, (unsigned long long)v, n, timer_reg_name[reg], EE_STUBBED);
         return;
     }
@@ -158,11 +162,11 @@ static uint8_t *map(ee_ctx *c, uint32_t a, int size, int *kind, uint32_t *phys)
         return c->spr + (a - 0x70000000u);
     }
     if ((a >> 28) == 2 || (a >> 28) == 3)
-        p = a & 0x01ffffffu;           /* uncached / uncached-accelerated mirrors */
+        p = a & 0x01ffffffu; /* uncached / uncached-accelerated mirrors */
     else if (a >= 0x80000000u && a < 0xc0000000u)
-        p = a & 0x1fffffffu;           /* kseg0 / kseg1 */
+        p = a & 0x1fffffffu; /* kseg0 / kseg1 */
     else if (a < 0x20000000u)
-        p = a;                          /* kuseg as mapped by the kernel */
+        p = a; /* kuseg as mapped by the kernel */
     else {
         ee_end(c, EE_END_BAD_ADDRESS, 0, "access %d at 0x%08x", size, a);
         return NULL;
@@ -180,27 +184,30 @@ static uint8_t *map(ee_ctx *c, uint32_t a, int size, int *kind, uint32_t *phys)
     return NULL;
 }
 
-#define DEF_READ(bits, type)                                              \
-    type ee_r##bits(ee_ctx *c, uint32_t a)                                \
-    {                                                                     \
-        int kind; uint32_t phys = 0; type v;                              \
-        uint8_t *p = map(c, a, bits / 8, &kind, &phys);                   \
-        if (kind == MAP_IO)                                               \
-            return (type)mmio_read(c, a, phys, bits / 8);                 \
-        memcpy(&v, p, sizeof v);                                          \
-        return v;                                                         \
+#define DEF_READ(bits, type)                                                                       \
+    type ee_r##bits(ee_ctx *c, uint32_t a)                                                         \
+    {                                                                                              \
+        int kind;                                                                                  \
+        uint32_t phys = 0;                                                                         \
+        type v;                                                                                    \
+        uint8_t *p = map(c, a, bits / 8, &kind, &phys);                                            \
+        if (kind == MAP_IO)                                                                        \
+            return (type)mmio_read(c, a, phys, bits / 8);                                          \
+        memcpy(&v, p, sizeof v);                                                                   \
+        return v;                                                                                  \
     }
 
-#define DEF_WRITE(bits, type)                                             \
-    void ee_w##bits(ee_ctx *c, uint32_t a, type v)                        \
-    {                                                                     \
-        int kind; uint32_t phys = 0;                                      \
-        uint8_t *p = map(c, a, bits / 8, &kind, &phys);                   \
-        if (kind == MAP_IO) {                                             \
-            mmio_write(c, a, phys, bits / 8, (uint64_t)v);                \
-            return;                                                       \
-        }                                                                 \
-        memcpy(p, &v, sizeof v);                                          \
+#define DEF_WRITE(bits, type)                                                                      \
+    void ee_w##bits(ee_ctx *c, uint32_t a, type v)                                                 \
+    {                                                                                              \
+        int kind;                                                                                  \
+        uint32_t phys = 0;                                                                         \
+        uint8_t *p = map(c, a, bits / 8, &kind, &phys);                                            \
+        if (kind == MAP_IO) {                                                                      \
+            mmio_write(c, a, phys, bits / 8, (uint64_t)v);                                         \
+            return;                                                                                \
+        }                                                                                          \
+        memcpy(p, &v, sizeof v);                                                                   \
     }
 
 DEF_READ(8, uint8_t)
@@ -214,7 +221,9 @@ DEF_WRITE(64, uint64_t)
 
 ee_u128 ee_r128(ee_ctx *c, uint32_t a)
 {
-    int kind; uint32_t phys = 0; ee_u128 v;
+    int kind;
+    uint32_t phys = 0;
+    ee_u128 v;
     uint8_t *p = map(c, a & ~15u, 16, &kind, &phys);
     if (kind == MAP_IO)
         ee_end(c, EE_END_UNSUPPORTED, 0, "128-bit MMIO read at 0x%08x", a);
@@ -224,7 +233,8 @@ ee_u128 ee_r128(ee_ctx *c, uint32_t a)
 
 void ee_w128(ee_ctx *c, uint32_t a, ee_u128 v)
 {
-    int kind; uint32_t phys = 0;
+    int kind;
+    uint32_t phys = 0;
     uint8_t *p = map(c, a & ~15u, 16, &kind, &phys);
     if (kind == MAP_IO)
         ee_end(c, EE_END_UNSUPPORTED, 0, "128-bit MMIO write at 0x%08x", a);
@@ -256,8 +266,9 @@ void ee_check_code(ee_ctx *c, uint32_t target, uint32_t pc)
             ee_end(c, EE_END_CODE_MISMATCH, pc,
                    "code at 0x%08x (0x%x bytes) differs from the bytes it was recompiled from",
                    r->addr, r->size);
-        ee_trace(c, "\"ev\":\"code_check\",\"pc\":\"0x%08x\",\"target\":\"0x%08x\","
-                    "\"range\":\"0x%08x\",\"size\":%u,\"result\":\"match\"",
+        ee_trace(c,
+                 "\"ev\":\"code_check\",\"pc\":\"0x%08x\",\"target\":\"0x%08x\","
+                 "\"range\":\"0x%08x\",\"size\":%u,\"result\":\"match\"",
                  pc, target, r->addr, r->size);
         return;
     }
@@ -270,7 +281,8 @@ void ee_check_code(ee_ctx *c, uint32_t target, uint32_t pc)
 void ee_call(ee_ctx *c, uint32_t target, uint32_t pc)
 {
     ee_fn fn = c->lookup ? c->lookup(target) : NULL;
-    if (!fn) ee_unrecompiled(c, target, pc);
+    if (!fn)
+        ee_unrecompiled(c, target, pc);
     ee_check_code(c, target, pc);
     fn(c);
 }
@@ -374,18 +386,23 @@ void ee_eret(ee_ctx *c, uint32_t pc)
         c->cop0[EE_COP0_STATUS] = st & ~EE_STATUS_EXL;
         via = "EPC";
     }
-    ee_trace(c, "\"ev\":\"cop0\",\"op\":\"eret\",\"pc\":\"0x%08x\",\"via\":\"%s\",\"target\":\"0x%08x\","
-                "\"status_reg\":\"0x%08x\",\"status\":\"%s\"",
-             pc, via, target, c->cop0[EE_COP0_STATUS], EE_IMPLEMENTED);
+    ee_trace(
+        c,
+        "\"ev\":\"cop0\",\"op\":\"eret\",\"pc\":\"0x%08x\",\"via\":\"%s\",\"target\":\"0x%08x\","
+        "\"status_reg\":\"0x%08x\",\"status\":\"%s\"",
+        pc, via, target, c->cop0[EE_COP0_STATUS], EE_IMPLEMENTED);
     if (target != c->r[31].uw[0])
-        ee_end(c, EE_END_UNSUPPORTED, pc, "eret to 0x%08x, not the return address 0x%08x",
-               target, c->r[31].uw[0]);
+        ee_end(c, EE_END_UNSUPPORTED, pc, "eret to 0x%08x, not the return address 0x%08x", target,
+               c->r[31].uw[0]);
 }
 
 /* Only the data-cache maintenance operation used by SIF is modeled here. */
 void ee_cache(ee_ctx *c, unsigned op, uint32_t addr, uint32_t pc)
 {
-    if (op != 0x18) ee_end(c, EE_END_UNSUPPORTED, pc, "cache op 0x%x not modeled", op);
-    ee_trace(c, "\"ev\":\"cache\",\"op\":%u,\"addr\":%u,\"status\":\"implemented\","
-                "\"note\":\"no data cache: writes already visible to DMA\"", op, addr);
+    if (op != 0x18)
+        ee_end(c, EE_END_UNSUPPORTED, pc, "cache op 0x%x not modeled", op);
+    ee_trace(c,
+             "\"ev\":\"cache\",\"op\":%u,\"addr\":%u,\"status\":\"implemented\","
+             "\"note\":\"no data cache: writes already visible to DMA\"",
+             op, addr);
 }

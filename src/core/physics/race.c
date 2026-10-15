@@ -2,6 +2,7 @@
    the rest of the distance, worn-out or punctured tyres; sets the car's
    retire flags (car+0x5b5 bits 4 and 8, car+0x6c6). */
 #include "car.h"
+#include "fields_conductor.h"
 
 #define K(bits) gt4_f32(bits)
 
@@ -16,20 +17,26 @@ uint32_t gt4_race_aspec_points(uint32_t race, int32_t i, const gt4_specdb_src *d
     int32_t n = (int32_t)GT4_U32(entries), mode;
     uint32_t entry, world, fn;
     float player_rating, sum = 0, adjustment = K(0x3cf5c28fu), delta, points;
-    uint8_t row[0x100] = { 0 };
-    if (i < 0 || i >= n) return 0;
+    uint8_t row[0x100] = {0};
+    if (i < 0 || i >= n)
+        return 0;
     entry = GT4_U32(list + (uint32_t)i * 4);
     player_rating = GT4_F32(GT4_U32(GT4_U32(entry + 0x18) + 0x10) + 0xfe0);
-    if (n == 1) return 0;
+    if (n == 1)
+        return 0;
     world = GT4_U32(race + 0x84);
     fn = GT4_U32(GT4_U32(world + 0x64) + 0x2fc);
     mode = fn == 0x005f6980u ? (int32_t)GT4_U32(world + 0xd68)
-                            : (int32_t)gt4_vcall(world, 0x64, 0x2f8, 0, 0, 0);
-    if (mode == 10) return 250;
-    if (db && db->row(db->ctx, 0x22, GT4_U32(GT4_U32(race + 0x70) + 0xa0), 0, row, sizeof row) > 0 && row[0x10] == 2) {
+                             : (int32_t)gt4_vcall(world, 0x64, 0x2f8, 0, 0, 0);
+    if (mode == 10)
+        return 250;
+    if (db &&
+        db->row(db->ctx, 0x22, GT4_U32(GT4_U32(race + 0x70) + 0xa0), 0, row, sizeof row) > 0 &&
+        row[0x10] == 2) {
         uint32_t gar = entry + 0x20;
         db->row(db->ctx, GT4_U32(gar + 0x44), GT4_U32(gar + 0x40), 0, row, sizeof row);
-        if (row[0x10] != 2) adjustment = K(0x3d8f5c28u);
+        if (row[0x10] != 2)
+            adjustment = K(0x3d8f5c28u);
     }
     for (int32_t k = 0; k < n; k++)
         if (k != i) {
@@ -42,20 +49,23 @@ uint32_t gt4_race_aspec_points(uint32_t race, int32_t i, const gt4_specdb_src *d
     if (delta < 0) {
         points = delta * K(0x41200000u);
         points += K(0x3f800000u);
-        if (points < K(0x3dcccccCu)) points = K(0x3dcccccCu);
+        if (points < K(0x3dcccccCu))
+            points = K(0x3dcccccCu);
     } else {
         points = delta * K(0x43480000u);
-        if (points < 1) points = 1;
+        if (points < 1)
+            points = 1;
     }
     points *= K(0x41200000u);
-    if (points > 200) points = 200;
+    if (points > 200)
+        points = 200;
     return (uint32_t)(points + K(0x3f000000u)) & 0xffu;
 }
 
 /* func_0034C230 (func_00395400): the course's length. */
 static float course_length(uint32_t session)
 {
-    return GT4_F32(GT4_U32(GT4_U32(GT4_U32(session + 0xcbd8u) + 4) + 0xdc) + 0x14);
+    return GT4_F32(GT4_U32(GT4_U32(GT4_U32(session + CONDUCTOR_FIELD_COURSE_U) + 4) + 0xdc) + 0x14);
 }
 
 /* func_00343C20: 0 racing, 1 the race is over for this car, 2 over and
@@ -64,63 +74,80 @@ static int race_over(uint32_t car)
 {
     uint32_t session = GT4_U32(car + CAR_SESSION), time, limit, laps;
     int32_t lap;
-    if (GT4_U8(car + 0x5b4)) return 0;
-    time = GT4_U32(session + 0xf898u) / 3u;                         /* func_00358440 */
-    limit = GT4_U16(session + 0xf850u) * 60000u;                    /* func_0034C140 */
-    if (limit && !(time < limit)) return 1;                         /* func_0034C158 */
+    if (GT4_U8(car + 0x5b4))
+        return 0;
+    time = GT4_U32(session + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3u;              /* func_00358440 */
+    limit = GT4_U16(session + CONDUCTOR_FIELD_TIME_LIMIT_MINUTES_U) * 60000u; /* func_0034C140 */
+    if (limit && !(time < limit))
+        return 1; /* func_0034C158 */
     laps = gt4_vcall(session, 0x10140u, 0x128, time, 0, 0);
-    if (!laps) return 0;
-    lap = (int16_t)GT4_U16(car + 0x5b0);
-    if (lap < (int32_t)laps) return 0;
-    if (GT4_F32(car + 0x5a8) < course_length(session) * 0.5f) laps++;
+    if (!laps)
+        return 0;
+    lap = (int16_t)GT4_U16(car + CAR_FIELD_LAP_COUNT);
+    if (lap < (int32_t)laps)
+        return 0;
+    if (GT4_F32(car + CAR_FIELD_COURSE_DISTANCE) < course_length(session) * 0.5f)
+        laps++;
     return lap < (int32_t)laps ? 2 : 1;
 }
 
 void gt4_car_race_end(uint32_t car)
 {
-    uint32_t session = GT4_U32(car + CAR_SESSION), s = session + 4, layout = gt4_car_layout(car);
+    uint32_t session = GT4_U32(car + CAR_SESSION), s = session + CONDUCTOR_FIELD_TYRE_STATE,
+             layout = gt4_car_layout(car);
     int n = GT4_U8(layout + LAYOUT_WHEELS), out = 0;
 
-    GT4_U8(car + 0x6c6) = 0;
-    if (!gt4_vcall(session, 0x10140u, 0x180, session, 0, 0)) return;
-    if ((GT4_U8(car + 0x5b5) & 8) || GT4_U8(car + 0x5b6) || race_over(car)) return;
-    if (0 < GT4_F32(car + 0x5d0) && 500.0f < GT4_F32(car + 0x5cc)) {
+    GT4_U8(car + CAR_FIELD_UNK_6C6) = 0;
+    if (!gt4_vcall(session, 0x10140u, 0x180, session, 0, 0))
+        return;
+    if ((GT4_U8(car + CAR_FIELD_FLAGS_5B5) & 8) || GT4_U8(car + CAR_5B6) || race_over(car))
+        return;
+    if (0 < GT4_F32(car + CAR_FUEL_TANK) && 500.0f < GT4_F32(car + CAR_ECONOMY_DIST)) {
         /* fuel for the distance left */
-        float end = gt4_line_point_distance(session + 0xda50u, 1);
-        if (GT4_F32(car + 0x5a8) < end) {
+        float end = gt4_line_point_distance(session + CONDUCTOR_FIELD_LINES_U, 1);
+        if (GT4_F32(car + CAR_FIELD_COURSE_DISTANCE) < end) {
             float len = course_length(session), need;
-            need = (((end - GT4_F32(car + 0x5a8)) + len) / (GT4_F32(car + 0x5cc) / GT4_F32(car + 0x5c8))) * K(0x3f866666u);
-            if (GT4_F32(car + 0x5d4) < need) out = 1;
+            need = (((end - GT4_F32(car + CAR_FIELD_COURSE_DISTANCE)) + len) /
+                    (GT4_F32(car + CAR_ECONOMY_DIST) / GT4_F32(car + CAR_ECONOMY_FUEL))) *
+                   K(0x3f866666u);
+            if (GT4_F32(car + CAR_EXTRA_MASS) < need)
+                out = 1;
         }
     }
     if (GT4_U8(s + 0x68)) {
         for (int i = 0; i < n; i++) {
             uint32_t w = gt4_car_wheel(car, i);
-            if (GT4_F32(w + 0xac) < 0) GT4_U8(car + 0x6c6) = 1;
+            if (GT4_F32(w + 0xac) < 0)
+                GT4_U8(car + CAR_FIELD_UNK_6C6) = 1;
             else if (GT4_F32(w + 0x50) < GT4_F32(s + 0x20)) {
                 out |= 1;
-                GT4_U8(car + 0x6c6) = 1;
+                GT4_U8(car + CAR_FIELD_UNK_6C6) = 1;
                 break;
             }
         }
     }
-    if (!(int8_t)GT4_U8(car + CAR_56A) && gt4_vcall(session, 0x10140u, 0x160, session, 0, 0) == 4) {   /* func_0035FA50 */
+    if (!(int8_t)GT4_U8(car + CAR_56A) &&
+        gt4_vcall(session, 0x10140u, 0x160, session, 0, 0) == 4) { /* func_0035FA50 */
         for (int i = 0; i < n; i++)
-            if (GT4_U8(gt4_car_wheel(car, i) + 0x47)) { out |= 2; break; }
+            if (GT4_U8(gt4_car_wheel(car, i) + 0x47)) {
+                out |= 2;
+                break;
+            }
     }
     if (out) {
-        uint8_t f = GT4_U8(car + 0x5b5) | 4;
+        uint8_t f = GT4_U8(car + CAR_FIELD_FLAGS_5B5) | 4;
         int8_t mode = (int8_t)GT4_U8(car + CAR_56A);
-        GT4_U8(car + 0x5b5) = f;
-        if (mode == 2 || (mode == 1 && !GT4_U8(car + 0x6c5))) GT4_U8(car + 0x5b5) = f | 8;
+        GT4_U8(car + CAR_FIELD_FLAGS_5B5) = f;
+        if (mode == 2 || (mode == 1 && !GT4_U8(car + 0x6c5)))
+            GT4_U8(car + CAR_FIELD_FLAGS_5B5) = f | 8;
     }
 }
 
 /* func_003658F0: laps done (less the one in progress at the start). */
 static int32_t laps_done(uint32_t car)
 {
-    int32_t lap = (int16_t)GT4_U16(car + 0x5b0);
-    return GT4_U8(car + 0x5b6) ? lap : lap - GT4_U8(car + 0x5b4);
+    int32_t lap = (int16_t)GT4_U16(car + CAR_FIELD_LAP_COUNT);
+    return GT4_U8(car + CAR_5B6) ? lap : lap - GT4_U8(car + 0x5b4);
 }
 
 /* func_00365E80: how far each car is ahead of each other one, in laps
@@ -128,21 +155,32 @@ static int32_t laps_done(uint32_t car)
    a * 0x18 + b * 4) (func_00365910). */
 void gt4_race_gaps(uint32_t conductor)
 {
-    int n = (int)GT4_U32(conductor + 0xf8a0u);
+    int n = (int)GT4_U32(conductor + CONDUCTOR_FIELD_CAR_COUNT_U);
     for (int a = 0; a < n; a++)
         for (int b = 0; b < n; b++) {
-            uint32_t ca = conductor + 0x6698u + (uint32_t)a * CAR_SIZE, cb = conductor + 0x6698u + (uint32_t)b * CAR_SIZE;
+            uint32_t ca = conductor + CONDUCTOR_FIELD_CARS_U + (uint32_t)a * CAR_SIZE,
+                     cb = conductor + CONDUCTOR_FIELD_CARS_U + (uint32_t)b * CAR_SIZE;
             int32_t lap;
             float d;
-            if (a == b) continue;
+            if (a == b)
+                continue;
             lap = laps_done(cb) - laps_done(ca);
             d = GT4_F32(cb + 0x5a8) - GT4_F32(ca + 0x5a8);
-            if (lap > 0 && d < 0) { lap--; d = d + course_length(conductor); }
-            else if (lap < 0 && 0 < d) { lap++; d = d - course_length(conductor); }
-            if (lap < -127) lap = -127;
-            if (!(lap < 128)) lap = 127;
-            GT4_U8(conductor + 0xccc8u + (uint32_t)a * 6 + (uint32_t)b) = (uint8_t)lap;
-            GT4_F32(conductor + 0xccecu + (uint32_t)a * 0x18 + (uint32_t)b * 4) = d;
+            if (lap > 0 && d < 0) {
+                lap--;
+                d = d + course_length(conductor);
+            } else if (lap < 0 && 0 < d) {
+                lap++;
+                d = d - course_length(conductor);
+            }
+            if (lap < -127)
+                lap = -127;
+            if (!(lap < 128))
+                lap = 127;
+            GT4_U8(conductor + CONDUCTOR_FIELD_PAIR_LAP_GAPS_U + (uint32_t)a * 6 + (uint32_t)b) =
+                (uint8_t)lap;
+            GT4_F32(conductor + CONDUCTOR_FIELD_PAIR_DISTANCE_GAPS_U + (uint32_t)a * 0x18 +
+                    (uint32_t)b * 4) = d;
         }
 }
 
@@ -151,15 +189,19 @@ void gt4_race_gaps(uint32_t conductor)
 void gt4_race_finish_handover(uint32_t conductor)
 {
     uint32_t race = GT4_U32(conductor);
-    if (!GT4_U32(race + 0xc4) || (int32_t)GT4_F32(race + 0xc8) != 0xb3) return;
-    for (int i = 0; i < (int)GT4_U32(conductor + 0xf8a0u); i++) {
-        uint32_t car = conductor + 0x6698u + (uint32_t)i * CAR_SIZE;
-        if (GT4_U8(car + 0x5b6)) continue;
-        GT4_U8(car + 0x736) = 1;
-        if ((int8_t)GT4_U8(car + CAR_56A)) continue;
+    if (!GT4_U32(race + 0xc4) || (int32_t)GT4_F32(race + 0xc8) != 0xb3)
+        return;
+    for (int i = 0; i < (int)GT4_U32(conductor + CONDUCTOR_FIELD_CAR_COUNT_U); i++) {
+        uint32_t car = conductor + CONDUCTOR_FIELD_CARS_U + (uint32_t)i * CAR_SIZE;
+        if (GT4_U8(car + CAR_5B6))
+            continue;
+        GT4_U8(car + CAR_FIELD_UNK_736) = 1;
+        if ((int8_t)GT4_U8(car + CAR_56A))
+            continue;
         GT4_U8(car + CAR_56A) = 2;
-        if ((uint8_t)(GT4_U8(car + CAR_56B) - 2) < 3) continue;
-        gt4_ai_line_switch(car + 0x14, 6, 1);
+        if ((uint8_t)(GT4_U8(car + CAR_56B) - 2) < 3)
+            continue;
+        gt4_ai_line_switch(car + CAR_FIELD_DRIVER_MODEL, 6, 1);
     }
 }
 
@@ -169,12 +211,16 @@ void gt4_race_finish_handover(uint32_t conductor)
 static float catch_up(uint32_t t, uint32_t b, int32_t lap, float x)
 {
     float lo, hi;
-    if (GT4_U8(b + 0x4b1) & 0x10) return 1.0f;
-    if (0 < lap) return GT4_F32(t + 0xc) + 1.0f;
+    if (GT4_U8(b + 0x4b1) & 0x10)
+        return 1.0f;
+    if (0 < lap)
+        return GT4_F32(t + 0xc) + 1.0f;
     hi = GT4_F32(t + 0x14);
-    if (hi <= x) return GT4_F32(t + 0xc) + 1.0f;
+    if (hi <= x)
+        return GT4_F32(t + 0xc) + 1.0f;
     lo = GT4_F32(t + 0x10);
-    if (lo < x) return GT4_F32(t + 0xc) * ((x - lo) / (hi - lo)) + 1.0f;
+    if (lo < x)
+        return GT4_F32(t + 0xc) * ((x - lo) / (hi - lo)) + 1.0f;
     return 1.0f;
 }
 
@@ -183,11 +229,14 @@ static float catch_up(uint32_t t, uint32_t b, int32_t lap, float x)
 static float hold_back(uint32_t t, int32_t lap, float x)
 {
     float lo, hi;
-    if (0 < lap) return 1.0f - GT4_F32(t);
+    if (0 < lap)
+        return 1.0f - GT4_F32(t);
     hi = GT4_F32(t + 8);
-    if (hi <= x) return 1.0f - GT4_F32(t);
+    if (hi <= x)
+        return 1.0f - GT4_F32(t);
     lo = GT4_F32(t + 4);
-    if (lo < x) return 1.0f - GT4_F32(t) * ((x - lo) / (hi - lo));
+    if (lo < x)
+        return 1.0f - GT4_F32(t) * ((x - lo) / (hi - lo));
     return 1.0f;
 }
 
@@ -203,16 +252,23 @@ float gt4_race_rubber_band(uint32_t self, uint32_t ba, uint32_t bb, float k)
         /* func_00365910: a ahead of b in laps and metres */
         lap = laps_done(ba - 0x104) - laps_done(bb - 0x104);
         d = GT4_F32(ba + 0x4a4) - GT4_F32(bb + 0x4a4);
-        if (0 < lap && d < 0) { lap--; d = d + course_length(self); }
-        else if (lap < 0 && 0 < d) { lap++; d = d - course_length(self); }
+        if (0 < lap && d < 0) {
+            lap--;
+            d = d + course_length(self);
+        } else if (lap < 0 && 0 < d) {
+            lap++;
+            d = d - course_length(self);
+        }
         if (0 < lap || (lap == 0 && 0 < d)) {
-            if (GT4_F32(self + 0x88) != 0) f = catch_up(self + 0x7c, bb, lap, d);
-        } else if (GT4_F32(self + 0x7c) != 0) {
-            f = hold_back(self + 0x7c, -lap, -d);
+            if (GT4_F32(self + 0x88) != 0)
+                f = catch_up(self + CONDUCTOR_FIELD_UNK_7C, bb, lap, d);
+        } else if (GT4_F32(self + CONDUCTOR_FIELD_UNK_7C) != 0) {
+            f = hold_back(self + CONDUCTOR_FIELD_UNK_7C, -lap, -d);
         }
     }
     f = f * k;
-    if (K(0x3fa66666u) < f) f = K(0x3fa66666u);
+    if (K(0x3fa66666u) < f)
+        f = K(0x3fa66666u);
     GT4_F32(bb + 0x444) = f * GT4_F32(self + 0x94);
     return f;
 }
@@ -228,7 +284,7 @@ float gt4_race_rubber_band(uint32_t self, uint32_t ba, uint32_t bb, float k)
 #define Q_KINDS 0x808u
 #define Q_COUNT 0x824u
 
-void gt4_race_queue_reset(uint32_t q)                   /* func_003B7470 */
+void gt4_race_queue_reset(uint32_t q) /* func_003B7470 */
 {
     GT4_U32(q + Q_COUNT) = 0;
     memset(gt4_ptr(q + Q_KINDS), 0, 0x1c);
@@ -258,7 +314,8 @@ void gt4_race_queue_push(uint32_t q, int32_t kind, uint32_t value, int32_t extra
                 n = i;
             }
         }
-        if (top < kind) return;
+        if (top < kind)
+            return;
         queue_remove(q, n);
     }
     GT4_U8(q + (uint32_t)kind + Q_KINDS) = (uint8_t)(GT4_U8(q + (uint32_t)kind + Q_KINDS) + 1);
@@ -273,11 +330,15 @@ void gt4_race_queue_push(uint32_t q, int32_t kind, uint32_t value, int32_t extra
    asked), taken out when `take`; 0 when there is none */
 int gt4_race_queue_take(uint32_t q, int32_t kind, uint32_t *value, int take)
 {
-    if (!GT4_U8(q + (uint32_t)kind + Q_KINDS)) return 0;
+    if (!GT4_U8(q + (uint32_t)kind + Q_KINDS))
+        return 0;
     for (int32_t i = 0; i < (int32_t)GT4_U32(q + Q_COUNT); i++) {
-        if ((int16_t)GT4_U16(Q_EVENT(q, i)) != kind) continue;
-        if (value) *value = GT4_U32(Q_EVENT(q, i) + 4);
-        if (take) queue_remove(q, i);
+        if ((int16_t)GT4_U16(Q_EVENT(q, i)) != kind)
+            continue;
+        if (value)
+            *value = GT4_U32(Q_EVENT(q, i) + 4);
+        if (take)
+            queue_remove(q, i);
         return 1;
     }
     return 0;
@@ -290,23 +351,28 @@ void gt4_race_queue_age(uint32_t q)
 {
     for (int32_t i = 0; i < (int32_t)GT4_U32(q + Q_COUNT); i++) {
         uint16_t n = GT4_U16(Q_EVENT(q, i) + 2);
-        if (!n) continue;
+        if (!n)
+            continue;
         GT4_U16(Q_EVENT(q, i) + 2) = (uint16_t)(n - 1);
-        if (n == 1) queue_remove(q, i--);
+        if (n == 1)
+            queue_remove(q, i--);
     }
 }
 
 /* func_003B77E0: the n-th event of a kind, left in place */
 int gt4_race_queue_peek(uint32_t q, int32_t kind, uint32_t *value, int32_t n)
 {
-    if (!(n < (int32_t)GT4_U8(q + (uint32_t)kind + Q_KINDS))) return 0;
+    if (!(n < (int32_t)GT4_U8(q + (uint32_t)kind + Q_KINDS)))
+        return 0;
     for (int32_t i = 0; i < (int32_t)GT4_U32(q + Q_COUNT); i++) {
-        if ((int16_t)GT4_U16(Q_EVENT(q, i)) != kind) continue;
+        if ((int16_t)GT4_U16(Q_EVENT(q, i)) != kind)
+            continue;
         if (n) {
             n--;
             continue;
         }
-        if (value) *value = GT4_U32(Q_EVENT(q, i) + 4);
+        if (value)
+            *value = GT4_U32(Q_EVENT(q, i) + 4);
         return 1;
     }
     return 0;
@@ -317,7 +383,10 @@ int gt4_race_queue_peek(uint32_t q, int32_t kind, uint32_t *value, int32_t n)
    (laps behind) pack the car (4 bits), a field (2 bits) and a time
    clamped to +-0x1FFFFFF (func_003A3520); kind 0xE the car, a field (4
    bits) and a number up to 999 (func_003A3408). */
-static uint32_t clamp4(int32_t v) { return (uint32_t)(v < 0 ? 0 : v > 15 ? 15 : v); }
+static uint32_t clamp4(int32_t v)
+{
+    return (uint32_t)(v < 0 ? 0 : v > 15 ? 15 : v);
+}
 
 uint32_t gt4_race_message(int32_t kind, int32_t car, int32_t field, int32_t value)
 {
@@ -325,8 +394,10 @@ uint32_t gt4_race_message(int32_t kind, int32_t car, int32_t field, int32_t valu
         int32_t n = value < 0 ? 0 : value > 999 ? 999 : value;
         return clamp4(car) | clamp4(field) << 4 | ((uint32_t)n & 0x3ffu) << 8;
     }
-    if (value < -0x1ffffff) value = -0x1ffffff;
-    else if (0x1ffffff < value) value = 0x1ffffff;
+    if (value < -0x1ffffff)
+        value = -0x1ffffff;
+    else if (0x1ffffff < value)
+        value = 0x1ffffff;
     return clamp4(car) | ((uint32_t)field & 3u) << 4 | (uint32_t)value << 6;
 }
 
@@ -363,7 +434,8 @@ void gt4_race_begin(uint32_t race)
     m = GT4_U32(race + 0xc4);
     GT4_U32(race + 0xc8) = 0;
     GT4_U32(race + 0xcc) = 0;
-    if (m) GT4_F32(race + 0xc8) = (float)(int32_t)(m * 60u + 0xb4u);
+    if (m)
+        GT4_F32(race + 0xc8) = (float)(int32_t)(m * 60u + 0xb4u);
     GT4_U32(race + 0xc0) = 0.0f < GT4_F32(race + 0xc8);
     GT4_F32(race + 0xd4) = -1.0f;
     GT4_F32(race + 0xd8) = 1.0f;
@@ -395,20 +467,34 @@ void gt4_race_before_step(uint32_t race)
         uint32_t k = GT4_U32(race + 0xb4) + 1;
         GT4_U32(race + 0xb0) = 0;
         switch (k) {
-        case 0: gt4_race_queue_push(q, 0x18, 0xc, 0); GT4_U32(race + 0xb8) = 0; break;
-        case 2: GT4_U32(race + 0xb8) = 8; gt4_race_queue_push(q, 0x18, 0x13, 0); break;
-        case 3: GT4_U32(race + 0xb8) = 10; gt4_race_queue_push(q, 0x18, 10, 0); break;
-        case 4: GT4_U32(race + 0xb8) = 0; break;
-        default: break;
+        case 0:
+            gt4_race_queue_push(q, 0x18, 0xc, 0);
+            GT4_U32(race + 0xb8) = 0;
+            break;
+        case 2:
+            GT4_U32(race + 0xb8) = 8;
+            gt4_race_queue_push(q, 0x18, 0x13, 0);
+            break;
+        case 3:
+            GT4_U32(race + 0xb8) = 10;
+            gt4_race_queue_push(q, 0x18, 10, 0);
+            break;
+        case 4:
+            GT4_U32(race + 0xb8) = 0;
+            break;
+        default:
+            break;
         }
         GT4_U32(race + 0xbc) = GT4_U32(race + 0xb8) * 60u;
         if (!gt4_phys_headless)
-            gt4_orig_call(0x003973d0u, GT4_U32(GT4_U32(GT4_U32(GT4_U32(race + 0x84) + 0x6c) + 0x80) + 4),
-                          0, (float)(int32_t)GT4_U32(race + 0xb8), 0);
+            gt4_orig_call(0x003973d0u,
+                          GT4_U32(GT4_U32(GT4_U32(GT4_U32(race + 0x84) + 0x6c) + 0x80) + 4), 0,
+                          (float)(int32_t)GT4_U32(race + 0xb8), 0);
     }
     if (GT4_U32(race + 0xbc)) {
         GT4_U32(race + 0xbc) = GT4_U32(race + 0xbc) - 1;
-        if (!GT4_U32(race + 0xbc)) gt4_race_queue_push(q, 4, 0xffffffffu, 0);
+        if (!GT4_U32(race + 0xbc))
+            gt4_race_queue_push(q, 4, 0xffffffffu, 0);
     }
 }
 
@@ -427,10 +513,14 @@ static void entries_in_order(uint32_t list)
             prev = at;
             at = GT4_U32(at + 0x10);
         }
-        if (!prev) GT4_U32(list + 0x14) = e;
-        else GT4_U32(prev + 0x10) = e;
-        if (!at) GT4_U32(list + 0x18) = e;
-        else GT4_U32(at + 0xc) = e;
+        if (!prev)
+            GT4_U32(list + 0x14) = e;
+        else
+            GT4_U32(prev + 0x10) = e;
+        if (!at)
+            GT4_U32(list + 0x18) = e;
+        else
+            GT4_U32(at + 0xc) = e;
         GT4_U32(e + 0x10) = at;
         GT4_U32(e + 0xc) = prev;
     }
@@ -445,25 +535,31 @@ void gt4_race_after_step(uint32_t race)
 {
     uint32_t q = race + 0xf4, v;
     entries_in_order(GT4_U32(race + 0x60));
-    if (gt4_race_queue_take(q, 8, NULL, 1)) GT4_U32(race + 0xc0) = 0;
+    if (gt4_race_queue_take(q, 8, NULL, 1))
+        GT4_U32(race + 0xc0) = 0;
     GT4_U32(race + 0xe8) = 0;
     while (gt4_race_queue_take(q, 0xf, &v, 1))
-        if (!v) GT4_U32(race + 0xe8) = 1;
+        if (!v)
+            GT4_U32(race + 0xe8) = 1;
     for (int32_t k = 0; k < (int32_t)GT4_U8(q + 0x11 + Q_KINDS); k++) {
         uint32_t e;
         int32_t t;
-        if (!gt4_race_queue_peek(q, 0x11, &v, k)) continue;
+        if (!gt4_race_queue_peek(q, 0x11, &v, k))
+            continue;
         e = GT4_U32(GT4_U32(GT4_U32(race + 0x60) + 8) + (v & 0xf) * 4);
-        if (!e) continue;
-        t = (int32_t)v >> 6;                                   /* func_003A3620 */
+        if (!e)
+            continue;
+        t = (int32_t)v >> 6; /* func_003A3620 */
         GT4_U32(e + 0x11ec) = 0;
         GT4_U32(e + 0x11e8) = 0x3fffffcu < (uint32_t)t + 0x1fffffeu ? 0x157529ffu : (uint32_t)t;
     }
     for (int32_t k = 0; k < (int32_t)GT4_U8(q + 0x12 + Q_KINDS); k++) {
         uint32_t e;
-        if (!gt4_race_queue_peek(q, 0x12, &v, k)) continue;
+        if (!gt4_race_queue_peek(q, 0x12, &v, k))
+            continue;
         e = GT4_U32(GT4_U32(GT4_U32(race + 0x60) + 8) + (v & 0xf) * 4);
-        if (!e) continue;
+        if (!e)
+            continue;
         GT4_U32(e + 0x11e8) = 0x157529ffu;
         GT4_U32(e + 0x11ec) = (uint32_t)((int32_t)v >> 6);
     }
@@ -474,15 +570,25 @@ void gt4_race_after_step(uint32_t race)
    (each entry's lap and split times, the race's best). None when the race
    is a replay (race+0xDC) or the car is not shown (+0x632, +0x736). ---- */
 
-static uint32_t cond_of(uint32_t race) { return GT4_U32(GT4_U32(race + 0x84) + 0x70); }
-static uint32_t car_of(uint32_t cond, uint32_t i) { return cond + 0x6698u + i * CAR_SIZE; }   /* func_0034C190 */
-static uint32_t entry_of(uint32_t race, uint32_t i) { return GT4_U32(GT4_U32(GT4_U32(race + 0x60) + 8) + i * 4); }
+static uint32_t cond_of(uint32_t race)
+{
+    return GT4_U32(GT4_U32(race + 0x84) + 0x70);
+}
+static uint32_t car_of(uint32_t cond, uint32_t i)
+{
+    return cond + CONDUCTOR_FIELD_CARS_U + i * CAR_SIZE;
+} /* func_0034C190 */
+static uint32_t entry_of(uint32_t race, uint32_t i)
+{
+    return GT4_U32(GT4_U32(GT4_U32(race + 0x60) + 8) + i * 4);
+}
 
 /* func_003C0E78: whether the race is a replay (the world's +0x298) */
 int gt4_race_replay(uint32_t race)
 {
     uint32_t world = GT4_U32(race + 0x84);
-    if (!world) return 0;
+    if (!world)
+        return 0;
     return gt4_vcall(world, 0x64, 0x298, 0, 0, 0) != 0;
 }
 
@@ -490,7 +596,8 @@ int gt4_race_replay(uint32_t race)
 void gt4_race_event(uint32_t race, int32_t kind, uint32_t i, int32_t extra)
 {
     uint32_t car = car_of(cond_of(race), i);
-    if (GT4_U32(race + 0xdc) || GT4_U8(car + 0x104 + 0x632)) return;
+    if (GT4_U32(race + 0xdc) || GT4_U8(car + CAR_POSITION + 0x632))
+        return;
     gt4_race_queue_push(race + 0xf4, kind, i, extra);
 }
 
@@ -498,8 +605,10 @@ void gt4_race_event(uint32_t race, int32_t kind, uint32_t i, int32_t extra)
 void gt4_race_gap(uint32_t race, uint32_t i, uint32_t gap)
 {
     uint32_t car = car_of(cond_of(race), i);
-    if (GT4_U8(car + 0x736) || GT4_U32(race + 0xdc)) return;
-    if (0x3fffffdu < gap + 0x1fffffeu) gap = 0x1ffffff;          /* func_003A35F0 */
+    if (GT4_U8(car + CAR_FIELD_UNK_736) || GT4_U32(race + 0xdc))
+        return;
+    if (0x3fffffdu < gap + 0x1fffffeu)
+        gap = 0x1ffffff; /* func_003A35F0 */
     gt4_race_post(race, 0x11, (int32_t)i, 0, (int32_t)gap);
 }
 
@@ -507,7 +616,8 @@ void gt4_race_gap(uint32_t race, uint32_t i, uint32_t gap)
 void gt4_race_behind(uint32_t cond, uint32_t i, uint32_t laps)
 {
     uint32_t race = GT4_U32(cond);
-    if (GT4_U8(car_of(cond, i) + 0x736) || GT4_U32(race + 0xdc)) return;
+    if (GT4_U8(car_of(cond, i) + 0x736) || GT4_U32(race + 0xdc))
+        return;
     gt4_race_post(race, 0x12, (int32_t)i, 0, (int32_t)laps);
 }
 
@@ -517,27 +627,35 @@ void gt4_race_behind(uint32_t cond, uint32_t i, uint32_t laps)
 void gt4_race_pit_message(uint32_t race, uint32_t i, uint32_t v)
 {
     uint32_t car = car_of(cond_of(race), i);
-    if (GT4_U8(car + 0x736) || GT4_U32(race + 0xdc)) return;
-    gt4_race_queue_push(race + 0xf4, 0x14, (race & 0xffffff00u) | (v & 0xfu) << 4 | clamp4((int32_t)i), 2);
+    if (GT4_U8(car + CAR_FIELD_UNK_736) || GT4_U32(race + 0xdc))
+        return;
+    gt4_race_queue_push(race + 0xf4, 0x14,
+                        (race & 0xffffff00u) | (v & 0xfu) << 4 | clamp4((int32_t)i), 2);
 }
 
 /* func_0035E3F8: whether the race keeps times (not in a replay, not in
    the race kinds that do not, cond+0xCBDC, nor when race+0xEC says so) */
 static int keeps_times(uint32_t race, uint32_t cond)
 {
-    return !(GT4_U8(cond + 0xcbdcu) || GT4_U32(race + 0xec) || GT4_U32(race + 0xdc));
+    return !(GT4_U8(cond + CONDUCTOR_FIELD_DRIVING_MODE_U) || GT4_U32(race + 0xec) ||
+             GT4_U32(race + 0xdc));
 }
 
 /* A time in the race's messages (func_003A3660): the most past 0x3FFFFFE */
-static int32_t message_time(uint32_t t) { return (int32_t)(0x3fffffeu < t ? 0x3ffffffu : t); }
+static int32_t message_time(uint32_t t)
+{
+    return (int32_t)(0x3fffffeu < t ? 0x3ffffffu : t);
+}
 
 /* func_003BB8C8: a set of splits (16, the lap at +0x40) copied when its
    lap is better or the other has none */
 static void better_splits(uint32_t to, uint32_t from)
 {
     uint32_t have = GT4_U32(to + 0x40);
-    if (have != 0x157529ffu && !(GT4_U32(from + 0x40) < have)) return;
-    for (uint32_t k = 0; k < 16; k++) GT4_U32(to + k * 4) = GT4_U32(from + k * 4);
+    if (have != 0x157529ffu && !(GT4_U32(from + 0x40) < have))
+        return;
+    for (uint32_t k = 0; k < 16; k++)
+        GT4_U32(to + k * 4) = GT4_U32(from + k * 4);
     GT4_U32(to + 0x40) = GT4_U32(from + 0x40);
 }
 
@@ -551,18 +669,23 @@ static void better_splits(uint32_t to, uint32_t from)
    race's (+0x928) (func_003C0CC8). */
 void gt4_race_lap_event(uint32_t cond, uint32_t i, uint32_t lap, uint32_t time, int quiet)
 {
-    uint32_t car = car_of(cond, i), b = car + 0x104, race, e, l;
+    uint32_t car = car_of(cond, i), b = car + CAR_POSITION, race, e, l;
     int rec;
-    if (time < GT4_U32(b + 0x618)) GT4_U32(b + 0x618) = time;
-    if (GT4_U8(b + 0x441) || GT4_U8(b + 0x632)) return;
+    if (time < GT4_U32(b + 0x618))
+        GT4_U32(b + 0x618) = time;
+    if (GT4_U8(b + CAR_BLOCK_VIBRATION_ON) || GT4_U8(b + CAR_BLOCK_UNK_632))
+        return;
     race = GT4_U32(cond);
     rec = keeps_times(race, cond);
     if (!GT4_U32(race + 0xdc)) {
         int32_t n = (int32_t)lap < 0 ? 0 : (int32_t)lap > 999 ? 999 : (int32_t)lap;
-        gt4_race_queue_push(race + 0xf4, 0xd, (car & 0xfffc00f0u) | clamp4((int32_t)i) | ((uint32_t)n & 0x3ffu) << 8, 2);
+        gt4_race_queue_push(race + 0xf4, 0xd,
+                            (car & 0xfffc00f0u) | clamp4((int32_t)i) | ((uint32_t)n & 0x3ffu) << 8,
+                            2);
         gt4_race_post(race, 0x10, (int32_t)i, 0, message_time(time));
     }
-    if (!rec) return;
+    if (!rec)
+        return;
     e = entry_of(race, i);
     l = e + 0x1a0;
     GT4_U32(l + 4) = GT4_U32(l + 4) + 1;
@@ -576,10 +699,12 @@ void gt4_race_lap_event(uint32_t cond, uint32_t i, uint32_t lap, uint32_t time, 
         GT4_U32(l + 0x14 + GT4_U32(l + 0xc) * 4) = time;
         GT4_U32(l + 0xc) = GT4_U32(l + 0xc) + 1;
     }
-    if (quiet) return;
+    if (quiet)
+        return;
     {
         uint32_t best = GT4_U32(e + 0x11e0), t = 0x157529ffu < time ? 0x157529ffu : time;
-        if (best == 0x157529ffu || time < best) GT4_U32(e + 0x11e0) = t;
+        if (best == 0x157529ffu || time < best)
+            GT4_U32(e + 0x11e0) = t;
     }
     GT4_U32(e + 0x119c + 0x40) = time;
     better_splits(e + 0x1158, e + 0x119c);
@@ -591,20 +716,25 @@ void gt4_race_lap_event(uint32_t cond, uint32_t i, uint32_t lap, uint32_t time, 
    address, as the original's register had it) and 0x10 (the time); when
    the race keeps times and not `quiet`, the entry's split (+0x119C,
    func_003C0C60) */
-void gt4_race_split_event(uint32_t cond, uint32_t i, uint32_t lap, uint32_t split, uint32_t time, int quiet)
+void gt4_race_split_event(uint32_t cond, uint32_t i, uint32_t lap, uint32_t split, uint32_t time,
+                          int quiet)
 {
-    uint32_t car = car_of(cond, i), b = car + 0x104, race;
+    uint32_t car = car_of(cond, i), b = car + CAR_POSITION, race;
     int rec;
-    if (GT4_U8(b + 0x441) || GT4_U8(b + 0x632)) return;
+    if (GT4_U8(b + CAR_BLOCK_VIBRATION_ON) || GT4_U8(b + CAR_BLOCK_UNK_632))
+        return;
     race = GT4_U32(cond);
     rec = keeps_times(race, cond);
     if (!GT4_U32(race + 0xdc)) {
         int32_t n = (int32_t)lap < 0 ? 0 : (int32_t)lap > 999 ? 999 : (int32_t)lap;
         gt4_race_queue_push(race + 0xf4, 0xe,
-                            (car & 0xfffc0000u) | clamp4((int32_t)split) << 4 | clamp4((int32_t)i) | ((uint32_t)n & 0x3ffu) << 8, 2);
+                            (car & 0xfffc0000u) | clamp4((int32_t)split) << 4 | clamp4((int32_t)i) |
+                                ((uint32_t)n & 0x3ffu) << 8,
+                            2);
         gt4_race_post(race, 0x10, (int32_t)i, 0, message_time(time));
     }
-    if (quiet || !rec) return;
+    if (quiet || !rec)
+        return;
     GT4_U32(entry_of(race, i) + 0x119c + split * 4) = time;
 }
 
@@ -612,10 +742,12 @@ void gt4_race_split_event(uint32_t cond, uint32_t i, uint32_t lap, uint32_t spli
    event 1 when it ends */
 void gt4_race_countdown(uint32_t cond)
 {
-    uint16_t n = GT4_U16(cond + 0xcbf4u);
-    if (!n) return;
-    GT4_U16(cond + 0xcbf4u) = (uint16_t)(n - 1);
-    if (n - 1 == 0) gt4_race_queue_push(GT4_U32(cond) + 0xf4, 1, 0, 0);
+    uint16_t n = GT4_U16(cond + CONDUCTOR_FIELD_UNK_CBF4_U);
+    if (!n)
+        return;
+    GT4_U16(cond + CONDUCTOR_FIELD_UNK_CBF4_U) = (uint16_t)(n - 1);
+    if (n - 1 == 0)
+        gt4_race_queue_push(GT4_U32(cond) + 0xf4, 1, 0, 0);
 }
 
 /* ---- The entries' records at the race's start (the world's race start,
@@ -624,7 +756,8 @@ void gt4_race_countdown(uint32_t cond)
 /* func_003BB858: a set of splits (16, then the lap at +0x40): none */
 static void splits_reset(uint32_t s)
 {
-    for (uint32_t k = 0; k <= 0x40; k += 4) GT4_U32(s + k) = 0x157529ffu;
+    for (uint32_t k = 0; k <= 0x40; k += 4)
+        GT4_U32(s + k) = 0x157529ffu;
 }
 
 /* func_003BBA30: an entry's lap list (+0 kept or not, +4 laps, +8 dropped,
@@ -633,11 +766,13 @@ static void laps_reset(uint32_t l, uint32_t mode)
 {
     GT4_U32(l) = mode;
     GT4_U32(l + 4) = 0;
-    if (mode) return;
+    if (mode)
+        return;
     GT4_U32(l + 8) = 0;
     GT4_U32(l + 0xc) = 0;
     GT4_U32(l + 0x10) = 0;
-    for (uint32_t k = 0x14; k <= 0xfb0; k += 4) GT4_U32(l + k) = 0x157529ffu;
+    for (uint32_t k = 0x14; k <= 0xfb0; k += 4)
+        GT4_U32(l + k) = 0x157529ffu;
 }
 
 /* func_003B4E88: an entry's records: its laps, its splits, the gap shown,
@@ -648,7 +783,8 @@ void gt4_race_entry_reset(uint32_t e, uint32_t mode)
     splits_reset(e + 0x119c);
     GT4_U32(e + 0x11ec) = 0;
     GT4_U32(e + 0x11e8) = 0x157529ffu;
-    if (!mode) GT4_U32(e + 0x11e0) = 0x157529ffu;             /* func_003DD778 */
+    if (!mode)
+        GT4_U32(e + 0x11e0) = 0x157529ffu; /* func_003DD778 */
 }
 
 /* func_003C0108: the race's best splits and two counts, each entry's
@@ -656,7 +792,7 @@ void gt4_race_entry_reset(uint32_t e, uint32_t mode)
 void gt4_race_records_start(uint32_t race)
 {
     uint32_t list = GT4_U32(race + 0x60);
-    GT4_U32(race + 0x920) = 0;                                  /* func_003DD7D0 */
+    GT4_U32(race + 0x920) = 0; /* func_003DD7D0 */
     GT4_U32(race + 0x924) = 0;
     splits_reset(race + 0x928);
     for (uint32_t i = 0; (int32_t)i < (int32_t)GT4_U32(list); i++)
@@ -672,13 +808,17 @@ void gt4_race_records_start(uint32_t race)
 void gt4_race_entries_begin(uint32_t race, uint32_t cond)
 {
     uint32_t list = GT4_U32(race + 0x60), mode;
-    mode = !(GT4_U32(GT4_U32(race + 0x84) + 0xcc8) < 2) || GT4_U32(race + 0xf0) || GT4_U32(race + 0xdc);
+    mode = !(GT4_U32(GT4_U32(race + 0x84) + 0xcc8) < 2) || GT4_U32(race + 0xf0) ||
+           GT4_U32(race + 0xdc);
     for (uint32_t i = 0; (int32_t)i < (int32_t)GT4_U32(list); i++) {
-        uint32_t e = GT4_U32(GT4_U32(list + 8) + i * 4), car = cond + 0x6698u + i * CAR_SIZE;
+        uint32_t e = GT4_U32(GT4_U32(list + 8) + i * 4),
+                 car = cond + CONDUCTOR_FIELD_CARS_U + i * CAR_SIZE;
         GT4_U32(e + 0x18) = car;
         GT4_U32(e + 0x2894) = car;
-        if (GT4_U32(e + 0x2880)) GT4_U32(GT4_U32(e + 0x2880) + 4) = car;
-        if (GT4_U32(e + 0x2880)) GT4_U32(GT4_U32(e + 0x2880)) = e + 0x2890;
+        if (GT4_U32(e + 0x2880))
+            GT4_U32(GT4_U32(e + 0x2880) + 4) = car;
+        if (GT4_U32(e + 0x2880))
+            GT4_U32(GT4_U32(e + 0x2880)) = e + 0x2890;
         GT4_U32(e + 0x3488) = 1;
         gt4_race_entry_reset(e, mode);
     }

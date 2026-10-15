@@ -83,7 +83,7 @@ project asks for `sw_20`, absent from the three font sets currently searched.
 
 Navigation is now handled by the menu runtime: arrows select, Enter
 activates and Escape cancels through scripts. F1/F2 and PageUp/PageDown
-remain development shortcuts. See [MENU_NAVIGATION.md](MENU_NAVIGATION.md).
+remain development shortcuts. See [MENU_NAVIGATION.md](notes/MENU_NAVIGATION.md).
 
 ## Validation
 

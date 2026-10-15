@@ -13,7 +13,7 @@ extern ee_fn (*phys_extra_hook)(uint32_t addr);
 /* Rows for the native car record (NULL: the tables in the game's memory). */
 #include "car.h"
 extern const gt4_specdb_src *phys_record_src;
-extern const gt4_specdb_src phys_memory_src;   /* the tables in the game's memory */
+extern const gt4_specdb_src phys_memory_src; /* the tables in the game's memory */
 /* the last functions entered (to stderr) */
 void phys_print_recent(void);
 #endif

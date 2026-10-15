@@ -14,7 +14,7 @@ typedef struct gt4_mot1 gt4_mot1;
 
 /* Copies what it needs; NULL if the data is not a supported Mot1. */
 gt4_mot1 *gt4_mot1_open(const uint8_t *data, size_t size);
-void      gt4_mot1_close(gt4_mot1 *m);
+void gt4_mot1_close(gt4_mot1 *m);
 
 /* The timeline: its end, and where playing past the end loops back to. */
 float gt4_mot1_end(const gt4_mot1 *m);
@@ -39,10 +39,11 @@ int gt4_mot1_camera(const gt4_mot1 *m, float t, float look[9], float *fov);
 
 /* Local translation/Euler channels preceding the named drawing marker,
    radians. These are local channels, not accumulated skeletal matrices. */
-int gt4_mot1_transform(const gt4_mot1 *m,const char *target,float t,float position[3],float euler[3]);
+int gt4_mot1_transform(const gt4_mot1 *m, const char *target, float t, float position[3],
+                       float euler[3]);
 /* Accumulated column-major frames at named drawing markers. Sine/cosine
    is an explicit boundary so the caller can use the original native math.
    Returns the number of matched names, or -1 for an invalid matrix stack. */
-int gt4_mot1_frames(const gt4_mot1 *m,float t,const char *const *names,int count,
-                    float (*out)[16],void (*sincos_fn)(float,float *,float *));
+int gt4_mot1_frames(const gt4_mot1 *m, float t, const char *const *names, int count,
+                    float (*out)[16], void (*sincos_fn)(float, float *, float *));
 #endif

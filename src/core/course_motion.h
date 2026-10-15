@@ -22,6 +22,7 @@ int gt4_motion_bank_count(const gt4_motion_bank *b);
 const char *gt4_motion_bank_name(const gt4_motion_bank *b, int motion);
 /* Motion `motion` at its time t (wrapped as func_0042D430): eye, target
    and up (look[9]) and the field of view (radians). 0 when absent. */
-int gt4_motion_bank_camera(const gt4_motion_bank *b, int motion, float t, float look[9], float *fov);
+int gt4_motion_bank_camera(const gt4_motion_bank *b, int motion, float t, float look[9],
+                           float *fov);
 
 #endif

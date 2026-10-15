@@ -102,7 +102,7 @@ The first recompiled run found things the static analysis missed:
   executes `eret` to return.
 - `StartThread` and `DeleteSema` are absent from the synthetic trace.
   This is not proof of absence on the reference: a missing created-thread
-  status bypasses StartThread natively. See [thread audit](THREAD_REFERENCE.md).
+  status bypasses StartThread natively. See [thread audit](../notes/analysis/THREAD_REFERENCE.md).
 
 How the runtime handles these:
 

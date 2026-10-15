@@ -57,11 +57,11 @@ ee_fn recomp_lookup(uint32_t addr);
 extern const ee_code_range recomp_code_ranges[];
 extern const int recomp_n_code_ranges;
 
-#define STEP        0x0034db30u
-#define CONDUCTOR   0x01bf7860u   /* Time Trial snapshots; see PHYSICS.md */
-#define CAR_OFFSET  0x6698u
-#define STACK_TOP   0x01ef0000u
-#define READ_PAD    0x00426d50u
+#define STEP 0x0034db30u
+#define CONDUCTOR 0x01bf7860u /* Time Trial snapshots; see PHYSICS.md */
+#define CAR_OFFSET 0x6698u
+#define STACK_TOP 0x01ef0000u
+#define READ_PAD 0x00426d50u
 
 static ee_ctx ctx;
 static uint32_t conductor = CONDUCTOR;
@@ -71,9 +71,14 @@ static uint8_t *snapshot;
    steering analog, 1 throttle, 2 brake, 4 handbrake), [2] shift (1 up, -1
    down, while held), steering [4] -4096..4096, throttle [8], brake [0xa],
    handbrake [0xe] 0..4096. */
-static struct { uint8_t flags; int8_t shift; int16_t steer, throttle, brake, handbrake; } command;
-static int digital_steer = 4096;   /* value of a digital steering press */
-static int device_kind = -1;       /* --device: the kind reported (default: 2 for a game controller, 1 for the keyboard) */
+static struct {
+    uint8_t flags;
+    int8_t shift;
+    int16_t steer, throttle, brake, handbrake;
+} command;
+static int digital_steer = 4096; /* value of a digital steering press */
+static int device_kind =
+    -1; /* --device: the kind reported (default: 2 for a game controller, 1 for the keyboard) */
 static int using_pad;
 static uint32_t player_car;
 static SDL_GameController *pad;
@@ -83,11 +88,15 @@ static SDL_GameController *pad;
 static int host_read(void *u, uint32_t car, uint8_t *cmd, const uint8_t *ev)
 {
     (void)u;
-    if (car != player_car) return 0;
+    if (car != player_car)
+        return 0;
     cmd[0] = command.flags;
-    cmd[1] = (uint8_t)(device_kind >= 0 ? device_kind : using_pad ? 2 : 1);   /* 1 digital pad, 2 analog pad; 4 the GT Force, 6 another wheel */
+    cmd[1] = (uint8_t)(device_kind >= 0 ? device_kind
+                       : using_pad
+                           ? 2
+                           : 1); /* 1 digital pad, 2 analog pad; 4 the GT Force, 6 another wheel */
     cmd[2] = (uint8_t)command.shift;
-    cmd[3] = ev[3];                  /* the block's kind, as the controller echoes it */
+    cmd[3] = ev[3]; /* the block's kind, as the controller echoes it */
     memcpy(cmd + 4, &command.steer, 2);
     memcpy(cmd + 8, &command.throttle, 2);
     memcpy(cmd + 0xa, &command.brake, 2);
@@ -108,8 +117,11 @@ static int host_wheel(void *u, uint32_t car, int16_t state[2])
 static int host_write(void *u, uint32_t car, const uint8_t *out)
 {
     (void)u;
-    if (car != player_car) return 0;
-    if (pad) SDL_GameControllerRumble(pad, (uint16_t)(out[1] > 127 ? 65535 : out[1] * 516), (uint16_t)(out[0] ? 32768 : 0), 100);
+    if (car != player_car)
+        return 0;
+    if (pad)
+        SDL_GameControllerRumble(pad, (uint16_t)(out[1] > 127 ? 65535 : out[1] * 516),
+                                 (uint16_t)(out[0] ? 32768 : 0), 100);
     return 1;
 }
 
@@ -118,9 +130,11 @@ static void read_pad(ee_ctx *c)
 {
     uint32_t out = c->r[5].uw[0], obj = c->r[4].uw[0];
     uint8_t keep = ee_r8(c, obj + 0x153);
-    for (int k = 0; k < 32; k++) ee_w8(c, out + k, 0);
+    for (int k = 0; k < 32; k++)
+        ee_w8(c, out + k, 0);
     ee_w8(c, out + 0, command.flags);
-    ee_w8(c, out + 1, 2);   /* device kind: 2 analog pad (as in the snapshots); 4 is the GT Force wheel */
+    ee_w8(c, out + 1,
+          2); /* device kind: 2 analog pad (as in the snapshots); 4 is the GT Force wheel */
     ee_w8(c, out + 2, (uint8_t)command.shift);
     ee_w8(c, out + 3, keep);
     ee_w16(c, out + 4, (uint16_t)command.steer);
@@ -129,13 +143,17 @@ static void read_pad(ee_ctx *c)
     ee_w16(c, out + 0xe, (uint16_t)command.handbrake);
 }
 
-static ee_fn input_hook(uint32_t addr) { return addr == READ_PAD ? read_pad : NULL; }
+static ee_fn input_hook(uint32_t addr)
+{
+    return addr == READ_PAD ? read_pad : NULL;
+}
 
 static long read_file(const char *path, uint8_t *dst, size_t size)
 {
     FILE *f = fopen(path, "rb");
     long n;
-    if (!f) return -1;
+    if (!f)
+        return -1;
     n = (long)fread(dst, 1, size, f);
     fclose(f);
     return n;
@@ -168,15 +186,27 @@ static int step(void)
     return ok;
 }
 
-static float f32(uint32_t a) { float f; uint32_t v = ee_r32(&ctx, a); memcpy(&f, &v, 4); return f; }
+static float f32(uint32_t a)
+{
+    float f;
+    uint32_t v = ee_r32(&ctx, a);
+    memcpy(&f, &v, 4);
+    return f;
+}
 
 /* Physics frame (x, y, z up) to the render frame (x, y up, z) of the course. */
-static void to_render(const float v[3], float out[3]) { out[0] = v[0]; out[1] = v[2]; out[2] = -v[1]; }
+static void to_render(const float v[3], float out[3])
+{
+    out[0] = v[0];
+    out[1] = v[2];
+    out[2] = -v[1];
+}
 
 static float ride_height(uint32_t car)
 {
     float ground = 0;
-    for (int i = 0; i < 4; i++) ground += f32(car + CAR_WHEELS + i * WHEEL_SIZE + WHEEL_8C);
+    for (int i = 0; i < 4; i++)
+        ground += f32(car + CAR_WHEELS + i * WHEEL_SIZE + WHEEL_8C);
     return f32(car + CAR_POSITION + 8) - ground * .25f;
 }
 
@@ -185,18 +215,24 @@ static void pose(uint32_t car, float height, float pos[3], float rot[9])
     float p[3], a[3], up[3], fwd[3], u[3], c0[3], c2[3];
     for (int k = 0; k < 3; k++) {
         p[k] = f32(car + CAR_POSITION + 4 * k);
-        a[k] = f32(car + CAR_MATRIX + 4 * k);          /* forward */
-        up[k] = f32(car + CAR_MATRIX + 0x18 + 4 * k);  /* up */
+        a[k] = f32(car + CAR_MATRIX + 4 * k);         /* forward */
+        up[k] = f32(car + CAR_MATRIX + 0x18 + 4 * k); /* up */
     }
-    for (int k = 0; k < 3; k++) p[k] -= up[k] * height;   /* model origin on the ground */
+    for (int k = 0; k < 3; k++)
+        p[k] -= up[k] * height; /* model origin on the ground */
     to_render(p, pos);
     to_render(a, fwd);
     to_render(up, u);
-    for (int k = 0; k < 3; k++) c2[k] = -fwd[k];
+    for (int k = 0; k < 3; k++)
+        c2[k] = -fwd[k];
     c0[0] = u[1] * c2[2] - u[2] * c2[1];
     c0[1] = u[2] * c2[0] - u[0] * c2[2];
     c0[2] = u[0] * c2[1] - u[1] * c2[0];
-    for (int r = 0; r < 3; r++) { rot[r * 3] = c0[r]; rot[r * 3 + 1] = u[r]; rot[r * 3 + 2] = c2[r]; }
+    for (int r = 0; r < 3; r++) {
+        rot[r * 3] = c0[r];
+        rot[r * 3 + 1] = u[r];
+        rot[r * 3 + 2] = c2[r];
+    }
 }
 
 /* The wheels for the drawing, per model slot (front, rear; the model's +x
@@ -211,9 +247,11 @@ static void wheel_poses(uint32_t car, int idx, const float rot[9], float out[4][
         uint32_t w = car + CAR_WHEELS + i * WHEEL_SIZE;
         float m[3], r[3], local[3];
         int slot;
-        for (int k = 0; k < 3; k++) m[k] = f32(w + WHEEL_MOUNT + 4 * k);
+        for (int k = 0; k < 3; k++)
+            m[k] = f32(w + WHEEL_MOUNT + 4 * k);
         to_render(m, r);
-        for (int k = 0; k < 3; k++) local[k] = rot[k] * r[0] + rot[3 + k] * r[1] + rot[6 + k] * r[2];
+        for (int k = 0; k < 3; k++)
+            local[k] = rot[k] * r[0] + rot[3 + k] * r[1] + rot[6 + k] * r[2];
         slot = (local[2] > 0 ? 2 : 0) + (local[0] > 0 ? 0 : 1);
         out[slot][0] = f32(w + WHEEL_STEER);
         out[slot][1] = -f32(w + WHEEL_ROTATION);
@@ -223,7 +261,8 @@ static void wheel_poses(uint32_t car, int idx, const float rot[9], float out[4][
 
 static float approach(float v, float target, float rate)
 {
-    if (v < target) return v + rate < target ? v + rate : target;
+    if (v < target)
+        return v + rate < target ? v + rate : target;
     return v - rate > target ? v - rate : target;
 }
 
@@ -231,7 +270,7 @@ int main(int argc, char **argv)
 {
     const char *car_code = "ka_01", *course = "tsukuba", *spr = NULL;
     int original = 0, flip = 0, running = 1, ready = 0, auto_frames = 0, steps = 0;
-    const char *shot = NULL, *elf = NULL;   /* the executable: the disc's own unless --elf */
+    const char *shot = NULL, *elf = NULL; /* the executable: the disc's own unless --elf */
     int built = 0;
     float auto_steer = 0, start_orbit = 0;
     int auto_analog = 0;
@@ -246,48 +285,77 @@ int main(int argc, char **argv)
     int manual = 0, auto_shift = 0;
 
     if (argc < 3) {
-        fprintf(stderr, "usage: %s <disc.iso> <eeMemory.bin|-> [Scratchpad.bin] [--car code] [--course name] [--elf core.elf] [--original] [--flip-steering]\n", argv[0]);
+        fprintf(
+            stderr,
+            "usage: %s <disc.iso> <eeMemory.bin|-> [Scratchpad.bin] [--car code] [--course name] [--elf core.elf] [--original] [--flip-steering]\n",
+            argv[0]);
         return 2;
     }
     for (int i = 3; i < argc; i++) {
-        if (!strcmp(argv[i], "--car") && i + 1 < argc) car_code = argv[++i];
-        else if (!strcmp(argv[i], "--course") && i + 1 < argc) course = argv[++i];
-        else if (!strcmp(argv[i], "--original")) original = 1;
-        else if (!strcmp(argv[i], "--flip-steering")) flip = 1;
-        else if (!strcmp(argv[i], "--auto") && i + 1 < argc) auto_frames = atoi(argv[++i]);
-        else if (!strcmp(argv[i], "--shot") && i + 1 < argc) shot = argv[++i];
-        else if (!strcmp(argv[i], "--auto-steer") && i + 1 < argc) auto_steer = (float)atof(argv[++i]);
-        else if (!strcmp(argv[i], "--auto-analog")) auto_analog = 1;
-        else if (!strcmp(argv[i], "--orbit") && i + 1 < argc) start_orbit = (float)atof(argv[++i]);
-        else if (!strcmp(argv[i], "--digital-steer") && i + 1 < argc) digital_steer = atoi(argv[++i]);
-        else if (!strcmp(argv[i], "--elf") && i + 1 < argc) elf = argv[++i];
-        else if (!strcmp(argv[i], "--manual")) manual = 1;
-        else if (!strcmp(argv[i], "--device") && i + 1 < argc) device_kind = atoi(argv[++i]);
-        else if (!strcmp(argv[i], "--auto-shift") && i + 1 < argc) auto_shift = atoi(argv[++i]);   /* up every n steps */
-        else if (!strcmp(argv[i], "--arcade")) arcade = 1;
-        else if (!strcmp(argv[i], "--ai") && i + 1 < argc) ai = argv[++i];
-        else spr = argv[i];
+        if (!strcmp(argv[i], "--car") && i + 1 < argc)
+            car_code = argv[++i];
+        else if (!strcmp(argv[i], "--course") && i + 1 < argc)
+            course = argv[++i];
+        else if (!strcmp(argv[i], "--original"))
+            original = 1;
+        else if (!strcmp(argv[i], "--flip-steering"))
+            flip = 1;
+        else if (!strcmp(argv[i], "--auto") && i + 1 < argc)
+            auto_frames = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--shot") && i + 1 < argc)
+            shot = argv[++i];
+        else if (!strcmp(argv[i], "--auto-steer") && i + 1 < argc)
+            auto_steer = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--auto-analog"))
+            auto_analog = 1;
+        else if (!strcmp(argv[i], "--orbit") && i + 1 < argc)
+            start_orbit = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--digital-steer") && i + 1 < argc)
+            digital_steer = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--elf") && i + 1 < argc)
+            elf = argv[++i];
+        else if (!strcmp(argv[i], "--manual"))
+            manual = 1;
+        else if (!strcmp(argv[i], "--device") && i + 1 < argc)
+            device_kind = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--auto-shift") && i + 1 < argc)
+            auto_shift = atoi(argv[++i]); /* up every n steps */
+        else if (!strcmp(argv[i], "--arcade"))
+            arcade = 1;
+        else if (!strcmp(argv[i], "--ai") && i + 1 < argc)
+            ai = argv[++i];
+        else
+            spr = argv[i];
     }
     if (arcade) {
         /* the other cars: --ai, or the ones of the Arcade captures */
-        const char *p = ai ? ai : "_1100_standard_type11_49,z_act_70,today_g_85,midget2_d_type_98,s500_63";
+        const char *p =
+            ai ? ai : "_1100_standard_type11_49,z_act_70,today_g_85,midget2_d_type_98,s500_63";
         while (p && *p && nai < 7) {
             size_t n = strcspn(p, ",");
-            if (n >= sizeof ai_codes[0]) { fprintf(stderr, "car name too long\n"); return 2; }
+            if (n >= sizeof ai_codes[0]) {
+                fprintf(stderr, "car name too long\n");
+                return 2;
+            }
             memcpy(ai_codes[nai], p, n);
             ai_codes[nai++][n] = 0;
             p = p[n] ? p + n + 1 : NULL;
         }
-        if (strcmp(argv[2], "-")) { fprintf(stderr, "--arcade builds its race: use - for the snapshot\n"); return 2; }
+        if (strcmp(argv[2], "-")) {
+            fprintf(stderr, "--arcade builds its race: use - for the snapshot\n");
+            return 2;
+        }
     }
-    if (ee_init(&ctx) != 0) return 2;
+    if (ee_init(&ctx) != 0)
+        return 2;
     if (!strcmp(argv[2], "-")) {
         /* no snapshot: the race built from the executable's image
            (tests/physics/race_build.c), set up to its end, stepped without
            the presentation (no sound or replay objects here) */
         char msg[256];
         uint32_t cond;
-        if (!(arcade ? phys_race_build_arcade(ctx.ram, elf ? elf : argv[1], 1 + nai, &cond, msg, sizeof msg)
+        if (!(arcade ? phys_race_build_arcade(ctx.ram, elf ? elf : argv[1], 1 + nai, &cond, msg,
+                                              sizeof msg)
                      : phys_race_build(ctx.ram, elf ? elf : argv[1], &cond, msg, sizeof msg))) {
             fprintf(stderr, "race build: %s\n", msg);
             return 2;
@@ -305,7 +373,8 @@ int main(int argc, char **argv)
         fprintf(stderr, "cannot read %s\n", spr);
         return 2;
     }
-    if (!(snapshot = malloc(EE_RAM_SIZE))) return 2;
+    if (!(snapshot = malloc(EE_RAM_SIZE)))
+        return 2;
     memcpy(snapshot, ctx.ram, EE_RAM_SIZE);
     ctx.lookup = recomp_lookup;
     ctx.code_ranges = recomp_code_ranges;
@@ -319,8 +388,8 @@ int main(int argc, char **argv)
         gt4_phys_pad.read = host_read;
         gt4_phys_pad.wheel_state = host_wheel;
         gt4_phys_pad.write = host_write;
-        gt4_phys_scratch = STACK_TOP - 0x10000u;   /* below the stack the step uses */
-        gt4_phys_specdb = &phys_memory_src;        /* the tables in memory; a built race's below */
+        gt4_phys_scratch = STACK_TOP - 0x10000u; /* below the stack the step uses */
+        gt4_phys_specdb = &phys_memory_src;      /* the tables in memory; a built race's below */
     }
     phys_natives_install(&ctx);
     if (built || strcmp(car_code, "ka_01") || strcmp(course, "tsukuba")) {
@@ -333,15 +402,24 @@ int main(int argc, char **argv)
         gt4_vol *vol = gt4_vol_open(argv[1], &err);
         int32_t id = -1;
         char msg[160];
-        if (!vol) { fprintf(stderr, "cannot open %s: %s\n", argv[1], err ? err : "?"); return 2; }
+        if (!vol) {
+            fprintf(stderr, "cannot open %s: %s\n", argv[1], err ? err : "?");
+            return 2;
+        }
         if (built || strcmp(car_code, "ka_01")) {
             size_t n = 0;
             uint8_t *labels = gt4_vol_read(vol, "/specdb/GT4_US2560/GENERIC_CAR.idi", &n);
             uint32_t v;
-            if (!labels || !gt4_specdb_label(labels, n, car_code, &v)) { fprintf(stderr, "unknown car %s\n", car_code); return 2; }
+            if (!labels || !gt4_specdb_label(labels, n, car_code, &v)) {
+                fprintf(stderr, "unknown car %s\n", car_code);
+                return 2;
+            }
             id = (int32_t)v;
             for (int k = 0; k < nai; k++) {
-                if (!gt4_specdb_label(labels, n, ai_codes[k], &v)) { fprintf(stderr, "unknown car %s\n", ai_codes[k]); return 2; }
+                if (!gt4_specdb_label(labels, n, ai_codes[k], &v)) {
+                    fprintf(stderr, "unknown car %s\n", ai_codes[k]);
+                    return 2;
+                }
                 phys_race_other_cars[k] = (int32_t)v;
             }
             free(labels);
@@ -357,51 +435,60 @@ int main(int argc, char **argv)
             phys_record_src = &disc;
             gt4_phys_specdb = &disc;
         }
-        if (!phys_race_setup(&ctx, vol, conductor, built || strcmp(course, "tsukuba") ? course : NULL, id, msg, sizeof msg)) {
+        if (!phys_race_setup(&ctx, vol, conductor,
+                             built || strcmp(course, "tsukuba") ? course : NULL, id, msg,
+                             sizeof msg)) {
             fprintf(stderr, "race setup: %s\n", msg);
             return 2;
         }
         printf("race set up for %s on %s%s%s\n", car_code, course, msg[0] ? ": " : "", msg);
         memcpy(snapshot, ctx.ram, EE_RAM_SIZE);
-        if (!built) gt4_vol_close(vol);
+        if (!built)
+            gt4_vol_close(vol);
     }
     /* ee_init and the install leave the PS2 mode on; the step sets it itself */
     fesetround(FE_TONEAREST);
 #ifdef HAVE_MXCSR
     _mm_setcsr(_mm_getcsr() & ~0x8040u);
 #endif
-    if (manual) {                        /* manual gearbox: driver kind 4 (3 takes the clutch on the brake pedal) */
+    if (manual) { /* manual gearbox: driver kind 4 (3 takes the clutch on the brake pedal) */
         ee_w8(&ctx, car + CAR_546, 4);
         memcpy(snapshot, ctx.ram, EE_RAM_SIZE);
     }
     ncars = ee_r32(&ctx, conductor + 0xf8a0u);
-    if (ncars < 1 || ncars > 8) ncars = 1;
+    if (ncars < 1 || ncars > 8)
+        ncars = 1;
     for (uint32_t k = 0; k < ncars; k++) {
         uint32_t c = car + k * CAR_SIZE;
         height[k] = ride_height(c);
-        for (int i = 0; i < 4; i++) travel0[k][i] = f32(c + CAR_WHEELS + i * WHEEL_SIZE + WHEEL_TRAVEL);
+        for (int i = 0; i < 4; i++)
+            travel0[k][i] = f32(c + CAR_WHEELS + i * WHEEL_SIZE + WHEEL_TRAVEL);
     }
 
-    plat_video_desc desc = { 1280, 896, 0, 1, 1 };
+    plat_video_desc desc = {1280, 896, 0, 1, 1};
     if (plat_video_init(&desc) != 0) {
         fprintf(stderr, "cannot open a window: %s\n", SDL_GetError());
         return 1;
     }
     SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
     for (int i = 0; i < SDL_NumJoysticks() && !pad; i++)
-        if (SDL_IsGameController(i)) pad = SDL_GameControllerOpen(i);
+        if (SDL_IsGameController(i))
+            pad = SDL_GameControllerOpen(i);
     plat_video_set_view(640, 448);
     race_view *s = race_view_open(argv[1]);
     {
         const char *names[7];
-        for (int k = 0; k < nai; k++) names[k] = ai_codes[k];
-        if (s && nai) race_view_set_opponents(s, names, NULL, nai);
+        for (int k = 0; k < nai; k++)
+            names[k] = ai_codes[k];
+        if (s && nai)
+            race_view_set_opponents(s, names, NULL, nai);
     }
     if (!s || !race_view_request(s, course, car_code, 0)) {
         fprintf(stderr, "cannot load course %s\n", course);
         return 1;
     }
-    printf("physics: %s; %s\n", original ? "original only" : "rewritten parts in C, the rest original",
+    printf("physics: %s; %s\n",
+           original ? "original only" : "rewritten parts in C, the rest original",
            pad ? SDL_GameControllerName(pad) : "keyboard");
 
     last = plat_time_ns();
@@ -413,14 +500,23 @@ int main(int argc, char **argv)
         float want_steer, throttle, brake, hand;
         last = now;
         while (SDL_PollEvent(&ev)) {
-            if (ev.type == SDL_QUIT) running = 0;
-            if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE) running = 0;
-            if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_r) memcpy(ctx.ram, snapshot, EE_RAM_SIZE);
+            if (ev.type == SDL_QUIT)
+                running = 0;
+            if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE)
+                running = 0;
+            if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_r)
+                memcpy(ctx.ram, snapshot, EE_RAM_SIZE);
         }
         if (!ready) {
             int r = race_view_poll(s, 0);
-            if (r < 0) { fprintf(stderr, "cannot load course %s\n", course); break; }
-            if (r > 0) { ready = 1; race_view_camera(s, start_orbit, 0); }
+            if (r < 0) {
+                fprintf(stderr, "cannot load course %s\n", course);
+                break;
+            }
+            if (r > 0) {
+                ready = 1;
+                race_view_camera(s, start_orbit, 0);
+            }
         }
 
         /* Controls. The keyboard is a digital pad (the buttons as they are:
@@ -432,15 +528,19 @@ int main(int argc, char **argv)
         brake = keys[SDL_SCANCODE_DOWN] ? 1.f : 0.f;
         hand = keys[SDL_SCANCODE_SPACE] ? 1.f : 0.f;
         command.shift = (int8_t)(keys[SDL_SCANCODE_A] - keys[SDL_SCANCODE_Z]);
-        if (pad) command.shift = (int8_t)(command.shift + SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)
-                                          - SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_LEFTSHOULDER));
+        if (pad)
+            command.shift =
+                (int8_t)(command.shift +
+                         SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) -
+                         SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_LEFTSHOULDER));
         steer = want_steer;
         command.flags = 0;
         if (auto_frames) {
             throttle = 1;
             steer = auto_steer;
             command.flags = auto_analog ? 0x17 : 0;
-            if (auto_shift && steps % auto_shift < 6) command.shift = 1;
+            if (auto_shift && steps % auto_shift < 6)
+                command.shift = 1;
         }
         if (pad) {
             float x = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX) / 32767.f;
@@ -452,10 +552,12 @@ int main(int argc, char **argv)
                 throttle = rt > .05f ? rt : 0;
                 brake = lt > .05f ? lt : 0;
             }
-            if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A)) hand = 1;
+            if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A))
+                hand = 1;
         }
         using_pad = command.flags != 0;
-        if (flip) steer = -steer;
+        if (flip)
+            steer = -steer;
         if (command.flags) {
             command.steer = (int16_t)(steer * 4096);
             command.throttle = (int16_t)(throttle * 4096);
@@ -472,16 +574,29 @@ int main(int argc, char **argv)
 
         /* the simulation at its own 60 Hz */
         acc += dt;
-        if (acc > .1) acc = .1;
+        if (acc > .1)
+            acc = .1;
         while (ready && acc >= 1.0 / 60) {
-            if (!step()) { running = 0; break; }
+            if (!step()) {
+                running = 0;
+                break;
+            }
             acc -= 1.0 / 60;
             if (++steps % 60 == 0)
-                printf("t %4.0fs  %6.1f km/h  %5d rpm  gear %d  pos (%.1f, %.1f, %.2f)\n", steps / 60.0,
-                       f32(car + CAR_SPEED) * 3.6f, (int16_t)ee_r16(&ctx, car + CAR_ENGINE_RPM), ee_r8(&ctx, car + CAR_GEAR),
-                       f32(car + CAR_POSITION), f32(car + CAR_POSITION + 4), f32(car + CAR_POSITION + 8));
-            if (auto_frames && steps % (getenv("DRIVE_LOG_EVERY") ? atoi(getenv("DRIVE_LOG_EVERY")) : 20) == 0)
-                fprintf(stderr, "steer cmd %d  56c %.4f  w0 %.4f  yaw %.4f  kind %d 56a %d 56b %d btn %d gear %d\n", command.steer, f32(car + CAR_56C), f32(car + CAR_WHEELS), f32(car + CAR_ANGLES + 8), ee_r8(&ctx, car + CAR_546), ee_r8(&ctx, car + 0x56a), ee_r8(&ctx, car + 0x56b), (int8_t)ee_r8(&ctx, car + 0x567), ee_r8(&ctx, car + CAR_GEAR));
+                printf("t %4.0fs  %6.1f km/h  %5d rpm  gear %d  pos (%.1f, %.1f, %.2f)\n",
+                       steps / 60.0, f32(car + CAR_SPEED) * 3.6f,
+                       (int16_t)ee_r16(&ctx, car + CAR_ENGINE_RPM), ee_r8(&ctx, car + CAR_GEAR),
+                       f32(car + CAR_POSITION), f32(car + CAR_POSITION + 4),
+                       f32(car + CAR_POSITION + 8));
+            if (auto_frames &&
+                steps % (getenv("DRIVE_LOG_EVERY") ? atoi(getenv("DRIVE_LOG_EVERY")) : 20) == 0)
+                fprintf(
+                    stderr,
+                    "steer cmd %d  56c %.4f  w0 %.4f  yaw %.4f  kind %d 56a %d 56b %d btn %d gear %d\n",
+                    command.steer, f32(car + CAR_56C), f32(car + CAR_WHEELS),
+                    f32(car + CAR_ANGLES + 8), ee_r8(&ctx, car + CAR_546), ee_r8(&ctx, car + 0x56a),
+                    ee_r8(&ctx, car + 0x56b), (int8_t)ee_r8(&ctx, car + 0x567),
+                    ee_r8(&ctx, car + CAR_GEAR));
         }
 
         plat_video_begin_frame();
@@ -504,17 +619,25 @@ int main(int argc, char **argv)
             }
             race_view_camera(s, orbit, zoom);
             race_view_draw(s);
-            snprintf(title, sizeof title, "OpenGT4 drive | %3.0f km/h | %5d rpm | marcha %d | setas, espaco, C/V camera, R reinicia, Esc sai",
-                     fabsf(f32(car + CAR_SPEED)) * 3.6f, (int16_t)ee_r16(&ctx, car + CAR_ENGINE_RPM), ee_r8(&ctx, car + CAR_GEAR));
+            snprintf(
+                title, sizeof title,
+                "OpenGT4 drive | %3.0f km/h | %5d rpm | marcha %d | setas, espaco, C/V camera, R reinicia, Esc sai",
+                fabsf(f32(car + CAR_SPEED)) * 3.6f, (int16_t)ee_r16(&ctx, car + CAR_ENGINE_RPM),
+                ee_r8(&ctx, car + CAR_GEAR));
             SDL_SetWindowTitle(SDL_GetWindowFromID(1), title);
             if (auto_frames && steps >= auto_frames) {
                 if (shot) {
                     int w = 0, h = 0;
                     unsigned char *px = plat_sdl_read_pixels(&w, &h);
                     size_t len = 0;
-                    void *png = px ? tdefl_write_image_to_png_file_in_memory(px, w, h, 4, &len) : NULL;
+                    void *png =
+                        px ? tdefl_write_image_to_png_file_in_memory(px, w, h, 4, &len) : NULL;
                     FILE *f = png ? fopen(shot, "wb") : NULL;
-                    if (f) { fwrite(png, 1, len, f); fclose(f); printf("saved %s\n", shot); }
+                    if (f) {
+                        fwrite(png, 1, len, f);
+                        fclose(f);
+                        printf("saved %s\n", shot);
+                    }
                     mz_free(png);
                     free(px);
                 }

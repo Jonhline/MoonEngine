@@ -18,16 +18,16 @@
 #define EE_MAX_THREADS 64
 
 /* Thread status values, as in ee_thread_status_t. */
-#define EE_THS_RUN     0x01
-#define EE_THS_READY   0x02
-#define EE_THS_WAIT    0x04
+#define EE_THS_RUN 0x01
+#define EE_THS_READY 0x02
+#define EE_THS_WAIT 0x04
 #define EE_THS_SUSPEND 0x08
 #define EE_THS_DORMANT 0x10
 
 /* Wait types. */
-#define EE_WAIT_NONE  0
+#define EE_WAIT_NONE 0
 #define EE_WAIT_SLEEP 1
-#define EE_WAIT_SEMA  2
+#define EE_WAIT_SEMA 2
 
 /* Return address for new threads when SetupThread gave no root routine
    (our address). Normally the root routine is used, as the kernel does. */
@@ -36,9 +36,9 @@
 /* Start the scheduler with the main thread (ID 1) running `entry`.
    Returns when the run ends (ee_end) or when the main thread's entry returns.
    Returns 0 on success, -1 if fibers could not be created. */
-int  ee_sched_run(ee_ctx *c, ee_fn entry);
+int ee_sched_run(ee_ctx *c, ee_fn entry);
 void ee_sched_free(ee_ctx *c);
-int  ee_sched_active(const ee_ctx *c);
+int ee_sched_active(const ee_ctx *c);
 /* Called by ee_end from inside a guest thread: never returns. */
 void ee_sched_exit_to_host(ee_ctx *c);
 /* After an interrupt handler: switch if it readied a higher-priority thread. */

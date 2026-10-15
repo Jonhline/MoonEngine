@@ -17,7 +17,10 @@ enum { RACE_PAUSE_OPEN = 0, RACE_PAUSE_CONTINUE = 3, RACE_PAUSE_EXIT = 4, RACE_P
 typedef void (*race_pause_sound)(void *user, const char *name);
 
 /* retry, screen, confirm: the menu's options (pause +0x28, +0x30, +0x2C) */
-race_pause *race_pause_open(gt4_vol *vol, int retry, int screen, int confirm, race_pause_sound sound, void *user);
+race_pause *race_pause_open(gt4_vol *vol, int retry, int screen, int confirm,
+                            race_pause_sound sound, void *user);
+race_pause *race_pause_open_display(gt4_vol *vol, int retry, int screen, int confirm,
+                                    race_pause_sound sound, void *user, int replay);
 void race_pause_close(race_pause *p);
 /* a key going down, as Flash's Key codes (37..40 the arrows, 13 enter) */
 void race_pause_key(race_pause *p, int code);
@@ -27,4 +30,5 @@ int race_pause_state(const race_pause *p);
 
 /* Display options shared with ResultLicense (003EFEA8). */
 void race_pause_display_options(int options[4]);
+void race_pause_display_options_for(int replay, int options[4]);
 #endif

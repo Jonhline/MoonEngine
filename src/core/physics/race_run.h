@@ -13,42 +13,46 @@
 #include "course_gadget.h"
 
 typedef struct {
-    char course[32];      /* a /crs name, e.g. "tsukuba" */
-    int cars;             /* 1..6, the player's first */
-    uint32_t car[6];      /* GENERIC_CAR ids */
+    char course[32]; /* a /crs name, e.g. "tsukuba" */
+    int cars;        /* 1..6, the player's first */
+    uint32_t car[6]; /* GENERIC_CAR ids */
     /* Optional serialized owned-car body (0x4b8 bytes, class header removed).
        Consumed synchronously by open; NULL constructs the stock setup. */
     const uint8_t *owned_car[6];
+    /* Original GT4M entry records (003DDAD8), borrowed through open. */
+    const uint8_t *disc_entry[6];
+    const uint8_t *disc_settings; /* Decoded RACE row, independent of world class. */
+    const uint8_t *disc_race_options; /* GT4M +0x50, 0x60 bytes */
     /* Decoded 151-byte RACE row; NULL uses the Arcade path. A career
        caller must supply the original grid and owned player entry. */
     const uint8_t *event_row;
-    int championship;     /* event world: 003EF498 mode 14 instead of 13 */
-    char license_code[32]; /* original RACE label for result title (003BCB38) */
-    int license;          /* 1: 003BBF90 RaceLicense; 2: 003ED298 RaceTraining */
-    uint64_t tuned_car[6]; /* optional ENEMY_CARS key (namespace 0x26) */
+    int championship;        /* event world: 003EF498 mode 14 instead of 13 */
+    char license_code[32];   /* original RACE label for result title (003BCB38) */
+    int license;             /* 1: 003BBF90 RaceLicense; 2: 003ED298 RaceTraining */
+    uint64_t tuned_car[6];   /* optional ENEMY_CARS key (namespace 0x26) */
     uint64_t event_paint[6]; /* RACES second qword: one-based, 0/-1 random */
     /* State after opponent selection; consumed synchronously and advanced
        by 0040AA48. Required for a prepared event grid. */
     uint32_t *event_rng;
-    int laps;             /* 0: two (the option race_laps' default) */
-    int tire;             /* every car's tyres (the Arcade's): 1 + the
+    int laps;       /* 0: two (the option race_laps' default) */
+    int tire;       /* every car's tyres (the Arcade's): 1 + the
                              compound level of its parts list (the driving
                              options' index), 0 the car's own */
-    int manual;           /* the player's gearbox: 0 automatic, 1 manual */
-    int assist_asm;       /* the player's aids (game.assist_asm, */
-    int assist_tcs;       /* game.assist_tcs): both off in the captures */
+    int manual;     /* the player's gearbox: 0 automatic, 1 manual */
+    int assist_asm; /* the player's aids (game.assist_asm, */
+    int assist_tcs; /* game.assist_tcs): both off in the captures */
     /* RaceSplitBattle: two human entries (0032F028, 003470B0). */
     int split_battle, tire_2p, manual_2p, assist_asm_2p, assist_tcs_2p;
     int split_boost, split_handicap, split_tire_damage;
-    int time_trial;       /* the Arcade's Time Trial (00112620): its own
+    int time_trial; /* the Arcade's Time Trial (00112620): its own
                              session and world, one car, no last lap */
-    int world_mode;       /* the world's mode (+0xD68, the names at 0069FE58)
+    int world_mode; /* the world's mode (+0xD68, the names at 0069FE58)
                              when not the path's own: 11 GTMODE_FREE_RUN,
                              12 GTMODE_FREE_PRACTICE; 0 keeps it */
-    int bspec;            /* B-Spec (the quick menu's COMMAND_SPECTATOR): the
+    int bspec;      /* B-Spec (the quick menu's COMMAND_SPECTATOR): the
                              world's +0xCC0..+0xCCC all 1, so 003F1760 gives
                              the player's car to its driver (kind 1) */
-    int pit_menu;         /* a host with the pit menu (world+0xE408, the menu
+    int pit_menu;   /* a host with the pit menu (world+0xE408, the menu
                              003DCA28 makes): the watched car's stop waits
                              for its choice (0035AF18 asks 0038B980); without
                              one the crew chooses */
@@ -75,12 +79,14 @@ int gt4_race_run_ghost_get(const gt4_race_run *r, const uint8_t **car, uint32_t 
                            uint32_t *lap_time, const uint8_t **tape, size_t *steps);
 /* a saved best lap as the ghost to beat (copied): the ghost drives it from
    the next lap the player starts, until a better one replaces it */
-int gt4_race_run_ghost_set(gt4_race_run *r, const uint8_t car[GT4_GHOST_CAR], uint32_t rest, float frac,
-                           uint32_t lap_time, const uint8_t *tape, size_t steps);
+int gt4_race_run_ghost_set(gt4_race_run *r, const uint8_t car[GT4_GHOST_CAR], uint32_t rest,
+                           float frac, uint32_t lap_time, const uint8_t *tape, size_t steps);
 
 /* disc: the user's disc image. NULL on failure, with msg saying why. */
 gt4_race_run *gt4_race_run_open(const char *disc, const gt4_race_desc *d, char *msg, size_t len);
 void gt4_race_run_close(gt4_race_run *r);
+/* Restore a serialized 0x228-byte GT4M entry without replacing host links. */
+void gt4_race_restore_entry(uint32_t entry, const uint8_t *record);
 
 /* One frame (1/60 s): the race's countdown, the step, its events. The
    player's controller comes through gt4_phys_pad. 0 when it failed. */
@@ -100,7 +106,7 @@ uint32_t gt4_race_run_conductor(const gt4_race_run *r);
 int gt4_race_run_finished(const gt4_race_run *r);
 /* 003F8AB0/003F8980: -2 while running, -1 failed, 2/3/4 medals;
    +0x8c is the evaluated attempt time. Does not grant a licence. */
-int gt4_race_run_license_result(const gt4_race_run *r,int32_t *state,uint32_t *time);
+int gt4_race_run_license_result(const gt4_race_run *r, int32_t *state, uint32_t *time);
 uint32_t gt4_race_run_car(const gt4_race_run *r, int i);
 /* the course's line at distance d (func_0034C518), in the render frame */
 int gt4_race_run_course_point(const gt4_race_run *r, float d, float out[3]);
@@ -109,14 +115,15 @@ int gt4_race_run_course_point(const gt4_race_run *r, float d, float out[3]);
    (func_003FE7B0, 1 at a wall; *id the ground triangle carried along);
    p's distance along the course (func_003955E8) */
 int gt4_race_run_ground_id(const gt4_race_run *r, const float p[3]);
-int gt4_race_run_camera_wall(const gt4_race_run *r, float margin, const float from[3], const float to[3], float out[3], int *id);
+int gt4_race_run_camera_wall(const gt4_race_run *r, float margin, const float from[3],
+                             const float to[3], float out[3], int *id);
 float gt4_race_run_course_distance(const gt4_race_run *r, const float p[3]);
-int      gt4_race_run_cars(const gt4_race_run *r);
+int gt4_race_run_cars(const gt4_race_run *r);
 /* car i's mass as its race took it (car +CAR_MASS_A, kg) */
-float    gt4_race_run_mass(const gt4_race_run *r, int i);
+float gt4_race_run_mass(const gt4_race_run *r, int i);
 /* Tests: the guest memory replaced by a PCSX2 capture's (eeMemory.bin,
    32 MB), for a frozen race at the captured moment. 0 if unreadable. */
-int      gt4_race_run_restore(gt4_race_run *r, const char *path);
+int gt4_race_run_restore(gt4_race_run *r, const char *path);
 
 /* What the race display reads of car i each frame (the RaceDisplay's
    update, func_0039DBB8 and func_0039ECD0). Times are in ms, 0x157529FF
@@ -172,7 +179,8 @@ int gt4_race_run_place(const gt4_race_run *r, int i, float p[3], float *yaw);
    (+0x674, +0x678, +0x67C), world = rot * p + pos in the render frame.
    sun and level are the ground's two values under the wheels (the ground
    blocks' +0x14 and +0x18), the mean of the four (func_003D7460). */
-int gt4_race_run_shadow(const gt4_race_run *r, int i, float pos[3], float rot[9], float *sun, float *level);
+int gt4_race_run_shadow(const gt4_race_run *r, int i, float pos[3], float rot[9], float *sun,
+                        float *level);
 /* A camera on car i (CameraOnBoard/RideOn, func_0037B020) of type 0 (on
    the car: the bumper view) or 1 (behind it): point is where the car sits
    in the view (its model's camera point of that index, y up, looking down
@@ -183,7 +191,8 @@ int gt4_race_run_shadow(const gt4_race_run *r, int i, float pos[3], float rot[9]
    render frame and the world-to-view rows (right, up, back). Other types
    (func_0037B580: 6 the roof view) take the car's turns as they are and
    the point's own turns (+0xC, +0x10, +0x14, degrees). */
-int gt4_race_run_camera(const gt4_race_run *r, int i, int type, const float point[8], float eye[3], float rows[9]);
+int gt4_race_run_camera(const gt4_race_run *r, int i, int type, const float point[8], float eye[3],
+                        float rows[9]);
 
 /* The setup's 0..1 rating of cars as they come (func_00130540, what the
    Arcade picks its opponents by): a garage entry from the SpecDB, its
@@ -203,7 +212,8 @@ int gt4_car_ratings_spec(gt4_car_ratings *r, uint64_t key, int *power, int *weig
 /* A car as a race has it (gt4_race_run_setup): its peak power (PS, as a
    float; -1 when the car's spec hides it) and its front and rear tyres'
    types (0..12, -1 none), as the replay's opening shows them */
-int gt4_car_ratings_setup(gt4_car_ratings *r, const uint8_t setup[0x178], float *power, int *front, int *rear);
+int gt4_car_ratings_setup(gt4_car_ratings *r, const uint8_t setup[0x178], float *power, int *front,
+                          int *rear);
 /* a car's setup as the race took it (its garage entry, 0x178 bytes) */
 int gt4_race_run_setup(const gt4_race_run *r, int i, uint8_t out[0x178]);
 /* the car's paint chip (func_00445AE8): four colours, each 0xRRGGBB with

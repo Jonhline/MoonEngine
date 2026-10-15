@@ -2,7 +2,13 @@
 #include "ee.h"
 #include <string.h>
 
-#define CHECK(x) do { if (!(x)) { printf("FAIL line %d: %s\n", __LINE__, #x); return 1; } } while (0)
+#define CHECK(x)                                                                                   \
+    do {                                                                                           \
+        if (!(x)) {                                                                                \
+            printf("FAIL line %d: %s\n", __LINE__, #x);                                            \
+            return 1;                                                                              \
+        }                                                                                          \
+    } while (0)
 static ee_ctx c;
 
 static void setup(uint32_t base, uint32_t size)
@@ -21,7 +27,10 @@ static int good_stack(uint32_t base, uint32_t size, uint32_t expected)
     jmp_buf j;
     CHECK(ee_init(&c) == 0);
     c.exit_jmp = &j;
-    if (setjmp(j)) { printf("unexpected stop: %s\n", c.end_detail); return 1; }
+    if (setjmp(j)) {
+        printf("unexpected stop: %s\n", c.end_detail);
+        return 1;
+    }
     memset(c.ram + expected, 0xa5, 0x2a0);
     setup(base, size);
     CHECK(c.r[2].uw[0] == expected);
@@ -42,7 +51,10 @@ static int bad_stack(uint32_t base, uint32_t size)
     jmp_buf j;
     CHECK(ee_init(&c) == 0);
     c.exit_jmp = &j;
-    if (!setjmp(j)) { setup(base, size); CHECK(0); }
+    if (!setjmp(j)) {
+        setup(base, size);
+        CHECK(0);
+    }
     CHECK(c.end_reason == EE_END_UNSUPPORTED);
     CHECK(strstr(c.end_detail, "explicit RAM stack") != NULL);
     CHECK(ee_r32(&c, 0x1000) == 0);

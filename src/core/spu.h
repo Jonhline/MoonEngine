@@ -10,7 +10,7 @@
 #include <stdint.h>
 
 typedef struct {
-    const uint8_t *adpcm;           /* 16-byte SPU ADPCM blocks from SSA */
+    const uint8_t *adpcm; /* 16-byte SPU ADPCM blocks from SSA */
     size_t blocks;
 } gt4_spu_wave;
 
@@ -20,17 +20,17 @@ typedef struct {
     /* registers */
     const gt4_spu_wave *wave;
     uint16_t pitch, adsr1, adsr2;
-    int16_t voll, volr;             /* 15-bit fixed volume as written (bits 14..0) */
-    uint8_t reverb;                 /* EON bit */
+    int16_t voll, volr; /* 15-bit fixed volume as written (bits 14..0) */
+    uint8_t reverb;     /* EON bit */
     /* hardware state */
     uint8_t phase;
     int16_t envx;
     int32_t env_counter;
-    uint32_t counter;               /* 12-bit fraction of the sample position */
-    size_t block, loop;             /* current block, loop address (LSA) */
-    int index, h1, h2;              /* sample within block, ADPCM history */
+    uint32_t counter;   /* 12-bit fraction of the sample position */
+    size_t block, loop; /* current block, loop address (LSA) */
+    int index, h1, h2;  /* sample within block, ADPCM history */
     int16_t decoded[28];
-    int16_t ring[4];                /* the last four decoded samples, [3] newest */
+    int16_t ring[4]; /* the last four decoded samples, [3] newest */
 } gt4_spu_voice;
 
 /* One voice's registers as a driver publishes them. key_on/key_off are
@@ -57,10 +57,10 @@ void gt4_spu_voice_render(gt4_spu_voice *voice, int32_t *dry, int32_t *wet, int 
 typedef struct {
     uint16_t regs[32];
     int16_t evoll, evolr;
-    int16_t *buffer;                /* caller-owned, `size` halfwords */
+    int16_t *buffer; /* caller-owned, `size` halfwords */
     uint32_t size, at;
-    int32_t half[2];                /* left/right accumulated over a 48 kHz pair */
-    int16_t out[2][2];              /* last two 24 kHz outputs per side */
+    int32_t half[2];   /* left/right accumulated over a 48 kHz pair */
+    int16_t out[2][2]; /* last two 24 kHz outputs per side */
     int phase;
 } gt4_spu_reverb;
 

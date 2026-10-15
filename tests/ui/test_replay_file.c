@@ -5,7 +5,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#define CHECK(x) do { if (!(x)) { fprintf(stderr, "line %d: %s\n", __LINE__, #x); exit(1); } } while (0)
+#define CHECK(x)                                                                                   \
+    do {                                                                                           \
+        if (!(x)) {                                                                                \
+            fprintf(stderr, "line %d: %s\n", __LINE__, #x);                                        \
+            exit(1);                                                                               \
+        }                                                                                          \
+    } while (0)
 
 static void sample(gt4_replay_file *r, uint8_t *tape, size_t steps, uint8_t *thumb)
 {
@@ -15,10 +21,12 @@ static void sample(gt4_replay_file *r, uint8_t *tape, size_t steps, uint8_t *thu
     snprintf(r->car_name, sizeof r->car_name, "Ford Ka `01");
     r->laps = 2;
     r->best_lap = 98436;
-    for (size_t i = 0; i < steps * 0x20; i++) tape[i] = (uint8_t)(i / 0x60 * 7 + (i % 0x20 == 4 ? i : 0));
+    for (size_t i = 0; i < steps * 0x20; i++)
+        tape[i] = (uint8_t)(i / 0x60 * 7 + (i % 0x20 == 4 ? i : 0));
     r->tape = tape;
     r->steps = steps;
-    for (size_t i = 0; i < GT4_REPLAY_THUMB_W * GT4_REPLAY_THUMB_H * 3; i++) thumb[i] = (uint8_t)(i * 13);
+    for (size_t i = 0; i < GT4_REPLAY_THUMB_W * GT4_REPLAY_THUMB_H * 3; i++)
+        thumb[i] = (uint8_t)(i * 13);
     r->thumb = thumb;
 }
 
@@ -39,7 +47,8 @@ int main(void)
     CHECK(!strcmp(back.title, "Tsukuba run"));
     CHECK(!strcmp(back.car_name, "Ford Ka `01") && back.best_lap == 98436 && back.laps == 2);
     gt4_replay_free(&back);
-    for (size_t n = size - 12; n < size; n++) CHECK(!gt4_replay_unpack(data, n, &back));   /* cut in the name */
+    for (size_t n = size - 12; n < size; n++)
+        CHECK(!gt4_replay_unpack(data, n, &back)); /* cut in the name */
     free(data);
 
     /* without one (as files saved before names): no title read */

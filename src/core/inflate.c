@@ -1,3 +1,4 @@
+#include "platform/switch_profile.h"
 #include "inflate.h"
 
 #include "miniz.h"
@@ -19,7 +20,7 @@ size_t core_inflate_raw(const void *src, size_t src_len, void *dst, size_t dst_l
     /* SYNC_FLUSH, not FINISH: with FINISH, miniz reports input that ends before
        a final block as a data error, and these streams end with a sync-flush
        marker (an empty stored block), never a final block. */
-    rc = mz_inflate(&s, MZ_SYNC_FLUSH);
+    rc = SWP_VALUE(SWP_INFLATE, mz_inflate(&s, MZ_SYNC_FLUSH));
     size_t out = dst_len - s.avail_out;
     mz_inflateEnd(&s);
     if (rc == MZ_STREAM_END || (out == dst_len && (rc == MZ_OK || rc == MZ_BUF_ERROR)))

@@ -12,6 +12,7 @@
    plane a vertex is (x, -z). The ground triangle under the car lists the
    wall segments near it. */
 #include "car.h"
+#include "fields_conductor.h"
 
 #include <math.h>
 
@@ -25,21 +26,26 @@
    the light's colour (D_006208A0) changes. */
 static void damage_light(uint32_t car, int lit, int hold)
 {
-    uint32_t s = car + 0x788;
+    uint32_t s = car + CAR_FIELD_UNK_788;
     int cur;
-    if (GT4_U8(GT4_U32(car + CAR_PARAMS) + 0x32) != 1) return;   /* func_0035C7C8 */
+    if (GT4_U8(GT4_U32(car + CAR_PARAMS) + 0x32) != 1)
+        return; /* func_0035C7C8 */
     if ((int8_t)GT4_U8(s + 3) > 0) {
-        if (hold != 0xff) return;
+        if (hold != 0xff)
+            return;
     }
-    if (GT4_U8(s + 2) == 0xff) return;
-    if (hold == 0 && GT4_U8(s + 2)) return;
+    if (GT4_U8(s + 2) == 0xff)
+        return;
+    if (hold == 0 && GT4_U8(s + 2))
+        return;
     cur = GT4_U8(car + 0x789) & 0xf;
     if (cur != lit) {
         GT4_U8(s + 6) = (uint8_t)lit;
         GT4_U8(s + 1) = (uint8_t)((cur << 4) | lit);
     }
     GT4_U8(s + 2) = hold != -1 ? (uint8_t)hold : GT4_U8(0x00620880u + (uint32_t)lit);
-    if (GT4_U8(0x006208a0u + (uint32_t)cur) == GT4_U8(0x006208a0u + (uint32_t)lit)) return;
+    if (GT4_U8(0x006208a0u + (uint32_t)cur) == GT4_U8(0x006208a0u + (uint32_t)lit))
+        return;
     GT4_U8(s + 3) = GT4_U8(0x006208a0u + (uint32_t)cur) ? 0x24 : 0x18;
 }
 
@@ -47,13 +53,20 @@ static void damage_light(uint32_t car, int lit, int hold)
    detail. */
 static void knock_light(uint32_t car, int32_t detail)
 {
-    if (GT4_U8(GT4_U32(car + CAR_PARAMS) + 0x32) != 1) return;
-    if ((uint32_t)(detail - 1) < 2) damage_light(car, 5, -1);
-    else if ((uint32_t)(detail - 5) < 2) damage_light(car, 8, -1);
-    else if (detail < 8) damage_light(car, 4, -1);
-    else if (detail < 11) damage_light(car, 5, 0xd2);
-    else if (detail == 11 || detail == 15) damage_light(car, 4, 0xd2);
-    else damage_light(car, 8, 0xd2);
+    if (GT4_U8(GT4_U32(car + CAR_PARAMS) + 0x32) != 1)
+        return;
+    if ((uint32_t)(detail - 1) < 2)
+        damage_light(car, 5, -1);
+    else if ((uint32_t)(detail - 5) < 2)
+        damage_light(car, 8, -1);
+    else if (detail < 8)
+        damage_light(car, 4, -1);
+    else if (detail < 11)
+        damage_light(car, 5, 0xd2);
+    else if (detail == 11 || detail == 15)
+        damage_light(car, 4, 0xd2);
+    else
+        damage_light(car, 8, 0xd2);
 }
 
 /* func_00350328: the vibration the impact asks for (car+0x70C, strongest
@@ -62,19 +75,27 @@ static void knock_light(uint32_t car, int32_t detail)
    50 at least 0.2; up to 1, nothing under 0.2. */
 static void impact_vibration(uint32_t car, int32_t kind, int32_t detail, float force)
 {
-    uint32_t b = car + 0x104;
+    uint32_t b = car + CAR_POSITION;
     float v = 0;
-    if (kind == -1) return;
-    if (kind == 0) v = force / K(0x47435000u);
-    else if (kind == 1) v = force + force;
+    if (kind == -1)
+        return;
+    if (kind == 0)
+        v = force / K(0x47435000u);
+    else if (kind == 1)
+        v = force + force;
     else if (kind == 2) {
-        if (!GT4_U8(GT4_U32(car + 4) + 0x10000u - 0x7a2u)) return;   /* func_0035DF00 */
+        if (!GT4_U8(GT4_U32(car + CAR_SESSION) + CONDUCTOR_FIELD_UNK_10000_U - 0x7a2u))
+            return; /* func_0035DF00 */
         v = force / K(0x42480000u);
-        if (v < 0) v = -v;
-        if (v < K(0x3e4ccccc)) v = K(0x3e4ccccc);
+        if (v < 0)
+            v = -v;
+        if (v < K(0x3e4ccccc))
+            v = K(0x3e4ccccc);
     }
-    if (K(0x3f800000u) < v) v = K(0x3f800000u);
-    if (v < K(0x3e4ccccc)) v = 0;
+    if (K(0x3f800000u) < v)
+        v = K(0x3f800000u);
+    if (v < K(0x3e4ccccc))
+        v = 0;
     if (GT4_F32(b + 0x608) < v) {
         GT4_U8(b + 0x60d) = (uint8_t)detail;
         GT4_F32(b + 0x608) = v;
@@ -88,109 +109,120 @@ static void impact_vibration(uint32_t car, int32_t kind, int32_t detail, float f
    penalty (method 0x190) and the vibration. */
 void gt4_car_impact(uint32_t car, int32_t kind, int32_t detail, float force)
 {
-    uint32_t b = car + 0x104;
-    if (kind == 0) damage_light(car, 9, -1);                  /* func_0035CF40 */
-    else if (kind == 1) knock_light(car, detail);
-    else if (kind == 2) damage_light(car, 5, -1);             /* func_0035D0C0 */
-    if (!GT4_U8(b + 0x467)) {
+    uint32_t b = car + CAR_POSITION;
+    if (kind == 0)
+        damage_light(car, 9, -1); /* func_0035CF40 */
+    else if (kind == 1)
+        knock_light(car, detail);
+    else if (kind == 2)
+        damage_light(car, 5, -1); /* func_0035D0C0 */
+    if (!GT4_U8(b + CAR_BLOCK_PIT_LANE_STATE)) {
         uint8_t f = GT4_U8(b + 0x630);
-        if (!(f & 2) && GT4_U8(b + 0x62f) < 100) GT4_U8(b + 0x62f) = (uint8_t)(GT4_U8(b + 0x62f) + 1);
+        if (!(f & 2) && GT4_U8(b + CAR_BLOCK_UNK_62F) < 100)
+            GT4_U8(b + CAR_BLOCK_UNK_62F) = (uint8_t)(GT4_U8(b + CAR_BLOCK_UNK_62F) + 1);
         GT4_U8(b + 0x631) = 60;
         GT4_U8(b + 0x630) = (uint8_t)(f | 2);
     }
-    gt4_session_x(GT4_U32(car + 4), 0x190, car, (uint32_t)kind, (uint32_t)detail, 0, 0, 0, force, NULL);
+    gt4_session_x(GT4_U32(car + CAR_SESSION), 0x190, car, (uint32_t)kind, (uint32_t)detail, 0, 0, 0,
+                  force, NULL);
     impact_vibration(car, kind, detail, force);
 }
 
 enum {
-    WALLS          = 0xda6c,  /* conductor: the solver ([+0] conductor, hulls from +0xC) */
-    HULL_SIZE      = 0x4f0,
-    CONDUCTOR_CARS = 0xf8a0,  /* conductor: number of cars */
+    WALLS = 0xda6c, /* conductor: the solver ([+0] conductor, hulls from +0xC) */
+    HULL_SIZE = 0x4f0,
+    CONDUCTOR_CARS = 0xf8a0, /* conductor: number of cars */
 
-    H_INV_MASS     = 0x000,
-    H_INV_INERTIA  = 0x004,
-    H_POINTS       = 0x008,   /* [8] POINT_SIZE: the outline */
-    H_EDGE_HITS    = 0x228,   /* [8] EDGE_SIZE: wall corners met by the edges */
-    H_MARGIN       = 0x388,
-    H_T0           = 0x38c,   /* part of the frame already moved (0..1) */
-    H_POS          = 0x390,   /* x, y, z at H_T0 */
-    H_YAW          = 0x39c,
-    H_T1           = 0x3a0,
-    H_POS_B        = 0x3a4,   /* x, y, z, yaw at H_T1 */
-    H_YAW_B        = 0x3b0,
-    H_STEP         = 0x3b4,   /* x, y, z, yaw from T0 to T1 */
-    H_VEL          = 0x3c4,   /* x, y, z */
-    H_YAW_RATE     = 0x3d0,
-    H_BOX          = 0x3d4,   /* min x, min y, max x, max y of the move, plus margin */
-    H_BOX_SIZE     = 0x3e4,
-    H_STARTED      = 0x3ec,
-    H_HIT_POINT    = 0x3f4,   /* first hit: a point met a wall */
-    H_HIT_CORNER   = 0x3f8,   /* first hit: an edge met a wall's corner */
-    H_HIT_T        = 0x3fc,
-    H_SENSOR       = 0x400,   /* a sensor line (flag 2) was crossed ... */
-    H_SENSOR_T     = 0x404,   /* ... at this fraction */
-    H_HIT_EDGE     = 0x408,   /* car against car: this car's edge, */
-    H_HIT_CAR      = 0x40c,   /* the other car, */
-    H_HIT_OTHER    = 0x410,   /* its point, */
-    H_HIT_ARM      = 0x414,   /* and where, in this car's frame */
-    H_POINT        = 0x41c,
-    H_WALL_DIR     = 0x420,
-    H_WALL         = 0x428,
-    H_CORNER       = 0x42c,
-    H_CARS         = 0x430,   /* car against car (not in this pass) */
-    H_HIT_FRONT    = 0x434,
-    H_HIT_REAR     = 0x438,
-    H_HIT_ANY      = 0x43c,
-    H_SENSOR_HIT   = 0x444,
-    H_IMPACT       = 0x448,
-    H_INDEX        = 0x44c,   /* the car's number */
-    H_CAR          = 0x450,
-    H_IN_POS       = 0x454,   /* copied from the car: position, velocity, angles, rates */
-    H_IN_VEL       = 0x460,
-    H_IN_ANGLES    = 0x46c,
-    H_IN_RATES     = 0x478,   /* pitch, roll, yaw */
-    H_GROUND_ID    = 0x484,
-    H_COURSE       = 0x488,
+    H_INV_MASS = 0x000,
+    H_INV_INERTIA = 0x004,
+    H_POINTS = 0x008,    /* [8] POINT_SIZE: the outline */
+    H_EDGE_HITS = 0x228, /* [8] EDGE_SIZE: wall corners met by the edges */
+    H_MARGIN = 0x388,
+    H_T0 = 0x38c,  /* part of the frame already moved (0..1) */
+    H_POS = 0x390, /* x, y, z at H_T0 */
+    H_YAW = 0x39c,
+    H_T1 = 0x3a0,
+    H_POS_B = 0x3a4, /* x, y, z, yaw at H_T1 */
+    H_YAW_B = 0x3b0,
+    H_STEP = 0x3b4, /* x, y, z, yaw from T0 to T1 */
+    H_VEL = 0x3c4,  /* x, y, z */
+    H_YAW_RATE = 0x3d0,
+    H_BOX = 0x3d4, /* min x, min y, max x, max y of the move, plus margin */
+    H_BOX_SIZE = 0x3e4,
+    H_STARTED = 0x3ec,
+    H_HIT_POINT = 0x3f4,  /* first hit: a point met a wall */
+    H_HIT_CORNER = 0x3f8, /* first hit: an edge met a wall's corner */
+    H_HIT_T = 0x3fc,
+    H_SENSOR = 0x400,    /* a sensor line (flag 2) was crossed ... */
+    H_SENSOR_T = 0x404,  /* ... at this fraction */
+    H_HIT_EDGE = 0x408,  /* car against car: this car's edge, */
+    H_HIT_CAR = 0x40c,   /* the other car, */
+    H_HIT_OTHER = 0x410, /* its point, */
+    H_HIT_ARM = 0x414,   /* and where, in this car's frame */
+    H_POINT = 0x41c,
+    H_WALL_DIR = 0x420,
+    H_WALL = 0x428,
+    H_CORNER = 0x42c,
+    H_CARS = 0x430, /* car against car (not in this pass) */
+    H_HIT_FRONT = 0x434,
+    H_HIT_REAR = 0x438,
+    H_HIT_ANY = 0x43c,
+    H_SENSOR_HIT = 0x444,
+    H_IMPACT = 0x448,
+    H_INDEX = 0x44c, /* the car's number */
+    H_CAR = 0x450,
+    H_IN_POS = 0x454, /* copied from the car: position, velocity, angles, rates */
+    H_IN_VEL = 0x460,
+    H_IN_ANGLES = 0x46c,
+    H_IN_RATES = 0x478, /* pitch, roll, yaw */
+    H_GROUND_ID = 0x484,
+    H_COURSE = 0x488,
     H_FRICTION_MAX = 0x498,
-    H_HULLS        = 0x4a8,   /* the first hull (car against car) */
-    H_PAIR_REACH   = 0x4c4,   /* [car] square of the distance to look at the other car */
-    H_DT           = 0x4dc,
-    H_SHAKE_TIME   = 0x4e0,
-    H_SHAKE        = 0x4e4,
-    H_IMPACT_TIME  = 0x4e8,
-    H_IMPACT_PEAK  = 0x4ec,
+    H_HULLS = 0x4a8,      /* the first hull (car against car) */
+    H_PAIR_REACH = 0x4c4, /* [car] square of the distance to look at the other car */
+    H_DT = 0x4dc,
+    H_SHAKE_TIME = 0x4e0,
+    H_SHAKE = 0x4e4,
+    H_IMPACT_TIME = 0x4e8,
+    H_IMPACT_PEAK = 0x4ec,
 
-    POINT_SIZE     = 0x44,
-    P_LOCAL        = 0x00,    /* x, y in the car */
-    P_A            = 0x10,    /* x, y at H_T0 */
-    P_B            = 0x18,    /* x, y at H_T1 */
-    P_FLAGS        = 0x20,    /* bit 0 sliding on P_WALL, bit 1 against a car */
-    P_HIT          = 0x24,
-    P_HIT_T        = 0x28,
-    P_WALL         = 0x2c,
-    P_WALL_DIR     = 0x30,
-    P_CAR          = 0x3c,    /* against a car: which one, and the edge of its outline */
-    P_CAR_EDGE     = 0x40,
+    POINT_SIZE = 0x44,
+    P_LOCAL = 0x00, /* x, y in the car */
+    P_A = 0x10,     /* x, y at H_T0 */
+    P_B = 0x18,     /* x, y at H_T1 */
+    P_FLAGS = 0x20, /* bit 0 sliding on P_WALL, bit 1 against a car */
+    P_HIT = 0x24,
+    P_HIT_T = 0x28,
+    P_WALL = 0x2c,
+    P_WALL_DIR = 0x30,
+    P_CAR = 0x3c, /* against a car: which one, and the edge of its outline */
+    P_CAR_EDGE = 0x40,
 
-    EDGE_SIZE      = 0x2c,
-    E_NORMAL       = 0x10,    /* the edge's outward normal in the car, */
-    E_OFFSET       = 0x18,    /* and its distance from the centre (negative) */
-    E_HIT          = 0x20,
-    E_HIT_T        = 0x24,
-    E_WALL         = 0x28,
+    EDGE_SIZE = 0x2c,
+    E_NORMAL = 0x10, /* the edge's outward normal in the car, */
+    E_OFFSET = 0x18, /* and its distance from the centre (negative) */
+    E_HIT = 0x20,
+    E_HIT_T = 0x24,
+    E_WALL = 0x28,
 
     CAR_VIEW_SHAKE = 0x714,
 };
 
-#define SHAKE_ON    0x006202bau  /* byte: kick the view on hits */
-#define SHAKE_PARAM 0x006202c8u  /* +0x20 threshold, +0x24 cap, +0x28 base, +0x30 gain */
+#define SHAKE_ON 0x006202bau    /* byte: kick the view on hits */
+#define SHAKE_PARAM 0x006202c8u /* +0x20 threshold, +0x24 cap, +0x28 base, +0x30 gain */
 #define RESTITUTION 0x00846634u
 #define CAR_RESTITUTION 0x00846630u
-#define FRICTION    0x0084663cu
-#define SHAKE_BLOCK 0xcab8u      /* conductor: 0x30 bytes per car */
+#define FRICTION 0x0084663cu
+#define SHAKE_BLOCK 0xcab8u /* conductor: 0x30 bytes per car */
 
-static uint32_t point(uint32_t h, int k) { return h + H_POINTS + (uint32_t)k * POINT_SIZE; }
-static uint32_t edge(uint32_t h, int k)  { return h + H_EDGE_HITS + (uint32_t)k * EDGE_SIZE; }
+static uint32_t point(uint32_t h, int k)
+{
+    return h + H_POINTS + (uint32_t)k * POINT_SIZE;
+}
+static uint32_t edge(uint32_t h, int k)
+{
+    return h + H_EDGE_HITS + (uint32_t)k * EDGE_SIZE;
+}
 
 static uint32_t wall_next(uint32_t v)
 {
@@ -205,7 +237,10 @@ static uint32_t wall_prev(uint32_t v)
 
 static void car_contacts(uint32_t h);
 
-static void copy8(uint32_t dst, uint32_t src) { memcpy(gt4_ptr(dst), gt4_ptr(src), 8); }
+static void copy8(uint32_t dst, uint32_t src)
+{
+    memcpy(gt4_ptr(dst), gt4_ptr(src), 8);
+}
 
 /* func_0045C750 / func_0045C7E8: outline at a pose. */
 static void place(uint32_t h, float yaw, float x, float y, uint32_t at)
@@ -215,23 +250,39 @@ static void place(uint32_t h, float yaw, float x, float y, uint32_t at)
     for (int k = 0; k < 8; k++) {
         uint32_t p = point(h, k);
         float lx = GT4_F32(p + P_LOCAL), ly = GT4_F32(p + P_LOCAL + 4);
-        GT4_F32(p + at)     = (c * lx - s * ly) + x;
+        GT4_F32(p + at) = (c * lx - s * ly) + x;
         GT4_F32(p + at + 4) = (s * lx + c * ly) + y;
     }
 }
-static void place_a(uint32_t h) { place(h, HF(H_YAW), HF(H_POS), HF(H_POS + 4), P_A); }
-static void place_b(uint32_t h) { place(h, HF(H_YAW_B), HF(H_POS_B), HF(H_POS_B + 4), P_B); }
+static void place_a(uint32_t h)
+{
+    place(h, HF(H_YAW), HF(H_POS), HF(H_POS + 4), P_A);
+}
+static void place_b(uint32_t h)
+{
+    place(h, HF(H_YAW_B), HF(H_POS_B), HF(H_POS_B + 4), P_B);
+}
 
 /* func_0045C898: box around the move. */
 static void move_box(uint32_t h)
 {
     float r = HF(H_MARGIN), lo, hi;
-    if (HF(H_STEP) < 0) { lo = HF(H_POS_B); hi = HF(H_POS); }
-    else                { lo = HF(H_POS);   hi = HF(H_POS_B); }
+    if (HF(H_STEP) < 0) {
+        lo = HF(H_POS_B);
+        hi = HF(H_POS);
+    } else {
+        lo = HF(H_POS);
+        hi = HF(H_POS_B);
+    }
     HF(H_BOX) = lo - r;
     HF(H_BOX + 8) = hi + r;
-    if (HF(H_STEP + 4) < 0) { lo = HF(H_POS_B + 4); hi = HF(H_POS + 4); }
-    else                    { lo = HF(H_POS + 4);   hi = HF(H_POS_B + 4); }
+    if (HF(H_STEP + 4) < 0) {
+        lo = HF(H_POS_B + 4);
+        hi = HF(H_POS + 4);
+    } else {
+        lo = HF(H_POS + 4);
+        hi = HF(H_POS_B + 4);
+    }
     HF(H_BOX + 4) = lo - r;
     HF(H_BOX + 0xc) = hi + r;
     HF(H_BOX_SIZE) = HF(H_BOX + 8) - HF(H_BOX);
@@ -242,7 +293,8 @@ static void move_box(uint32_t h)
 static void predict(uint32_t h)
 {
     float dt = (HF(H_T1) - HF(H_T0)) * HF(H_DT);
-    float dyaw = HF(H_YAW_RATE) * dt, dx = HF(H_VEL) * dt, dy = HF(H_VEL + 4) * dt, dz = HF(H_VEL + 8) * dt;
+    float dyaw = HF(H_YAW_RATE) * dt, dx = HF(H_VEL) * dt, dy = HF(H_VEL + 4) * dt,
+          dz = HF(H_VEL + 8) * dt;
     HF(H_STEP + 0xc) = dyaw;
     HF(H_STEP) = dx;
     HF(H_STEP + 4) = dy;
@@ -276,7 +328,8 @@ static void begin(uint32_t h, float dt)
     HU(H_IMPACT) = 0;
     HU(H_T0) = 0;
     if (HU(H_STARTED)) {
-        for (int k = 0; k < 8; k++) copy8(point(h, k) + P_A, point(h, k) + P_B);   /* func_0045C718 */
+        for (int k = 0; k < 8; k++)
+            copy8(point(h, k) + P_A, point(h, k) + P_B); /* func_0045C718 */
     } else {
         HU(H_STARTED) = 1;
         place_a(h);
@@ -287,7 +340,8 @@ static void begin(uint32_t h, float dt)
 static void set_cars(uint32_t h, uint32_t on)
 {
     if (HU(H_CARS) && !on)
-        for (int k = 0; k < 8; k++) GT4_U32(point(h, k) + P_FLAGS) &= ~2u;
+        for (int k = 0; k < 8; k++)
+            GT4_U32(point(h, k) + P_FLAGS) &= ~2u;
     HU(H_CARS) = on;
 }
 
@@ -299,7 +353,8 @@ static void slide(uint32_t h)
     for (int k = 0; k < 8; k++) {
         uint32_t p = point(h, k), w, v;
         float dx, dy, ux, uy, along;
-        if (!(GT4_U32(p + P_FLAGS) & 1)) continue;
+        if (!(GT4_U32(p + P_FLAGS) & 1))
+            continue;
         w = GT4_U32(p + P_WALL);
         v = wall_next(w);
         dx = GT4_F32(p + P_A) - GT4_F32(w);
@@ -307,24 +362,39 @@ static void slide(uint32_t h)
         ux = GT4_F32(p + P_WALL_DIR);
         uy = GT4_F32(p + P_WALL_DIR + 4);
         along = dx * ux + dy * uy;
-        if (along < 0 || (GT4_F32(v) - GT4_F32(w)) * ux - (GT4_F32(v + 8) - GT4_F32(w + 8)) * uy < along) {
+        if (along < 0 ||
+            (GT4_F32(v) - GT4_F32(w)) * ux - (GT4_F32(v + 8) - GT4_F32(w + 8)) * uy < along) {
             /* past one end: on to the neighbouring segment */
             uint32_t a, b;
             float ex, ey, len;
-            if (along < 0) { a = wall_prev(w); b = w; w = a; }
-            else           { a = v; b = wall_next(v); w = v; }
+            if (along < 0) {
+                a = wall_prev(w);
+                b = w;
+                w = a;
+            } else {
+                a = v;
+                b = wall_next(v);
+                w = v;
+            }
             ex = GT4_F32(b) - GT4_F32(a);
             ey = GT4_F32(a + 8) - GT4_F32(b + 8);
             len = ex * ex + ey * ey;
             len = len == 0 ? len : sqrtf(fabsf(len));
-            if (len == 0) { ex = 1.0f; ey = 0; }
-            else { float inv = 1.0f / len; ex = ex * inv; ey = ey * inv; }
+            if (len == 0) {
+                ex = 1.0f;
+                ey = 0;
+            } else {
+                float inv = 1.0f / len;
+                ex = ex * inv;
+                ey = ey * inv;
+            }
             GT4_F32(p + P_WALL_DIR) = ex;
             GT4_F32(p + P_WALL_DIR + 4) = ey;
             GT4_U32(p + P_WALL) = w;
             dy = GT4_F32(p + P_A + 4) + GT4_F32(w + 8);
             dx = GT4_F32(p + P_A) - GT4_F32(w);
-            ux = ex; uy = ey;
+            ux = ex;
+            uy = ey;
             along = dx * ux + dy * uy;
         }
         if (!(0 <= HF(H_VEL) * uy - HF(H_VEL + 4) * ux) || !(0 < dx * uy - dy * ux)) {
@@ -337,7 +407,8 @@ static void slide(uint32_t h)
             float vx, vy, proj, dvx, dvy, rx, ry;
             HF(H_POS + 4) = HF(H_POS + 4) + cy;
             HF(H_POS) = HF(H_POS) + cx;
-            vx = HF(H_VEL); vy = HF(H_VEL + 4);
+            vx = HF(H_VEL);
+            vy = HF(H_VEL + 4);
             proj = ux * vx + uy * vy;
             HF(H_VEL) = proj * ux;
             HF(H_VEL + 4) = proj * uy;
@@ -345,7 +416,8 @@ static void slide(uint32_t h)
             dvy = vy - HF(H_VEL + 4);
             rx = GT4_F32(p + P_A) - HF(H_POS);
             ry = GT4_F32(p + P_A + 4) - HF(H_POS + 4);
-            HF(H_YAW_RATE) = HF(H_YAW_RATE) - ((rx * dvy - ry * dvx) * HF(H_FRICTION_MAX)) * HF(H_INV_INERTIA);
+            HF(H_YAW_RATE) =
+                HF(H_YAW_RATE) - ((rx * dvy - ry * dvx) * HF(H_FRICTION_MAX)) * HF(H_INV_INERTIA);
         }
     }
 }
@@ -363,23 +435,34 @@ static void segment_check(uint32_t w, uint32_t h)
     for (int k = 0; k < 8; k++) {
         uint32_t p = point(h, k);
         float bx, by, ax, ay, sb, sa, t;
-        if (GT4_U32(p + P_FLAGS)) continue;
-        bx = GT4_F32(p + P_B); by = GT4_F32(p + P_B + 4);
+        if (GT4_U32(p + P_FLAGS))
+            continue;
+        bx = GT4_F32(p + P_B);
+        by = GT4_F32(p + P_B + 4);
         sb = ex * (by - wy) - ey * (bx - wx);
-        if (0 <= sb) continue;
-        ax = GT4_F32(p + P_A); ay = GT4_F32(p + P_A + 4);
+        if (0 <= sb)
+            continue;
+        ax = GT4_F32(p + P_A);
+        ay = GT4_F32(p + P_A + 4);
         sa = ex * (ay - wy) - ey * (ax - wx);
-        if (sa <= 0) continue;
+        if (sa <= 0)
+            continue;
         {
             float mx = bx - ax, my = by - ay;
-            if ((mx * (ay - wy) - my * (ax - wx)) < 0) continue;
-            if (0 < mx * (ay - ny) - my * (ax - nx)) continue;
+            if ((mx * (ay - wy) - my * (ax - wx)) < 0)
+                continue;
+            if (0 < mx * (ay - ny) - my * (ax - nx))
+                continue;
         }
         t = sa - sb;
         t = t == 0 ? 1.0f : sa / t;
-        if (!(t < GT4_F32(p + P_HIT_T))) continue;
+        if (!(t < GT4_F32(p + P_HIT_T)))
+            continue;
         if (sensor) {
-            if (t < HF(H_SENSOR_T)) { HF(H_SENSOR_T) = t; HU(H_SENSOR) = 1; }
+            if (t < HF(H_SENSOR_T)) {
+                HF(H_SENSOR_T) = t;
+                HU(H_SENSOR) = 1;
+            }
             continue;
         }
         {
@@ -388,33 +471,53 @@ static void segment_check(uint32_t w, uint32_t h)
             GT4_U32(p + P_HIT) = 1;
             GT4_U32(p + P_WALL) = w;
             len = len == 0 ? len : sqrtf(fabsf(len));
-            if (len == 0) { GT4_F32(p + P_WALL_DIR) = 1.0f; GT4_U32(p + P_WALL_DIR + 4) = 0; }
-            else { GT4_F32(p + P_WALL_DIR + 4) = ey / len; GT4_F32(p + P_WALL_DIR) = ex / len; }
+            if (len == 0) {
+                GT4_F32(p + P_WALL_DIR) = 1.0f;
+                GT4_U32(p + P_WALL_DIR + 4) = 0;
+            } else {
+                GT4_F32(p + P_WALL_DIR + 4) = ey / len;
+                GT4_F32(p + P_WALL_DIR) = ex / len;
+            }
         }
     }
-    if (!(flags & 1)) return;
+    if (!(flags & 1))
+        return;
     for (int k = 0; k < 8; k++) {
         uint32_t q = point(h, (k + 7) & 7), p = point(h, k);
-        float qbx = GT4_F32(q + P_B), qby = GT4_F32(q + P_B + 4), pbx = GT4_F32(p + P_B), pby = GT4_F32(p + P_B + 4);
+        float qbx = GT4_F32(q + P_B), qby = GT4_F32(q + P_B + 4), pbx = GT4_F32(p + P_B),
+              pby = GT4_F32(p + P_B + 4);
         float qax, qay, pax, pay, sb, sa, qmx, qmy, pmy, pmx, c1, c3, c2, c0, t;
         sb = (pbx - qbx) * (wy - qby) - (pby - qby) * (wx - qbx);
-        if (sb <= 0) continue;
-        qay = GT4_F32(q + P_A + 4); qax = GT4_F32(q + P_A);
-        pax = GT4_F32(p + P_A); pay = GT4_F32(p + P_A + 4);
+        if (sb <= 0)
+            continue;
+        qay = GT4_F32(q + P_A + 4);
+        qax = GT4_F32(q + P_A);
+        pax = GT4_F32(p + P_A);
+        pay = GT4_F32(p + P_A + 4);
         sa = (pax - qax) * (wy - qay) - (pay - qay) * (wx - qax);
-        if (0 <= sa) continue;
-        qmx = qbx - qax; qmy = qby - qay; pmy = pby - pay; pmx = pbx - pax;
+        if (0 <= sa)
+            continue;
+        qmx = qbx - qax;
+        qmy = qby - qay;
+        pmy = pby - pay;
+        pmx = pbx - pax;
         c1 = qmx * (pay - qay) - qmy * (pax - qax);
         c3 = qmx * (wy - qay) - qmy * (wx - qax);
         c2 = pmx * (wy - pay) - pmy * (wx - pax);
-        if (c1 < 0 && (0 < c3 || 0 < c2)) continue;
+        if (c1 < 0 && (0 < c3 || 0 < c2))
+            continue;
         c0 = pmx * (pay - qay) - pmy * (pax - qax);
-        if (c0 < 0 && (c3 < 0 || c2 < 0)) continue;
-        if (c3 < 0 || 0 < c2) continue;
+        if (c0 < 0 && (c3 < 0 || c2 < 0))
+            continue;
+        if (c3 < 0 || 0 < c2)
+            continue;
         t = sa - sb;
         t = t == 0 ? 1.0f : sa / t;
         if (sensor) {
-            if (t < HF(H_SENSOR_T)) { HF(H_SENSOR_T) = t; HU(H_SENSOR) = 1; }
+            if (t < HF(H_SENSOR_T)) {
+                HF(H_SENSOR_T) = t;
+                HU(H_SENSOR) = 1;
+            }
         } else {
             uint32_t e = edge(h, (k + 7) & 7);
             if (t < GT4_F32(e + E_HIT_T)) {
@@ -437,16 +540,27 @@ static void segment_push(uint32_t w, uint32_t h)
     for (int i = 0; i < 16; i++) {
         uint32_t p = point(h, i & 7), q;
         float pbx, pby, qbx, qby, rx, ry, qx, qy, mx, my, qnx, qny, sp, sq, proj, len2, ox, oy;
-        if (GT4_U32(p + P_FLAGS)) continue;
+        if (GT4_U32(p + P_FLAGS))
+            continue;
         q = point(h, ((i & 8) ? i + 1 : i - 1) & 7);
-        pby = GT4_F32(p + P_B + 4); pbx = GT4_F32(p + P_B);
-        qbx = GT4_F32(q + P_B); qby = GT4_F32(q + P_B + 4);
-        ry = pby - wy; rx = pbx - wx; qx = qbx - wx; qy = qby - wy;
-        mx = pbx - qbx; my = pby - qby; qnx = qbx - nx; qny = qby - ny;
+        pby = GT4_F32(p + P_B + 4);
+        pbx = GT4_F32(p + P_B);
+        qbx = GT4_F32(q + P_B);
+        qby = GT4_F32(q + P_B + 4);
+        ry = pby - wy;
+        rx = pbx - wx;
+        qx = qbx - wx;
+        qy = qby - wy;
+        mx = pbx - qbx;
+        my = pby - qby;
+        qnx = qbx - nx;
+        qny = qby - ny;
         sp = ex * ry - ey * rx;
         sq = ex * qy - ey * qx;
-        if (0 <= sp || sq <= 0) continue;
-        if (mx * qy - my * qx < 0 || 0 < mx * qny - my * qnx) continue;
+        if (0 <= sp || sq <= 0)
+            continue;
+        if (mx * qy - my * qx < 0 || 0 < mx * qny - my * qnx)
+            continue;
         proj = rx * ex + ry * ey;
         len2 = ex * ex + ey * ey;
         if (proj < 0 || len2 < proj) {
@@ -462,7 +576,8 @@ static void segment_push(uint32_t w, uint32_t h)
         }
         {
             float r = len2 == 0 ? 1.0f : 1.0f / sqrtf(fabsf(len2)), f;
-            if (len2 != 0) proj = proj / len2;
+            if (len2 != 0)
+                proj = proj / len2;
             ox = proj * ex - rx;
             oy = proj * ey - ry;
             if (0.25f < ox * ox + oy * oy) {
@@ -495,11 +610,13 @@ static void for_walls(uint32_t h, float x0, float y0, float x1, float y1, segmen
     float z0 = -y1, z1 = -y0;
     if ((int32_t)id < 0) {
         gt4_ray_hit hit;
-        float p[3] = { (x0 + x1) * 0.5f, 10000.0f, (z0 + z1) * 0.5f };
-        if (!gt4_course_ray_down(mesh, &hit, p)) return;
+        float p[3] = {(x0 + x1) * 0.5f, 10000.0f, (z0 + z1) * 0.5f};
+        if (!gt4_course_ray_down(mesh, &hit, p))
+            return;
         id = (uint16_t)hit.tri | (uint32_t)(int32_t)hit.leaf << 16;
     }
-    if ((int16_t)(id >> 16) < 0) return;
+    if ((int16_t)(id >> 16) < 0)
+        return;
     list = GT4_U32(GT4_U32(mesh + 0x78) + (id & 0xffff) * 12 + 8);
     from = list & 0xffffff;
     to = from + (list >> 24);
@@ -510,8 +627,10 @@ static void for_walls(uint32_t h, float x0, float y0, float x1, float y1, segmen
         int out = (x < x0) | (x1 < x) << 1 | (z < z0) << 2 | (z1 < z) << 3;
         if (out) {
             uint32_t v = wall_next(w);
-            x = GT4_F32(v); z = GT4_F32(v + 8);
-            if (out & ((x < x0) | (x1 < x) << 1 | (z < z0) << 2 | (z1 < z) << 3)) continue;
+            x = GT4_F32(v);
+            z = GT4_F32(v + 8);
+            if (out & ((x < x0) | (x1 < x) << 1 | (z < z0) << 2 | (z1 < z) << 3))
+                continue;
         }
         fn(w, h);
     }
@@ -530,16 +649,24 @@ static int first_hit(uint32_t h)
     for (int k = 0; k < 8; k++) {
         uint32_t p = point(h, k), e = edge(h, k);
         float x = GT4_F32(p + P_A), y = GT4_F32(p + P_A + 4);
-        if (x < x0) x0 = x;
-        if (x1 < x) x1 = x;
-        if (y < y0) y0 = y;
-        if (y1 < y) y1 = y;
+        if (x < x0)
+            x0 = x;
+        if (x1 < x)
+            x1 = x;
+        if (y < y0)
+            y0 = y;
+        if (y1 < y)
+            y1 = y;
         x = GT4_F32(p + P_B);
-        if (x < x0) x0 = x;
-        if (x1 < x) x1 = x;
+        if (x < x0)
+            x0 = x;
+        if (x1 < x)
+            x1 = x;
         y = GT4_F32(p + P_B + 4);
-        if (y < y0) y0 = y;
-        if (y1 < y) y1 = y;
+        if (y < y0)
+            y0 = y;
+        if (y1 < y)
+            y1 = y;
         GT4_U32(p + P_HIT) = 0;
         GT4_F32(p + P_HIT_T) = 2.0f;
         GT4_U32(e + E_HIT) = 0;
@@ -557,7 +684,8 @@ static int first_hit(uint32_t h)
             which = k + 8;
         }
     }
-    if (which < 0) return 0;
+    if (which < 0)
+        return 0;
     HF(H_HIT_T) = (HF(H_T1) - HF(H_T0)) * best + HF(H_T0);
     if (which < 8) {
         uint32_t p = point(h, which);
@@ -566,15 +694,19 @@ static int first_hit(uint32_t h)
         HU(H_WALL) = GT4_U32(p + P_WALL);
         copy8(h + H_WALL_DIR, p + P_WALL_DIR);
         HU(H_HIT_ANY) = 1;
-        if (which < 4) HU(H_HIT_FRONT) = 1;
-        else HU(H_HIT_REAR) = 1;
+        if (which < 4)
+            HU(H_HIT_FRONT) = 1;
+        else
+            HU(H_HIT_REAR) = 1;
     } else {
         which -= 8;
         HU(H_HIT_CORNER) = 1;
         HU(H_CORNER) = which;
         HU(H_HIT_ANY) = 1;
-        if (which < 3) HU(H_HIT_FRONT) = 1;
-        if ((uint32_t)(which - 4) < 3) HU(H_HIT_REAR) = 1;
+        if (which < 3)
+            HU(H_HIT_FRONT) = 1;
+        if ((uint32_t)(which - 4) < 3)
+            HU(H_HIT_REAR) = 1;
     }
     return 1;
 }
@@ -590,8 +722,12 @@ static void sensor_check(uint32_t h, float t)
 static void advance(uint32_t h, float t)
 {
     float d = HF(H_T1) - HF(H_T0), f = 0, sx, sy, sz, syaw;
-    if (d != 0) f = (t - HF(H_T0)) / d;
-    sx = HF(H_STEP) * f; sy = HF(H_STEP + 4) * f; sz = HF(H_STEP + 8) * f; syaw = HF(H_STEP + 0xc) * f;
+    if (d != 0)
+        f = (t - HF(H_T0)) / d;
+    sx = HF(H_STEP) * f;
+    sy = HF(H_STEP + 4) * f;
+    sz = HF(H_STEP + 8) * f;
+    syaw = HF(H_STEP + 0xc) * f;
     HF(H_POS) = HF(H_POS) + sx;
     HF(H_POS + 4) = HF(H_POS + 4) + sy;
     HF(H_POS + 8) = HF(H_POS + 8) + sz;
@@ -609,17 +745,24 @@ static void advance(uint32_t h, float t)
 static void friction(uint32_t h, const float imp[2], const float cv[2], float out[3])
 {
     float n2 = imp[0] * imp[0] + imp[1] * imp[1], f = 0, t[3], m;
-    if (n2 != 0) f = (cv[0] * imp[0] + cv[1] * imp[1]) / n2;
+    if (n2 != 0)
+        f = (cv[0] * imp[0] + cv[1] * imp[1]) / n2;
     t[0] = f * imp[0] - cv[0];
     t[1] = f * imp[1] - cv[1];
     t[2] = -HF(H_VEL + 8);
     m = (t[0] * t[0] + t[1] * t[1]) + t[2] * t[2];
-    if (m == 0) { out[0] = out[1] = out[2] = 0; return; }
+    if (m == 0) {
+        out[0] = out[1] = out[2] = 0;
+        return;
+    }
     {
         float n = n2 == 0 ? n2 : sqrtf(fabsf(n2)), r = 1.0f / sqrtf(fabsf(m));
         float s = (GT4_F32(FRICTION) * n) * r;
-        if (HF(H_FRICTION_MAX) < s) s = HF(H_FRICTION_MAX);
-        out[0] = s * t[0]; out[1] = s * t[1]; out[2] = s * t[2];
+        if (HF(H_FRICTION_MAX) < s)
+            s = HF(H_FRICTION_MAX);
+        out[0] = s * t[0];
+        out[1] = s * t[1];
+        out[2] = s * t[2];
     }
 }
 
@@ -627,19 +770,22 @@ static void friction(uint32_t h, const float imp[2], const float cv[2], float ou
 static void wall_impulse(uint32_t h, float out[2], const float m[4], const float cv[2])
 {
     float e = GT4_F32(RESTITUTION);
-    float n[2] = { -HF(H_WALL_DIR + 4), HF(H_WALL_DIR) };
+    float n[2] = {-HF(H_WALL_DIR + 4), HF(H_WALL_DIR)};
     uint32_t eh = edge(h, (int)HU(H_POINT));
     float a = GT4_F32(eh), b = GT4_F32(eh + 4);
     float nl0 = m[0] * n[0] + m[2] * n[1], nl1 = m[1] * n[0] + m[3] * n[1];
     float r0 = m[0] * b + m[1] * -a, r1 = m[2] * b + m[3] * -a;
     float k = -(a * nl1 - b * nl0) * HF(H_INV_INERTIA);
     float den = HF(H_INV_MASS) + (r0 * n[0] + r1 * n[1]) * k, j = 0;
-    if (den != 0) j = (-(e + 1.0f) * (cv[0] * n[0] + cv[1] * n[1])) / den;
+    if (den != 0)
+        j = (-(e + 1.0f) * (cv[0] * n[0] + cv[1] * n[1])) / den;
     out[0] = j * n[0];
     out[1] = j * n[1];
-    if (j < 0) j = -j;
+    if (j < 0)
+        j = -j;
     HF(H_IMPACT) = HF(H_IMPACT) + j / 100000.0f;
-    gt4_car_impact(HU(H_CAR), 0, (int32_t)HU(H_POINT), j);   /* impact on the car: damage, vibration */
+    gt4_car_impact(HU(H_CAR), 0, (int32_t)HU(H_POINT),
+                   j); /* impact on the car: damage, vibration */
 }
 
 /* func_0045E450: the point back onto the wall line. */
@@ -648,7 +794,8 @@ static void unstick(uint32_t h)
     uint32_t w = HU(H_WALL), p = point(h, (int)HU(H_POINT));
     float dx = HF(H_WALL_DIR), dy = HF(H_WALL_DIR + 4), wx = GT4_F32(w), wy = -GT4_F32(w + 8);
     float ax = GT4_F32(p + P_A), ay = GT4_F32(p + P_A + 4), rx = ax - wx, ry = ay - wy, l2, s;
-    if (!(0 < rx * dy - ry * dx)) return;
+    if (!(0 < rx * dy - ry * dx))
+        return;
     l2 = dx * dx + dy * dy;
     s = l2 == 0 ? 1.0f : (rx * dx + ry * dy) / l2;
     HF(H_POS) = HF(H_POS) + ((s * HF(H_WALL_DIR) + wx) - ax);
@@ -660,7 +807,7 @@ static void unstick(uint32_t h)
 static void point_hit(uint32_t h)
 {
     float s = gt4_sinf(HF(H_YAW)), c = gt4_cosf(HF(H_YAW));
-    float m[4] = { s, -c, c, s }, cv[2], imp[2], fr[3], ang[2], inv_mass;
+    float m[4] = {s, -c, c, s}, cv[2], imp[2], fr[3], ang[2], inv_mass;
     uint32_t e = edge(h, (int)HU(H_POINT)), p;
     float a = -GT4_F32(e), b = GT4_F32(e + 4), w = HF(H_YAW_RATE);
     float rx = m[0] * b + m[1] * a, ry = m[2] * b + m[3] * a;
@@ -681,23 +828,28 @@ static void point_hit(uint32_t h)
     {
         float vz = HF(H_VEL + 8), nz = vz + fr[2] * inv_mass;
         HF(H_VEL + 8) = nz;
-        if (vz < 0 ? 0 < nz : nz < 0) HU(H_VEL + 8) = 0;
+        if (vz < 0 ? 0 < nz : nz < 0)
+            HU(H_VEL + 8) = 0;
     }
     e = edge(h, (int)HU(H_POINT));
-    HF(H_YAW_RATE) = HF(H_YAW_RATE) + (GT4_F32(e) * ang[1] - GT4_F32(e + 4) * ang[0]) * HF(H_INV_INERTIA);
+    HF(H_YAW_RATE) =
+        HF(H_YAW_RATE) + (GT4_F32(e) * ang[1] - GT4_F32(e + 4) * ang[0]) * HF(H_INV_INERTIA);
 }
 
 /* func_0045E768: normal impulse of an edge meeting a wall's corner (arm
    from the car's centre to the corner, nw the edge's normal in the
    world). */
-static void corner_impulse(uint32_t h, float out[2], const float cv[2], const float nw[2], const float arm[2])
+static void corner_impulse(uint32_t h, float out[2], const float cv[2], const float nw[2],
+                           const float arm[2])
 {
     float e = GT4_F32(RESTITUTION), c = arm[0] * nw[1] - arm[1] * nw[0];
     float den = HF(H_INV_MASS) + (c * c) * HF(H_INV_INERTIA), j = 0;
-    if (den != 0) j = (-(e + 1.0f) * (cv[0] * nw[0] + cv[1] * nw[1])) / den;
+    if (den != 0)
+        j = (-(e + 1.0f) * (cv[0] * nw[0] + cv[1] * nw[1])) / den;
     out[0] = j * nw[0];
     out[1] = j * nw[1];
-    if (j < 0) j = -j;
+    if (j < 0)
+        j = -j;
     HF(H_IMPACT) = HF(H_IMPACT) + j / 100000.0f;
     gt4_car_impact(HU(H_CAR), 0, (int32_t)(HU(H_CORNER) + 8), j);
 }
@@ -706,7 +858,7 @@ static void corner_impulse(uint32_t h, float out[2], const float cv[2], const fl
 static void corner_hit(uint32_t h)
 {
     float s = gt4_sinf(HF(H_YAW)), c = gt4_cosf(HF(H_YAW));
-    float m[4] = { s, -c, c, s }, arm[2], nw[2], cv[2], imp[2], fr[3], inv_mass, torque;
+    float m[4] = {s, -c, c, s}, arm[2], nw[2], cv[2], imp[2], fr[3], inv_mass, torque;
     uint32_t e = h + H_EDGE_HITS + HU(H_CORNER) * EDGE_SIZE, w = GT4_U32(e + E_WALL);
     float n0 = GT4_F32(e + E_NORMAL), n1 = GT4_F32(e + E_NORMAL + 4);
     arm[0] = GT4_F32(w) - HF(H_POS);
@@ -727,11 +879,15 @@ static void corner_hit(uint32_t h)
     {
         float vz = HF(H_VEL + 8), nz = vz + fr[2] * inv_mass;
         HF(H_VEL + 8) = nz;
-        if (vz < 0 ? 0 < nz : nz < 0) HU(H_VEL + 8) = 0;
+        if (vz < 0 ? 0 < nz : nz < 0)
+            HU(H_VEL + 8) = 0;
     }
 }
 
-void gt4_walls_corner_hit(uint32_t h) { corner_hit(h); }
+void gt4_walls_corner_hit(uint32_t h)
+{
+    corner_hit(h);
+}
 
 /* func_0045CA60: a car held against a wall at a standstill turns with its
    steering (the yaw it would have) instead of stopping dead. */
@@ -739,14 +895,18 @@ static void wall_turn(uint32_t h, float t)
 {
     uint32_t car = HU(H_CAR);
     int touching;
-    if (GT4_U8(car + 0x56a) || GT4_U8(car + 0x56b)) return;   /* func_003451B8 */
+    if (GT4_U8(car + CAR_56A) || GT4_U8(car + CAR_56B))
+        return; /* func_003451B8 */
     touching = HU(H_HIT_CORNER) || HU(H_HIT_POINT) || HU(H_HIT_ANY);
     for (int k = 0; !touching && k < 8; k++) {
         uint32_t p = point(h, k), e = edge(h, k);
-        touching = (GT4_U32(p + P_FLAGS) & 1) || GT4_U32(p + P_HIT) || GT4_U32(e + 0x1c) || GT4_U32(e + E_HIT);
+        touching = (GT4_U32(p + P_FLAGS) & 1) || GT4_U32(p + P_HIT) || GT4_U32(e + 0x1c) ||
+                   GT4_U32(e + E_HIT);
     }
-    if (!(fabsf(HF(H_VEL)) < 1.0f) || !(fabsf(HF(H_VEL + 4)) < 1.0f) || !(t < K(0x3dcccccc)) || !touching) return;
-    HF(H_YAW_RATE) = HF(H_YAW_RATE) + (GT4_F32(car + 0x560) * 20.0f) * HF(H_DT);   /* func_00344680 */
+    if (!(fabsf(HF(H_VEL)) < 1.0f) || !(fabsf(HF(H_VEL + 4)) < 1.0f) || !(t < K(0x3dcccccc)) ||
+        !touching)
+        return;
+    HF(H_YAW_RATE) = HF(H_YAW_RATE) + (GT4_F32(car + 0x560) * 20.0f) * HF(H_DT); /* func_00344680 */
     predict(h);
 }
 
@@ -755,7 +915,8 @@ static float yaw_wrap(float x)
 {
     const float pi = K(0x40490fda), two_pi = K(0x40c90fda);
     int n = (int)((fabsf(x) + pi) / two_pi);
-    if (n < 8) return x;
+    if (n < 8)
+        return x;
     return x < 0 ? x + (float)n * two_pi : x + (float)n * K(0xc0c90fda);
 }
 
@@ -770,7 +931,8 @@ static void finish(uint32_t h)
     HF(H_IN_VEL + 8) = HF(H_VEL + 8);
     HF(H_IN_POS) = HF(H_POS_B);
     HF(H_IN_ANGLES + 8) = yaw_wrap(HF(H_YAW_B));
-    if (!(fabsf(r) < lim)) r = r < 0 ? -lim : lim;    /* func_0045C9B0 */
+    if (!(fabsf(r) < lim))
+        r = r < 0 ? -lim : lim; /* func_0045C9B0 */
     HF(H_IN_RATES + 8) = r;
 }
 
@@ -787,16 +949,23 @@ static void shake(uint32_t h, uint32_t car)
         HF(H_IMPACT_PEAK) = HF(H_IMPACT_PEAK) * K(0x3f7ae147);
     }
     f = HF(H_IMPACT);
-    if (1.0f < f) { HF(H_IMPACT) = 1.0f; f = 1.0f; }
+    if (1.0f < f) {
+        HF(H_IMPACT) = 1.0f;
+        f = 1.0f;
+    }
     if ((int32_t)HU(H_SHAKE_TIME) > 0) {
         int32_t t = (int32_t)HU(H_SHAKE_TIME) - 1;
         if (HF(H_SHAKE) < f) {
-            if (GT4_F32(car + CAR_VIEW_SHAKE) < f) { GT4_F32(car + CAR_VIEW_SHAKE) = f; f = HF(H_IMPACT); }
+            if (GT4_F32(car + CAR_VIEW_SHAKE) < f) {
+                GT4_F32(car + CAR_VIEW_SHAKE) = f;
+                f = HF(H_IMPACT);
+            }
             HF(H_SHAKE) = f;
             HU(H_SHAKE_TIME) = 23;
         } else {
             HU(H_SHAKE_TIME) = t;
-            if (!t) GT4_U32(car + CAR_VIEW_SHAKE) = 0;
+            if (!t)
+                GT4_U32(car + CAR_VIEW_SHAKE) = 0;
         }
     } else if (0 < f) {
         GT4_F32(car + CAR_VIEW_SHAKE) = f;
@@ -809,7 +978,7 @@ static void shake(uint32_t h, uint32_t car)
 static void car_walls(uint32_t conductor, int i)
 {
     uint32_t h = conductor + WALLS + 0xc + (uint32_t)i * HULL_SIZE;
-    uint32_t car = conductor + 0x6698 + (uint32_t)i * CAR_SIZE;
+    uint32_t car = conductor + CONDUCTOR_FIELD_CARS + (uint32_t)i * CAR_SIZE;
     float t = 1.0f;
     begin(h, GT4_F32(car + CAR_DT));
     set_cars(h, 0);
@@ -817,7 +986,7 @@ static void car_walls(uint32_t conductor, int i)
         car_contacts(h);
         slide(h);
         predict(h);
-        HU(0x3f0) = 0;                               /* func_0045C648 */
+        HU(0x3f0) = 0; /* func_0045C648 */
         HF(H_SENSOR_T) = 2.0f;
         HU(H_HIT_POINT) = 0;
         HU(H_HIT_CORNER) = 0;
@@ -829,8 +998,10 @@ static void car_walls(uint32_t conductor, int i)
         t = HF(H_HIT_T);
         sensor_check(h, t);
         advance(h, t);
-        if (HU(H_HIT_POINT)) point_hit(h);
-        else corner_hit(h);                           /* an edge hits a wall's corner */
+        if (HU(H_HIT_POINT))
+            point_hit(h);
+        else
+            corner_hit(h); /* an edge hits a wall's corner */
     }
     wall_turn(h, t);
     {
@@ -838,15 +1009,19 @@ static void car_walls(uint32_t conductor, int i)
         uint32_t p = point(h, 0);
         x0 = x1 = GT4_F32(p + P_B);
         y0 = y1 = GT4_F32(p + P_B + 4);
-        for (int k = 1; k < 8; k++) {   /* points 0..6: the original counts from 1 */
+        for (int k = 1; k < 8; k++) { /* points 0..6: the original counts from 1 */
             float x = GT4_F32(p + P_B), y = GT4_F32(p + P_B + 4);
-            if (x < x0) x0 = x;
-            if (x1 < x) x1 = x;
-            if (y < y0) y0 = y;
-            if (y1 < y) y1 = y;
+            if (x < x0)
+                x0 = x;
+            if (x1 < x)
+                x1 = x;
+            if (y < y0)
+                y0 = y;
+            if (y1 < y)
+                y1 = y;
             p = point(h, k);
         }
-        for_walls(h, x0, y0, x1, y1, segment_push);   /* func_0045DF80 */
+        for_walls(h, x0, y0, x1, y1, segment_push); /* func_0045DF80 */
     }
     finish(h);
     shake(h, car);
@@ -862,10 +1037,14 @@ static void push_out(uint32_t h)
     y0 = y1 = GT4_F32(p + P_B + 4);
     for (int k = 1; k < 8; k++) {
         float x = GT4_F32(p + P_B), y = GT4_F32(p + P_B + 4);
-        if (x < x0) x0 = x;
-        if (x1 < x) x1 = x;
-        if (y < y0) y0 = y;
-        if (y1 < y) y1 = y;
+        if (x < x0)
+            x0 = x;
+        if (x1 < x)
+            x1 = x;
+        if (y < y0)
+            y0 = y;
+        if (y1 < y)
+            y1 = y;
         p = point(h, k);
     }
     for_walls(h, x0, y0, x1, y1, segment_push);
@@ -891,15 +1070,19 @@ static void overlap(uint32_t h, uint32_t j)
 {
     uint32_t o = HU(H_HULLS) + j * HULL_SIZE;
     float cx, cy, deep = 0, px = 0, py = 0;
-    if (!HU(H_CARS) || !GT4_U32(o + H_CARS)) return;
-    if (4.0f < fabsf(HF(H_POS + 8) - GT4_F32(o + H_POS + 8))) return;
+    if (!HU(H_CARS) || !GT4_U32(o + H_CARS))
+        return;
+    if (4.0f < fabsf(HF(H_POS + 8) - GT4_F32(o + H_POS + 8)))
+        return;
     cx = GT4_F32(o + H_POS) - HF(H_POS);
     cy = GT4_F32(o + H_POS + 4) - HF(H_POS + 4);
-    if (HF(H_PAIR_REACH + j * 4) < cx * cx + cy * cy) return;
+    if (HF(H_PAIR_REACH + j * 4) < cx * cx + cy * cy)
+        return;
     for (int q = 0; q < 8; q++) {
         uint32_t b = point(o, q), a0 = point(h, 7), a1 = point(h, 0);
         float bx = GT4_F32(b + P_A), by = GT4_F32(b + P_A + 4);
-        float ax = GT4_F32(a0 + P_A), ay = GT4_F32(a0 + P_A + 4), nx = GT4_F32(a1 + P_A), ny = GT4_F32(a1 + P_A + 4);
+        float ax = GT4_F32(a0 + P_A), ay = GT4_F32(a0 + P_A + 4), nx = GT4_F32(a1 + P_A),
+              ny = GT4_F32(a1 + P_A + 4);
         float rx = bx - ax, ry = by - ay, ex = nx - ax, ey = ny - ay;
         float dy_ = 0, dx_ = 0, d = 0;
         int found = 0, edges = 0;
@@ -911,7 +1094,8 @@ static void overlap(uint32_t h, uint32_t j)
                         s1 = cx * (by - ny) - cy * (bx - nx);
                         if (!(0 < s1)) {
                             den = s0 - s1;
-                            if (den != 0) f = s0 / den;
+                            if (den != 0)
+                                f = s0 / den;
                             found = 1;
                             dy_ = f * ey - ry;
                             dx_ = f * ex - rx;
@@ -920,13 +1104,20 @@ static void overlap(uint32_t h, uint32_t j)
                     }
                 }
                 edges++;
-                if (edges >= 8) break;
+                if (edges >= 8)
+                    break;
                 a0 = a1;
                 a1 = a1 + POINT_SIZE;
-                ax = GT4_F32(a0 + P_A); ay = GT4_F32(a0 + P_A + 4);
-                nx = GT4_F32(a1 + P_A); ny = GT4_F32(a1 + P_A + 4);
-                rx = bx - ax; ry = by - ay; ex = nx - ax; ey = ny - ay;
-                if (ex * ry - ey * rx < 0) break;
+                ax = GT4_F32(a0 + P_A);
+                ay = GT4_F32(a0 + P_A + 4);
+                nx = GT4_F32(a1 + P_A);
+                ny = GT4_F32(a1 + P_A + 4);
+                rx = bx - ax;
+                ry = by - ay;
+                ex = nx - ax;
+                ey = ny - ay;
+                if (ex * ry - ey * rx < 0)
+                    break;
             }
         }
         if (edges == 8 && deep < d) {
@@ -949,11 +1140,13 @@ static void overlap(uint32_t h, uint32_t j)
    it lets go but still shares the speed. */
 static void car_contacts(uint32_t h)
 {
-    if (!HU(H_CARS)) return;
+    if (!HU(H_CARS))
+        return;
     for (int k = 0; k < 8; k++) {
         uint32_t p = point(h, k), fl = GT4_U32(p + P_FLAGS), o, e, e0, e1;
         float rx, ry, dx, dy, inv, t, vx, vy;
-        if (!(fl & 2)) continue;
+        if (!(fl & 2))
+            continue;
         o = HU(H_HULLS) + GT4_U32(p + P_CAR) * HULL_SIZE;
         e = GT4_U32(p + P_CAR_EDGE);
         e0 = point(o, (int)e);
@@ -1031,7 +1224,8 @@ static float car_impulse(uint32_t h, float out[2], const float m[4], const float
     s[0] = ka * ra0 + kb * rb0;
     s[1] = ka * ra1 + kb * rb1;
     den = (HF(H_INV_MASS) + GT4_F32(o + H_INV_MASS)) + (s[0] * wa[0] + s[1] * wa[1]);
-    if (den != 0) j = (-(e + 1.0f) * (rel[0] * wa[0] + rel[1] * wa[1])) / den;
+    if (den != 0)
+        j = (-(e + 1.0f) * (rel[0] * wa[0] + rel[1] * wa[1])) / den;
     out[0] = j * wa[0];
     out[1] = j * wa[1];
     return j;
@@ -1047,9 +1241,11 @@ static void car_separate(uint32_t h, const float m[4], const float mo[4])
     float pb1 = mo[2] * GT4_F32(eb) + mo[3] * GT4_F32(eb + 4);
     float nx = m[0] * GT4_F32(ea + E_NORMAL) + m[1] * GT4_F32(ea + E_NORMAL + 4);
     float ny = m[2] * GT4_F32(ea + E_NORMAL) + m[3] * GT4_F32(ea + E_NORMAL + 4);
-    float px = (GT4_F32(o + H_POS) - HF(H_POS)) + pb0, py = (GT4_F32(o + H_POS + 4) - HF(H_POS + 4)) + pb1;
+    float px = (GT4_F32(o + H_POS) - HF(H_POS)) + pb0,
+          py = (GT4_F32(o + H_POS + 4) - HF(H_POS + 4)) + pb1;
     float d = (nx * px + ny * py) + GT4_F32(ea + E_OFFSET), cx, cy;
-    if (d <= 0) return;
+    if (d <= 0)
+        return;
     d = -d;
     cy = d * ny;
     cx = d * nx;
@@ -1077,7 +1273,8 @@ static void car_hit(uint32_t h)
     mo[1] = -mo[2];
     mo[3] = mo[0];
     f = car_impulse(h, imp, m, mo);
-    if (f < 0) f = -f;
+    if (f < 0)
+        f = -f;
     f = f / 15000.0f;
     HF(H_IMPACT) = HF(H_IMPACT) + f;
     GT4_F32(o + H_IMPACT) = GT4_F32(o + H_IMPACT) + f;
@@ -1090,15 +1287,18 @@ static void car_hit(uint32_t h)
     HF(H_VEL + 4) = HF(H_VEL + 4) + imp[1] * invm;
     HF(H_VEL) = HF(H_VEL) + imp[0] * invm;
     la[1] = m[1] * imp[0] + m[3] * imp[1];
-    HF(H_YAW_RATE) = HF(H_YAW_RATE) + (HF(H_HIT_ARM) * la[1] - HF(H_HIT_ARM + 4) * la[0]) * HF(H_INV_INERTIA);
+    HF(H_YAW_RATE) =
+        HF(H_YAW_RATE) + (HF(H_HIT_ARM) * la[1] - HF(H_HIT_ARM + 4) * la[0]) * HF(H_INV_INERTIA);
     invm = GT4_F32(o + H_INV_MASS);
     GT4_F32(o + H_VEL) = GT4_F32(o + H_VEL) - imp[0] * invm;
     GT4_F32(o + H_VEL + 4) = GT4_F32(o + H_VEL + 4) - imp[1] * invm;
     lb[0] = mo[0] * imp[0] + mo[2] * imp[1];
     lb[1] = mo[1] * imp[0] + mo[3] * imp[1];
-    GT4_F32(o + H_YAW_RATE) = GT4_F32(o + H_YAW_RATE)
-                            - (GT4_F32(q + P_LOCAL) * lb[1] - GT4_F32(q + P_LOCAL + 4) * lb[0]) * GT4_F32(o + H_INV_INERTIA);
-    gt4_car_impact(HU(H_CAR), 1, (int32_t)(HU(H_HIT_EDGE) + 8), f);   /* the knock: damage, vibration */
+    GT4_F32(o + H_YAW_RATE) = GT4_F32(o + H_YAW_RATE) -
+                              (GT4_F32(q + P_LOCAL) * lb[1] - GT4_F32(q + P_LOCAL + 4) * lb[0]) *
+                                  GT4_F32(o + H_INV_INERTIA);
+    gt4_car_impact(HU(H_CAR), 1, (int32_t)(HU(H_HIT_EDGE) + 8),
+                   f); /* the knock: damage, vibration */
     gt4_car_impact(GT4_U32(o + H_CAR), 1, (int32_t)HU(H_HIT_OTHER), f);
 }
 
@@ -1113,13 +1313,18 @@ static void pair_test(uint32_t h, uint32_t j)
     float bx, by, sx, sy, s2, dx, dy, t, cx, cy, ca, sa, cb, sb, c0, s0, c1, s1;
     float l0x, l0y, l1x, l1y, best = 2.0f, arm_x = 0, arm_y = 0;
     int bp = -1, be = -1;
-    if (!HU(H_CARS) || !GT4_U32(o + H_CARS)) return;
-    if (4.0f < fabsf(HF(H_POS + 8) - GT4_F32(o + H_POS + 8))) return;
+    if (!HU(H_CARS) || !GT4_U32(o + H_CARS))
+        return;
+    if (4.0f < fabsf(HF(H_POS + 8) - GT4_F32(o + H_POS + 8)))
+        return;
     bx = GT4_F32(o + H_BOX + 8) - HF(H_BOX);
     by = GT4_F32(o + H_BOX + 0xc) - HF(H_BOX + 4);
-    if (bx < 0 || by < 0) return;
-    if (GT4_F32(o + H_BOX_SIZE) + HF(H_BOX_SIZE) < bx) return;
-    if (GT4_F32(o + H_BOX_SIZE + 4) + HF(H_BOX_SIZE + 4) < by) return;
+    if (bx < 0 || by < 0)
+        return;
+    if (GT4_F32(o + H_BOX_SIZE) + HF(H_BOX_SIZE) < bx)
+        return;
+    if (GT4_F32(o + H_BOX_SIZE + 4) + HF(H_BOX_SIZE + 4) < by)
+        return;
     /* nearest the two centres come over the move */
     sx = GT4_F32(o + H_STEP) - HF(H_STEP);
     sy = GT4_F32(o + H_STEP + 4) - HF(H_STEP + 4);
@@ -1127,13 +1332,23 @@ static void pair_test(uint32_t h, uint32_t j)
     dx = GT4_F32(o + H_POS) - HF(H_POS);
     dy = GT4_F32(o + H_POS + 4) - HF(H_POS + 4);
     t = -dx * sx - dy * sy;
-    if (t <= 0) { cx = dx; cy = dy; }
-    else if (s2 <= t) { cx = dx + sx; cy = dy + sy; }
-    else { t = t / s2; cy = dy + sy * t; cx = dx + sx * t; }
-    if (HF(H_PAIR_REACH + j * 4) < cx * cx + cy * cy) return;
+    if (t <= 0) {
+        cx = dx;
+        cy = dy;
+    } else if (s2 <= t) {
+        cx = dx + sx;
+        cy = dy + sy;
+    } else {
+        t = t / s2;
+        cy = dy + sy * t;
+        cx = dx + sx * t;
+    }
+    if (HF(H_PAIR_REACH + j * 4) < cx * cx + cy * cy)
+        return;
     /* the other car's pose in this car's frame, at A and at B */
     {
-        float px = GT4_F32(o + H_POS_B) - HF(H_POS_B), py = GT4_F32(o + H_POS_B + 4) - HF(H_POS_B + 4);
+        float px = GT4_F32(o + H_POS_B) - HF(H_POS_B),
+              py = GT4_F32(o + H_POS_B + 4) - HF(H_POS_B + 4);
         float yaw0 = GT4_F32(o + H_YAW) - HF(H_YAW), yaw1 = GT4_F32(o + H_YAW_B) - HF(H_YAW_B);
         ca = gt4_cosf(-HF(H_YAW));
         sa = gt4_sinf(-HF(H_YAW));
@@ -1151,27 +1366,34 @@ static void pair_test(uint32_t h, uint32_t j)
     for (int q = 0; q < 8; q++) {
         uint32_t eb = edge(o, q);
         float ex = GT4_F32(eb), ey = GT4_F32(eb + 4), qx0, qy0, qx1, qy1;
-        if (GT4_U32(point(o, q) + P_FLAGS)) continue;
+        if (GT4_U32(point(o, q) + P_FLAGS))
+            continue;
         qx0 = (s0 * ex - c0 * ey) + l0x;
         qy0 = (c0 * ex + s0 * ey) + l0y;
         qx1 = (s1 * ex - c1 * ey) + l1x;
         qy1 = (c1 * ex + s1 * ey) + l1y;
         for (int k = 0; k < 8; k++) {
             uint32_t ea = edge(h, k);
-            float nx = GT4_F32(ea + E_NORMAL), ny = GT4_F32(ea + E_NORMAL + 4), off = GT4_F32(ea + E_OFFSET);
+            float nx = GT4_F32(ea + E_NORMAL), ny = GT4_F32(ea + E_NORMAL + 4),
+                  off = GT4_F32(ea + E_OFFSET);
             float d1 = (qx1 * nx + qy1 * ny) + off, d0 = (qx0 * nx + qy0 * ny) + off;
             float mx, my, a, b, f, at;
-            if (0 < d1 || d0 < 0) continue;
+            if (0 < d1 || d0 < 0)
+                continue;
             mx = qx1 - qx0;
             my = qy1 - qy0;
             a = (GT4_F32(ea) - qx0) * my - (GT4_F32(ea + 4) - qy0) * mx;
             b = (GT4_F32(ea + 8) - qx0) * my - (GT4_F32(ea + 0xc) - qy0) * mx;
-            if (a < 0 && b < 0) continue;
-            if (0 < a && 0 < b) continue;
+            if (a < 0 && b < 0)
+                continue;
+            if (0 < a && 0 < b)
+                continue;
             f = 1.0f;
-            if (d0 - d1 != 0) f = d0 / (d0 - d1);
+            if (d0 - d1 != 0)
+                f = d0 / (d0 - d1);
             at = (HF(H_T1) - HF(H_T0)) * f + HF(H_T0);
-            if (at < 0 || 1.0f < at || !(at < best)) continue;
+            if (at < 0 || 1.0f < at || !(at < best))
+                continue;
             best = at;
             bp = q;
             be = k;
@@ -1179,8 +1401,10 @@ static void pair_test(uint32_t h, uint32_t j)
             arm_x = qx0 + mx * f;
         }
     }
-    if (bp < 0) return;
-    if ((HU(0x3f0) || HU(H_HIT_POINT)) && HF(H_HIT_T) < best) return;
+    if (bp < 0)
+        return;
+    if ((HU(0x3f0) || HU(H_HIT_POINT)) && HF(H_HIT_T) < best)
+        return;
     HU(H_HIT_EDGE) = (uint32_t)be;
     HF(H_HIT_T) = best;
     HU(H_HIT_CAR) = j;
@@ -1189,18 +1413,23 @@ static void pair_test(uint32_t h, uint32_t j)
     HF(H_HIT_ARM) = arm_x;
     HF(H_HIT_ARM + 4) = arm_y;
     HU(0x440) = 1;
-    if (be < 3) HU(H_HIT_FRONT) = 1;
-    else if ((uint32_t)(be - 4) < 3) HU(H_HIT_REAR) = 1;
+    if (be < 3)
+        HU(H_HIT_FRONT) = 1;
+    else if ((uint32_t)(be - 4) < 3)
+        HU(H_HIT_REAR) = 1;
     GT4_U32(o + 0x440) = 1;
-    if (bp < 4) GT4_U32(o + H_HIT_FRONT) = 1;
-    else GT4_U32(o + H_HIT_REAR) = 1;
+    if (bp < 4)
+        GT4_U32(o + H_HIT_FRONT) = 1;
+    else
+        GT4_U32(o + H_HIT_REAR) = 1;
 }
 
 /* func_00343BF0: a car the others go through (a ghost, or a driver of
    kind 4) */
 static int passable(uint32_t car)
 {
-    return GT4_U8(car + 0x545) || GT4_U8(car + 0x14 + 0x1c) == 4;   /* func_00463BA8 */
+    return GT4_U8(car + CAR_VIBRATION_ON) ||
+           GT4_U8(car + CAR_FIELD_DRIVER_MODEL + 0x1c) == 4; /* func_00463BA8 */
 }
 
 /* func_0045BB60: all the cars' frame together, against the walls and each
@@ -1213,7 +1442,8 @@ static void cars_walls(uint32_t solver)
     float best, t = 1.0f;
 #define HULL(i) (solver + 0xc + (uint32_t)(i) * HULL_SIZE)
     for (int i = 0; i < n; i++) {
-        uint32_t car = conductor + 0x6698 + (uint32_t)i * CAR_SIZE;   /* func_0045B8A8 */
+        uint32_t car =
+            conductor + CONDUCTOR_FIELD_CARS + (uint32_t)i * CAR_SIZE; /* func_0045B8A8 */
         begin(HULL(i), GT4_F32(car + CAR_DT));
         set_cars(HULL(i), !passable(car));
     }
@@ -1221,17 +1451,19 @@ static void cars_walls(uint32_t solver)
         n = (int)GT4_U32(solver + 4);
         for (int i = 0; i < n; i++)
             for (int j = 0; j < n; j++)
-                if (i != j) overlap(HULL(i), (uint32_t)j);
-        for (int i = 0; i < n; i++) {                                 /* func_0045C578 */
+                if (i != j)
+                    overlap(HULL(i), (uint32_t)j);
+        for (int i = 0; i < n; i++) { /* func_0045C578 */
             car_contacts(HULL(i));
             slide(HULL(i));
         }
-        for (int i = 0; i < n; i++) predict(HULL(i));
+        for (int i = 0; i < n; i++)
+            predict(HULL(i));
         which = -1;
         best = 2.0f;
         for (int i = 0; i < n; i++) {
             uint32_t h = HULL(i);
-            HU(0x3f0) = 0;                                            /* func_0045C648 */
+            HU(0x3f0) = 0; /* func_0045C648 */
             HF(H_SENSOR_T) = 2.0f;
             HU(H_HIT_POINT) = 0;
             HU(H_HIT_CORNER) = 0;
@@ -1241,20 +1473,26 @@ static void cars_walls(uint32_t solver)
                 which = i + 0x200;
             }
             for (int j = 0; j < n; j++)
-                if (i != j) pair_test(h, (uint32_t)j);
+                if (i != j)
+                    pair_test(h, (uint32_t)j);
             if (HU(0x3f0) && HF(H_HIT_T) < best) {
                 best = HF(H_HIT_T);
                 which = i;
             }
         }
-        for (int i = 0; i < n; i++) sensor_check(HULL(i), best);
-        if (which < 0) break;
+        for (int i = 0; i < n; i++)
+            sensor_check(HULL(i), best);
+        if (which < 0)
+            break;
         t = best;
-        for (int i = 0; i < n; i++) advance(HULL(i), best);
+        for (int i = 0; i < n; i++)
+            advance(HULL(i), best);
         if (which & 0x200) {
             uint32_t h = HULL(which & ~0x200);
-            if (HU(H_HIT_POINT)) point_hit(h);
-            else corner_hit(h);                                       /* an edge hits a wall's corner */
+            if (HU(H_HIT_POINT))
+                point_hit(h);
+            else
+                corner_hit(h); /* an edge hits a wall's corner */
         } else {
             car_hit(HULL(which));
         }
@@ -1265,7 +1503,7 @@ static void cars_walls(uint32_t solver)
         wall_turn(h, t);
         push_out(h);
         finish(h);
-        shake(h, conductor + 0x6698 + (uint32_t)i * CAR_SIZE);
+        shake(h, conductor + CONDUCTOR_FIELD_CARS + (uint32_t)i * CAR_SIZE);
     }
 #undef HULL
 }
@@ -1275,7 +1513,8 @@ static void walls_in(uint32_t conductor)
 {
     int n = (int)GT4_U32(conductor + CONDUCTOR_CARS);
     for (int i = 0; i < n; i++) {
-        uint32_t car = conductor + 0x6698 + (uint32_t)i * CAR_SIZE, h = conductor + WALLS + 0xc + (uint32_t)i * HULL_SIZE;
+        uint32_t car = conductor + CONDUCTOR_FIELD_CARS + (uint32_t)i * CAR_SIZE,
+                 h = conductor + WALLS + 0xc + (uint32_t)i * HULL_SIZE;
         for (int k = 0; k < 3; k++) {
             HF(H_IN_POS + k * 4) = GT4_F32(car + CAR_POSITION + k * 4);
             HF(H_IN_VEL + k * 4) = GT4_F32(car + CAR_VELOCITY + k * 4);
@@ -1286,17 +1525,21 @@ static void walls_in(uint32_t conductor)
         HF(H_IN_RATES + 4) = GT4_F32(car + CAR_ROLL_RATE);
         HF(H_IN_ANGLES + 8) = GT4_F32(car + CAR_ANGLES + 8);
         HF(H_IN_RATES + 0) = GT4_F32(car + CAR_PITCH_RATE);
-        HU(H_GROUND_ID) = GT4_U32(car + 0x5ac);
+        HU(H_GROUND_ID) = GT4_U32(car + CAR_FIELD_UNK_5AC);
     }
 }
 
-static float setup_sqrt(float x) { return x == 0 ? x : sqrtf(fabsf(x)); }
+static float setup_sqrt(float x)
+{
+    return x == 0 ? x : sqrtf(fabsf(x));
+}
 
 /* div.s as the EE does it: x/0 is the largest float, signed as x^0 */
 static float ee_div(float a, float b)
 {
     uint32_t sa, sb;
-    if (b != 0) return a / b;
+    if (b != 0)
+        return a / b;
     memcpy(&sa, &a, 4);
     memcpy(&sb, &b, 4);
     return ((sa ^ sb) >> 31) ? K(0xff7fffffu) : K(0x7f7fffffu);
@@ -1316,8 +1559,8 @@ static void solver_constants(float k)
    h+8 + k*0x44, from the half width p0, front p4, half length p8/2 and the
    chamfers p8/5), each side's normal and plane (h+0x228 + k*0x2C), the
    radius (h+0x388), the height p48, the mass p114 times D_00846638. */
-static void hull_setup(uint32_t h, uint32_t i, uint32_t course, uint32_t car,
-                       float w, float f, float l, float cf, float cr, float ht, float m)
+static void hull_setup(uint32_t h, uint32_t i, uint32_t course, uint32_t car, float w, float f,
+                       float l, float cf, float cr, float ht, float m)
 {
     float hl, r = 0, x0, x1, x2, y0, y1, y2, inv_h, inv_m, mass;
     GT4_U32(h + 0x44c) = i;
@@ -1328,14 +1571,14 @@ static void hull_setup(uint32_t h, uint32_t i, uint32_t course, uint32_t car,
     GT4_F32(h + 0x494) = hl = l * K(0x3f000000u);
     GT4_F32(h + 0x498) = ht;
     GT4_U32(h + 0x488) = course;
-    mass = m * GT4_F32(0x00846638u);                     /* func_0045C0D8 */
+    mass = m * GT4_F32(0x00846638u); /* func_0045C0D8 */
     inv_h = ee_div(K(0x3f800000u), ht);
-    x0 = w - cf;                                         /* f9 */
-    x1 = cf - hl;                                        /* f7 */
-    y0 = cr - f;                                         /* f3 */
-    y1 = hl - cr;                                        /* f8 */
-    x2 = hl - cf;                                        /* f1 */
-    y2 = cr - hl;                                        /* f2 */
+    x0 = w - cf;  /* f9 */
+    x1 = cf - hl; /* f7 */
+    y0 = cr - f;  /* f3 */
+    y1 = hl - cr; /* f8 */
+    x2 = hl - cf; /* f1 */
+    y2 = cr - hl; /* f2 */
     inv_m = ee_div(K(0x3f800000u), mass);
     GT4_F32(h + 0x94) = w;
     GT4_F32(h + 0x118) = -hl;
@@ -1379,7 +1622,8 @@ static void hull_setup(uint32_t h, uint32_t i, uint32_t course, uint32_t car,
         GT4_F32(s + 0x23c) = nx;
         GT4_F32(s + 0x240) = -ny * x - nx * y;
         len = x * x + y * y;
-        if (r < len) r = len;
+        if (r < len)
+            r = len;
     }
     GT4_F32(h + 0x388) = setup_sqrt(r);
     GT4_U32(h + 0x430) = 1;
@@ -1396,14 +1640,14 @@ static void hull_setup(uint32_t h, uint32_t i, uint32_t course, uint32_t car,
    the sum of the two radii and its square). */
 void gt4_walls_setup(uint32_t cond)
 {
-    uint32_t s = cond + WALLS, course = GT4_U32(cond + 0xcbd8u);
+    uint32_t s = cond + WALLS, course = GT4_U32(cond + CONDUCTOR_FIELD_COURSE_U);
     int n;
     solver_constants(0.0f);
     GT4_U32(s + 8) = course;
     GT4_U32(s) = cond;
     GT4_U32(s + 4) = GT4_U32(cond + CONDUCTOR_CARS);
     for (uint32_t i = 0; (int32_t)i < (int32_t)GT4_U32(s + 4); i++) {
-        uint32_t car = cond + 0x6698u + i * CAR_SIZE, p = GT4_U32(car + CAR_PARAMS);
+        uint32_t car = cond + CONDUCTOR_FIELD_CARS_U + i * CAR_SIZE, p = GT4_U32(car + CAR_PARAMS);
         float l = GT4_F32(p + 8);
         hull_setup(s + 0xc + i * HULL_SIZE, i, course, car, GT4_F32(p), GT4_F32(p + 4), l,
                    l * K(0x3e4ccccc), l * K(0x3e4ccccc), GT4_F32(p + 0x48), GT4_F32(p + 0x114));
@@ -1421,20 +1665,27 @@ void gt4_walls_setup(uint32_t cond)
     }
 }
 
-void gt4_walls_in(uint32_t conductor) { walls_in(conductor); }
+void gt4_walls_in(uint32_t conductor)
+{
+    walls_in(conductor);
+}
 
 /* func_003F4C18: back into the cars, with the kick for the view. */
 static void walls_out(uint32_t conductor)
 {
     int n = (int)GT4_U32(conductor + CONDUCTOR_CARS);
     for (int i = 0; i < n; i++) {
-        uint32_t car = conductor + 0x6698 + (uint32_t)i * CAR_SIZE, h = conductor + WALLS + 0xc + (uint32_t)i * HULL_SIZE;
+        uint32_t car = conductor + CONDUCTOR_FIELD_CARS + (uint32_t)i * CAR_SIZE,
+                 h = conductor + WALLS + 0xc + (uint32_t)i * HULL_SIZE;
         uint32_t b = conductor + SHAKE_BLOCK + (uint32_t)i * 0x30;
-        if (!GT4_U8(SHAKE_ON)) GT4_U32(b + 0x24) = 0;
-        else if (GT4_U32(b + 0x24)) GT4_U32(b + 0x24) = 0;
+        if (!GT4_U8(SHAKE_ON))
+            GT4_U32(b + 0x24) = 0;
+        else if (GT4_U32(b + 0x24))
+            GT4_U32(b + 0x24) = 0;
         else {
             float d[3], fx = 0, fy = 0, m;
-            for (int k = 0; k < 3; k++) d[k] = HF(H_IN_VEL + k * 4) - GT4_F32(car + CAR_VELOCITY + k * 4);
+            for (int k = 0; k < 3; k++)
+                d[k] = HF(H_IN_VEL + k * 4) - GT4_F32(car + CAR_VELOCITY + k * 4);
             for (int k = 0; k < 3; k++) {
                 fy = fy + GT4_F32(car + CAR_MATRIX + 0xc + k * 4) * d[k];
                 fx = fx + GT4_F32(car + CAR_MATRIX + k * 4) * d[k];
@@ -1443,8 +1694,13 @@ static void walls_out(uint32_t conductor)
             m = m == 0 ? m : sqrtf(fabsf(m));
             if (GT4_F32(SHAKE_PARAM + 0x20) < m) {
                 float g = 1.0f, cap = GT4_F32(SHAKE_PARAM + 0x24);
-                if (cap < m) { g = cap / m; m = cap; }
-                g = g * ((GT4_F32(SHAKE_PARAM + 0x28) + GT4_F32(SHAKE_PARAM + 0x30) * (m - GT4_F32(SHAKE_PARAM + 0x20))) / m);
+                if (cap < m) {
+                    g = cap / m;
+                    m = cap;
+                }
+                g = g * ((GT4_F32(SHAKE_PARAM + 0x28) +
+                          GT4_F32(SHAKE_PARAM + 0x30) * (m - GT4_F32(SHAKE_PARAM + 0x20))) /
+                         m);
                 GT4_U32(b + 0x24) = 1;
                 GT4_F32(b + 0x1c) = fx * g;
                 GT4_F32(b + 0x20) = fy * g;
@@ -1471,12 +1727,17 @@ void gt4_walls_cars(uint32_t conductor)
 void gt4_walls(uint32_t conductor, int first)
 {
     walls_in(conductor);
-    for (int i = first; i < (int)GT4_U32(conductor + CONDUCTOR_CARS); i++) car_walls(conductor, i);
+    for (int i = first; i < (int)GT4_U32(conductor + CONDUCTOR_CARS); i++)
+        car_walls(conductor, i);
     walls_out(conductor);
 }
 
 /* The replay cameras' wall check, in the course's frame (x, height, z). */
-typedef struct { float b[3], a[3]; int hit; float at[3], t; } camera_segment;
+typedef struct {
+    float b[3], a[3];
+    int hit;
+    float at[3], t;
+} camera_segment;
 
 /* func_003FE4C8: the move b -> a crossing wall w from its front (the side
    its left normal faces) to its back, between its two ends */
@@ -1486,15 +1747,20 @@ static int camera_cross(uint32_t w, camera_segment *s)
     float wx = GT4_F32(w), wz = GT4_F32(w + 8), nx = GT4_F32(v), nz = GT4_F32(v + 8);
     float ex = nx - wx, ez = nz - wz, fa, fb, dx, dz, t;
     fa = ex * (s->a[2] - wz) - ez * (s->a[0] - wx);
-    if (fa < 0) return 0;
+    if (fa < 0)
+        return 0;
     fb = ex * (s->b[2] - wz) - ez * (s->b[0] - wx);
-    if (0 < fb) return 0;
+    if (0 < fb)
+        return 0;
     dx = s->a[0] - s->b[0];
     dz = s->a[2] - s->b[2];
-    if (dx * (wz - s->a[2]) - dz * (wx - s->a[0]) < 0) return 0;
-    if (0 < dx * (nz - s->a[2]) - dz * (nx - s->a[0])) return 0;
+    if (dx * (wz - s->a[2]) - dz * (wx - s->a[0]) < 0)
+        return 0;
+    if (0 < dx * (nz - s->a[2]) - dz * (nx - s->a[0]))
+        return 0;
     t = fa / (fa - fb);
-    for (int k = 0; k < 3; k++) s->at[k] = s->a[k] - (s->a[k] - s->b[k]) * t;
+    for (int k = 0; k < 3; k++)
+        s->at[k] = s->a[k] - (s->a[k] - s->b[k]) * t;
     s->t = t;
     return 1;
 }
@@ -1502,16 +1768,19 @@ static int camera_cross(uint32_t w, camera_segment *s)
 /* func_00395A38 -> func_003E6A58 with func_003FE680: the walls listed by
    ground triangle id (found from 10 km up at the box's middle when unset)
    that come into the box x0..x1, z0..z1; the first crossing is kept */
-static void camera_walls(uint32_t mesh, int32_t id, float x0, float z0, float x1, float z1, camera_segment *s)
+static void camera_walls(uint32_t mesh, int32_t id, float x0, float z0, float x1, float z1,
+                         camera_segment *s)
 {
     uint32_t list, from, to;
     if (id < 0) {
         gt4_ray_hit hit;
-        float p[3] = { (x0 + x1) * 0.5f, 10000.0f, (z0 + z1) * 0.5f };
-        if (!gt4_course_ray_down(mesh, &hit, p)) return;
+        float p[3] = {(x0 + x1) * 0.5f, 10000.0f, (z0 + z1) * 0.5f};
+        if (!gt4_course_ray_down(mesh, &hit, p))
+            return;
         id = (int32_t)((uint16_t)hit.tri | (uint32_t)(uint16_t)hit.leaf << 16);
     }
-    if ((int16_t)((uint32_t)id >> 16) < 0) return;
+    if ((int16_t)((uint32_t)id >> 16) < 0)
+        return;
     list = GT4_U32(GT4_U32(mesh + 0x78) + ((uint32_t)id & 0xffff) * 12 + 8);
     from = list & 0xffffff;
     to = from + (list >> 24);
@@ -1522,10 +1791,13 @@ static void camera_walls(uint32_t mesh, int32_t id, float x0, float z0, float x1
         int out = (x < x0) | (x1 < x) << 1 | (z < z0) << 2 | (z1 < z) << 3;
         if (out) {
             uint32_t v = wall_next(w);
-            x = GT4_F32(v); z = GT4_F32(v + 8);
-            if (out & ((x < x0) | (x1 < x) << 1 | (z < z0) << 2 | (z1 < z) << 3)) continue;
+            x = GT4_F32(v);
+            z = GT4_F32(v + 8);
+            if (out & ((x < x0) | (x1 < x) << 1 | (z < z0) << 2 | (z1 < z) << 3))
+                continue;
         }
-        if (!s->hit) s->hit = camera_cross(w, s);
+        if (!s->hit)
+            s->hit = camera_cross(w, s);
     }
 }
 
@@ -1533,8 +1805,9 @@ static void camera_walls(uint32_t mesh, int32_t id, float x0, float z0, float x1
 int32_t gt4_camera_ground_id(uint32_t course, const float p[3])
 {
     gt4_ray_hit hit;
-    float q[3] = { p[0], p[1] + 10.0f, p[2] };
-    if (!gt4_course_ray_down(GT4_U32(GT4_U32(course + 4) + 0xdc), &hit, q)) return -1;
+    float q[3] = {p[0], p[1] + 10.0f, p[2]};
+    if (!gt4_course_ray_down(GT4_U32(GT4_U32(course + 4) + 0xdc), &hit, q))
+        return -1;
     return (int32_t)((uint16_t)hit.tri | (uint32_t)(uint16_t)hit.leaf << 16);
 }
 
@@ -1542,37 +1815,62 @@ int32_t gt4_camera_ground_id(uint32_t course, const float p[3])
    most), each step's walls in the box of its move: at a wall out is
    pulled back margin toward from, 1; otherwise out ends at the last step
    over ground (*id its triangle) and 0 */
-int gt4_camera_wall(uint32_t course, float margin, const float from[3], const float to[3], float out[3], int32_t *id)
+int gt4_camera_wall(uint32_t course, float margin, const float from[3], const float to[3],
+                    float out[3], int32_t *id)
 {
     uint32_t mesh = GT4_U32(GT4_U32(course + 4) + 0xdc);
     float dir[3], prev[3], len, total, along = 0;
     int last = 0, steps = 0;
-    for (int k = 0; k < 3; k++) { out[k] = to[k]; dir[k] = to[k] - from[k]; prev[k] = from[k]; }
+    for (int k = 0; k < 3; k++) {
+        out[k] = to[k];
+        dir[k] = to[k] - from[k];
+        prev[k] = from[k];
+    }
     len = sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
-    if (len < 1e-4f) return 0;
-    for (int k = 0; k < 3; k++) dir[k] *= (len + margin) / len;
+    if (len < 1e-4f)
+        return 0;
+    for (int k = 0; k < 3; k++)
+        dir[k] *= (len + margin) / len;
     total = sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
     for (;;) {
         camera_segment s;
         int32_t ground;
         along += 4;
-        if (total <= along) { along = total; last = 1; }
-        for (int k = 0; k < 3; k++) { s.b[k] = prev[k]; s.a[k] = dir[k] * (along / total) + from[k]; }
+        if (total <= along) {
+            along = total;
+            last = 1;
+        }
+        for (int k = 0; k < 3; k++) {
+            s.b[k] = prev[k];
+            s.a[k] = dir[k] * (along / total) + from[k];
+        }
         s.hit = 0;
-        camera_walls(mesh, *id, fminf(s.b[0], s.a[0]), fminf(s.b[2], s.a[2]), fmaxf(s.b[0], s.a[0]), fmaxf(s.b[2], s.a[2]), &s);
+        camera_walls(mesh, *id, fminf(s.b[0], s.a[0]), fminf(s.b[2], s.a[2]), fmaxf(s.b[0], s.a[0]),
+                     fmaxf(s.b[2], s.a[2]), &s);
         if (s.hit) {
             float v[3], l;
-            for (int k = 0; k < 3; k++) v[k] = s.at[k] - from[k];
+            for (int k = 0; k < 3; k++)
+                v[k] = s.at[k] - from[k];
             l = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
-            if (0.001f < l) for (int k = 0; k < 3; k++) v[k] *= fmaxf(0, l - margin) / l;
-            for (int k = 0; k < 3; k++) out[k] = from[k] + v[k];
+            if (0.001f < l)
+                for (int k = 0; k < 3; k++)
+                    v[k] *= fmaxf(0, l - margin) / l;
+            for (int k = 0; k < 3; k++)
+                out[k] = from[k] + v[k];
             return 1;
         }
         ground = gt4_camera_ground_id(course, s.a);
-        if (ground < 0) { for (int k = 0; k < 3; k++) out[k] = prev[k]; return 0; }
+        if (ground < 0) {
+            for (int k = 0; k < 3; k++)
+                out[k] = prev[k];
+            return 0;
+        }
         *id = ground;
-        for (int k = 0; k < 3; k++) out[k] = prev[k] = s.a[k];
-        if (last) return 0;
-        if (++steps >= 9) last = 1;
+        for (int k = 0; k < 3; k++)
+            out[k] = prev[k] = s.a[k];
+        if (last)
+            return 0;
+        if (++steps >= 9)
+            last = 1;
     }
 }

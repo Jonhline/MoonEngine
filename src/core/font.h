@@ -19,8 +19,8 @@ typedef struct {
     /* Face +0x10..+0x16: the cell of a KNJI glyph drawn for codes from
        0x300 (00492EF0 -> 00492748): width, height, signed x/y offsets,
        advance; +0x16 picks the KNJI subfont (004900B8 -> 00491C10). */
-    uint8_t kanji_w,kanji_h,kanji_advance,kanji_set;
-    int8_t kanji_x,kanji_y;
+    uint8_t kanji_w, kanji_h, kanji_advance, kanji_set;
+    int8_t kanji_x, kanji_y;
 } gt4_font;
 
 /* Decode one named face from FT01. Owns its output, not the input bytes.
@@ -35,6 +35,6 @@ void gt4_font_free(gt4_font *font);
    range, or the table's 0xFFFF, uses glyph 0. Writes the w*h glyph as RGBA
    with the ink and outlined palettes; returns 0 for malformed data. */
 #define GT4_KANJI_FIRST 0x300u
-int gt4_kanji_glyph(const uint8_t *data, size_t size, unsigned set, unsigned code,
-                    int *w, int *h, uint8_t *ink, uint8_t *outlined, size_t capacity);
+int gt4_kanji_glyph(const uint8_t *data, size_t size, unsigned set, unsigned code, int *w, int *h,
+                    uint8_t *ink, uint8_t *outlined, size_t capacity);
 #endif

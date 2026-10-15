@@ -45,3 +45,6 @@ Name: "{autodesktop}\OpenGT4"; Filename: "{app}\opengt4.exe"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\opengt4.exe"; Description: "{cm:LaunchProgram,OpenGT4}"; Flags: nowait postinstall skipifsilent
+
+; Updater invokes /VERYSILENT /CURRENTUSER. Saves live outside {app}.
+Filename: "{app}\opengt4.exe"; Flags: nowait; Check: WizardSilent

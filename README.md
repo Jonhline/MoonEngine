@@ -28,7 +28,7 @@
 
 Your disc image stays where it is. To update, run the new installer over the old one; your saves and settings are kept.
 
-Version 2.00 of the disc is the one tested. To check a v2.00 dump: `CORE.GT4` on the disc has the SHA-1 `30031137ce494323816bb707b90d3ec0d07937d2`.
+Versions 1.01 and 2.00 of the disc have been tested and run the same. To check a v2.00 dump: `CORE.GT4` on the disc has the SHA-1 `30031137ce494323816bb707b90d3ec0d07937d2`.
 
 ---
 
@@ -36,13 +36,9 @@ Version 2.00 of the disc is the one tested. To check a v2.00 dump: `CORE.GT4` on
 
 OpenGT4 is in alpha. Before reporting a problem, check this list and the open [Issues](../../issues).
 
-- Discs other than v2.00 of SCUS-97328 start, but are not tested yet; some things may behave differently.
 - LAN play is not available (the menu shows "Coming soon").
 - Some sounds and visual details still differ from the PS2.
-- GT Mode's secret codes can crash the game.
-- License demonstrations may not always reach the gold time.
 - The attract-mode demo may not play correctly.
-- Some championship prizes may not be awarded correctly.
 
 When reporting a bug, say what you were doing, which disc version you have, and attach a screenshot if you can.
 
@@ -55,20 +51,20 @@ OpenGT4 is a native PC port of Gran Turismo 4, built through reimplementation in
 > [!WARNING]
 > OpenGT4 is in **alpha**. Most of the game is playable, but some modes and features are still missing or incomplete, and some sounds and visuals still differ from the PS2. Expect bugs.
 
-The plan is one executable with two modes: **Classic**, the game as it was on the PS2, which is what is being built now, and later **Enhanced**, the same game with modern rendering, new options and mods (see [Roadmap](#roadmap)).
+The plan is to reproduce the game as it was on the PS2 first, then improve it: modern rendering, new options and mods, on by default, with the original look and behaviour always one option away (see [Roadmap](#roadmap)).
 
 ## Roadmap
 
-**1. Classic** (now). Gran Turismo 4 as it was on the PS2: the same behaviour, look and controls, tested against the original. Widescreen uses the game's own 16:9 mode. Optional filters can recreate the PS2 image (640x448, dithering, interlacing).
+**1. The original** (now). Gran Turismo 4 as it was on the PS2: the same behaviour, look and controls, tested against the original. Widescreen uses the game's own 16:9 mode. Optional filters can recreate the PS2 image (640x448, dithering, interlacing).
 
-**2. Enhanced** (next). The same game in the same executable, chosen at start, as if the studio had kept it alive on PC. It is the Classic base with extra layers that can be switched on and off, all on by default:
+**2. Improvements** (next). The same game, as if the studio had kept it alive on PC. Each improvement has its own option and is on by default, and an **Original** preset turns everything back to the PS2 game:
 
 - a modern renderer: real shadows and reflections, new lighting, softer car shadows, higher resolutions and ultrawide screens;
 - native keyboard and mouse, and new interface items in the game's own style;
 - **mods**, in an official package format (name, version, author, dependencies), able to replace game files and add new cars, tracks and content; existing PS2 mods can have their cars, tracks and sounds imported from your own files;
 - improved versions of some systems, such as the rival AI, offered next to the original, which stays available.
 
-Car physics and race rules stay the original ones in both modes, so lap times, ghosts, replays and saves are valid in either. Mods are only accepted in Enhanced; Classic uses only your disc.
+Car physics and race rules always stay the original ones, so lap times, ghosts, replays and saves stay valid whatever the options. Mods are optional; without them the game uses only your disc.
 
 **3. Tourist Trophy** after that, built on the same base.
 

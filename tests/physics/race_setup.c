@@ -29,23 +29,30 @@
 
 ee_fn recomp_lookup(uint32_t addr);
 
-#define RACE_INIT   0x0034d490u
-#define AFTER_CARS  0x003f1e60u   /* first call after the cars' loop */
-#define CAR_OFFSET  0x6698u
-#define STACK_TOP   0x01ef0000u
-#define SCRATCH     0x01e32000u   /* 0x680 bytes, zero in the snapshots */
+#define RACE_INIT 0x0034d490u
+#define AFTER_CARS 0x003f1e60u /* first call after the cars' loop */
+#define CAR_OFFSET 0x6698u
+#define STACK_TOP 0x01ef0000u
+#define SCRATCH 0x01e32000u /* 0x680 bytes, zero in the snapshots */
 
-#define SESSION_VT  0x10140u
-#define COURSE_END  0x01b00000u   /* the course data stays below (the race's objects are at 0x1BE0000 on) */      /* conductor: the session's virtual table */
+#define SESSION_VT 0x10140u
+#define COURSE_END                                                                                 \
+    0x01b00000u /* the course data stays below (the race's objects are at 0x1BE0000 on) */ /* conductor: the session's virtual table */
 /* PHYS_PROGRESS: where the setup is, to stderr (for crashes) */
-#define STAGE(n) do { if (getenv("PHYS_PROGRESS")) { fprintf(stderr, "setup %d\n", n); fflush(stderr); } } while (0)
+#define STAGE(n)                                                                                   \
+    do {                                                                                           \
+        if (getenv("PHYS_PROGRESS")) {                                                             \
+            fprintf(stderr, "setup %d\n", n);                                                      \
+            fflush(stderr);                                                                        \
+        }                                                                                          \
+    } while (0)
 
 /* How each car starts comes from the session (virtual +0xF0, written
    through a2; 0: standing on its grid slot). With force_grid it is 0. */
 /* 1: the whole race init, past the cars (what a snapshot already has
    from its own init: the walls' car outlines, the pit's tyres...) */
 int phys_race_full_init;
-int32_t phys_race_other_cars[7] = { -1, -1, -1, -1, -1, -1, -1 };
+int32_t phys_race_other_cars[7] = {-1, -1, -1, -1, -1, -1, -1};
 
 static ee_ctx *stop_ctx;
 static int force_grid, in_start;
@@ -61,8 +68,10 @@ static void start_grid(ee_ctx *c)
 }
 static ee_fn stop_hook(uint32_t addr)
 {
-    if (addr == AFTER_CARS && stop_ctx && !phys_race_full_init && !getenv("PHYS_FULLINIT")) longjmp(*stop_ctx->exit_jmp, 2);
-    if (addr == start_fn && stop_ctx && force_grid && !in_start) return start_grid;
+    if (addr == AFTER_CARS && stop_ctx && !phys_race_full_init && !getenv("PHYS_FULLINIT"))
+        longjmp(*stop_ctx->exit_jmp, 2);
+    if (addr == start_fn && stop_ctx && force_grid && !in_start)
+        return start_grid;
     return chained ? chained(addr) : NULL;
 }
 
@@ -89,7 +98,8 @@ static int run(ee_ctx *c, uint32_t addr, char *msg, size_t len)
     int rc;
     c->exit_jmp = &exit_jmp;
     rc = setjmp(exit_jmp);
-    if (rc == 0) recomp_lookup(addr)(c);
+    if (rc == 0)
+        recomp_lookup(addr)(c);
     c->exit_jmp = keep;
     if (rc == 1) {
         snprintf(msg, len, "0x%08x stopped at 0x%08x: %s", addr, c->end_pc, c->end_detail);
@@ -101,7 +111,8 @@ static int run(ee_ctx *c, uint32_t addr, char *msg, size_t len)
 int phys_race_setup(ee_ctx *c, gt4_vol *vol, uint32_t conductor, const char *course_name,
                     int32_t car_id, char *msg, size_t len)
 {
-    uint32_t car = conductor + CAR_OFFSET, course = GT4_U32(GT4_U32(conductor) + 0x80), obj = GT4_U32(course + 4);
+    uint32_t car = conductor + CAR_OFFSET, course = GT4_U32(GT4_U32(conductor) + 0x80),
+             obj = GT4_U32(course + 4);
     uint32_t entry = GT4_U32(GT4_U32(GT4_U32(GT4_U32(car) + 0x60) + 8));
     int ok, standing = 0;
     msg[0] = 0;
@@ -146,11 +157,13 @@ int phys_race_setup(ee_ctx *c, gt4_vol *vol, uint32_t conductor, const char *cou
     for (uint32_t i = 0; i < 8; i++) {
         int32_t id = i ? phys_race_other_cars[i - 1] : car_id;
         uint32_t list = GT4_U32(GT4_U32(GT4_U32(conductor) + 0x60) + 8), e;
-        if (id < 0 || i >= GT4_U32(GT4_U32(GT4_U32(conductor) + 0x60))) continue;
+        if (id < 0 || i >= GT4_U32(GT4_U32(GT4_U32(conductor) + 0x60)))
+            continue;
         e = GT4_U32(list + i * 4);
         {
             gt4_spec_tables *t = gt4_spec_tables_open(vol, NULL);
-            gt4_specdb_src db = { gt4_spec_tables_row, t, gt4_spec_tables_str, gt4_spec_tables_car_parts };
+            gt4_specdb_src db = {gt4_spec_tables_row, t, gt4_spec_tables_str,
+                                 gt4_spec_tables_car_parts};
             memset(gt4_ptr(SCRATCH), 0, 0x680);
             STAGE(2);
             ok = gt4_garage_new(e + 0x20, (uint32_t)id, &db, SCRATCH);
@@ -163,7 +176,8 @@ int phys_race_setup(ee_ctx *c, gt4_vol *vol, uint32_t conductor, const char *cou
     }
     {
         uint8_t *before = malloc(EE_RAM_SIZE);
-        if (!before) return 0;
+        if (!before)
+            return 0;
         memcpy(before, c->ram, EE_RAM_SIZE);
         force_grid = 0;
         STAGE(3);
@@ -174,19 +188,21 @@ int phys_race_setup(ee_ctx *c, gt4_vol *vol, uint32_t conductor, const char *cou
                game's own standing start on the grid slot instead */
             memcpy(c->ram, before, EE_RAM_SIZE);
             force_grid = 1;
-        STAGE(4);
+            STAGE(4);
             ok = race_init(c, conductor, msg, len);
             force_grid = 0;
         }
         STAGE(5);
         free(before);
-        if (!ok) return 0;
+        if (!ok)
+            return 0;
     }
     if (standing || !(fabsf(GT4_F32(car + 0x10c)) < 1e20f)) {
         /* On such courses the grid table is not a racing grid either (on
            Suzuka the cars face the pits): the car goes on the driving-line
            point nearest its grid slot that has ground, facing along it. */
-        uint32_t rw = GT4_U32(obj + 0xdc), slot = GT4_U32(entry + 0x3444), g = GT4_U32(rw + 0x5c) + slot * 16;
+        uint32_t rw = GT4_U32(obj + 0xdc), slot = GT4_U32(entry + 0x3444),
+                 g = GT4_U32(rw + 0x5c) + slot * 16;
         uint32_t lines = conductor + 0xda50u, table = GT4_U32(lines + 8);
         float gx = GT4_F32(g), gy = -GT4_F32(g + 8), best = 1e30f, x = 0, y = 0, h = 0, heading = 0;
         gt4_ray_hit hit;
@@ -195,9 +211,10 @@ int phys_race_setup(ee_ctx *c, gt4_vol *vol, uint32_t conductor, const char *cou
             int32_t n = line ? (int32_t)GT4_U32(line) : 0;
             for (int32_t i = 0; i < n; i++) {
                 uint32_t pt = line + 0x40 + (uint32_t)i * 0x40;
-                float q[3] = { GT4_F32(pt + 4), GT4_F32(pt + 0xc) + 5.0f, -GT4_F32(pt + 8) };
+                float q[3] = {GT4_F32(pt + 4), GT4_F32(pt + 0xc) + 5.0f, -GT4_F32(pt + 8)};
                 float dx = q[0] - gx, dy = GT4_F32(pt + 8) - gy, d = dx * dx + dy * dy;
-                if (!(d < best) || GT4_F32(pt + 0xc) == 0 || !gt4_course_ray_down(rw, &hit, q)) continue;
+                if (!(d < best) || GT4_F32(pt + 0xc) == 0 || !gt4_course_ray_down(rw, &hit, q))
+                    continue;
                 best = d;
                 x = q[0];
                 y = GT4_F32(pt + 8);
@@ -211,7 +228,8 @@ int phys_race_setup(ee_ctx *c, gt4_vol *vol, uint32_t conductor, const char *cou
         }
         STAGE(6);
         gt4_car_place(car, 0xffffffffu, x, y, h, heading);
-        snprintf(msg, len, "standing start on the driving line by the grid (the run-up line has no ground)");
+        snprintf(msg, len,
+                 "standing start on the driving line by the grid (the run-up line has no ground)");
     }
     return 1;
 }

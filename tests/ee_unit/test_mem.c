@@ -9,14 +9,14 @@
 
 static int fails;
 
-#define EXPECT(cond, ...)                                  \
-    do {                                                   \
-        if (!(cond)) {                                     \
-            fails++;                                       \
-            printf("FAIL %s:%d: ", __FILE__, __LINE__);    \
-            printf(__VA_ARGS__);                           \
-            printf("\n");                                  \
-        }                                                  \
+#define EXPECT(cond, ...)                                                                          \
+    do {                                                                                           \
+        if (!(cond)) {                                                                             \
+            fails++;                                                                               \
+            printf("FAIL %s:%d: ", __FILE__, __LINE__);                                            \
+            printf(__VA_ARGS__);                                                                   \
+            printf("\n");                                                                          \
+        }                                                                                          \
     } while (0)
 
 int main(void)
@@ -42,7 +42,8 @@ int main(void)
         uint64_t r = 0;
         r = ee_ldl(&c, A + 3 + 7, r);
         r = ee_ldr(&c, A + 3, r);
-        EXPECT(r == 0xaa99887766554433ull, "ldl/ldr pair at +3 gave %016llx", (unsigned long long)r);
+        EXPECT(r == 0xaa99887766554433ull, "ldl/ldr pair at +3 gave %016llx",
+               (unsigned long long)r);
     }
     /* Aligned cases: each half alone gives the full dword. */
     EXPECT(ee_ldl(&c, A + 7, 0) == lo, "ldl at +7");
@@ -89,21 +90,22 @@ int main(void)
 
     /* Copied-code check: matching bytes pass, one changed byte ends the run. */
     {
-        static const uint8_t code[8] = { 1, 2, 3, 4, 5, 6, 7, 8 };
-        ee_code_range r = { 0x00003000u, 8, 0 };
+        static const uint8_t code[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+        ee_code_range r = {0x00003000u, 8, 0};
         volatile int ended = 0;
         r.hash = ee_fnv1a(code, sizeof code);
         memcpy(c.ram + 0x3000, code, sizeof code);
         c.code_ranges = &r;
         c.n_code_ranges = 1;
-        ee_check_code(&c, 0x80003004u, 0);   /* kseg0 alias of the range start: not in range */
-        ee_check_code(&c, 0x00003004u, 0);   /* in range, bytes match: returns */
+        ee_check_code(&c, 0x80003004u, 0); /* kseg0 alias of the range start: not in range */
+        ee_check_code(&c, 0x00003004u, 0); /* in range, bytes match: returns */
         c.ram[0x3005] ^= 0xff;
         if (setjmp(j) == 0)
             ee_check_code(&c, 0x00003000u, 0);
         else
             ended = 1;
-        EXPECT(ended && c.end_reason == EE_END_CODE_MISMATCH, "changed copied code must end the run");
+        EXPECT(ended && c.end_reason == EE_END_CODE_MISMATCH,
+               "changed copied code must end the run");
         c.code_ranges = NULL;
         c.n_code_ranges = 0;
     }

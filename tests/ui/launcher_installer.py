@@ -1,0 +1,48 @@
+"""Opt-in, isolated proof of the production installer's Files/Run behavior."""
+import argparse
+import configparser
+import os
+from pathlib import Path
+import re
+import subprocess
+import time
+ROOT=Path(__file__).resolve().parents[2]
+p=argparse.ArgumentParser()
+p.add_argument("version")
+p.add_argument("--config",type=Path,default=Path(os.environ["APPDATA"])/"OpenGT4/publish.ini")
+a=p.parse_args()
+assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+",a.version)
+root=ROOT/"build/launcher-install-proof";root.mkdir(parents=True,exist_ok=True)
+install=root/"installed";install.mkdir(exist_ok=True)
+marker=install/"existing-save.fixture";marker.write_bytes(b"keep this save")
+s=(ROOT/"tools/installer/opengt4.iss").read_text()
+s=s.replace("AppId={{6B0E5C2A-4F1D-4B8E-9A47-0D3C5E2F7A91}","AppId=OpenGT4UpdaterIsolatedTest")
+s=s.replace("AppName=OpenGT4","AppName=OpenGT4 Updater Test").replace("DefaultGroupName=OpenGT4","DefaultGroupName=OpenGT4 Updater Test")
+s=s.replace('#define Source "..\\..\\dist\\OpenGT4-" + Version + "-win64"', '#define Source "'+str(ROOT/"dist"/("OpenGT4-"+a.version+"-win64"))+'"')
+s=s.replace("SetupIconFile=..\\..\\res\\opengt4.ico","SetupIconFile="+str(ROOT/"res/opengt4.ico"))
+# Same Files/Run; a separate AppId and no shortcuts isolate the test.
+s=s[:s.index("[Icons]")]+s[s.index("[Run]"):]
+script=root/"test.iss";script.write_text(s)
+c=configparser.ConfigParser(interpolation=None);c.read(a.config,encoding="utf-8")
+subprocess.run([c["package"]["iscc"],"/DVersion="+a.version,"/O"+str(root),"/Ftest-setup",str(script)],check=True,stdout=subprocess.DEVNULL)
+exe=install/"opengt4.exe"
+ps="C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+query="Get-CimInstance Win32_Process | Where-Object {$_.ExecutablePath -eq '"+str(exe).replace("'","''")+"'}"
+def close_test_game():
+    subprocess.run([ps,"-NoProfile","-Command",query+" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"],check=True)
+try:
+    for cycle in range(2):
+        subprocess.run([str(root/"test-setup.exe"),"/VERYSILENT","/CURRENTUSER","/SUPPRESSMSGBOXES","/NORESTART","/DIR="+str(install)],check=True,timeout=60)
+        found=""
+        for i in range(15):
+            found=subprocess.check_output([ps,"-NoProfile","-Command",query+" | Select-Object -ExpandProperty ProcessId"]).decode().strip()
+            if found:break
+            time.sleep(1)
+        assert found,"silent setup did not reopen game"
+        assert marker.read_bytes()==b"keep this save"
+        close_test_game()
+    print("PASS isolated Inno: install/overwrite, retained file and native relaunch")
+finally:
+    close_test_game()
+    uninstaller=install/"unins000.exe"
+    if uninstaller.exists():subprocess.run([str(uninstaller),"/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART"],check=True,timeout=60)

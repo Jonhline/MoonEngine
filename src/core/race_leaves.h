@@ -22,12 +22,12 @@ typedef struct race_leaves race_leaves;
 /* what the physics hands over for a wheel on a leaf triangle
    (func_003667A8's 0x3C bytes, and the car's velocity) */
 typedef struct {
-    float pos[3];        /* +0x08: the contact point, render frame */
-    float heading;       /* +0x14 */
-    float shade;         /* +0x18: the ground's light under it */
-    float plane[4];      /* +0x1C: the ground's plane (normal, d) */
-    float spin, ground;  /* +0x34 (wheel +0x28), +0x38 (wheel +0x20) */
-    float vel[3];        /* the car's velocity, render frame */
+    float pos[3];       /* +0x08: the contact point, render frame */
+    float heading;      /* +0x14 */
+    float shade;        /* +0x18: the ground's light under it */
+    float plane[4];     /* +0x1C: the ground's plane (normal, d) */
+    float spin, ground; /* +0x34 (wheel +0x28), +0x38 (wheel +0x20) */
+    float vel[3];       /* the car's velocity, render frame */
 } race_leaves_wheel;
 
 /* a leaf to draw: its corners in view space (x right, y up, z towards
@@ -42,12 +42,13 @@ typedef struct {
 /* env0: the course's Env0 block (its light), borrowed */
 race_leaves *race_leaves_open(const uint8_t *env0, size_t size);
 void race_leaves_close(race_leaves *l);
-int race_leaves_snapshot(race_leaves *,const uint8_t records[][17],int count);
+int race_leaves_snapshot(race_leaves *, const uint8_t records[][17], int count);
 void race_leaves_emit(race_leaves *l, const race_leaves_wheel *w);
 void race_leaves_update(race_leaves *l, float dt);
 int race_leaves_live(const race_leaves *l);
 /* tests: how high over their ground the leaves are, lowest and highest */
 int race_leaves_height(const race_leaves *l, float *lo, float *hi);
-int race_leaves_quads(const race_leaves *l, const float eye[3], const float rows[9], race_leaves_quad *out, int max);
+int race_leaves_quads(const race_leaves *l, const float eye[3], const float rows[9],
+                      race_leaves_quad *out, int max);
 
 #endif

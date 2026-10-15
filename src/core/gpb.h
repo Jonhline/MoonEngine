@@ -19,7 +19,7 @@ const uint8_t *gpb_find(const uint8_t *pkg, size_t pkg_size, const char *name, s
 uint8_t *gpb_load(const uint8_t *pkg, size_t pkg_size, const char *name, size_t *size);
 
 /* Number of assets, and the name of asset i (or NULL). */
-int         gpb_count(const uint8_t *pkg, size_t pkg_size);
+int gpb_count(const uint8_t *pkg, size_t pkg_size);
 const char *gpb_name(const uint8_t *pkg, size_t pkg_size, int i);
 
 #endif /* OPENGT4_GPB_H */

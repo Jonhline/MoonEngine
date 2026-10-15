@@ -13,8 +13,9 @@ int gt4_license_stop(uint32_t car, float *fraction);
 int gt4_license_wait(uint32_t cond, int advance);
 void gt4_license_finish(uint32_t cond, uint32_t car, uint32_t elapsed);
 void gt4_license_fail(uint32_t cond, uint32_t car, int reason);
-void gt4_license_collision(uint32_t cond, uint32_t car, uint32_t kind, uint32_t detail, float force);
+void gt4_license_collision(uint32_t cond, uint32_t car, uint32_t kind, uint32_t detail,
+                           float force);
 void gt4_license_evaluate(uint32_t cond, uint32_t car);
 /* func_00358000: a new best flagged (race +0x98) for the player's entry */
-void gt4_session_best(uint32_t c,uint32_t i,uint32_t elapsed);
+void gt4_session_best(uint32_t c, uint32_t i, uint32_t elapsed);
 #endif

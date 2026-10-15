@@ -2,7 +2,11 @@
 #define OPENGT4_RTEXT_H
 #include <stddef.h>
 #include <stdint.h>
-typedef struct { const uint8_t *data; size_t size; unsigned pages; } gt4_rtext;
+typedef struct {
+    const uint8_t *data;
+    size_t size;
+    unsigned pages;
+} gt4_rtext;
 /* Validates the entire RT03 table. The caller keeps input bytes alive. */
 int gt4_rtext_open(gt4_rtext *rt, const uint8_t *data, size_t size);
 const char *gt4_rtext_get(const gt4_rtext *rt, const char *page, const char *key);

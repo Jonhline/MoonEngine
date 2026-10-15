@@ -1,0 +1,220 @@
+/* P: wall time on CPU threads, not GPU execution time. No device synchronization. */
+#include "platform/switch_profile.h"
+#include <stdio.h>
+#include <string.h>
+#ifdef __SWITCH__
+#include <switch.h>
+#include <stdatomic.h>
+typedef atomic_uint_fast64_t counter;
+#define ADD(p, n) atomic_fetch_add_explicit(p, n, memory_order_relaxed)
+#define TAKE(p) atomic_exchange_explicit(p, 0, memory_order_relaxed)
+#define TLS _Thread_local
+static uint64_t ticks(void)
+{
+    return armGetSystemTick();
+}
+static double milliseconds(uint64_t value)
+{
+    return armTicksToNs(value) / 1e6;
+}
+#define OUTPUT(...) fprintf(stderr, __VA_ARGS__)
+#else
+/* The host fixture controls the clock; counters still support concurrent workers. */
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+typedef volatile LONG64 counter;
+#define ADD(p, n) InterlockedExchangeAdd64(p, (LONG64)(n))
+#define TAKE(p) ((uint64_t)InterlockedExchange64(p, 0))
+#define TLS __declspec(thread)
+#else
+#include <stdatomic.h>
+typedef atomic_uint_fast64_t counter;
+#define ADD(p, n) atomic_fetch_add_explicit(p, n, memory_order_relaxed)
+#define TAKE(p) atomic_exchange_explicit(p, 0, memory_order_relaxed)
+#define TLS _Thread_local
+#endif
+extern uint64_t swp_test_ticks(void);
+extern void swp_test_output(const char *, ...);
+static uint64_t ticks(void)
+{
+    return swp_test_ticks();
+}
+static double milliseconds(uint64_t value)
+{
+    return value / 1000000.0;
+}
+#define OUTPUT(...) swp_test_output(__VA_ARGS__)
+#endif
+
+static counter busy[SWP_STAGE_COUNT], calls[SWP_STAGE_COUNT];
+static const char *names[] = {"physics",   "scene",       "gl_submit",     "swap",
+                              "audio_mix", "audio_synth", "audio_control", "disc",
+                              "inflate",   "loading",     "logic",         "idle"};
+static TLS struct {
+    enum swp_stage stack[32];
+    unsigned depth, overflow;
+    uint64_t changed;
+    char load[8][128];
+    uint64_t load_start[8];
+    unsigned load_depth, load_overflow;
+} thread;
+static char context[256] = "startup";
+static uint64_t window, previous, frame_total, frame_max;
+static unsigned frames;
+static int last_width, last_height;
+static uint64_t requested;
+static int ready_logged;
+static int assets_pending;
+static struct {
+    char key[256];
+    unsigned visits;
+} visits[128];
+
+/* Nested spans charge only their exclusive time: disc/inflate do not inflate
+   their parent scene/loading counters. Separate threads can overlap in wall time. */
+static void charge(uint64_t now)
+{
+    if (thread.depth)
+        ADD(busy + thread.stack[thread.depth - 1], now - thread.changed);
+    thread.changed = now;
+}
+
+void swp_push(enum swp_stage stage)
+{
+    if ((unsigned)stage >= SWP_STAGE_COUNT)
+        return;
+    charge(ticks());
+    if (thread.depth == 32 || thread.overflow) {
+        thread.overflow++;
+        return;
+    }
+    thread.stack[thread.depth++] = stage;
+    ADD(calls + stage, 1);
+}
+
+void swp_pop(void)
+{
+    charge(ticks());
+    if (thread.overflow)
+        thread.overflow--;
+    else if (thread.depth)
+        thread.depth--;
+}
+
+static void report(uint64_t now, int w, int h)
+{
+    if (!frames)
+        return;
+#ifdef __SWITCH__
+    int docked = appletGetOperationMode() == AppletOperationMode_Console;
+#else
+    int docked = 0;
+#endif
+    char line[4096];
+    size_t used = (size_t)snprintf(
+        line, sizeof line,
+        "Switch perf: context=%s docked=%d size=%dx%d frames=%u fps=%.2f mean_ms=%.3f max_ms=%.3f",
+        context, docked, w, h, frames, frames * 1000.0 / milliseconds(now - window),
+        milliseconds(frame_total) / frames, milliseconds(frame_max));
+    for (unsigned i = 0; i < SWP_STAGE_COUNT; i++) {
+        uint64_t elapsed = TAKE(busy + i), count = TAKE(calls + i);
+        used +=
+            (size_t)snprintf(line + used, sizeof line - used, " %s_ms=%.3f %s_calls=%llu", names[i],
+                             milliseconds(elapsed) / frames, names[i], (unsigned long long)count);
+    }
+    OUTPUT("%s\n", line);
+    frame_total = frame_max = frames = 0;
+    window = now;
+}
+
+void swp_frame(int width, int height)
+{
+    last_width = width;
+    last_height = height;
+    uint64_t now = ticks();
+    charge(now);
+    if (!window) {
+        window = previous = now;
+        for (unsigned i = 0; i < SWP_STAGE_COUNT; i++) {
+            TAKE(busy + i);
+            TAKE(calls + i);
+        }
+        return;
+    }
+    uint64_t elapsed = now - previous;
+    previous = now;
+    frame_total += elapsed;
+    if (elapsed > frame_max)
+        frame_max = elapsed;
+    frames++;
+    if (milliseconds(now - window) >= 2000)
+        report(now, width, height);
+}
+
+void swp_context(const char *project, const char *page, const char *course, const char *car,
+                 int driving)
+{
+    assets_pending = 0;
+    char next[sizeof context];
+    snprintf(next, sizeof next, "%s/%s/course=%s/car=%s/driving=%d", project ? project : "",
+             page ? page : "", course ? course : "", car ? car : "", driving);
+    if (strcmp(context, next)) {
+        uint64_t now = ticks();
+        charge(now);
+        report(now, last_width, last_height);
+        snprintf(context, sizeof context, "%s", next);
+        window = previous = now;
+        requested = now;
+        ready_logged = 0;
+        OUTPUT("Switch context: %s\n", context);
+    }
+}
+
+void swp_ready(int ready)
+{
+    if (!ready || assets_pending || ready_logged || !requested)
+        return;
+    unsigned visit = 0;
+    for (unsigned i = 0; i < 128; i++)
+        if (!visits[i].key[0] || !strcmp(visits[i].key, context)) {
+            snprintf(visits[i].key, sizeof visits[i].key, "%s", context);
+            visit = ++visits[i].visits;
+            break;
+        }
+    OUTPUT("Switch ready: context=%s visit=%u request_to_ready_ms=%.3f\n", context, visit,
+           milliseconds(ticks() - requested));
+    ready_logged = 1;
+}
+
+void swp_asset_status(int ready)
+{
+    if (!ready)
+        assets_pending = 1;
+}
+
+void swp_load_begin(const char *name)
+{
+    swp_push(SWP_LOADING);
+    if (thread.load_depth == 8 || thread.load_overflow) {
+        thread.load_overflow++;
+        return;
+    }
+    unsigned index = thread.load_depth++;
+    snprintf(thread.load[index], sizeof thread.load[index], "%s", name ? name : "");
+    thread.load_start[index] = ticks();
+}
+
+void swp_load_end(void)
+{
+    swp_pop();
+    if (thread.load_overflow) {
+        thread.load_overflow--;
+        return;
+    }
+    if (!thread.load_depth)
+        return;
+    unsigned index = --thread.load_depth;
+    OUTPUT("Switch load: %s total_ms=%.3f\n", thread.load[index],
+           milliseconds(ticks() - thread.load_start[index]));
+}

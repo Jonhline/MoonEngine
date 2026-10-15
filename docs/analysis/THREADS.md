@@ -35,7 +35,7 @@ Runtime: `src/ee/thread.c`, `src/ee/thread.h`. Tests: `tests/ee_unit/test_sched.
 ## Checked against the PCSX2 capture
 
 The `_InitSys` run now does what the capture showed
-(`docs/analysis/THREAD_REFERENCE.md`): the created thread is dormant, is started, runs
+(`docs/notes/analysis/THREAD_REFERENCE.md`): the created thread is dormant, is started, runs
 when main lowers its priority to 1, blocks in `WaitSema`, and main resumes.
 
 Memory after `_InitSys`, BSS `0x006d5e00–0x008a215c`, against the capture:

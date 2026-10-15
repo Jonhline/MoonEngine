@@ -31,11 +31,11 @@ static void set_v0(ee_ctx *c, int32_t v)
 }
 
 typedef struct {
-    int         num;
+    int num;
     const char *name;
     const char *status;
     /* Returns the value for v0. `ret_set` = 0 means the call returns nothing. */
-    int32_t   (*fn)(ee_ctx *c, int *ret_set, char *note, size_t note_len);
+    int32_t (*fn)(ee_ctx *c, int *ret_set, char *note, size_t note_len);
 } syscall_def;
 
 /* ---- threads ---- */
@@ -82,7 +82,10 @@ static int32_t k_setup_thread(ee_ctx *c, int *ret_set, char *note, size_t n)
         }
         ee_w32(c, A3, (uint32_t)argc);
     }
-    snprintf(note, n, "root=0x%08x; sp=stack+size-0x2a0 (USA 2.30 context); boot args are a test input (argc=%d)", T0, c->k.boot_argc);
+    snprintf(
+        note, n,
+        "root=0x%08x; sp=stack+size-0x2a0 (USA 2.30 context); boot args are a test input (argc=%d)",
+        T0, c->k.boot_argc);
     *ret_set = 1;
     return (int32_t)sp;
 }
@@ -96,24 +99,15 @@ static int32_t k_setup_heap(ee_ctx *c, int *ret_set, char *note, size_t n)
     return (int32_t)A0;
 }
 
-
-
-
-
-
 /* ---- semaphores ---- */
-
-
-
-
 
 /* ---- interrupts ---- */
 
 static int32_t k_add_intc_handler2(ee_ctx *c, int *ret_set, char *note, size_t n)
 {
     int id = ++c->k.next_handler_id;
-    snprintf(note, n, "cause=%d handler=0x%08x next=%d arg=0x%08x id=%d (never called)",
-             (int)A0, A1, (int)A2, A3, id);
+    snprintf(note, n, "cause=%d handler=0x%08x next=%d arg=0x%08x id=%d (never called)", (int)A0,
+             A1, (int)A2, A3, id);
     *ret_set = 1;
     return id;
 }
@@ -162,8 +156,8 @@ static int32_t k_set_syscall(ee_ctx *c, int *ret_set, char *note, size_t n)
     if (num > 0 && num < 256) {
         c->k.user_syscall[num] = A1;
         ee_w32(c, EE_HLE_SYSCALL_TABLE + (uint32_t)num * 4, A1);
-        snprintf(note, n, "syscall 0x%x -> 0x%08x, table entry at 0x%08x (HLE address)",
-                 num, A1, EE_HLE_SYSCALL_TABLE + (uint32_t)num * 4);
+        snprintf(note, n, "syscall 0x%x -> 0x%08x, table entry at 0x%08x (HLE address)", num, A1,
+                 EE_HLE_SYSCALL_TABLE + (uint32_t)num * 4);
     } else {
         /* LIMITATION: the real kernel's handling of numbers outside 1..255 is
            unknown (table size, masking, error). Nothing is written, the number
@@ -175,8 +169,9 @@ static int32_t k_set_syscall(ee_ctx *c, int *ret_set, char *note, size_t n)
             c->k.n_rejected++;
         }
         c->k.status_override = EE_UNHANDLED;
-        snprintf(note, n, "LIMITATION: number 0x%x (%d) outside the 1..255 table this HLE models, "
-                          "real kernel behaviour unknown. Not stored; a call to it ends the run",
+        snprintf(note, n,
+                 "LIMITATION: number 0x%x (%d) outside the 1..255 table this HLE models, "
+                 "real kernel behaviour unknown. Not stored; a call to it ends the run",
                  (unsigned)num, num);
     }
     *ret_set = 0;
@@ -198,38 +193,38 @@ static int32_t k_flush_cache(ee_ctx *c, int *ret_set, char *note, size_t n)
 }
 
 static const syscall_def table[] = {
-    { 0x3c, "SetupThread",          EE_STUBBED,     k_setup_thread },
-    { 0x3d, "SetupHeap",            EE_STUBBED,     k_setup_heap },
-    { 0x20, "CreateThread",         EE_IMPLEMENTED, ee_k_create_thread },
-    { 0x21, "DeleteThread",         EE_IMPLEMENTED, ee_k_delete_thread },
-    { 0x22, "StartThread",          EE_IMPLEMENTED, ee_k_start_thread },
-    { 0x23, "ExitThread",           EE_IMPLEMENTED, ee_k_exit_thread },
-    { 0x24, "ExitDeleteThread",     EE_IMPLEMENTED, ee_k_exit_delete_thread },
-    { 0x29, "ChangeThreadPriority", EE_IMPLEMENTED, ee_k_change_thread_priority },
-    { -0x2a, "iChangeThreadPriority", EE_IMPLEMENTED, ee_k_change_thread_priority },
-    { 0x2b, "RotateThreadReadyQueue", EE_IMPLEMENTED, ee_k_rotate_ready_queue },
-    { 0x2f, "GetThreadId",          EE_IMPLEMENTED, ee_k_get_thread_id },
-    { 0x30, "ReferThreadStatus",    EE_IMPLEMENTED, ee_k_refer_thread_status },
-    { -0x31, "iReferThreadStatus",  EE_IMPLEMENTED, ee_k_refer_thread_status },
-    { 0x32, "SleepThread",          EE_IMPLEMENTED, ee_k_sleep_thread },
-    { 0x33, "WakeupThread",         EE_IMPLEMENTED, ee_k_wakeup_thread },
-    { -0x34, "iWakeupThread",       EE_IMPLEMENTED, ee_k_wakeup_thread },
-    { 0x40, "CreateSema",           EE_IMPLEMENTED, ee_k_create_sema },
-    { 0x41, "DeleteSema",           EE_IMPLEMENTED, ee_k_delete_sema },
-    { -0x49, "iDeleteSema",         EE_IMPLEMENTED, ee_k_delete_sema },
-    { 0x42, "SignalSema",           EE_IMPLEMENTED, ee_k_signal_sema },
-    { -0x43, "iSignalSema",         EE_IMPLEMENTED, ee_k_signal_sema },
-    { 0x44, "WaitSema",             EE_IMPLEMENTED, ee_k_wait_sema },
-    { 0x45, "PollSema",             EE_IMPLEMENTED, ee_k_poll_sema },
-    { -0x46, "iPollSema",           EE_IMPLEMENTED, ee_k_poll_sema },
-    { 0x47, "ReferSemaStatus",      EE_IMPLEMENTED, ee_k_refer_sema_status },
-    { -0x48, "iReferSemaStatus",    EE_IMPLEMENTED, ee_k_refer_sema_status },
-    { 0x10, "AddIntcHandler2",      EE_STUBBED,     k_add_intc_handler2 },
-    { 0x14, "_EnableIntc",          EE_STUBBED,     k_enable_intc },
-    { 0x4b, "GetOsdConfigParam",    EE_STUBBED,     k_get_osd_config },
-    { 0x4a, "SetOsdConfigParam",    EE_STUBBED,     k_set_osd_config },
-    { 0x64, "FlushCache",           EE_IMPLEMENTED, k_flush_cache },
-    { 0x74, "SetSyscall",           EE_IMPLEMENTED, k_set_syscall },
+    {0x3c, "SetupThread", EE_STUBBED, k_setup_thread},
+    {0x3d, "SetupHeap", EE_STUBBED, k_setup_heap},
+    {0x20, "CreateThread", EE_IMPLEMENTED, ee_k_create_thread},
+    {0x21, "DeleteThread", EE_IMPLEMENTED, ee_k_delete_thread},
+    {0x22, "StartThread", EE_IMPLEMENTED, ee_k_start_thread},
+    {0x23, "ExitThread", EE_IMPLEMENTED, ee_k_exit_thread},
+    {0x24, "ExitDeleteThread", EE_IMPLEMENTED, ee_k_exit_delete_thread},
+    {0x29, "ChangeThreadPriority", EE_IMPLEMENTED, ee_k_change_thread_priority},
+    {-0x2a, "iChangeThreadPriority", EE_IMPLEMENTED, ee_k_change_thread_priority},
+    {0x2b, "RotateThreadReadyQueue", EE_IMPLEMENTED, ee_k_rotate_ready_queue},
+    {0x2f, "GetThreadId", EE_IMPLEMENTED, ee_k_get_thread_id},
+    {0x30, "ReferThreadStatus", EE_IMPLEMENTED, ee_k_refer_thread_status},
+    {-0x31, "iReferThreadStatus", EE_IMPLEMENTED, ee_k_refer_thread_status},
+    {0x32, "SleepThread", EE_IMPLEMENTED, ee_k_sleep_thread},
+    {0x33, "WakeupThread", EE_IMPLEMENTED, ee_k_wakeup_thread},
+    {-0x34, "iWakeupThread", EE_IMPLEMENTED, ee_k_wakeup_thread},
+    {0x40, "CreateSema", EE_IMPLEMENTED, ee_k_create_sema},
+    {0x41, "DeleteSema", EE_IMPLEMENTED, ee_k_delete_sema},
+    {-0x49, "iDeleteSema", EE_IMPLEMENTED, ee_k_delete_sema},
+    {0x42, "SignalSema", EE_IMPLEMENTED, ee_k_signal_sema},
+    {-0x43, "iSignalSema", EE_IMPLEMENTED, ee_k_signal_sema},
+    {0x44, "WaitSema", EE_IMPLEMENTED, ee_k_wait_sema},
+    {0x45, "PollSema", EE_IMPLEMENTED, ee_k_poll_sema},
+    {-0x46, "iPollSema", EE_IMPLEMENTED, ee_k_poll_sema},
+    {0x47, "ReferSemaStatus", EE_IMPLEMENTED, ee_k_refer_sema_status},
+    {-0x48, "iReferSemaStatus", EE_IMPLEMENTED, ee_k_refer_sema_status},
+    {0x10, "AddIntcHandler2", EE_STUBBED, k_add_intc_handler2},
+    {0x14, "_EnableIntc", EE_STUBBED, k_enable_intc},
+    {0x4b, "GetOsdConfigParam", EE_STUBBED, k_get_osd_config},
+    {0x4a, "SetOsdConfigParam", EE_STUBBED, k_set_osd_config},
+    {0x64, "FlushCache", EE_IMPLEMENTED, k_flush_cache},
+    {0x74, "SetSyscall", EE_IMPLEMENTED, k_set_syscall},
 };
 
 void ee_syscall(ee_ctx *c, uint32_t pc)
@@ -252,9 +247,10 @@ void ee_syscall(ee_ctx *c, uint32_t pc)
         if (!fn)
             ee_unrecompiled(c, h, pc);
         ee_check_code(c, h, pc);
-        ee_trace(c, "\"ev\":\"syscall\",\"pc\":\"0x%08x\",\"num\":%d,\"name\":\"user_0x%x\","
-                    "\"args\":[\"0x%08x\",\"0x%08x\",\"0x%08x\",\"0x%08x\"],\"handler\":\"0x%08x\","
-                    "\"status\":\"%s\",\"note\":\"game handler installed by SetSyscall\"",
+        ee_trace(c,
+                 "\"ev\":\"syscall\",\"pc\":\"0x%08x\",\"num\":%d,\"name\":\"user_0x%x\","
+                 "\"args\":[\"0x%08x\",\"0x%08x\",\"0x%08x\",\"0x%08x\"],\"handler\":\"0x%08x\","
+                 "\"status\":\"%s\",\"note\":\"game handler installed by SetSyscall\"",
                  pc, num, num, a0, a1, a2, a3, h, EE_IMPLEMENTED);
         fn(c);
         ee_trace(c, "\"ev\":\"syscall_ret\",\"num\":%d,\"ret\":\"0x%08x\"", num, c->r[2].uw[0]);
@@ -282,13 +278,15 @@ void ee_syscall(ee_ctx *c, uint32_t pc)
             char retbuf[16] = "null";
             if (ret_set)
                 snprintf(retbuf, sizeof retbuf, "%d", ret);
-            ee_trace(c, "\"ev\":\"syscall\",\"pc\":\"0x%08x\",\"num\":%d,\"name\":\"%s\","
-                        "\"args\":[\"0x%08x\",\"0x%08x\",\"0x%08x\",\"0x%08x\"],"
-                        "\"ret\":%s,\"status\":\"%s\",\"note\":\"%s\"",
+            ee_trace(c,
+                     "\"ev\":\"syscall\",\"pc\":\"0x%08x\",\"num\":%d,\"name\":\"%s\","
+                     "\"args\":[\"0x%08x\",\"0x%08x\",\"0x%08x\",\"0x%08x\"],"
+                     "\"ret\":%s,\"status\":\"%s\",\"note\":\"%s\"",
                      pc, num, table[i].name, a0, a1, a2, a3, retbuf, status, note);
             ee_sif_interrupt_point(c);
             return;
         }
     }
-    ee_end(c, EE_END_UNSUPPORTED, pc, "syscall %d (0x%x) not implemented", num, (unsigned)num & 0xffffffffu);
+    ee_end(c, EE_END_UNSUPPORTED, pc, "syscall %d (0x%x) not implemented", num,
+           (unsigned)num & 0xffffffffu);
 }

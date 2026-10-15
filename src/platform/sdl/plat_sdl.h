@@ -3,8 +3,9 @@
 #define OPENGT4_PLAT_SDL_H
 
 typedef struct {
-    int key; char text[32];    /* SDL keycode */
-    int pad;                  /* controller event; race owns its edges */
+    int key;
+    char text[32]; /* SDL keycode */
+    int pad;       /* controller event; race owns its edges */
     /* a PS2 button the menus' scripts take as its own key (the engine's
        D_006192E4 keysyms: L1 0xFFC8, L2 0xFFC9, R1 0xFFD2, R2 0xFFD3,
        Square 0xFF63, Select 0xFFFF), pressed or released; key 0 then */
@@ -33,5 +34,6 @@ SDL_Window *plat_sdl_window(void);
 /* RGBA pixels of the current frame (before present), top row first; the
    caller frees them. Size of the window's drawable. */
 unsigned char *plat_sdl_read_pixels(int *width, int *height);
-unsigned char *plat_sdl_read_view(int *width, int *height);   /* the game's area only, without the window's bars */
+unsigned char *
+plat_sdl_read_view(int *width, int *height); /* the game's area only, without the window's bars */
 #endif

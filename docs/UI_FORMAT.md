@@ -59,11 +59,11 @@ UI space: 640×480 (several widgets use `0 0 640 480`), scaled to the window.
 | `ScrollBox` children `inc_arrow`/`dec_arrow` get state 1 while its list can still move down/up; their faces pick by `visible_compare`/`visible_condition` (TopRoot: static `bg` at an end, blinking `bga` otherwise, via the script's repeating MFadeActor, 0.5 s) | CORE 0x002CFBE0 |
 
 Scripts run on the loaded widget tree (`src/core/menu.c`): they choose
-which logo is visible and copy the menu items into their lists. Not drawn
-yet: `MovieFace`, `FlashFace`, `CarFace`, tool tips,
-animations and original focus effects. Basic native focus is implemented;
-see [MENU_NAVIGATION.md](MENU_NAVIGATION.md). Checking rendering rules against PCSX2 screenshots is
-pending.
+which logo is visible and copy the menu items into their lists. Movie, bitmap-animation and car-model faces have native presentation paths.
+Support and verification vary by widget and screen; see
+[MENU_NAVIGATION.md](MENU_NAVIGATION.md), [MENU_PRESENTATION.md](MENU_PRESENTATION.md)
+and [Fidelity](FIDELITY.md). The provisional rules above are not a guarantee
+of complete screen equivalence.
 
 TextFace now uses the disc's FT01 fonts and RT03 text table. Details,
 provisional layout rules and remaining limits: [TEXT_FORMAT.md](TEXT_FORMAT.md).

@@ -7,70 +7,79 @@
 #define OPENGT4_GL_H
 
 #include <SDL.h>
+#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+unsigned gl_program_count(void);
+#endif
+#ifdef __SWITCH__
+#include <glad/glad.h>
+#else
 #include <SDL_opengl.h>
+#endif
 
-#define OPENGT4_GL_FUNCS(X) \
-    X(PFNGLACTIVETEXTUREPROC, opengt4_glActiveTexture) \
-    X(PFNGLATTACHSHADERPROC, glAttachShader) \
-    X(PFNGLBINDBUFFERPROC, glBindBuffer) \
-    X(PFNGLBINDFRAMEBUFFERPROC, glBindFramebuffer) \
-    X(PFNGLBINDRENDERBUFFERPROC, glBindRenderbuffer) \
-    X(PFNGLBINDVERTEXARRAYPROC, glBindVertexArray) \
-    X(PFNGLBLENDCOLORPROC, opengt4_glBlendColor) \
-    X(PFNGLBLITFRAMEBUFFERPROC, glBlitFramebuffer) \
-    X(PFNGLBLENDEQUATIONSEPARATEPROC, glBlendEquationSeparate) \
-    X(PFNGLBLENDFUNCSEPARATEPROC, glBlendFuncSeparate) \
-    X(PFNGLBUFFERDATAPROC, glBufferData) \
-    X(PFNGLBUFFERSUBDATAPROC, glBufferSubData) \
-    X(PFNGLCHECKFRAMEBUFFERSTATUSPROC, glCheckFramebufferStatus) \
-    X(PFNGLCOMPILESHADERPROC, glCompileShader) \
-    X(PFNGLCREATEPROGRAMPROC, glCreateProgram) \
-    X(PFNGLCREATESHADERPROC, glCreateShader) \
-    X(PFNGLDELETEBUFFERSPROC, glDeleteBuffers) \
-    X(PFNGLDELETEFRAMEBUFFERSPROC, glDeleteFramebuffers) \
-    X(PFNGLDELETEPROGRAMPROC, glDeleteProgram) \
-    X(PFNGLDELETERENDERBUFFERSPROC, glDeleteRenderbuffers) \
-    X(PFNGLDELETESHADERPROC, glDeleteShader) \
-    X(PFNGLDELETEVERTEXARRAYSPROC, glDeleteVertexArrays) \
-    X(PFNGLENABLEVERTEXATTRIBARRAYPROC, glEnableVertexAttribArray) \
-    X(PFNGLFRAMEBUFFERRENDERBUFFERPROC, glFramebufferRenderbuffer) \
-    X(PFNGLFRAMEBUFFERTEXTURE2DPROC, glFramebufferTexture2D) \
-    X(PFNGLGENBUFFERSPROC, glGenBuffers) \
-    X(PFNGLGENFRAMEBUFFERSPROC, glGenFramebuffers) \
-    X(PFNGLGENERATEMIPMAPPROC, glGenerateMipmap) \
-    X(PFNGLGENRENDERBUFFERSPROC, glGenRenderbuffers) \
-    X(PFNGLGENVERTEXARRAYSPROC, glGenVertexArrays) \
-    X(PFNGLGETPROGRAMINFOLOGPROC, glGetProgramInfoLog) \
-    X(PFNGLGETPROGRAMIVPROC, glGetProgramiv) \
-    X(PFNGLGETSHADERINFOLOGPROC, glGetShaderInfoLog) \
-    X(PFNGLGETSHADERIVPROC, glGetShaderiv) \
-    X(PFNGLGETUNIFORMLOCATIONPROC, glGetUniformLocation) \
-    X(PFNGLLINKPROGRAMPROC, glLinkProgram) \
-    X(PFNGLRENDERBUFFERSTORAGEPROC, glRenderbufferStorage) \
-    X(PFNGLRENDERBUFFERSTORAGEMULTISAMPLEPROC, glRenderbufferStorageMultisample) \
-    X(PFNGLSHADERSOURCEPROC, glShaderSource) \
-    X(PFNGLUNIFORM1FPROC, glUniform1f) \
-    X(PFNGLUNIFORM1IPROC, glUniform1i) \
-    X(PFNGLUNIFORM2FPROC, glUniform2f) \
-    X(PFNGLUNIFORM2IPROC, glUniform2i) \
-    X(PFNGLUNIFORM3FPROC, glUniform3f) \
-    X(PFNGLUNIFORM2FVPROC, glUniform2fv) \
-    X(PFNGLUNIFORM3FVPROC, glUniform3fv) \
-    X(PFNGLUNIFORM4FPROC, glUniform4f) \
-    X(PFNGLUNIFORM4IPROC, glUniform4i) \
-    X(PFNGLUNIFORM4UIPROC, glUniform4ui) \
-    X(PFNGLUNIFORMMATRIX3FVPROC, glUniformMatrix3fv) \
-    X(PFNGLUNIFORMMATRIX4FVPROC, glUniformMatrix4fv) \
-    X(PFNGLUSEPROGRAMPROC, glUseProgram) \
-    X(PFNGLVERTEXATTRIBIPOINTERPROC, glVertexAttribIPointer) \
+#define OPENGT4_GL_FUNCS(X)                                                                        \
+    X(PFNGLACTIVETEXTUREPROC, opengt4_glActiveTexture)                                             \
+    X(PFNGLATTACHSHADERPROC, glAttachShader)                                                       \
+    X(PFNGLBINDBUFFERPROC, glBindBuffer)                                                           \
+    X(PFNGLBINDFRAMEBUFFERPROC, glBindFramebuffer)                                                 \
+    X(PFNGLBINDRENDERBUFFERPROC, glBindRenderbuffer)                                               \
+    X(PFNGLBINDVERTEXARRAYPROC, glBindVertexArray)                                                 \
+    X(PFNGLBLENDCOLORPROC, opengt4_glBlendColor)                                                   \
+    X(PFNGLBLITFRAMEBUFFERPROC, glBlitFramebuffer)                                                 \
+    X(PFNGLBLENDEQUATIONSEPARATEPROC, glBlendEquationSeparate)                                     \
+    X(PFNGLBLENDFUNCSEPARATEPROC, glBlendFuncSeparate)                                             \
+    X(PFNGLBUFFERDATAPROC, glBufferData)                                                           \
+    X(PFNGLBUFFERSUBDATAPROC, glBufferSubData)                                                     \
+    X(PFNGLCHECKFRAMEBUFFERSTATUSPROC, glCheckFramebufferStatus)                                   \
+    X(PFNGLCOMPILESHADERPROC, glCompileShader)                                                     \
+    X(PFNGLCREATEPROGRAMPROC, glCreateProgram)                                                     \
+    X(PFNGLCREATESHADERPROC, glCreateShader)                                                       \
+    X(PFNGLDELETEBUFFERSPROC, glDeleteBuffers)                                                     \
+    X(PFNGLDELETEFRAMEBUFFERSPROC, glDeleteFramebuffers)                                           \
+    X(PFNGLDELETEPROGRAMPROC, glDeleteProgram)                                                     \
+    X(PFNGLDELETERENDERBUFFERSPROC, glDeleteRenderbuffers)                                         \
+    X(PFNGLDELETESHADERPROC, glDeleteShader)                                                       \
+    X(PFNGLDELETEVERTEXARRAYSPROC, glDeleteVertexArrays)                                           \
+    X(PFNGLENABLEVERTEXATTRIBARRAYPROC, glEnableVertexAttribArray)                                 \
+    X(PFNGLFRAMEBUFFERRENDERBUFFERPROC, glFramebufferRenderbuffer)                                 \
+    X(PFNGLFRAMEBUFFERTEXTURE2DPROC, glFramebufferTexture2D)                                       \
+    X(PFNGLGENBUFFERSPROC, glGenBuffers)                                                           \
+    X(PFNGLGENFRAMEBUFFERSPROC, glGenFramebuffers)                                                 \
+    X(PFNGLGENERATEMIPMAPPROC, glGenerateMipmap)                                                   \
+    X(PFNGLGENRENDERBUFFERSPROC, glGenRenderbuffers)                                               \
+    X(PFNGLGENVERTEXARRAYSPROC, glGenVertexArrays)                                                 \
+    X(PFNGLGETPROGRAMINFOLOGPROC, glGetProgramInfoLog)                                             \
+    X(PFNGLGETPROGRAMIVPROC, glGetProgramiv)                                                       \
+    X(PFNGLGETSHADERINFOLOGPROC, glGetShaderInfoLog)                                               \
+    X(PFNGLGETSHADERIVPROC, glGetShaderiv)                                                         \
+    X(PFNGLGETUNIFORMLOCATIONPROC, glGetUniformLocation)                                           \
+    X(PFNGLLINKPROGRAMPROC, glLinkProgram)                                                         \
+    X(PFNGLRENDERBUFFERSTORAGEPROC, glRenderbufferStorage)                                         \
+    X(PFNGLRENDERBUFFERSTORAGEMULTISAMPLEPROC, glRenderbufferStorageMultisample)                   \
+    X(PFNGLSHADERSOURCEPROC, glShaderSource)                                                       \
+    X(PFNGLUNIFORM1FPROC, glUniform1f)                                                             \
+    X(PFNGLUNIFORM1IPROC, glUniform1i)                                                             \
+    X(PFNGLUNIFORM2FPROC, glUniform2f)                                                             \
+    X(PFNGLUNIFORM2IPROC, glUniform2i)                                                             \
+    X(PFNGLUNIFORM3FPROC, glUniform3f)                                                             \
+    X(PFNGLUNIFORM2FVPROC, glUniform2fv)                                                           \
+    X(PFNGLUNIFORM3FVPROC, glUniform3fv)                                                           \
+    X(PFNGLUNIFORM4FPROC, glUniform4f)                                                             \
+    X(PFNGLUNIFORM4IPROC, glUniform4i)                                                             \
+    X(PFNGLUNIFORM4UIPROC, glUniform4ui)                                                           \
+    X(PFNGLUNIFORMMATRIX3FVPROC, glUniformMatrix3fv)                                               \
+    X(PFNGLUNIFORMMATRIX4FVPROC, glUniformMatrix4fv)                                               \
+    X(PFNGLUSEPROGRAMPROC, glUseProgram)                                                           \
+    X(PFNGLVERTEXATTRIBIPOINTERPROC, glVertexAttribIPointer)                                       \
     X(PFNGLVERTEXATTRIBPOINTERPROC, glVertexAttribPointer)
 
+#ifndef __SWITCH__
 #define OPENGT4_GL_DECLARE(type, name) extern type name;
 OPENGT4_GL_FUNCS(OPENGT4_GL_DECLARE)
 #undef OPENGT4_GL_DECLARE
 /* SDL_opengl.h declares these two as functions: use our loaded pointers. */
 #define glActiveTexture opengt4_glActiveTexture
 #define glBlendColor opengt4_glBlendColor
+#endif
 
 /* Loads the entry points for the current context. 0 if any is missing. */
 int gl_load(void);
@@ -79,9 +88,9 @@ int gl_load(void);
    [-1, 1] depth in 24 bits. Set once by video_gl after the context. */
 extern int gl_reversed_z;
 int gl_enable_reversed_z(void);
-#define GL_DEPTH_FUNC_LESS   (gl_reversed_z ? GL_GREATER : GL_LESS)
+#define GL_DEPTH_FUNC_LESS (gl_reversed_z ? GL_GREATER : GL_LESS)
 #define GL_DEPTH_FUNC_LEQUAL (gl_reversed_z ? GL_GEQUAL : GL_LEQUAL)
-#define GL_DEPTH_FAR         (gl_reversed_z ? 0.0 : 1.0)
+#define GL_DEPTH_FAR (gl_reversed_z ? 0.0 : 1.0)
 /* Compiles and links a vertex/fragment program; 0 on error (logged). */
 GLuint gl_program(const char *vertex, const char *fragment);
 

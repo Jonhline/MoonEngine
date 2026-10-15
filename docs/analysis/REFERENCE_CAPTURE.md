@@ -3,7 +3,7 @@
 Goal: record, on PCSX2, the same state our recompiled crt0 + `_InitSys` run
 produces, so the two can be compared. Status: **preliminary entry and exit
 snapshots captured on 2026-09-26 through PINE.** See
-[comparison results and limitations](REFERENCE_COMPARISON.md). Full tracing
+[comparison results and limitations](../notes/analysis/REFERENCE_COMPARISON.md). Full tracing
 and equivalence validation remain pending. The inventory below describes
 the earlier setup; the selected BIOS and actual capture settings are recorded
 in the comparison report.
@@ -119,7 +119,7 @@ happen between the entry and the stop point.
   interrupt fired (the trace log with `EE.counters` should show it).
 - **Thread.** The reference starts the created thread and it blocks in
   WaitSema. The native run skips StartThread because its ReferThreadStatus
-  stub does not fill created-thread status. See [thread audit](THREAD_REFERENCE.md).
+  stub does not fill created-thread status. See [thread audit](../notes/analysis/THREAD_REFERENCE.md).
   The earlier claim that the thread did not run on PCSX2 was incorrect.
 - **Kernel memory in general.** `0x00000000Ã¢â‚¬â€œ0x00080000` holds the real
   kernel on PCSX2 and is almost empty in our run. Only the ranges the game

@@ -5,8 +5,8 @@
 #include <stdint.h>
 #include "gl.h"
 
-int    fsr_available(void);
+int fsr_available(void);
 /* GPU input and cached GPU output, owned by FSR. No readback. */
-GLuint fsr_resolve(GLuint input,int w,int h,int output_width,int output_height);
+GLuint fsr_resolve(GLuint input, int w, int h, int output_width, int output_height);
 
 #endif

@@ -109,7 +109,8 @@ if __name__ == "__main__":
                       "Origem: "+table["module"]+", linha Adhoc "+str(table["line"])+".", ""]
             lines += ["- `"+code+"`" for code in ids]
             lines += [""]
-        Path("docs/GT4_EVENT_INVENTORY.md").write_text("\n".join(lines)+"\n", encoding="utf-8")
+        Path("docs/notes").mkdir(parents=True, exist_ok=True)
+        Path("docs/notes/GT4_EVENT_INVENTORY.md").write_text("\n".join(lines)+"\n", encoding="utf-8", newline="")
     rewards = {}
     for item in result:
         for module in ("PresentData", "PresentTimeData"):
