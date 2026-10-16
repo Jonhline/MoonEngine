@@ -31,6 +31,32 @@ ctest --test-dir build-native -C Release --output-on-failure
 `-N` lists tests without running them. Registration depends on options and
 local files. An omitted test has not passed.
 
+## Linux
+
+GCC or Clang, CMake 3.20+, the OpenGL development libraries, and `ffmpeg` on PATH for
+movies; SDL2 and miniz are fetched by CMake, so the first configure needs network access.
+Python 3 drives the application tests (`OPENGT4_PYTHON`); the original-code oracles
+additionally need an interpreter with `rabbitizer`.
+
+```bash
+cmake -S . -B build-native -DCMAKE_BUILD_TYPE=Release
+cmake --build build-native -j4
+ctest --test-dir build-native -j4
+./build-native/opengt4 "path/to/GT4.iso"
+```
+
+Measured 2026-10-16 (Ubuntu 24.04, GCC 13.3.0, CMake 3.28.3): every target builds,
+`ctest` reports **102/102 passing** without a disc, and the engine opens the NTSC-U
+v2.00 image and draws the arcade menu. `-DOPENGT4_TEST_DISC=<image>` registers the
+disc-based tests on Linux exactly as on Windows.
+
+Known limits: the standalone disc-preparation launcher is still Windows-only (`Standalone
+preparation currently requires Windows. Pass the ISO on the command line.`), and
+`-DOPENGT4_RECOMP_TESTS=ON` has not been exercised on this host. The tests and probes call
+`_putenv_s()` unguarded; `src/platform/common/msvc_compat.h` maps that onto the POSIX call
+(as MSVC does, an empty value removes the variable) and `CMakeLists.txt` force-includes it
+on non-Windows builds only.
+
 ## Disc integration tests
 
 Synthetic unit tests create their own inputs. Disc tests load real scripts,
