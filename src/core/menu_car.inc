@@ -1286,6 +1286,17 @@ static int nat_car_metadata(ah_vm *vm, ah_obj *self, void *data, int argc, const
             }
         }
     }
+    /* A car a mod added has no maker in the disc's own catalog: its manifest names
+       one, so the dealership and the maker screens can file it. */
+    {
+        static const char *added[MOON_MOD_MAX], *makers[MOON_MOD_MAX];
+        size_t n = moon_mod_added_cars(added, makers, MOON_MOD_MAX);
+        for (size_t i = 0; i < n; i++)
+            if (!strcmp(added[i], code) && makers[i][0]) {
+                *ret = ah_str(vm, makers[i]);
+                return 0;
+            }
+    }
     return ah_error(vm, "missing manufacturer for %s", code);
 }
 static int nat_language(ah_vm *vm, ah_obj *self, void *d, int argc, const ah_val *argv, ah_val *ret)
@@ -1375,6 +1386,25 @@ static int nat_car_available(ah_vm *vm, ah_obj *self, void *data, int argc, cons
             return ah_error(vm, "invalid original initial Arcade cars");
         list = ah_objv(cars);
         ah_set_member(vm, available, "cars", list);
+        /* A mod's cars join the same list -- once, when the list is built. The
+           disc's script cannot know them, so the mod's manifest names them and
+           they resolve through the same merged tables as the disc's own labels
+           (docs/vulcan4/MODS-DESIGN.md, "lists merge"). */
+        {
+            static const char *added[MOON_MOD_MAX], *makers[MOON_MOD_MAX];
+            size_t n = moon_mod_added_cars(added, makers, MOON_MOD_MAX);
+            for (size_t i = 0; i < n; i++) {
+                ah_val arg = ah_str(vm, added[i]), car_key;
+                if (nat_calendar_car_key(vm, NULL, m, 1, &arg, &car_key) < 0 ||
+                    car_key.u.i == -1)
+                    continue;
+                ah_obj *entry = ah_module_new(vm, "car", NULL, NULL, NULL);
+                ah_set_member(vm, entry, "code", ah_int((int32_t)car_key.u.i));
+                ah_set_member(vm, entry, "table",
+                              ah_int((int32_t)((uint64_t)car_key.u.i >> 32)));
+                ah_array_push(vm, cars, ah_objv(entry));
+            }
+        }
     }
     const char *label = ah_cstr(argv[0]);
     /* Preserve dated/purchased unlocks already recorded by the GT Mode adapter. */

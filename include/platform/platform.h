@@ -25,7 +25,12 @@ void plat_sleep_ms(uint32_t ms);
 /* ---- filesystem (reads the user's own game files: disc image, extracted data) ---- */
 typedef struct plat_file plat_file;
 plat_file *plat_file_open(const char *path);
-uint64_t plat_file_size(plat_file *f);
+uint64_t   plat_file_size(plat_file *f);
+/* Where Moon Engine keeps the user's own data -- saves, config, mods. The
+   backend owns this (SDL_GetPrefPath on the SDL backend: %APPDATA%\MoonEngine\
+   MoonEngine\ on Windows, ~/.local/share/MoonEngine/MoonEngine on Linux). Fills
+   `out` WITH a trailing separator. Returns 1, or 0 when the backend has none. */
+int plat_pref_dir(char *out, size_t cap);
 /* Reads n bytes at an absolute 64-bit offset (disc images exceed 4 GB).
    Returns the number of bytes read. */
 size_t plat_file_read_at(plat_file *f, uint64_t offset, void *dst, size_t n);

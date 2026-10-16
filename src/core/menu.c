@@ -2,6 +2,7 @@
 #include "menu.h"
 
 #include "adhoc/adhoc_vm.h"
+#include "mod_manifest.h"
 #include "platform/platform.h"
 #ifdef __SWITCH__
 #include "platform/switch_file.h"

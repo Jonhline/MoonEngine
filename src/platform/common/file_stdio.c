@@ -28,6 +28,36 @@ struct plat_file {
 #define TELL64(f) ((uint64_t)ftello(f))
 #endif
 
+/* The user's Moon Engine folder: saves, config, the studio rig, and mods. This
+   is deliberately in the common layer, not the SDL backend, so tools and probes
+   that link only the core can ask where the user's data lives without pulling a
+   window library in. It follows the same convention the app's own
+   SDL_GetPrefPath calls use, so saves do not move:
+     Windows  %APPDATA%\MoonEngine\MoonEngine\
+     Linux    $XDG_DATA_HOME/MoonEngine/MoonEngine/ (else ~/.local/share/...)
+   Returns the path WITH a trailing separator, ready to be joined with a name. */
+int plat_pref_dir(char *out, size_t cap)
+{
+    if (!out || !cap) return 0;
+    out[0] = 0;
+#ifdef _WIN32
+    const char *base = getenv("APPDATA");
+    if (!base || !*base) return 0;
+    snprintf(out, cap, "%s\\MoonEngine\\MoonEngine\\", base);
+#else
+    const char *base = getenv("XDG_DATA_HOME");
+    char home[1024];
+    if (!base || !*base) {
+        const char *h = getenv("HOME");
+        if (!h || !*h) return 0;
+        snprintf(home, sizeof home, "%s/.local/share", h);
+        base = home;
+    }
+    snprintf(out, cap, "%s/MoonEngine/MoonEngine/", base);
+#endif
+    return out[0] ? 1 : 0;
+}
+
 plat_file *plat_file_open(const char *path)
 {
     plat_file *f = calloc(1, sizeof *f);

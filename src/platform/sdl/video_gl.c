@@ -193,6 +193,7 @@ static const char *fs2d =
     " o=c*v_col;}\n";
 
 static int display_aspect;
+static int fill_window; /* the studio fills the window; the game keeps the disc's 4:3 */
 static float content_width, content_x, side_margin;
 static void layout_view(void)
 {
@@ -203,6 +204,19 @@ static void layout_view(void)
         side_margin = view_w * (aspect / (4.f / 3.f) - 1) * .5f;
         scale_x = ui_panel_w / (view_w + 2 * side_margin);
         scale_y = ui_panel_h / view_h;
+        return;
+    }
+    if (fill_window) {
+        /* The view's own aspect is the window's: one uniform scale everywhere, so
+           neither the studio raster (W x 448, W = aspect*448) nor the pixel-space
+           dock is ever stretched. */
+        scale_x = scale_y = (float)fb_w / view_w;
+        float content_h = view_h * scale_y;
+        content_width = (float)fb_w;
+        content_x = 0;
+        off_x = 0;
+        off_y = ((float)fb_h - content_h) * .5f;
+        side_margin = 0;
         return;
     }
     float height = fminf((float)fb_h, fb_w / aspect), width = height * aspect;
@@ -809,11 +823,24 @@ void video_set_aspect(int widescreen)
     layout_view();
 }
 
-/* Widescreen expands horizontal field of view instead of stretching meshes. */
+/* Widescreen expands horizontal field of view instead of stretching meshes.
+   In fill mode the view already carries the window's aspect (the studio raster
+   width), so the horizontal normalisation is the view's own half-width - 320 was
+   the fixed half of a 640 view. */
 float video_projection_x(void)
 {
-    return view_w / (view_h * (display_aspect ? 16.f / 9.f : 4.f / 3.f));
+    return fill_window ? 640.f / view_w
+                       : view_w / (view_h * (display_aspect ? 16.f / 9.f : 4.f / 3.f));
 }
+
+/* The studio wants the room to fill the window; the game keeps the disc's ratio. */
+void video_set_fill_window(int enabled)
+{
+    video_flush2d();
+    fill_window = enabled != 0;
+    layout_view();
+}
+int video_fill_window(void) { return fill_window; }
 
 int video_set_upscale(int mode)
 {

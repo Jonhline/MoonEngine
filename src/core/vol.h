@@ -25,6 +25,13 @@ size_t gt4_vol_count(const gt4_vol *v);
    buffer (free with free()) and its size, or NULL if not found or broken. */
 uint8_t *gt4_vol_read(gt4_vol *v, const char *path, size_t *size);
 
+/* The mod source (docs/vulcan4/MODS-DESIGN.md): with OPENGT4_OVERLAY set to a
+   ';'-separated list of folders, the first folder holding <path> is served
+   instead of the disc. NULL when the variable is unset, the file is absent, or
+   the path is unusable. Exposed so the lookup can be tested with no disc in
+   reach -- it never touches the volume. Free the result with free(). */
+uint8_t *gt4_overlay_read(const char *path, size_t *size);
+
 /* Reads a file from the ISO 9660 root of a disc image, outside GT4.VOL
    (e.g. "SCUS_973.28", the boot executable). NULL if the path is not a
    disc image or the file is missing. Free with free(). */

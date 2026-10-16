@@ -29,6 +29,9 @@ GLuint video_draw_framebuffer(void);
 int video_set_upscale(int mode);
 /* Original display ratio: 0 = 4:3, 1 = 16:9. */
 void video_set_aspect(int widescreen);
+/* The studio fills the window; the game keeps the disc's 4:3. */
+void video_set_fill_window(int enabled);
+int video_fill_window(void);
 float video_projection_x(void);
 int video_fsr_available(void);
 void video_begin_scene(void);
