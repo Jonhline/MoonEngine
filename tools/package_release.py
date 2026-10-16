@@ -78,6 +78,9 @@ miniz - MIT License - https://github.com/richgel999/miniz
 stb_image - MIT License - third_party/stb in the source code (STB_LICENSE.txt)
 PDTools (Nenkai) - MIT License - third_party/PDTools in the source code (PDTOOLS_LICENSE.txt)
 AMD FidelityFX Super Resolution 1 - MIT License - third_party/fsr1 in the source code
+volk - MIT License - VULKAN_VOLK_LICENSE.txt
+glslang - collected upstream licenses - VULKAN_GLSLANG_LICENSE.txt
+Vulkan-Headers - Apache-2.0 or MIT - VULKAN_HEADERS_LICENSE.txt
 ps2float (PCSX2) - GNU LGPL 3.0 or later - third_party/ps2float in the source code.
   It is linked into opengt4.exe; the complete source code of OpenGT4 is
   published, so the program can be rebuilt with a modified ps2float.
@@ -128,6 +131,8 @@ def main():
     shutil.copy2(ROOT / "NOTICE", out / "NOTICE.txt")
     shutil.copy2(ROOT / "third_party" / "stb" / "LICENSE", out / "STB_LICENSE.txt")
     shutil.copy2(ROOT / "third_party" / "PDTools" / "LICENSE", out / "PDTOOLS_LICENSE.txt")
+    for source in sorted((ROOT / "third_party" / "vulkan").glob("*_LICENSE.txt")):
+        shutil.copy2(source, out / ("VULKAN_" + source.name))
     readme = README.format(version=args.version, repo=args.repo,
                            ffmpeg_note=FFMPEG_BUNDLED if args.ffmpeg else FFMPEG_MISSING)
     (out / "README.txt").write_text(readme.replace("\n", "\r\n"), encoding="utf-8", newline="")

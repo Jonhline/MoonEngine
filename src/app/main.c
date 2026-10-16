@@ -34,6 +34,11 @@
 #include "vol.h"
 #include "video_settings.h"
 #include "launcher.h"
+#ifndef __SWITCH__
+#include "renderer_startup.h"
+#include "launcher_scene.h"
+#include "platform/renderer_backend.h"
+#endif
 #include "save_ui.h"
 #include "save.h"
 #include "replay_file.h"
@@ -55,6 +60,14 @@
 
 int main(int argc, char **argv)
 {
+#ifndef __SWITCH__
+    int scene = launcher_scene_entry(argc, argv);
+    if (scene >= 0)
+        return scene;
+    int diagnostic = moon_renderer_diagnostic(argc, argv);
+    if (diagnostic >= 0)
+        return diagnostic;
+#endif
     launcher_startup startup = {0};
     int prepared = launcher_bootstrap(&argc, &argv, &startup);
     if (prepared <= 0)
@@ -84,6 +97,23 @@ int main(int argc, char **argv)
         }
     video_settings settings;
     video_settings_init(&settings, persistent_video, config_file);
+#ifndef __SWITCH__
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--renderer")) {
+            int backend = i + 1 < argc ? moon_renderer_parse(argv[++i]) : -1;
+            if (backend < 0) {
+                fprintf(stderr, "--renderer expects opengl or vulkan\n");
+                return 1;
+            }
+            settings.current.renderer = backend;
+        }
+    }
+    const char *backend_error = moon_renderer_unavailable(settings.current.renderer);
+    if (backend_error) {
+        fprintf(stderr, "%s\n", backend_error);
+        return 1;
+    }
+#endif
     char game_options_path[1100] = "";
     if (settings.persist && settings.path[0])
         snprintf(game_options_path, sizeof game_options_path, "%s.game_options", settings.path);
@@ -136,6 +166,12 @@ int main(int argc, char **argv)
     const char *input_sequence = NULL;
     int selection_steps = 0, positional = 1;
     for (int i = 1; i < argc; i++) {
+#ifndef __SWITCH__
+        if (!strcmp(argv[i], "--renderer")) {
+            i++;
+            continue;
+        }
+#endif
         if (!strcmp(argv[i], "--loading-shot") && i + 1 < argc) {
             loading_shot = argv[++i];
             continue;
@@ -403,6 +439,9 @@ int main(int argc, char **argv)
     }
 
     plat_video_desc desc = {window_w, window_h, window_full, video_vsync, upscale};
+#ifndef __SWITCH__
+    desc.backend = settings.current.renderer;
+#endif
     settings.current.video = desc;
     if (plat_video_init(&desc) != 0) {
         fprintf(stderr, "cannot open a window: %s\n", SDL_GetError());
@@ -2112,7 +2151,7 @@ int main(int argc, char **argv)
         const char *pcm_group = menu_pcm_request(mn, &pcm_volume);
         int wants_pcm = (!shot || music_with_shot) && !notice_active && !race_active &&
                         driving != 2 && !loading_screen_active() && pcm_group && *pcm_group &&
-                        strcmp(page, "MovieRoot");
+                        strcmp(page, "MovieRoot") && !(music_faded && plat_sdl_music_fading());
         int prepare_pcm = (!shot || music_with_shot) && !notice_active && !race_active &&
                           driving != 2 && pcm_group && *pcm_group && strcmp(page, "MovieRoot");
         if (!prepare_pcm)
@@ -2151,7 +2190,7 @@ int main(int argc, char **argv)
            not leak across GT Mode exit; a title-specific source is unverified. */
         if (music_top)
             desired_music[0] = 0;
-        if (music_faded) {
+        if (music_faded && !plat_sdl_music_fading()) {
             plat_audio_set_music(NULL, NULL);
             music_playing = 0;
             playing_music = NULL;
@@ -2160,7 +2199,9 @@ int main(int argc, char **argv)
         }
 
         int wants_music = (!shot || music_with_shot) && !wants_pcm && !race_quick_project(proj) &&
-                          !loading_screen_active() && !notice_active && strcmp(page, "MovieRoot") &&
+                          (!loading_screen_active() ||
+                           (playing_music && !strcmp(playing_music->name, desired_music))) &&
+                          !notice_active && strcmp(page, "MovieRoot") &&
                           !race_active && driving != 2 && *desired_music;
         music_job *requested_music = NULL;
         /* Prepare the authored destination during loading; only publishing
@@ -2216,6 +2257,10 @@ int main(int argc, char **argv)
         }
         if (!wants_music)
             requested_music = NULL;
+        /* The script's fade duration belongs to the device clock, not the
+           next UI update. Keep its producer alive until the final sample. */
+        if (playing_music && music_faded && plat_sdl_music_fading())
+            requested_music = playing_music;
         if (playing_music && playing_music != requested_music) {
             plat_audio_release_music(playing_music);
             music_playing = 0;
@@ -2515,7 +2560,7 @@ int main(int argc, char **argv)
             presentation_clock = plat_time_ns();
             ui_fade(menu_ui(mn), 1, 0, .2f);
         }
-        /* the window keeps the title "OpenGT4"; the page goes to the log */
+        /* The window keeps its product title; the page goes to the log. */
         if (!(driving == 2 || (driving == 1 && race_start_pending)) && !race_active &&
             !race_loading && (root != last_root || proj != last_proj)) {
             char title[256];
@@ -2564,6 +2609,9 @@ done:
         SDL_UnlockMutex(movie.lock);
         SDL_WaitThread(movie.thread, NULL);
     }
+    plat_texture_destroy(movie.poster);
+    free(movie.ipic_pixels);
+    free(movie.ipic_data);
     sdl_movie_close(movie.previous);
     sdl_movie_close(movie.decoder);
     sdl_movie_close(movie.pending);

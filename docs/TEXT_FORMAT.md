@@ -6,6 +6,14 @@ translations come from the user's volume. No font or menu string is bundled.
 
 ## FT01
 
+Race HUD text uses the same contour-pair step as menu text. Applying only
+the glyph advances left an artificial gap between T and A in `START`.
+Both glyph placement and string measurement now apply `00492978 +0x210..0x38C`; numeric cell spacing remains the existing HUD path.
+`hud_font_original` compares the disc's FC_48 pair steps with the original
+routine, and `hud_kerning` records the actual START/FINISH/TIME UP draw
+positions against those metrics. Deliberate metric/placement negatives
+must fail. This verifies spacing, not a full GS raster comparison.
+
 Little endian, 48-byte header. At 0x10 is the u16 face count; at 0x14 and
 0x18 are the offsets of the face and Tex1 offset arrays. Both arrays have
 one entry per face in the US v2.00 system/menu/race font files. The u16

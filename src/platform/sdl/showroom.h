@@ -37,6 +37,7 @@ typedef struct {
     int service_pass;
     float service_opacity, service_additional_opacity, service_shadow;
     float service_lift; /* CarFace Mot1 "lift", 001570A4..001570D8 */
+    int studio_presentation; /* P: PC launcher uses animated showroom lights/reflections. */
 } showroom_face;
 /* 00156F18 +0xac..0x340: camera-driven fade, lift, light and shadowOpacity. */
 void showroom_service_channels(showroom_face *face, const struct gt4_mot1 *motion, float time);

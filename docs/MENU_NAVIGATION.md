@@ -32,3 +32,32 @@ L1 and R1 produce distinct key symbols `0xFFC8` and `0xFFD2` from `D_006192E4`. 
 `setItemCount` clamps the current selection to the new list bounds, following `002B4A00 +0x2D0 -> 002B3AF8 +0x38..0x84`. An empty list has index -1; refilling selects zero. The authored car-page teardown empties its list, so opening another maker starts with its first car. Lists that retain their contents and explicit script-selected indices keep their original selection behavior; pre-race focus is not globally reset.
 
 `arcade_return` exercises the first specification line, subsequent car changes, and changing makers after selecting several cars. It compares each automatically updated line with the original script's explicit `set_car_info` output. Negative cases corrupt the line and restore a stale third-car index. This checks integration and state at zero tolerance, not complete PS2 text rasterization or every catalog formatter.
+
+## Race pause confirmation
+
+The PC race pause accepts Cross/A and Circle/B for the focused movie button,
+for either player. This requested input adaptation is separate from the
+regional menu key mapping. Result screens and pit controls retain their
+existing Circle behavior. pause_buttons uses virtual SDL controllers and
+the actual pause poller; its wrong-button negative must fail.
+
+## Arcade course-card movies
+
+The original Arcade initialization calls `MMovieFace.loadIpic("course")`
+(`arcade.ad` L30). `/mpeg/main/course.ipic` supplies named still pictures
+while a new movie is prepared. `001FD528 +0x3C..0x68` loads the archive;
+`002771C8 +0x0C..0x20` and `00277228 +0x38..0x70` define its count,
+32-byte entries, names and picture offsets.
+
+The PC movie worker decodes these pictures once, outside the render thread.
+Most are 640x448; category and Akasaka are 640x512 and are decoded separately
+before scaling to the menu viewport. The selected picture is usable immediately,
+so course navigation no longer waits for PSS decoding or the video blend.
+A single GPU texture is updated from the cached pictures. The compressed
+archive and decoded frames remain local runtime data from the supplied disc.
+
+`movie_ipic` compares every batched picture with an independent decode and
+runs the actual MovieFace draw bridge through 112 selection changes while
+no PSS decoder is available. Removing the archive is the deliberate negative.
+This proves the readiness/selection path, not the entire PS2 movie raster or
+a frame-time bound on every machine. Cold UI resources can still load separately.

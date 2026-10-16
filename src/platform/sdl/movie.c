@@ -97,10 +97,12 @@ static int decode(void *ptr)
             break;
         SDL_LockMutex(m->lock);
         m->count++;
+        SDL_CondBroadcast(m->ready);
         SDL_UnlockMutex(m->lock);
     }
     SDL_LockMutex(m->lock);
     m->ended = 1;
+    SDL_CondBroadcast(m->ready);
     SDL_UnlockMutex(m->lock);
     return 0;
 }
@@ -164,8 +166,8 @@ void sdl_movie_close(sdl_movie *m)
     plat_texture_destroy(m->texture);
     free(m);
 }
-sdl_movie *sdl_movie_open(const uint8_t *data, size_t size, int interlace, int repeat,
-                          int audio_track)
+static sdl_movie *open_media(const uint8_t *data, size_t size, int interlace, int repeat,
+                             int audio_track, int ipu)
 {
     if (!data || !size || size > 512u * 1024 * 1024)
         return NULL;
@@ -221,7 +223,8 @@ sdl_movie *sdl_movie_open(const uint8_t *data, size_t size, int interlace, int r
        background at 5%/99% of 32/238, ours 8/253 with FFmpeg's default
        expansion). in_range=full keeps the samples unexpanded. */
     const wchar_t *filter =
-        interlace
+        ipu ? L"scale=640:448:in_range=full:out_range=full,format=rgba"
+        : interlace
             ? L"il=l=i:c=i,setfield=tff,yadif=mode=send_field:parity=tff,scale=640:448:in_range=full:out_range=full,format=rgba,fps=60000/1001"
             : L"scale=640:448:in_range=full:out_range=full,format=rgba,fps=30000/1001";
     swprintf(
@@ -269,6 +272,42 @@ fail:
     sdl_movie_close(m);
     return NULL;
 }
+sdl_movie *sdl_movie_open(const uint8_t *data, size_t size, int interlace, int repeat,
+                          int audio_track)
+{
+    return open_media(data, size, interlace, repeat, audio_track, 0);
+}
+uint8_t *sdl_movie_ipic_decode(const uint8_t *stream, size_t size, unsigned count)
+{
+    if (!count || count > SIZE_MAX / FRAME_BYTES)
+        return NULL;
+    sdl_movie *m = open_media(stream, size, 0, 0, 0, 1);
+    if (!m)
+        return NULL;
+    uint8_t *pixels = malloc((size_t)count * FRAME_BYTES);
+    unsigned copied = 0;
+    if (pixels) {
+        SDL_LockMutex(m->lock);
+        while (copied < count) {
+            while (!m->count && !m->ended)
+                SDL_CondWait(m->ready, m->lock);
+            if (!m->count)
+                break;
+            memcpy(pixels + (size_t)copied * FRAME_BYTES, m->frames[m->head], FRAME_BYTES);
+            m->head = (m->head + 1) % QUEUE;
+            m->count--;
+            copied++;
+            SDL_CondBroadcast(m->ready);
+        }
+        SDL_UnlockMutex(m->lock);
+    }
+    sdl_movie_close(m);
+    if (copied != count) {
+        free(pixels);
+        return NULL;
+    }
+    return pixels;
+}
 int sdl_movie_draw(sdl_movie *m, float x, float y, float w, float h, float opacity)
 {
     if (!m)
@@ -305,6 +344,13 @@ int sdl_movie_draw(sdl_movie *m, float x, float y, float w, float h, float opaci
     return 1;
 }
 #else
+uint8_t *sdl_movie_ipic_decode(const uint8_t *stream, size_t size, unsigned count)
+{
+    (void)stream;
+    (void)size;
+    (void)count;
+    return NULL;
+}
 struct sdl_movie {
     int unused;
 };
@@ -356,3 +402,40 @@ int sdl_movie_draw(sdl_movie *m, float x, float y, float w, float h, float a)
     return 0;
 }
 #endif
+
+uint8_t *sdl_movie_ipic_archive_decode(const gt4_ipic *archive)
+{
+    const size_t frame_bytes = 640 * 448 * 4;
+    if (!archive->count || archive->count > SIZE_MAX / frame_bytes)
+        return NULL;
+    uint8_t *pixels = malloc((size_t)archive->count * frame_bytes);
+    if (!pixels)
+        return NULL;
+    /* IPU stream headers fix the coded dimensions. Decode each height as
+       its own stream, then restore the archive order for name lookup. */
+    const unsigned heights[] = {448, 512};
+    for (unsigned group = 0; group < 2; group++) {
+        unsigned count = 0;
+        for (unsigned i = 0; i < archive->count; i++)
+            count += gt4_ipic_height(archive, i) == heights[group];
+        if (!count)
+            continue;
+        size_t size;
+        uint8_t *stream = gt4_ipic_stream(archive, heights[group], &size);
+        uint8_t *batch = stream ? sdl_movie_ipic_decode(stream, size, count) : NULL;
+        free(stream);
+        if (!batch) {
+            free(pixels);
+            return NULL;
+        }
+        unsigned index = 0;
+        for (unsigned i = 0; i < archive->count; i++)
+            if (gt4_ipic_height(archive, i) == heights[group]) {
+                memcpy(pixels + (size_t)i * frame_bytes, batch + (size_t)index * frame_bytes,
+                       frame_bytes);
+                index++;
+            }
+        free(batch);
+    }
+    return pixels;
+}

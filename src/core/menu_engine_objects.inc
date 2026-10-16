@@ -1079,6 +1079,22 @@ static int nat_event_new(ah_vm *vm, ah_obj *self, void *d, int argc, const ah_va
     return 0;
 }
 
+/* A key a script pushed at a native bar (MKeyPressEvent): its own key
+   handler (bar_input), as the queued event reaches the widget's +0x244 */
+static int nat_widget_key(ah_vm *vm, ah_obj *self, void *d, int argc, const ah_val *argv, ah_val *ret)
+{
+    (void)self;
+    menu *m = d;
+    *ret = ah_nil();
+    ah_obj *o = argc > 1 ? ah_as_obj(argv[0], AO_MODULE) : NULL;
+    ui_widget *w = o ? ah_host_data(o) : NULL;
+    int k = argc > 1 ? (int)ah_num(argv[1]) : 0;
+    menu_input input = k == 0xff0d ? MENU_ACCEPT : k == 0xff1b ? MENU_BACK : k == 0xff51 ? MENU_LEFT
+                     : k == 0xff52 ? MENU_UP : k == 0xff53 ? MENU_RIGHT : k == 0xff54 ? MENU_DOWN : -1;
+    if (w && (int)input >= 0)
+        bar_input(m, w, input);
+    return 0;
+}
 /* photo_shoot.ad L219/1279: preserve event payload and defer callbacks
    through the existing script-event queue. A: general event parity pending. */
 static int nat_photo_event(ah_vm *vm, ah_obj *self, void *d, int argc, const ah_val *argv,
@@ -1094,6 +1110,15 @@ static int nat_photo_event(ah_vm *vm, ah_obj *self, void *d, int argc, const ah_
     ah_array_push(vm, args, ah_objv(event));
     if (kind == 2)
         ah_array_push(vm, args, argv[1]);
+    {   /* photo_shoot.ad L322/L408: the FocalLen ScaleBar opened and closed
+           by a pushed Return, which only its native handler (00238D10) takes */
+        ah_obj *o = ah_as_obj(argv[1], AO_MODULE);
+        ui_widget *w = o ? ah_host_data(o) : NULL;
+        if (!kind && w && w->type && (!strcmp(w->type, "ScaleBar") || !strcmp(w->type, "SliderBar"))) {
+            ah_val call[] = {ah_native(vm, "widgetKey", nat_widget_key, ah_user(vm)), argv[1], argv[2]};
+            return nat_event_new(vm, NULL, NULL, 3, call, ret);
+        }
+    }
     ah_val call[] = {argv[0], argv[1],
                      ah_str(vm, kind == 2   ? "onActivate"
                                 : kind == 1 ? "onKeyRelease"

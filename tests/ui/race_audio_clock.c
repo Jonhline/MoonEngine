@@ -51,6 +51,7 @@ static clock_frame reference[TICKS];
 static int frame, batch, negative;
 static int capture_stems;
 static int listener_negative, chase_frames, manual_mode;
+static int camera_cuts, cut_negative, checked_cuts;
 static float previous_eye[3];
 static void observed_audio_step(race_audio *a, const gt4_race_run *run)
 {
@@ -64,6 +65,25 @@ static void observed_audio_step(race_audio *a, const gt4_race_run *run)
     GT4_U16(car + 0x104 + 0x4fa) = 3500;
     if (negative && batch > 1 && frame % batch)
         memcpy(a->camera_eye, previous_eye, sizeof previous_eye);
+    if (camera_cuts && frame == 500) {
+        float cut_eye[3];
+        memcpy(cut_eye, a->camera_eye, sizeof cut_eye);
+        cut_eye[0] += 1000;
+        race_audio_camera_cut(a);
+        gt4_car_listener l;
+        listener(a, &l, cut_eye, a->camera_rows, a->camera_view);
+        if (cut_negative)
+            l.continuous = 1; /* Deliberately interpret the cut as camera velocity. */
+        unsigned cond = gt4_race_run_conductor(run);
+        unsigned entry = GT4_U32(GT4_U32(GT4_U32(GT4_U32(cond) + 0x60) + 8));
+        gt4_car_sound_state state = a->state[0];
+        gt4_car_sound_frame f;
+        gt4_car_sound_out out;
+        gt4_car_sound_frame_build(&f, &state, &out, entry, &l, 1, 0, 0);
+        CHECK(!l.continuous && out.restart);
+        CHECK(*(float *)(f.b + 0x50) == 1);
+        checked_cuts++;
+    }
     if (a->camera_view == 1 && frame >= 1000) {
         gt4_car_listener l;
         listener(a, &l, a->camera_eye, a->camera_rows, a->camera_view);
@@ -101,6 +121,12 @@ static void observed_audio_step(race_audio *a, const gt4_race_run *run)
         reference[frame] = actual;
     else if (memcmp(&reference[frame], &actual, sizeof actual)) {
         fprintf(stderr, "audio clock differs at tick %d with %d steps per draw\n", frame, batch);
+        for (size_t byte = 0; byte < sizeof actual; byte++)
+            if (((unsigned char *)&reference[frame])[byte] != ((unsigned char *)&actual)[byte]) {
+                fprintf(stderr, "first differing byte %zu: %u/%u\n", byte,
+                        ((unsigned char *)&reference[frame])[byte], ((unsigned char *)&actual)[byte]);
+                break;
+            }
         exit(1);
     }
     memcpy(previous_eye, a->camera_eye, sizeof previous_eye);
@@ -113,6 +139,8 @@ int main(int argc, char **argv)
     manual_mode =
         argc == 3 && (!strcmp(argv[2], "--manual") || !strcmp(argv[2], "--manual-negative"));
     listener_negative = argc == 3 && !strcmp(argv[2], "--listener-negative");
+    cut_negative = argc == 3 && !strcmp(argv[2], "--cut-negative");
+    camera_cuts = cut_negative || (argc == 3 && !strcmp(argv[2], "--camera-cuts"));
     int mute_negative = argc == 3 && !strcmp(argv[2], "--capture-stems-negative");
     int stems = capture_stems = argc == 3 && (!strcmp(argv[2], "--capture-stems") || mute_negative);
     plat_video_desc desc = {640, 448, 0, 0, 0};
@@ -162,6 +190,7 @@ int main(int argc, char **argv)
                    cars[c], TICKS, batch);
         }
     CHECK(chase_frames>0);
+    CHECK(!camera_cuts || checked_cuts == 6);
     plat_video_shutdown();
     return 0;
 }

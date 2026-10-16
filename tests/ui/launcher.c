@@ -1,5 +1,6 @@
 /* Standalone PC launcher contract, intentionally not an original UI oracle. */
 #include "launcher.h"
+#include "platform/renderer_backend.h"
 #include "launcher_photos.h"
 #include "launcher_icons.h"
 #include "miniz.h"
@@ -75,7 +76,15 @@ int main(int argc, char **argv)
     fclose(f);
     CHECK(!launcher_preferences_load(&q,prefs) && q.show && !q.disc[0]);
     launcher_options o, read;
+    f = fopen(video, "wb");
+    CHECK(f);
+    fputs("width=1920\nheight=1080\nrenderer=unknown\n", f);
+    fclose(f);
+    CHECK(launcher_options_load(&read,video,saves));
+    CHECK(read.renderer == MOON_RENDERER_OPENGL && read.width == 1920);
     launcher_options_defaults(&o);
+    CHECK(o.renderer == MOON_RENDERER_OPENGL);
+    o.renderer = MOON_RENDERER_VULKAN;
     o.width = 1920;
     o.height = 1080;
     o.aspect = 1;
@@ -91,6 +100,11 @@ int main(int argc, char **argv)
     CHECK(launcher_options_save(&o,video,saves,15));
     CHECK(launcher_options_load(&read,video,saves));
     CHECK(!memcmp(&o,&read,sizeof o));
+    CHECK(read.renderer == MOON_RENDERER_VULKAN);
+    o.renderer = MOON_RENDERER_COUNT;
+    CHECK(!launcher_options_save(&o,video,saves,1));
+    CHECK(launcher_options_load(&read,video,saves) && read.renderer == MOON_RENDERER_VULKAN);
+    o.renderer = MOON_RENDERER_VULKAN;
     f = fopen(options, "rb");
     CHECK(f);
     char text[4096];

@@ -13,6 +13,7 @@
 #include "race_pit_crew.h"
 
 #include "font.h"
+#include "font_layout.h"
 #include "glyph_sdf.h"
 #include "gpb.h"
 #include "rtext.h"
@@ -545,11 +546,17 @@ static float advance(const hud_font *f, unsigned c, const gt4_glyph *g)
 static float text_width(const hud_font *f, const char *s)
 {
     float w = 0;
+    unsigned previous = 0;
     while (*s) {
         unsigned c = gt4_text_next(&s);
         const gt4_glyph *g = gt4_font_glyph(&f->face, c);
-        if (g)
-            w += advance(f, c, g);
+        if (g) {
+            float ink;
+            float step = gt4_font_original_step(&f->face, previous, c, 1, &ink);
+            w += advance(f, c, g) + step - g->advance;
+        } else
+            w += f->face.space_advance;
+        previous = c == ' ' ? 0 : c;
     }
     return w * f->sx;
 }
@@ -590,20 +597,29 @@ static void text(const hud_font *f, float x, float y, int flags, const uint8_t c
         uint8_t c[4];
         const char *t = s;
         float pen = x;
+        unsigned previous = 0;
         memcpy(c, pass ? color : black, 4);
         c[3] = (uint8_t)(color[3] * light);
         while (*t) {
             unsigned ch = gt4_text_next(&t);
             const gt4_glyph *g = gt4_font_glyph(&f->face, ch);
-            if (!g)
+            if (!g) {
+                pen += f->face.space_advance * f->sx;
+                previous = 0;
                 continue;
+            }
+            /* Original: func_00492978 +0x210..0x38C applies contour-pair
+               kerning before placing the glyph (notably the T/A pair). */
+            float ink;
+            float step = gt4_font_original_step(&f->face, previous, ch, 1, &ink);
             if (g->w && g->h) {
                 float u0 = (float)g->u / a->width, v0 = (float)g->v / a->height;
                 float u1 = (float)(g->u + g->w) / a->width, v1 = (float)(g->v + g->h) / a->height;
-                plat_draw_glyph(pass ? f->ink : f->outline, pen + g->x * f->sx, base + g->y * f->sy,
+                plat_draw_glyph(pass ? f->ink : f->outline, pen + ink * f->sx, base + g->y * f->sy,
                                 g->w * f->sx, g->h * f->sy, base, 0, u0, v0, u1, v1, c);
             }
-            pen += advance(f, ch, g) * f->sx;
+            pen += (advance(f, ch, g) + step - g->advance) * f->sx;
+            previous = ch == ' ' ? 0 : ch;
         }
     }
 }

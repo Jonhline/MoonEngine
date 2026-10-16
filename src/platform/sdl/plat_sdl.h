@@ -20,6 +20,8 @@ int plat_sdl_poll(plat_key_event *ev);
 void plat_sdl_dialog_answer(int answer);
 int plat_sdl_get_dialog_answer(void);
 unsigned plat_sdl_audio_underruns(void);
+/* True until the device has consumed the authored fade duration. */
+int plat_sdl_music_fading(void);
 
 /* Video (video_gl.c). */
 #include <SDL.h>

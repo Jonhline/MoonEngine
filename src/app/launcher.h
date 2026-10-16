@@ -12,6 +12,7 @@ typedef struct {
 } launcher_preferences;
 typedef struct {
     int width, height, fullscreen, vsync, upscale, filter, text, aspect;
+    int renderer; /* PC backend choice; legacy files default to OpenGL. */
     int volume[7];
     gt4_pad_config pad[2];
 } launcher_options;

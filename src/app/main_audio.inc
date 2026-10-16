@@ -156,6 +156,8 @@ static void update_present_pcm(menu *m)
     /* Consume the outgoing BGM fade before publishing the new stream.
        The outer MIDI bookkeeping may still name its old owner. */
     if (*group && music_faded) {
+        if (plat_sdl_music_fading())
+            return;
         plat_audio_set_music(NULL, NULL);
         music_faded = 0;
     }

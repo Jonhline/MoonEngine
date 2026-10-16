@@ -14,6 +14,7 @@ unsigned gl_program_count(void);
 #include <glad/glad.h>
 #else
 #include <SDL_opengl.h>
+#include "gl_base.h"
 #endif
 
 #define OPENGT4_GL_FUNCS(X)                                                                        \

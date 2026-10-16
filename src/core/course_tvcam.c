@@ -437,6 +437,7 @@ static int step(gt4_tvcam *c, const gt4_tvcam_target *tg, gt4_tvcam_view *o)
     }
     roll *= c->roll_scale;
     lens = c->lens.v / aimed; /* 0037C888: zoom AFTER the lens spring */
+    o->cut = c->first;
     c->first = 0;
     /* the view: Rz(roll) Rx(pitch) Ry(yaw), back to a point it looks at */
     {
@@ -1718,7 +1719,8 @@ int gt4_dive_step(gt4_dive *d, const gt4_dive_target *t, gt4_tvcam_view *out)
     filter_step(d, !d->running || d->cut);
     /* func_00376AF0: the director runs only on a cut (or a new camera
        type); a shot is timed to the next cut and holds its end until then */
-    if (!d->running || d->cut) {
+    int camera_cut = !d->running || d->cut;
+    if (camera_cut) {
         d->running = direct(d, t);
         if (getenv("OPENGT4_DIVE_LOG"))
             fprintf(stderr, "dive shot: camera %d for %.2f s\n", d->running, d->timer);
@@ -1763,6 +1765,7 @@ int gt4_dive_step(gt4_dive *d, const gt4_dive_target *t, gt4_tvcam_view *out)
         point_step(d, t, out);
         ok = 1;
     } /* past its span it goes on looking */
+    out->cut = camera_cut;
     fesetround(mode);
     return ok;
 }

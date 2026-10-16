@@ -2,8 +2,11 @@
 
 Run commands from the repository root. The development setup is Windows,
 Visual Studio 2022 Build Tools with the C++ workload and Windows SDK, Git,
-and CMake 3.20 or later. CMake fetches miniz 3.0.2 and SDL2 2.30.9; the first
-configure needs network access.
+and CMake 3.20 or later. CMake fetches miniz 3.0.2, SDL2 2.30.9 and, for PC,
+Khronos Vulkan-Headers v1.3.296, volk vulkan-sdk-1.3.296.0 and glslang 14.3.0;
+the first configure needs network access. The Vulkan SDK is not required.
+OpenGL and the experimental Vulkan renderer are selectable in the PC launcher;
+see [PC graphics backends](VULKAN.md) for requirements and focused tests.
 
 ## Native application
 

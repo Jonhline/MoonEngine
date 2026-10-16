@@ -1491,8 +1491,22 @@ static void draw_face_gpu(showroom *s)
         car.u[1] = car.r[2] * car.f[0] - car.r[0] * car.f[2];
         car.u[2] = car.r[0] * car.f[1] - car.r[1] * car.f[0];
     }
-    const tex1_image *env = s->environment_count > 0 ? s->environment : NULL;
-    const r3d_lights *lights = f->lights.count ? &f->lights : NULL;
+    const tex1_image *env = f->studio_presentation     ? s->env_now
+                            : s->environment_count > 0 ? s->environment
+                                                       : NULL;
+    const r3d_lights *lights = f->studio_presentation && s->lit.count ? &s->lit
+                               : f->lights.count                      ? &f->lights
+                                                                      : NULL;
+    r3d_lights presentation;
+    if (f->studio_presentation && lights) {
+        /* P: launcher-only soft fill and brighter studio highlights. The game
+           CarFace and showroom paths retain their original lighting inputs. */
+        presentation = *lights;
+        for (int c = 0; c < 3; c++)
+            presentation.ambient[0][c] += .18f;
+        presentation.specular_scale = .3f;
+        lights = &presentation;
+    }
     if (f->service_pass) {
         /* 00217058 +0xf0 / +0x578: reflected layer is added with FIX
            trunc(128 * 0x3E999999 * opacity), ALPHA 0x68. No screen-space
@@ -1799,7 +1813,7 @@ int showroom_draw(showroom *s, const char *code, float dt)
         s->car_z = 0;
     {
         float t = s->light ? gt4_mot1_wrap(s->light, s->light_time) : 0;
-        if (s->face)
+        if (s->face && !s->face->studio_presentation)
             s->lit = s->face->lights;
         else if (s->studio_count == 4)
             studio_lights(s, t);
@@ -1824,7 +1838,7 @@ int showroom_draw(showroom *s, const char *code, float dt)
         }
         s->env_now = s->face || s->gpu_env_ready ? NULL : compose_env(s, t);
 #else
-        s->env_now = s->face ? NULL : compose_env(s, t);
+        s->env_now = s->face && !s->face->studio_presentation ? NULL : compose_env(s, t);
 #endif
         if (s->env_now)
             r3d_environment_changed();

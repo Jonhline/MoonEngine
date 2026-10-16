@@ -16,6 +16,9 @@
 #include "plat_sdl.h"
 #include "video_gl.h"
 #include "gl.h"
+#ifdef MOON_PC_VULKAN
+#include "vk_render.h"
+#endif
 #include "fsr.h"
 #if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
 #include "switch_quality.h"
@@ -30,6 +33,17 @@ void plat_audio_shutdown(void);
 
 static SDL_Window *window;
 static SDL_GLContext context;
+
+static void graphics_size(SDL_Window *win, int *width, int *height)
+{
+#ifdef MOON_PC_VULKAN
+    if (moon_vk_render_active()) {
+        moon_vk_render_size(win, width, height);
+        return;
+    }
+#endif
+    SDL_GL_GetDrawableSize(win, width, height);
+}
 static int vsync, upscale;
 static int menu_pacing = 1, frame_presented;
 static int menu_projection = 1;
@@ -211,7 +225,7 @@ static void layout_view(void)
 static int ensure_framebuffer(void)
 {
     int w = 0, h = 0;
-    SDL_GL_GetDrawableSize(window, &w, &h);
+    graphics_size(window, &w, &h);
     if (capture_w > 0 && capture_h > 0) {
         w = capture_w;
         h = capture_h;
@@ -268,8 +282,27 @@ int plat_video_init(const plat_video_desc *d)
     window_height = docked ? 1080 : 720;
     fullscreen = 0;
 #endif
-    window = SDL_CreateWindow("OpenGT4", window_x, window_y, window_width, window_height,
-                              SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI |
+    /* Keep Switch packaging independent of the PC product rename. */
+#ifdef __SWITCH__
+    const char *product_title = "OpenGT4";
+#else
+    const char *product_title = "Moon Engine";
+#endif
+    Uint32 graphics_flags = SDL_WINDOW_OPENGL;
+    if (getenv("OPENGT4_WINDOW_HIDDEN"))
+        graphics_flags |= SDL_WINDOW_HIDDEN;
+#ifdef MOON_PC_VULKAN
+    int backend = d->backend;
+    const char *override = getenv("OPENGT4_GRAPHICS_API");
+    if (override && !strcmp(override, "vulkan"))
+        backend = 1;
+    else if (override && !strcmp(override, "opengl"))
+        backend = 0;
+    if (backend == 1)
+        graphics_flags = (graphics_flags & ~SDL_WINDOW_OPENGL) | SDL_WINDOW_VULKAN;
+#endif
+    window = SDL_CreateWindow(product_title, window_x, window_y, window_width, window_height,
+                              graphics_flags | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI |
                                   (fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
     if (!window)
         return -1;
@@ -279,12 +312,24 @@ int plat_video_init(const plat_video_desc *d)
 #else
     static const int versions[2][2] = {{4, 3}, {3, 3}};
 #endif
+#ifdef MOON_PC_VULKAN
+    if (backend == 1) {
+        if (!moon_vk_render_open(window, d->vsync))
+            return -1;
+    } else
+#endif
     for (unsigned i = 0; i < sizeof versions / sizeof *versions && !context; i++) {
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, versions[i][0]);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, versions[i][1]);
         context = SDL_GL_CreateContext(window);
     }
-    if (!context || !gl_load())
+    if (
+#ifdef MOON_PC_VULKAN
+        !moon_vk_render_active() &&
+#endif
+        !context)
+        return -1;
+    if (!gl_load())
         return -1;
 #ifdef __SWITCH__
     u32 performance = 0;
@@ -295,8 +340,14 @@ int plat_video_init(const plat_video_desc *d)
     fprintf(stderr, "Switch mode: applet=%u, docked=%d, performance=0x%x (result=0x%x)\n",
             (unsigned)appletGetAppletType(), docked, performance, performance_result);
 #endif
-    if (gl_enable_reversed_z())
-        fprintf(stderr, "OpenGL: reversed float depth\n");
+    if (gl_enable_reversed_z()) {
+#ifdef MOON_PC_VULKAN
+        const char *api = moon_vk_render_active() ? "Vulkan" : "OpenGL";
+#else
+        const char *api = "OpenGL";
+#endif
+        fprintf(stderr, "%s: reversed float depth\n", api);
+    }
     profile_frames = getenv("OPENGT4_VIDEO_PROFILE") != NULL;
 #ifdef __SWITCH__
     /* The passive benchmark must never force GPU completion. */
@@ -311,7 +362,12 @@ int plat_video_init(const plat_video_desc *d)
         capture_w = capture_h = 0;
     vsync = d->vsync;
     upscale = d->upscale;
-    SDL_GL_SetSwapInterval(vsync ? 1 : 0);
+#ifdef MOON_PC_VULKAN
+    if (moon_vk_render_active())
+        moon_vk_render_vsync(vsync);
+    else
+#endif
+        SDL_GL_SetSwapInterval(vsync ? 1 : 0);
 
     program2d = gl_program(vs2d, fs2d);
     if (!program2d)
@@ -605,7 +661,7 @@ void plat_video_end_frame(void)
     glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     int preview_w, preview_h;
-    SDL_GL_GetDrawableSize(window, &preview_w, &preview_h);
+    graphics_size(window, &preview_w, &preview_h);
     glBlitFramebuffer(0, 0, fb_w, fb_h, 0, 0, preview_w, preview_h, GL_COLOR_BUFFER_BIT,
                       GL_NEAREST);
     if (profile_frames) {
@@ -628,7 +684,14 @@ void plat_video_end_frame(void)
        exported frame. Ordinary gameplay always presents every frame. */
     if (!video_export_fixed_step() || !getenv("OPENGT4_CAPTURE_SPARSE_PREVIEW") ||
         capture_frame % 60 == 0)
-        SWP_VOID(SWP_SWAP, SDL_GL_SwapWindow(window));
+    {
+#ifdef MOON_PC_VULKAN
+        if (moon_vk_render_active())
+            moon_vk_render_present();
+        else
+#endif
+            SWP_VOID(SWP_SWAP, SDL_GL_SwapWindow(window));
+    }
     frame_presented = 1;
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     SWP_FRAME(fb_w, fb_h);
@@ -716,6 +779,9 @@ void plat_video_shutdown(void)
         glDeleteProgram(license_program);
     license_lut = license_program = 0;
     license_lut_valid = 0;
+#ifdef MOON_PC_VULKAN
+    moon_vk_render_close();
+#endif
     if (context)
         SDL_GL_DeleteContext(context);
     if (window)
@@ -885,6 +951,12 @@ void video_ui_quality(int filter, float sharpness)
 
 int video_set_vsync(int enabled)
 {
+#ifdef MOON_PC_VULKAN
+    if (moon_vk_render_active()) {
+        vsync = enabled != 0;
+        return moon_vk_render_vsync(vsync);
+    }
+#endif
     if (SDL_GL_SetSwapInterval(enabled ? 1 : 0) < 0)
         return 0;
     vsync = enabled != 0;

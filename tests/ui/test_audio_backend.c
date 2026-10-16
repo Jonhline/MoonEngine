@@ -63,6 +63,14 @@ int main(int argc, char **argv)
     CHECK(plat_audio_set_music(synth,NULL)==0);
     SDL_Delay(30);
     CHECK(SDL_AtomicGet(&generated)>before);
+    plat_audio_fade_music(.2f);
+    CHECK(plat_sdl_music_fading());
+    if (getenv("GT4_AUDIO_FADE_NEGATIVE"))
+        plat_audio_set_music(NULL, NULL); /* Deliberately stop on the next UI tick. */
+    SDL_Delay(30);
+    CHECK(plat_sdl_music_fading());
+    SDL_Delay(240);
+    CHECK(!plat_sdl_music_fading());
     plat_audio_shutdown();
     CHECK(plat_sdl_audio_underruns()==0);
     int generated_frames = SDL_AtomicGet(&generated);

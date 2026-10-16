@@ -62,7 +62,7 @@ struct r3d_mesh {
 static GLuint program, dest_tex, dest_fbo, env_tex;
 static int dest_w, dest_h, env_w, env_h, env_dirty, failed, vp[4];
 static const tex1_image *env_source;
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST) || defined(MOON_PC_VULKAN)
 static GLuint gpu_environment;
 static int gpu_environment_w, gpu_environment_h;
 #endif
@@ -156,8 +156,10 @@ static const char *vs =
     "    v_envuv=den>1e-8?vec2(.5+r.x/den,.5-r.y/den):vec2(.5); }\n"
     "  v_light=u_reflect==1?a_rgb:50./255.*a_amb+a_rgb*dsum;\n"
     "  if(u_flat==1) v_light=a_rgb;\n"
-    "  v_spec=u_flat==1?vec3(0.):a_spec*ssum*0.18;\n"
-    "  if(u_nlights>0 && u_flat==0){ vec3 amb=vec3(0.),dif=vec3(0.),spe=vec3(0.);\n"
+    /* Original: VU1 0x215 uses the authored environment colour, not the
+       surface-light blocks loaded by func_0049E918 +0xA0..0xBC. */
+    "  v_spec=u_flat==1 || u_reflect==1?vec3(0.):a_spec*ssum*0.18;\n"
+    "  if(u_nlights>0 && u_flat==0 && u_reflect==0){ vec3 amb=vec3(0.),dif=vec3(0.),spe=vec3(0.);\n"
     "    for(int l=0;l<4;l++){ if(l>=u_nlights) break; amb+=u_lamb[l]; if(length(u_ldir[l])<1e-6) continue;\n"
     "      vec3 ld=normalize(u_ldir[l]); float d=max(0.,dot(wn,ld)); vec3 h=ld+vdir;\n"
     "      float s=d>0. && length(h)>1e-6?pow(max(0.,dot(wn,normalize(h))),a_shine_alpha.x):0.;\n"
@@ -169,12 +171,15 @@ static const char *vs =
     "    v_light=a_amb*amb+a_rgb*dif; v_spec=a_spec*spe*u_lspec_scale;\n"
     /* the same programs: the three terms summed into the vertex colour,
        limited to its 255; the texel multiplies all of it */
-    "    if(u_lvertex>0.){ v_light=min(max(a_amb*amb+a_rgb*dif+a_spec*spe,vec3(0.)),vec3(u_lvertex)); v_spec=vec3(0.); }\n"
+    /* Original: func_0049EB90 +0x84..0x94 loads the specular block alone.
+       Select that contribution before vertex saturation discards v_spec. */
+    "    if(u_lvertex>0.){ vec3 lit=a_spec*spe; if(u_specular_only==0) lit+=a_amb*amb+a_rgb*dif;\n"
+    "      v_light=min(max(lit,vec3(0.)),vec3(u_lvertex)); v_spec=vec3(0.); }\n"
     "  }\n"
     /* 0049D1A0 -> 0049EB90: kind 4 loads light directions and material
        specular colours (3A0/3B0), without the ambient/diffuse colour block.
        These authored additive masks must not light the diffuse surface again. */
-    "  if(u_specular_only==1){ v_light=v_spec; v_spec=vec3(0.); }\n"
+    "  if(u_specular_only==1 && u_lvertex<=0.){ v_light=v_spec; v_spec=vec3(0.); }\n"
     /* VU1 0x215 (the reflection layer): no lights, the vertex colour times
        205 + 206 * min(I.N, 0) / |I| */
     "  if(u_reflect==1 && u_envk!=vec2(0.)){ v_light=a_rgb*(u_envk.x+u_envk.y*min(dot(w,wn),0.)/max(length(w),1e-6)); v_spec=vec3(0.); }\n"
@@ -745,7 +750,7 @@ void r3d_mesh_destroy(r3d_mesh *mesh)
 void r3d_begin(float x, float y, float w, float h, const tex1_image *environment)
 {
     memset(&frame_stats, 0, sizeof frame_stats);
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST) || defined(MOON_PC_VULKAN)
     gpu_environment = 0;
 #endif
     video_flush2d();
@@ -1053,7 +1058,7 @@ int r3d_begin_target(int size)
     return 1;
 }
 
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST) || defined(MOON_PC_VULKAN)
 void r3d_gpu_environment(unsigned texture, int width, int height)
 {
     gpu_environment = texture;
@@ -1466,7 +1471,7 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, dest_tex);
     glActiveTexture(GL_TEXTURE2);
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST) || defined(MOON_PC_VULKAN)
     glBindTexture(GL_TEXTURE_2D, gpu_environment ? gpu_environment : env_tex);
     glUniform2i(U.envsize, gpu_environment ? gpu_environment_w : env_w,
                 gpu_environment ? gpu_environment_h : env_h);

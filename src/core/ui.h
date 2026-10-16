@@ -70,6 +70,7 @@ struct ui_widget {
     int scroll_set;
     /* MScaleBar 00239018/20: float value, clamped by script min/max. */
     float photo_value, photo_min, photo_max, photo_step, photo_current, photo_repeat;
+    float photo_saved; /* ScaleBar value kept while its popup is open (00238BE0), back on Cancel */
     int focus_index; /* SelectBox */
     int slider_range_set, slider_min, slider_max, slider_display_set;
     double slider_display_min, slider_display_max;

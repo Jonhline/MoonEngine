@@ -1,6 +1,8 @@
 /* PC preparation: no artwork before disc validation; Options assets and
    widget measurements are loaded at runtime from the user's disc. */
 #include "launcher.h"
+#include "launcher_scene.h"
+#include "platform/renderer_backend.h"
 #include "launcher_photos.h"
 #include "launcher_icons.h"
 #include "launcher_skin.h"
@@ -37,6 +39,7 @@ typedef struct {
     uint32_t *backdrop_pixels;
     launcher_photos photos;
     launcher_skin skin;
+    launcher_scene *scene;
     HCURSOR cursor;
     launcher_audio *menu_audio;
     float highlight[15];
@@ -44,11 +47,13 @@ typedef struct {
     launcher_update_manifest update_manifest;
     HWND update_button, update_check, music_mute;
     int update_downloading;
-    int disc_valid;
+    int disc_valid, preview_frame;
     HWND hovered_control;
     ULONGLONG last_tick;
     int page, selection, port, count, result, sdl_ready, hover, pad_mode, probing;
     unsigned nav_previous;
+    double paint_ms;
+    unsigned paint_count;
     char status[256], device[192];
     SDL_GameController *pads[2];
     SDL_AudioDeviceID audio;
@@ -65,7 +70,7 @@ static const wchar_t *const descriptions[] = {
     L"Assign controller buttons and sticks for players 1 and 2.",
     L"Choose the folder used for profiles, replays and photographs.",
     L"Remember this screen on startup. Open it again with --launcher.",
-    L"Close OpenGT4."};
+    L"Close Moon Engine."};
 /* Same function ordering as option.ad KeyconfigRoot/DS2 L17..88. New PC
    controls present names rather than using the disc's controller glyphs. */
 static const int binding_actions[] = {-2,
@@ -149,38 +154,71 @@ static void gradient_h(HDC dc, RECT r, COLORREF left, COLORREF right)
         DeleteObject(b);
     }
 }
-static LRESULT CALLBACK combo_proc(HWND win,UINT message,WPARAM w,LPARAM l)
+static LRESULT CALLBACK control_proc(HWND win, UINT message, WPARAM w, LPARAM l)
 {
-    WNDPROC original=(WNDPROC)GetPropW(win,L"OpenGT4ComboProc");
-    launcher_window *s=(launcher_window *)GetPropW(win,L"OpenGT4Launcher");
-    LRESULT result=CallWindowProcW(original,win,message,w,l);
-    if(message==WM_NCDESTROY) {
-        RemovePropW(win,L"OpenGT4ComboProc"); RemovePropW(win,L"OpenGT4Launcher");
-        return result;
+    WNDPROC original = (WNDPROC)GetPropW(win, L"OpenGT4ControlProc");
+    launcher_window *s = (launcher_window *)GetPropW(win, L"OpenGT4Launcher");
+    int combo = GetPropW(win, L"OpenGT4Combo") != NULL;
+    /* P: owner-drawn controls cover their entire client area. Native BUTTON
+       background erasure paints white before WM_DRAWITEM; the animated
+       backdrop exposes that intermediate rectangle. */
+    if (s && s->disc_valid && message == WM_ERASEBKGND)
+        return 1;
+    if (s && s->disc_valid && combo && (message == WM_PAINT || message == WM_PRINTCLIENT)) {
+        PAINTSTRUCT paint;
+        HDC dc = message == WM_PAINT ? BeginPaint(win, &paint) : (HDC)w;
+        RECT r;
+        GetClientRect(win, &r);
+        HDC back = CreateCompatibleDC(dc);
+        HBITMAP bitmap = CreateCompatibleBitmap(dc, r.right, r.bottom);
+        HBITMAP old = SelectObject(back, bitmap);
+        if (s->backdrop) {
+            POINT origin = {0, 0};
+            MapWindowPoints(win, s->window, &origin, 1);
+            HDC background = CreateCompatibleDC(dc);
+            HBITMAP previous = SelectObject(background, s->backdrop);
+            BitBlt(back, 0, 0, r.right, r.bottom, background, origin.x, origin.y, SRCCOPY);
+            SelectObject(background, previous);
+            DeleteDC(background);
+        } else
+            FillRect(back, &r, s->panel);
+        int selected = (int)SendMessageW(win, CB_GETCURSEL, 0, 0);
+        wchar_t text[256] = L"";
+        if (selected >= 0)
+            SendMessageW(win, CB_GETLBTEXT, selected, (LPARAM)text);
+        launcher_skin_field(&s->skin, back, r, GetFocus() == win);
+        RECT label = r;
+        label.left += 8;
+        label.right -= 30;
+        launcher_skin_control_text(&s->skin, back, label, text, 0);
+        BitBlt(dc, 0, 0, r.right, r.bottom, back, 0, 0, SRCCOPY);
+        SelectObject(back, old);
+        DeleteObject(bitmap);
+        DeleteDC(back);
+        if (message == WM_PAINT)
+            EndPaint(win, &paint);
+        return 0;
     }
-    if(s && s->disc_valid && (message==WM_PAINT || message==WM_PRINTCLIENT)) {
-        HDC dc=message==WM_PAINT?GetDC(win):(HDC)w;
-        RECT r; GetClientRect(win,&r);
-        int selected=(int)SendMessageW(win,CB_GETCURSEL,0,0);
-        wchar_t text[256]=L"";
-        if(selected>=0) SendMessageW(win,CB_GETLBTEXT,selected,(LPARAM)text);
-        launcher_skin_field(&s->skin,dc,r,GetFocus()==win);
-        r.left+=8; r.right-=30;
-        launcher_skin_control_text(&s->skin,dc,r,text,0);
-        if(message==WM_PAINT) ReleaseDC(win,dc);
+    LRESULT result = CallWindowProcW(original, win, message, w, l);
+    if (message == WM_NCDESTROY) {
+        RemovePropW(win, L"OpenGT4ControlProc");
+        RemovePropW(win, L"OpenGT4Launcher");
+        RemovePropW(win, L"OpenGT4Combo");
     }
     return result;
 }
 static HWND control(launcher_window *s, const wchar_t *cls, const wchar_t *name, DWORD style,
                     int id, int x, int y, int w, int h)
 {
-    HWND win = CreateWindowExW(0, cls, name, WS_CHILD | WS_VISIBLE | style, x, y, w, h, s->window,
-                               (HMENU)(INT_PTR)id, GetModuleHandleW(NULL), NULL);
+    HWND win = CreateWindowExW(0, cls, name, WS_CHILD | WS_VISIBLE | style, x + LAUNCHER_PANEL_X, y,
+                               w, h, s->window, (HMENU)(INT_PTR)id, GetModuleHandleW(NULL), NULL);
     SendMessageW(win, WM_SETFONT, (WPARAM)s->normal, TRUE);
-    if(!wcscmp(cls,L"COMBOBOX")) {
-        SetPropW(win,L"OpenGT4Launcher",s);
-        WNDPROC previous=(WNDPROC)SetWindowLongPtrW(win,GWLP_WNDPROC,(LONG_PTR)combo_proc);
-        SetPropW(win,L"OpenGT4ComboProc",(HANDLE)previous);
+    if (!wcscmp(cls, L"COMBOBOX") || !wcscmp(cls, L"BUTTON")) {
+        SetPropW(win, L"OpenGT4Launcher", s);
+        if (!wcscmp(cls, L"COMBOBOX"))
+            SetPropW(win, L"OpenGT4Combo", (HANDLE)1);
+        WNDPROC previous = (WNDPROC)SetWindowLongPtrW(win, GWLP_WNDPROC, (LONG_PTR)control_proc);
+        SetPropW(win, L"OpenGT4ControlProc", (HANDLE)previous);
     }
     return win;
 }
@@ -225,76 +263,78 @@ static void combo(launcher_window *s, int k, const wchar_t *label, const wchar_t
 static RECT authored_rect(double x, double y, double w, double h)
 {
     /* The authored Options canvas is 640x480; the PC window is 900x700. */
-    return (RECT){(LONG)lround(x*900/640), (LONG)lround(y*700/480),
-                  (LONG)lround((x+w)*900/640), (LONG)lround((y+h)*700/480)};
+    return (RECT){(LONG)lround(x * 900 / 640), (LONG)lround(y * 700 / 480),
+                  (LONG)lround((x + w) * 900 / 640), (LONG)lround((y + h) * 700 / 480)};
 }
 static void layout_rows(launcher_window *s)
 {
-    double origin[4]={26,62,520,370}, item[4]={0,0,102,91}, group[4]={0,0,520,30};
-    if (s->disc_valid) {
-        mp_numbers(launcher_skin_widget(&s->skin,"ScrollWindow","ScrollWindow"),"geometry",origin,4);
-        mp_numbers(launcher_skin_widget(&s->skin,"Composite","Item"),"geometry",item,4);
-        mp_numbers(launcher_skin_widget(&s->skin,"Composite","Group"),"geometry",group,4);
-    }
-    for (int i=0;i<8;i++) {
-        RECT r;
-        if (!s->disc_valid) r=(RECT){320,350,580,394};
-        else if (i==7) {
-            double exit[4]={567,390,58,40};
-            mp_numbers(launcher_skin_widget(&s->skin,"Composite","Exit"),"geometry",exit,4);
-            r=authored_rect(exit[0],exit[1],exit[2],exit[3]);
-        } else {
-            /* Original: option.adc OptionRoot.onInitialize, five columns;
-               rows are separated by Item.h+4 and Group.h. PC actions replace
-               the original option entries, keeping their slot geometry. */
-            int row=i<5?0:1, col=i<5?i:i-5;
-            r=authored_rect(origin[0]+col*item[2],origin[1]+group[3]+
-                           row*(item[3]+4+group[3]),item[2],item[3]);
-        }
-        MoveWindow(s->rows[i],r.left,r.top,r.right-r.left,r.bottom-r.top,TRUE);
-        ShowWindow(s->rows[i],s->page==HOME && (s->disc_valid || i==1)?SW_SHOW:SW_HIDE);
-        SetWindowTextW(s->rows[i],!s->disc_valid&&i==1?L"Select disc image":row_names[i]);
+    for (int i = 0; i < 8; i++) {
+        RECT r = s->disc_valid ? (RECT){34 + i * 148, 508, 174 + i * 148, 646}
+                               : (RECT){482, 350, 762, 394};
+        MoveWindow(s->rows[i], r.left, r.top, r.right - r.left, r.bottom - r.top, TRUE);
+        ShowWindow(s->rows[i], s->page == HOME && (s->disc_valid || i == 1) ? SW_SHOW : SW_HIDE);
+        SetWindowTextW(s->rows[i], !s->disc_valid && i == 1 ? L"Select disc image" : row_names[i]);
     }
 }
-static void menu_volume(launcher_window *s,int music,int effects)
+
+static void menu_volume(launcher_window *s, int music, int effects)
 {
     /* P: launcher-only mute retains the game's configured volume. */
-    launcher_audio_volume(s->menu_audio,s->start->preferences.mute_music?0:music,effects);
+    launcher_audio_volume(s->menu_audio, s->start->preferences.mute_music ? 0 : music, effects);
 }
 static void refresh_disc(launcher_window *s)
 {
-    launcher_audio_close(s->menu_audio); s->menu_audio=NULL;
-    if (s->cursor) { SetCursor(LoadCursor(NULL,IDC_ARROW)); DestroyCursor(s->cursor); s->cursor=NULL; }
+    launcher_scene_close(s->scene);
+    s->scene = NULL;
+    s->preview_frame = 0;
+    launcher_audio_close(s->menu_audio);
+    s->menu_audio = NULL;
+    if (s->cursor) {
+        SetCursor(LoadCursor(NULL, IDC_ARROW));
+        DestroyCursor(s->cursor);
+        s->cursor = NULL;
+    }
     launcher_skin_close(&s->skin);
-    s->disc_valid=launcher_validate_disc(s->start->preferences.disc,s->status,sizeof s->status);
-    if (s->disc_valid && !launcher_skin_open(&s->skin,s->start->preferences.disc,NULL)) {
-        s->disc_valid=0;
-        strcpy(s->status,"Could not read the Options artwork. Select a readable disc image.");
+    s->disc_valid = launcher_validate_disc(s->start->preferences.disc, s->status, sizeof s->status);
+    if (s->disc_valid && !launcher_skin_open(&s->skin, s->start->preferences.disc, NULL)) {
+        s->disc_valid = 0;
+        strcpy(s->status, "Could not read the Options artwork. Select a readable disc image.");
     }
     if (s->disc_valid) {
         launcher_skin_filter(&s->skin);
-        s->cursor=launcher_skin_cursor(&s->skin);
-        s->menu_audio=launcher_audio_open(s->start->preferences.disc,1);
-        menu_volume(s,s->current.volume[0],s->current.volume[1]);
+        s->cursor = launcher_skin_cursor(&s->skin);
+        s->menu_audio = launcher_audio_open(s->start->preferences.disc, 1);
+        menu_volume(s, s->current.volume[0], s->current.volume[1]);
+        if (!s->probing)
+            s->scene = launcher_scene_open(s->start->preferences.disc, s->start->preferences.saves,
+                                           s->current.renderer, 0);
     }
-    memset(s->highlight,0,sizeof s->highlight);
-    if (!s->disc_valid) s->selection=1;
-    s->hover=-1;
+    memset(s->highlight, 0, sizeof s->highlight);
+    if (!s->disc_valid)
+        s->selection = 1;
+    s->hover = -1;
 }
 static void page(launcher_window *s, int which)
 {
     /* P: rebuild native children while painting is suspended, then present
        the complete page through the composited parent window. */
-    int visible=(GetWindowLongPtrW(s->window,GWL_STYLE)&WS_VISIBLE)!=0;
-    if (visible) SendMessageW(s->window,WM_SETREDRAW,FALSE,0);
-    if(s->update_button) ShowWindow(s->update_button,
-        which==HOME && s->update_manifest.version[0] && s->start->preferences.check_updates?SW_SHOW:SW_HIDE);
-    if(s->music_mute) ShowWindow(s->music_mute,s->disc_valid?SW_SHOW:SW_HIDE);
+    int visible = (GetWindowLongPtrW(s->window, GWL_STYLE) & WS_VISIBLE) != 0;
+    if (visible)
+        SendMessageW(s->window, WM_SETREDRAW, FALSE, 0);
+    if (s->update_button)
+        ShowWindow(s->update_button, which == HOME && s->update_manifest.version[0] &&
+                                             s->start->preferences.check_updates
+                                         ? SW_SHOW
+                                         : SW_HIDE);
+    if (s->music_mute)
+        ShowWindow(s->music_mute, s->disc_valid ? SW_SHOW : SW_HIDE);
     destroy_page(s);
-    if (!s->disc_valid) which=HOME;
+    if (!s->disc_valid)
+        which = HOME;
     s->page = which;
+    launcher_scene_pause(s->scene, which != HOME);
     s->draft = s->current;
-    menu_volume(s,s->current.volume[0],s->current.volume[1]);
+    menu_volume(s, s->current.volume[0], s->current.volume[1]);
     layout_rows(s);
     if (which != HOME) {
         s->footer[0] =
@@ -328,8 +368,10 @@ static void page(launcher_window *s, int which)
         combo(s, 3, L"Vertical synchronization", on, 2, s->draft.vsync, 480, 314, 280);
         combo(s, 4, L"Interface filtering", filters, 3, s->draft.filter, 140, 394, 280);
         combo(s, 5, L"Text clarity", sharp, 5, (s->draft.text + 12) / 25, 480, 394, 280);
-        combo(s, 6, L"3D scaling", scale, 5, s->draft.upscale, 310, 474, 280);
-        s->count = 7;
+        const wchar_t *backends[] = {L"OpenGL", L"Vulkan (experimental)"};
+        combo(s, 6, L"3D scaling", scale, 5, s->draft.upscale, 140, 474, 280);
+        combo(s, 7, L"Graphics backend", backends, 2, s->draft.renderer, 480, 474, 280);
+        s->count = 8;
     } else if (which == AUDIO) {
         const wchar_t *labels[] = {L"Menu music",      L"Menu effects", L"Race music",
                                    L"Race effects",    L"Replay music", L"Replay effects",
@@ -341,8 +383,8 @@ static void page(launcher_window *s, int which)
             choices[i] = text[i];
         }
         for (int i = 0; i < 7; i++)
-            combo(s, i, labels[i], choices, 129, s->draft.volume[i], i==6?310:140+(i%2)*340,
-                  234+(i/2)*80,280);
+            combo(s, i, labels[i], choices, 129, s->draft.volume[i],
+                  i == 6 ? 310 : 140 + (i % 2) * 340, 234 + (i / 2) * 80, 280);
         s->footer[3] = control(s, L"BUTTON", L"Test audio", BS_OWNERDRAW | WS_TABSTOP, TEST_AUDIO,
                                350, 532, 200, 34);
         s->count = 7;
@@ -395,8 +437,9 @@ static void page(launcher_window *s, int which)
         s->count = 11;
     }
     SetFocus(which == HOME ? s->rows[s->selection] : s->fields[0]);
-    if (visible) SendMessageW(s->window,WM_SETREDRAW,TRUE,0);
-    RedrawWindow(s->window,NULL,NULL,RDW_INVALIDATE|RDW_ALLCHILDREN|RDW_UPDATENOW);
+    if (visible)
+        SendMessageW(s->window, WM_SETREDRAW, TRUE, 0);
+    RedrawWindow(s->window, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
 }
 static int value(launcher_window *s, int n)
 {
@@ -417,6 +460,7 @@ static int apply(launcher_window *s)
         s->draft.filter = value(s, 4);
         s->draft.text = value(s, 5) * 25;
         s->draft.upscale = value(s, 6);
+        s->draft.renderer = value(s, 7);
         groups = 1;
     } else if (s->page == AUDIO) {
         for (int i = 0; i < 7; i++)
@@ -483,7 +527,7 @@ static int apply(launcher_window *s)
         strcpy(s->status,
                "Could not save all settings. Check access to the settings and player folders.");
         MessageBoxW(s->window, L"Could not save all settings. Check folder permissions.",
-                    L"OpenGT4", MB_ICONERROR);
+                    L"Moon Engine", MB_ICONERROR);
     }
     return ok;
 }
@@ -493,7 +537,7 @@ static int choose_path(launcher_window *s, char *out, int folder)
     if (folder) {
         BROWSEINFOW b = {0};
         b.hwndOwner = s->window;
-        b.lpszTitle = L"Choose the OpenGT4 player data folder";
+        b.lpszTitle = L"Choose the Moon Engine player data folder";
         b.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
         PIDLIST_ABSOLUTE id = SHBrowseForFolderW(&b);
         int ok = id && SHGetPathFromIDListW(id, selected);
@@ -507,7 +551,7 @@ static int choose_path(launcher_window *s, char *out, int folder)
         open.lpstrFilter = L"PlayStation 2 disc image (*.iso)\0*.iso\0All files\0*.*\0";
         open.lpstrFile = selected;
         open.nMaxFile = LAUNCHER_PATH;
-        open.lpstrTitle = L"OpenGT4 - Select game disc";
+        open.lpstrTitle = L"Moon Engine - Select game disc";
         open.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
         if (!GetOpenFileNameW(&open))
             return 0;
@@ -518,13 +562,21 @@ static int choose_path(launcher_window *s, char *out, int folder)
 static void pad_navigate(launcher_window *s, int key);
 static void activate(launcher_window *s, int n)
 {
-    launcher_audio_play(s->menu_audio,"select");
+    launcher_audio_play(s->menu_audio, "select");
     char selected[LAUNCHER_PATH];
-    if (!s->disc_valid && n!=1 && n!=7) return;
+    if (!s->disc_valid && n != 1 && n != 7)
+        return;
     s->selection = n;
     if (n == 0) {
+        const char *unavailable = moon_renderer_unavailable(s->current.renderer);
+        if (unavailable) {
+            snprintf(s->status, sizeof s->status, "%s", unavailable);
+            InvalidateRect(s->window, NULL, FALSE);
+            return;
+        }
         if (!launcher_validate_disc(s->start->preferences.disc, s->status, sizeof s->status)) {
-            refresh_disc(s); page(s,HOME);
+            refresh_disc(s);
+            page(s, HOME);
             InvalidateRect(s->window, NULL, FALSE);
             return;
         }
@@ -545,7 +597,10 @@ static void activate(launcher_window *s, int n)
             if (launcher_preferences_save(&draft)) {
                 s->start->preferences = draft;
                 launcher_options_load(&s->current, s->start->video_file, draft.saves);
-                if (n==1) { refresh_disc(s); page(s,HOME); }
+                if (n == 1) {
+                    refresh_disc(s);
+                    page(s, HOME);
+                }
                 if (n == 5)
                     strcpy(s->status, "Player data folder selected. Existing files stay in place.");
             } else
@@ -570,10 +625,10 @@ static void activate(launcher_window *s, int n)
 static void test_audio(launcher_window *s)
 {
     if (s->menu_audio) {
-        menu_volume(s,value(s,0),value(s,1));
-        launcher_audio_play(s->menu_audio,"ok");
-        strcpy(s->status,"Playing the menu confirmation sound.");
-        InvalidateRect(s->window,NULL,FALSE);
+        menu_volume(s, value(s, 0), value(s, 1));
+        launcher_audio_play(s->menu_audio, "ok");
+        strcpy(s->status, "Playing the menu confirmation sound.");
+        InvalidateRect(s->window, NULL, FALSE);
         return;
     }
     if (s->audio) {
@@ -613,7 +668,8 @@ static void controller_tick(launcher_window *s)
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
     }
-    if (!IsWindow(s->window)) return; /* SDL may dispatch Play while pumping events. */
+    if (!IsWindow(s->window))
+        return; /* SDL may dispatch Play while pumping events. */
     for (int p = 0; p < 2; p++)
         if (s->pads[p] && !SDL_GameControllerGetAttached(s->pads[p])) {
             SDL_GameControllerClose(s->pads[p]);
@@ -697,128 +753,173 @@ static void load_photos(launcher_window *s)
 static void compose_backdrop(launcher_window *s, HDC dc)
 {
     if (!s->backdrop) {
-        BITMAPINFO info={0}; info.bmiHeader.biSize=sizeof info.bmiHeader;
-        info.bmiHeader.biWidth=900; info.bmiHeader.biHeight=-700;
-        info.bmiHeader.biPlanes=1; info.bmiHeader.biBitCount=32;
-        s->backdrop=CreateDIBSection(dc,&info,DIB_RGB_COLORS,(void **)&s->backdrop_pixels,NULL,0);
+        BITMAPINFO info = {0};
+        info.bmiHeader.biSize = sizeof info.bmiHeader;
+        info.bmiHeader.biWidth = LAUNCHER_WIDTH;
+        info.bmiHeader.biHeight = -700;
+        info.bmiHeader.biPlanes = 1;
+        info.bmiHeader.biBitCount = 32;
+        s->backdrop =
+            CreateDIBSection(dc, &info, DIB_RGB_COLORS, (void **)&s->backdrop_pixels, NULL, 0);
     }
-    if (!s->backdrop) return;
-    HDC back=CreateCompatibleDC(dc); HBITMAP old=SelectObject(back,s->backdrop);
-    if (s->disc_valid) launcher_skin_background(&s->skin,back,900,700);
-    else {
+    if (!s->backdrop)
+        return;
+    HDC back = CreateCompatibleDC(dc);
+    HBITMAP old = SelectObject(back, s->backdrop);
+    if (s->disc_valid && s->page != HOME)
+        launcher_skin_background(&s->skin, back, LAUNCHER_WIDTH, LAUNCHER_HEIGHT);
+    else if (!s->disc_valid) {
         /* P: disc-independent preparation screen. No game artwork is
            available before validation; this background is procedural. */
-        gradient(back,(RECT){0,0,900,700},RGB(48,49,51),RGB(9,10,12));
-        for (int y=0;y<700;y+=16) for (int x=0;x<900;x+=16) {
-            int shade=3*(700-y)/700;
-            if (((x+y)/16)&1) continue;
-            int base=48-(39*y)/700;
-            HBRUSH b=CreateSolidBrush(RGB(base+shade,base+1+shade,base+3+shade));
-            RECT cell={x,y,x+16,y+16}; FillRect(back,&cell,b); DeleteObject(b);
+        gradient(back, (RECT){0, 0, LAUNCHER_WIDTH, 700}, RGB(48, 49, 51), RGB(9, 10, 12));
+        for (int y = 0; y < 700; y += 16)
+            for (int x = 0; x < LAUNCHER_WIDTH; x += 16) {
+                int shade = 3 * (700 - y) / 700;
+                if (((x + y) / 16) & 1)
+                    continue;
+                int base = 48 - (39 * y) / 700;
+                HBRUSH b = CreateSolidBrush(RGB(base + shade, base + 1 + shade, base + 3 + shade));
+                RECT cell = {x, y, x + 16, y + 16};
+                FillRect(back, &cell, b);
+                DeleteObject(b);
+            }
+        gradient(back, (RECT){0, 176, LAUNCHER_WIDTH, 267}, RGB(22, 23, 25), RGB(4, 5, 7));
+        gradient_h(back, (RECT){170, 267, 730, 268}, RGB(61, 62, 64), RGB(164, 165, 167));
+    }
+    if (s->disc_valid && s->page == HOME) {
+        if (!launcher_scene_copy(s->scene, s->backdrop_pixels, s->selection)) {
+            gradient(back, (RECT){0, 0, LAUNCHER_WIDTH, 700}, RGB(235, 237, 240),
+                     RGB(163, 170, 180));
         }
-        gradient(back,(RECT){0,176,900,267},RGB(22,23,25),RGB(4,5,7));
-        gradient_h(back,(RECT){170,267,730,268},RGB(61,62,64),RGB(164,165,167));
+        for (int y = 365; y < 700; y++) {
+            int gain = y < 548 ? 255 - (y - 365) * 230 / 183 : 25 - (y - 548) * 20 / 152;
+            for (int x = 0; x < LAUNCHER_WIDTH; x++) {
+                uint32_t c = s->backdrop_pixels[y * LAUNCHER_WIDTH + x];
+                unsigned r = ((c >> 16) & 255) * gain / 255, g = ((c >> 8) & 255) * gain / 255,
+                         b = (c & 255) * gain / 255;
+                s->backdrop_pixels[y * LAUNCHER_WIDTH + x] = (r << 16) | (g << 8) | b;
+            }
+        }
     }
-    if (s->disc_valid && s->page!=HOME) {
-        RECT r={80,118,820,632}; launcher_skin_image_draw(&s->skin,back,1,r);
+    if (s->disc_valid && s->page != HOME) {
+        RECT r = {80 + LAUNCHER_PANEL_X, 118, 820 + LAUNCHER_PANEL_X, 632};
+        launcher_skin_image_draw(&s->skin, back, 1, r);
     }
-    SelectObject(back,old); DeleteDC(back);
+    SelectObject(back, old);
+    DeleteDC(back);
 }
 static void update_tick(launcher_window *s)
 {
-    if(!s->update_job) return;
-    int result=launcher_update_poll(s->update_job,&s->update_manifest,NULL);
-    if(!result) return;
-    if(s->update_downloading) {
-        if(result==1 && launcher_update_install(s->update_job)) {
-            s->result=0; DestroyWindow(s->window); return;
+    if (!s->update_job)
+        return;
+    int result = launcher_update_poll(s->update_job, &s->update_manifest, NULL);
+    if (!result)
+        return;
+    if (s->update_downloading) {
+        if (result == 1 && launcher_update_install(s->update_job)) {
+            s->result = 0;
+            DestroyWindow(s->window);
+            return;
         }
-        MessageBoxW(s->window,L"The update could not be verified or installed. Please try again.",
-                    L"OpenGT4",MB_OK|MB_ICONERROR);
-        s->update_downloading=0;
-        SetWindowTextW(s->update_button,L"Update"); EnableWindow(s->update_button,TRUE);
-    } else if(result==1 && s->start->preferences.check_updates && s->page==HOME) {
-        ShowWindow(s->update_button,SW_SHOW);
-        InvalidateRect(s->window,NULL,FALSE);
+        MessageBoxW(s->window, L"The update could not be verified or installed. Please try again.",
+                    L"Moon Engine", MB_OK | MB_ICONERROR);
+        s->update_downloading = 0;
+        SetWindowTextW(s->update_button, L"Update");
+        EnableWindow(s->update_button, TRUE);
+    } else if (result == 1 && s->start->preferences.check_updates && s->page == HOME) {
+        ShowWindow(s->update_button, SW_SHOW);
+        InvalidateRect(s->window, NULL, FALSE);
     }
-    launcher_update_release(s->update_job); s->update_job=NULL;
+    launcher_update_release(s->update_job);
+    s->update_job = NULL;
+}
+static void home_heading(const launcher_skin *skin, HDC dc, RECT rect, const wchar_t *text,
+                         int face, float height)
+{
+    const uint8_t shadow[4] = {0, 0, 0, 200}, ink[4] = {245, 246, 248, 255};
+    RECT behind = rect;
+    OffsetRect(&behind, 2, 2);
+    launcher_skin_label(skin, dc, behind, text, face, height, shadow, 0);
+    launcher_skin_label(skin, dc, rect, text, face, height, ink, 0);
 }
 static void draw(launcher_window *s, HDC dc)
 {
-    compose_backdrop(s,dc);
+    compose_backdrop(s, dc);
     if (s->backdrop) {
-        HDC src=CreateCompatibleDC(dc); HBITMAP old=SelectObject(src,s->backdrop);
-        BitBlt(dc,0,0,900,700,src,0,0,SRCCOPY); SelectObject(src,old); DeleteDC(src);
+        HDC src = CreateCompatibleDC(dc);
+        HBITMAP old = SelectObject(src, s->backdrop);
+        BitBlt(dc, 0, 0, LAUNCHER_WIDTH, LAUNCHER_HEIGHT, src, 0, 0, SRCCOPY);
+        SelectObject(src, old);
+        DeleteDC(src);
     }
-    if(!s->disc_valid && s->update_manifest.version[0] && IsWindowVisible(s->update_button)) {
-        wchar_t label[100]; char text[100];
-        snprintf(text,sizeof text,"Update available: %s",s->update_manifest.version);
-        wide(text,label,100);
-        paint_text(dc,s->normal,60,656,550,30,RGB(230,230,230),label,DT_SINGLELINE);
+    if (!s->disc_valid && s->update_manifest.version[0] && IsWindowVisible(s->update_button)) {
+        wchar_t label[100];
+        char text[100];
+        snprintf(text, sizeof text, "Update available: %s", s->update_manifest.version);
+        wide(text, label, 100);
+        paint_text(dc, s->normal, 60, 656, 550, 30, RGB(230, 230, 230), label, DT_SINGLELINE);
     }
     if (!s->disc_valid) {
-        paint_text(dc,s->title,0,206,900,60,RGB(234,234,236),L"OpenGT4",DT_CENTER|DT_SINGLELINE);
-        paint_text(dc,s->normal,70,294,760,30,RGB(203,204,207),
-                   L"Select your Gran Turismo 4 disc image (NTSC-U, SCUS-97328)",DT_CENTER|DT_SINGLELINE);
+        paint_text(dc, s->title, 0, 206, LAUNCHER_WIDTH, 60, RGB(234, 234, 236), L"Moon Engine",
+                   DT_CENTER | DT_SINGLELINE);
+        paint_text(dc, s->normal, 70, 294, LAUNCHER_WIDTH - 140, 30, RGB(203, 204, 207),
+                   L"Select your Gran Turismo 4 disc image (NTSC-U, SCUS-97328)",
+                   DT_CENTER | DT_SINGLELINE);
         return;
     }
-    RECT title=authored_rect(30,16,580,50);
-    launcher_skin_text(&s->skin,dc,launcher_skin_widget(&s->skin,"TextFace","TextFace"),title,L"OpenGT4");
-    if (s->page==HOME) {
-        double origin[4],item[4],group[4];
-        mp_numbers(launcher_skin_widget(&s->skin,"ScrollWindow","ScrollWindow"),"geometry",origin,4);
-        mp_numbers(launcher_skin_widget(&s->skin,"Composite","Item"),"geometry",item,4);
-        mp_numbers(launcher_skin_widget(&s->skin,"Composite","Group"),"geometry",group,4);
-        const wchar_t *sections[]={L"Game and settings",L"Player data"};
-        for (int k=0;k<2;k++) {
-            RECT r=authored_rect(origin[0],origin[1]+k*(item[3]+4+group[3]),group[2],group[3]);
-            launcher_skin_group(&s->skin,dc,r);
-            const mp_node *style=mp_find_named(launcher_skin_widget(&s->skin,"Composite","Group"),"TextFace","label");
-            double label[4]; mp_numbers(style,"geometry",label,4);
-            RECT text=authored_rect(origin[0]+label[0],origin[1]+k*(item[3]+4+group[3])+label[1],label[2],label[3]);
-            launcher_skin_text(&s->skin,dc,style,text,sections[k]);
-        }
-        /* P: details occupy three spare original slots; all framing is the
-           authored Item.bg5 texture, not an invented bevel or corner. */
-        RECT detail=authored_rect(origin[0]+2*item[2],origin[1]+2*group[3]+item[3]+4,
-                                 3*item[2],2*item[3]);
-        launcher_skin_image_draw(&s->skin,dc,1,detail);
-        const mp_node *text_style=mp_find_named(launcher_skin_widget(&s->skin,"Composite","OptionItem"),"TextFace","label");
-        RECT heading={detail.left+18,detail.top+22,detail.right-22,detail.top+68};
-        launcher_skin_paragraph(&s->skin,dc,text_style,heading,row_names[s->selection]);
-        RECT body={detail.left+18,detail.top+68,detail.right-22,detail.top+155};
-        launcher_skin_paragraph(&s->skin,dc,text_style,body,descriptions[s->selection]);
-        wchar_t status[LAUNCHER_PATH];
-        const char *value=s->selection==1?s->start->preferences.disc:
-                          s->selection==5?s->start->preferences.saves:s->status;
-        wide(value,status,LAUNCHER_PATH);
-        RECT info={detail.left+18,detail.top+166,detail.right-22,detail.bottom-20};
-        launcher_skin_paragraph(&s->skin,dc,text_style,info,status);
+    if (s->page != HOME)
+        SetViewportOrgEx(dc, LAUNCHER_PANEL_X, 0, NULL);
+    RECT title = authored_rect(30, 16, 580, 50);
+    if (s->page != HOME)
+        launcher_skin_text(&s->skin, dc, launcher_skin_widget(&s->skin, "TextFace", "TextFace"),
+                           title, L"Moon Engine");
+    if (s->page == HOME) {
+        const uint8_t white[4] = {245, 246, 248, 255}, grey[4] = {188, 195, 204, 255};
+        home_heading(&s->skin, dc, (RECT){58, 90, 850, 151}, L"Moon Engine", 0, 68);
+        home_heading(&s->skin, dc, (RECT){62, 155, 900, 186}, L"Gran Turismo 4 / PC", 2, 20);
+        wchar_t car[256];
+        if (wide(launcher_scene_caption(s->scene), car, 256))
+            home_heading(&s->skin, dc, (RECT){62, 196, 1000, 226}, car, 2, 24);
+        launcher_skin_label(&s->skin, dc, (RECT){58, 429, 1150, 470}, row_names[s->selection], 0,
+                            30, white, 0);
+        launcher_skin_label(&s->skin, dc, (RECT){60, 475, 1180, 505}, descriptions[s->selection], 2,
+                            20, grey, 0);
+        launcher_skin_label(&s->skin, dc, (RECT){60, 662, 1180, 692},
+                            L"Arrow keys / D-pad: select     Enter / A: open     Esc / B: back", 2,
+                            16, grey, 0);
+        return;
     } else {
-        const wchar_t *titles[]={L"",L"Screen settings",L"Sound settings",L"Controller button config"};
-        const mp_node *sound_root=mp_find_named(s->skin.project,"RootWindow","SoundRoot");
-        const mp_node *caption=mp_find_named(sound_root,"TextFace","title");
-        launcher_skin_text(&s->skin,dc,caption,(RECT){108,122,s->page==CONTROLS?620:792,160},titles[s->page]);
-        if (s->page!=CONTROLS) {
-            RECT icon={390,156,510,211};
-            launcher_skin_image_draw(&s->skin,dc,s->page==VIDEO?4:5,icon);
+        const wchar_t *titles[] = {L"", L"Screen settings", L"Sound settings",
+                                   L"Controller button config"};
+        const mp_node *sound_root = mp_find_named(s->skin.project, "RootWindow", "SoundRoot");
+        const mp_node *caption = mp_find_named(sound_root, "TextFace", "title");
+        launcher_skin_text(&s->skin, dc, caption,
+                           (RECT){108, 122, s->page == CONTROLS ? 620 : 792, 160}, titles[s->page]);
+        if (s->page != CONTROLS) {
+            RECT icon = {390, 156, 510, 211};
+            launcher_skin_image_draw(&s->skin, dc, s->page == VIDEO ? 4 : 5, icon);
         }
-        for (int i=0;i<s->count;i++) if (s->label_text[i][0]) {
-            RECT r=s->label_rect[i];
-            launcher_skin_control_text(&s->skin,dc,r,s->label_text[i],0);
-        }
+        for (int i = 0; i < s->count; i++)
+            if (s->label_text[i][0]) {
+                RECT r = s->label_rect[i];
+                launcher_skin_control_text(&s->skin, dc, r, s->label_text[i], 0);
+            }
     }
-    RECT foot=authored_rect(0,438,640,42);
-    HBRUSH black=CreateSolidBrush(RGB(0,0,0)); FillRect(dc,&foot,black); DeleteObject(black);
-    if(s->page==HOME && s->update_manifest.version[0] && IsWindowVisible(s->update_button)) {
-        wchar_t label[100];char text[100];
-        snprintf(text,sizeof text,"Update available: %s",s->update_manifest.version);wide(text,label,100);
-        paint_text(dc,s->normal,60,656,550,30,RGB(230,230,230),label,DT_SINGLELINE);
+    RECT foot = authored_rect(0, 438, 640, 42);
+    HBRUSH black = CreateSolidBrush(RGB(0, 0, 0));
+    FillRect(dc, &foot, black);
+    DeleteObject(black);
+    if (s->page == HOME && s->update_manifest.version[0] && IsWindowVisible(s->update_button)) {
+        wchar_t label[100];
+        char text[100];
+        snprintf(text, sizeof text, "Update available: %s", s->update_manifest.version);
+        wide(text, label, 100);
+        paint_text(dc, s->normal, 60, 656, 550, 30, RGB(230, 230, 230), label, DT_SINGLELINE);
         return;
     }
-    const wchar_t *tip=s->page==HOME?descriptions[s->selection]:L"";
-    launcher_skin_text(&s->skin,dc,launcher_skin_widget(&s->skin,"ToolTipFace","tip"),
-                       authored_rect(0,446,640,34),tip);
+    const wchar_t *tip = s->page == HOME ? descriptions[s->selection] : L"";
+    launcher_skin_text(&s->skin, dc, launcher_skin_widget(&s->skin, "ToolTipFace", "tip"),
+                       authored_rect(0, 446, 640, 34), tip);
 }
 static void draw_button_direct(launcher_window *s, DRAWITEMSTRUCT *d)
 {
@@ -833,12 +934,16 @@ static void draw_button_direct(launcher_window *s, DRAWITEMSTRUCT *d)
             CreateSolidBrush(d->itemState & ODS_SELECTED ? RGB(184, 132, 46) : RGB(170, 170, 172));
         FillRect(d->hDC, &d->rcItem, b);
         DeleteObject(b);
-        RECT text_rect=d->rcItem; text_rect.left+=8; text_rect.right-=24;
-        if(s->disc_valid) {
-            launcher_skin_field(&s->skin,d->hDC,d->rcItem,d->itemState&ODS_SELECTED);
-            launcher_skin_control_text(&s->skin,d->hDC,text_rect,text,0);
-        } else paint_text(d->hDC,s->normal,text_rect.left,text_rect.top,text_rect.right-text_rect.left,
-                          text_rect.bottom-text_rect.top,RGB(0,0,0),text,DT_SINGLELINE|DT_VCENTER);
+        RECT text_rect = d->rcItem;
+        text_rect.left += 8;
+        text_rect.right -= 24;
+        if (s->disc_valid) {
+            launcher_skin_field(&s->skin, d->hDC, d->rcItem, d->itemState & ODS_SELECTED);
+            launcher_skin_control_text(&s->skin, d->hDC, text_rect, text, 0);
+        } else
+            paint_text(d->hDC, s->normal, text_rect.left, text_rect.top,
+                       text_rect.right - text_rect.left, text_rect.bottom - text_rect.top,
+                       RGB(0, 0, 0), text, DT_SINGLELINE | DT_VCENTER);
         return;
     }
     if (s->backdrop) {
@@ -853,53 +958,73 @@ static void draw_button_direct(launcher_window *s, DRAWITEMSTRUCT *d)
     }
     RECT r = d->rcItem;
     int focus = (d->itemState & ODS_FOCUS) != 0, pressed = d->itemState & ODS_SELECTED;
-    focus |= s->hovered_control==d->hwndItem;
-    if(s->disc_valid && d->CtlID>=BACK) {
-        wchar_t text[128]; GetWindowTextW(d->hwndItem,text,128);
-        if(d->CtlID==UPDATE_CHECK) swprintf(text,128,L"Updates: %s",s->start->preferences.check_updates?L"On":L"Off");
-        if(d->CtlID==MUSIC_MUTE) swprintf(text,128,L"Music: %s",s->start->preferences.mute_music?L"Off":L"On");
-        int slot=d->CtlID==MUSIC_MUTE?14:d->CtlID==UPDATE?12:d->CtlID==UPDATE_CHECK?13:d->CtlID==TEST_AUDIO?11:8+d->CtlID-BACK;
-        launcher_skin_button(&s->skin,d->hDC,r,pressed?1:s->highlight[slot]);
-        RECT label=r; label.left+=14; label.right-=14;
-        launcher_skin_control_text(&s->skin,d->hDC,label,text,1);
+    focus |= s->hovered_control == d->hwndItem;
+    if (s->disc_valid && d->CtlID >= BACK) {
+        wchar_t text[128];
+        GetWindowTextW(d->hwndItem, text, 128);
+        if (d->CtlID == UPDATE_CHECK)
+            swprintf(text, 128, L"Updates: %s",
+                     s->start->preferences.check_updates ? L"On" : L"Off");
+        if (d->CtlID == MUSIC_MUTE)
+            swprintf(text, 128, L"Music: %s", s->start->preferences.mute_music ? L"Off" : L"On");
+        int slot = d->CtlID == MUSIC_MUTE     ? 14
+                   : d->CtlID == UPDATE       ? 12
+                   : d->CtlID == UPDATE_CHECK ? 13
+                   : d->CtlID == TEST_AUDIO   ? 11
+                                              : 8 + d->CtlID - BACK;
+        launcher_skin_button(&s->skin, d->hDC, r, pressed ? 1 : s->highlight[slot]);
+        RECT label = r;
+        label.left += 14;
+        label.right -= 14;
+        launcher_skin_control_text(&s->skin, d->hDC, label, text, 1);
         return;
     }
 
     if (d->CtlID >= ROW && d->CtlID < ROW + 8) {
-        int item=d->CtlID-ROW;
-        wchar_t name[128]; GetWindowTextW(d->hwndItem,name,128);
-        if (!s->disc_valid) { focus=1; goto capsule; }
-        if (item==7) { launcher_skin_image_draw(&s->skin,d->hDC,s->hover==7?10:9,r); return; }
-        const mp_node *widget=launcher_skin_widget(&s->skin,"Composite","Item");
-        double dimensions[4],g[4]; mp_numbers(widget,"geometry",dimensions,4);
-        const mp_node *bg=mp_find_named(widget,"ImageFace","bg5");
-        mp_numbers(bg,"geometry",g,4);
-        double sx=r.right/dimensions[2],sy=r.bottom/dimensions[3];
-        RECT tile={(LONG)lround(g[0]*sx),(LONG)lround(g[1]*sy),
-                   (LONG)lround((g[0]+g[2])*sx),(LONG)lround((g[1]+g[3])*sy)};
-        launcher_skin_image_draw(&s->skin,d->hDC,1,tile);
-        /* P: 140 ms hover fade; tint comes from OptionItem.bgf in the ISO. */
-        launcher_skin_highlight(&s->skin,d->hDC,tile,s->highlight[item]*.3f);
-        const int pictures[]={2,33,4,5,6,7,8};
-        mp_numbers(mp_find_named(widget,"ImageFace","bg"),"geometry",g,4);
-        RECT icon={(LONG)lround(g[0]*sx),(LONG)lround(g[1]*sy),
-                   (LONG)lround((g[0]+g[2])*sx),(LONG)lround((g[1]+g[3])*sy)};
-        if (item==1) {
-            /* P: the disc logo fits inside the Options icon slot with breathing
-               room; retain the source aspect ratio rather than stretch it. */
-            const launcher_skin_image *logo=&s->skin.images[pictures[item]];
-            double scale=fmin((icon.right-icon.left)*.72/logo->width,
-                              (icon.bottom-icon.top)*.72/logo->height);
-            LONG width=(LONG)lround(logo->width*scale),height=(LONG)lround(logo->height*scale);
-            LONG x=(tile.left+tile.right-width)/2,y=(icon.top+icon.bottom-height)/2;
-            icon=(RECT){x,y,x+width,y+height};
+        int item = d->CtlID - ROW;
+        wchar_t name[128];
+        GetWindowTextW(d->hwndItem, name, 128);
+        if (!s->disc_valid) {
+            focus = 1;
+            goto capsule;
         }
-        launcher_skin_image_draw(&s->skin,d->hDC,pictures[item],icon);
-        mp_numbers(mp_find_named(widget,"TextFace","label"),"geometry",g,4);
-        if (item==6) swprintf(name,128,L"Startup: %s",s->start->preferences.show?L"On":L"Off");
-        RECT label={(LONG)lround(g[0]*sx),(LONG)lround(g[1]*sy),
-                    (LONG)lround((g[0]+g[2])*sx),(LONG)lround((g[1]+g[3])*sy)};
-        launcher_skin_text(&s->skin,d->hDC,mp_find_named(widget,"TextFace","label"),label,name);
+        float active = s->highlight[item];
+        if (pressed)
+            active = 1;
+        if (item == s->selection)
+            active = fmaxf(active, .6f);
+        launcher_skin_image_draw(&s->skin, d->hDC, 1, (RECT){4, 68, r.right - 4, 138});
+        launcher_skin_highlight(&s->skin, d->hDC, (RECT){5, 69, r.right - 5, 137}, active * .26f);
+        const int pictures[] = {2, 3, 4, 5, 6, 7, 8, 9};
+        const launcher_skin_image *image = &s->skin.images[pictures[item]];
+        /* P: fit the visible artwork, not the transparent Options canvas. */
+        int left = image->width, top = image->height, right = 0, bottom = 0;
+        for (int y = 0; y < image->height; y++)
+            for (int x = 0; x < image->width; x++)
+                if (image->rgba[((size_t)y * image->width + x) * 4 + 3] > 8) {
+                    if (x < left)
+                        left = x;
+                    if (x > right)
+                        right = x;
+                    if (y < top)
+                        top = y;
+                    if (y > bottom)
+                        bottom = y;
+                }
+        int visible_width = right - left + 1, visible_height = bottom - top + 1;
+        double scale = visible_width > 0 && visible_height > 0
+                           ? fmin(110.0 / visible_width, 104.0 / visible_height)
+                           : 1;
+        int width = (int)lround(image->width * scale), height = (int)lround(image->height * scale);
+        int x = (int)lround((r.right - visible_width * scale) / 2 - left * scale);
+        int y = (int)lround(104 - visible_height * scale - top * scale);
+        RECT icon = {x, y, x + width, y + height};
+        launcher_skin_image_draw(&s->skin, d->hDC, pictures[item], icon);
+        if (item == 6)
+            swprintf(name, 128, L"Startup: %s", s->start->preferences.show ? L"On" : L"Off");
+
+        launcher_skin_control_text(&s->skin, d->hDC, (RECT){8, 116, r.right - 8, 138}, name, 1);
+
         return;
     }
 capsule:;
@@ -929,24 +1054,26 @@ capsule:;
     DeleteObject(pen);
     wchar_t name[128];
     GetWindowTextW(d->hwndItem, name, 128);
-    if (d->CtlID == UPDATE_CHECK) swprintf(name,128,L"Updates: %s",s->start->preferences.check_updates?L"On":L"Off");
+    if (d->CtlID == UPDATE_CHECK)
+        swprintf(name, 128, L"Updates: %s", s->start->preferences.check_updates ? L"On" : L"Off");
     if (d->CtlID == ROW + 6)
         swprintf(name, 128, L"Show at startup: %s", s->start->preferences.show ? L"On" : L"Off");
     paint_text(d->hDC, s->normal, r.left + 14, r.top, r.right - r.left - 28, height, RGB(0, 0, 0),
                name, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
 }
 static void hover(launcher_window *s, int item);
-/* the controller walks the tiles as a grid: Play, Game disc, Player data /
-   Video, Audio, Controls / startup, Exit */
+/* P: controller and keyboard share the linear bottom dock order. */
 static void pad_navigate(launcher_window *s, int key)
 {
-    if (!s->disc_valid) { s->selection=1; return; }
-    int at=s->hover>=0?s->hover:s->selection, next=at;
-    if (key==VK_RIGHT || key==VK_LEFT) {
-        int first=at<5?0:5, count=at<5?5:3;
-        next=first+(at-first+(key==VK_RIGHT?1:count-1))%count;
-    } else if (key==VK_DOWN) next=at<5?(at<2?at+5:7):0;
-    else next=at<5?(at<2?at+5:7):(at==7?4:at-5);
+    if (!s->disc_valid) {
+        s->selection = 1;
+        return;
+    }
+    int at = s->hover >= 0 ? s->hover : s->selection, next = at;
+    if (key == VK_RIGHT || key == VK_DOWN)
+        next = (at + 1) % 8;
+    else
+        next = (at + 7) % 8;
     s->pad_mode = 1;
     hover(s, next);
 }
@@ -976,7 +1103,8 @@ static void hover(launcher_window *s, int item)
         return;
     int before = s->hover;
     s->hover = item;
-    if (item >= 0) launcher_audio_play(s->menu_audio,"cursor");
+    if (item >= 0)
+        launcher_audio_play(s->menu_audio, "cursor");
     if (item >= 0)
         s->selection = item;
     if (before >= 0)
@@ -996,17 +1124,30 @@ static LRESULT CALLBACK window_proc(HWND win, UINT msg, WPARAM w, LPARAM l)
     if (!s)
         return DefWindowProcW(win, msg, w, l);
     switch (msg) {
+    case WM_PRINTCLIENT: {
+        int saved = SaveDC((HDC)w);
+        draw(s, (HDC)w);
+        RestoreDC((HDC)w, saved);
+        return 0;
+    }
     case WM_PAINT: {
+        Uint64 paint_start = SDL_GetPerformanceCounter();
         PAINTSTRUCT ps;
         HDC dc = BeginPaint(win, &ps);
         HDC back = CreateCompatibleDC(dc);
-        HBITMAP bmp = CreateCompatibleBitmap(dc, 900, 700), old = SelectObject(back, bmp);
+        HBITMAP bmp = CreateCompatibleBitmap(dc, LAUNCHER_WIDTH, LAUNCHER_HEIGHT),
+                old = SelectObject(back, bmp);
+        int saved = SaveDC(back);
         draw(s, back);
-        BitBlt(dc, 0, 0, 900, 700, back, 0, 0, SRCCOPY);
+        RestoreDC(back, saved);
+        BitBlt(dc, 0, 0, LAUNCHER_WIDTH, LAUNCHER_HEIGHT, back, 0, 0, SRCCOPY);
         SelectObject(back, old);
         DeleteObject(bmp);
         DeleteDC(back);
         EndPaint(win, &ps);
+        s->paint_ms +=
+            (SDL_GetPerformanceCounter() - paint_start) * 1000. / SDL_GetPerformanceFrequency();
+        s->paint_count++;
         return 0;
     }
     case WM_ERASEBKGND:
@@ -1019,8 +1160,9 @@ static LRESULT CALLBACK window_proc(HWND win, UINT msg, WPARAM w, LPARAM l)
         return TRUE;
     case WM_CTLCOLORSTATIC:
     case WM_CTLCOLORLISTBOX:
-        if((HWND)l==s->update_check) {
-            SetTextColor((HDC)w,RGB(230,230,230));SetBkColor((HDC)w,RGB(12,12,14));
+        if ((HWND)l == s->update_check) {
+            SetTextColor((HDC)w, RGB(230, 230, 230));
+            SetBkColor((HDC)w, RGB(12, 12, 14));
             return (LRESULT)GetStockObject(BLACK_BRUSH);
         }
         SetTextColor((HDC)w, RGB(0, 0, 0));
@@ -1028,31 +1170,45 @@ static LRESULT CALLBACK window_proc(HWND win, UINT msg, WPARAM w, LPARAM l)
         return (LRESULT)GetStockObject(NULL_BRUSH);
     case WM_COMMAND: {
         int id = LOWORD(w), event = HIWORD(w);
-        if (event==BN_CLICKED && id>=BACK) launcher_audio_play(s->menu_audio,id==BACK?"cancel":id==APPLY?"ok":"select");
-        if (event==CBN_SELCHANGE) {
-            if(s->page==AUDIO) menu_volume(s,value(s,0),value(s,1));
-            launcher_audio_play(s->menu_audio,"cursor");
+        if (event == BN_CLICKED && id >= BACK)
+            launcher_audio_play(s->menu_audio, id == BACK    ? "cancel"
+                                               : id == APPLY ? "ok"
+                                                             : "select");
+        if (event == CBN_SELCHANGE) {
+            if (s->page == AUDIO)
+                menu_volume(s, value(s, 0), value(s, 1));
+            launcher_audio_play(s->menu_audio, "cursor");
         }
-        if(id==MUSIC_MUTE && event==BN_CLICKED) {
-            s->start->preferences.mute_music=!s->start->preferences.mute_music;
+        if (id == MUSIC_MUTE && event == BN_CLICKED) {
+            s->start->preferences.mute_music = !s->start->preferences.mute_music;
             launcher_preferences_save(&s->start->preferences);
-            if(s->page==AUDIO) menu_volume(s,value(s,0),value(s,1));
-            else menu_volume(s,s->current.volume[0],s->current.volume[1]);
-            InvalidateRect(s->music_mute,NULL,FALSE); return 0;
+            if (s->page == AUDIO)
+                menu_volume(s, value(s, 0), value(s, 1));
+            else
+                menu_volume(s, s->current.volume[0], s->current.volume[1]);
+            InvalidateRect(s->music_mute, NULL, FALSE);
+            return 0;
         }
-        if(id==UPDATE_CHECK && event==BN_CLICKED) {
-            s->start->preferences.check_updates=!s->start->preferences.check_updates;
-            InvalidateRect(s->update_check,NULL,FALSE);
+        if (id == UPDATE_CHECK && event == BN_CLICKED) {
+            s->start->preferences.check_updates = !s->start->preferences.check_updates;
+            InvalidateRect(s->update_check, NULL, FALSE);
             launcher_preferences_save(&s->start->preferences);
-            if(!s->start->preferences.check_updates) ShowWindow(s->update_button,SW_HIDE);
-            else if(!s->update_job) s->update_job=launcher_update_start(OPENGT4_UPDATE_URL,OPENGT4_UPDATE_TOKEN,NULL);
-            InvalidateRect(win,NULL,FALSE); return 0;
+            if (!s->start->preferences.check_updates)
+                ShowWindow(s->update_button, SW_HIDE);
+            else if (!s->update_job)
+                s->update_job =
+                    launcher_update_start(OPENGT4_UPDATE_URL, OPENGT4_UPDATE_TOKEN, NULL);
+            InvalidateRect(win, NULL, FALSE);
+            return 0;
         }
-        if(id==UPDATE && event==BN_CLICKED && !s->update_job && s->update_manifest.version[0]) {
-            s->update_job=launcher_update_start(OPENGT4_UPDATE_URL,OPENGT4_UPDATE_TOKEN,&s->update_manifest);
-            if(s->update_job) {
-                s->update_downloading=1;EnableWindow(s->update_button,FALSE);
-                SetWindowTextW(s->update_button,L"Downloading...");
+        if (id == UPDATE && event == BN_CLICKED && !s->update_job &&
+            s->update_manifest.version[0]) {
+            s->update_job = launcher_update_start(OPENGT4_UPDATE_URL, OPENGT4_UPDATE_TOKEN,
+                                                  &s->update_manifest);
+            if (s->update_job) {
+                s->update_downloading = 1;
+                EnableWindow(s->update_button, FALSE);
+                SetWindowTextW(s->update_button, L"Downloading...");
             }
             return 0;
         }
@@ -1082,11 +1238,13 @@ static LRESULT CALLBACK window_proc(HWND win, UINT msg, WPARAM w, LPARAM l)
         return 0;
     }
     case WM_SETCURSOR:
-        if (HIWORD(l)==WM_MOUSEMOVE && s->hovered_control!=(HWND)w) {
-            if(s->hovered_control) InvalidateRect(s->hovered_control,NULL,FALSE);
-            s->hovered_control=(HWND)w;
-            if(GetDlgCtrlID(s->hovered_control)>=BACK) launcher_audio_play(s->menu_audio,"cursor");
-            InvalidateRect(s->hovered_control,NULL,FALSE);
+        if (HIWORD(l) == WM_MOUSEMOVE && s->hovered_control != (HWND)w) {
+            if (s->hovered_control)
+                InvalidateRect(s->hovered_control, NULL, FALSE);
+            s->hovered_control = (HWND)w;
+            if (GetDlgCtrlID(s->hovered_control) >= BACK)
+                launcher_audio_play(s->menu_audio, "cursor");
+            InvalidateRect(s->hovered_control, NULL, FALSE);
         }
         /* P: Windows cursor follows physical mouse coordinates, including child controls. */
         if (s->page == HOME) {
@@ -1102,11 +1260,14 @@ static LRESULT CALLBACK window_proc(HWND win, UINT msg, WPARAM w, LPARAM l)
             if (!s->pad_mode)
                 hover(s, item);
         }
-        if (LOWORD(l)==HTCLIENT && s->cursor) { SetCursor(s->cursor); return TRUE; }
+        if (LOWORD(l) == HTCLIENT && s->cursor) {
+            SetCursor(s->cursor);
+            return TRUE;
+        }
         break;
     case WM_KEYDOWN:
         if (w == VK_ESCAPE) {
-            launcher_audio_play(s->menu_audio,"cancel");
+            launcher_audio_play(s->menu_audio, "cancel");
             if (s->page != HOME)
                 page(s, HOME);
             else
@@ -1115,23 +1276,40 @@ static LRESULT CALLBACK window_proc(HWND win, UINT msg, WPARAM w, LPARAM l)
         if (w == VK_RETURN && s->page == HOME)
             activate(s, s->selection);
         return 0;
+    case WM_SIZE:
+        launcher_scene_pause(s->scene, w == SIZE_MINIMIZED || s->page != HOME);
+        return 0;
     case WM_TIMER: {
         update_tick(s);
-        if(!IsWindow(win)) return 0;
+        if (!IsWindow(win))
+            return 0;
         ULONGLONG tick = GetTickCount64();
         double elapsed = (tick - s->last_tick) / 1000.;
         s->last_tick = tick;
-        for (int i=0;i<15;i++) {
-            HWND target=i<8?s->rows[i]:i<12?s->footer[i-8]:i==12?s->update_button:i==13?s->update_check:s->music_mute;
-            float goal=i<8?(s->hover==i?1.f:0.f):
-                (target && (s->hovered_control==target || GetFocus()==target)?1.f:0.f);
-            float previous=s->highlight[i];
-            float step=(float)(elapsed/.14); /* P: PC hover duration, not a PS2 timing claim. */
-            s->highlight[i]=goal>previous?fminf(goal,previous+step):fmaxf(goal,previous-step);
-            if (target && previous!=s->highlight[i]) InvalidateRect(target,NULL,FALSE);
+        for (int i = 0; i < 15; i++) {
+            HWND target = i < 8     ? s->rows[i]
+                          : i < 12  ? s->footer[i - 8]
+                          : i == 12 ? s->update_button
+                          : i == 13 ? s->update_check
+                                    : s->music_mute;
+            float goal =
+                i < 8 ? (s->hover == i ? 1.f : 0.f)
+                      : (target && (s->hovered_control == target || GetFocus() == target) ? 1.f
+                                                                                          : 0.f);
+            float previous = s->highlight[i];
+            float step = (float)(elapsed / .14); /* P: PC hover duration, not a PS2 timing claim. */
+            s->highlight[i] =
+                goal > previous ? fminf(goal, previous + step) : fmaxf(goal, previous - step);
+            if (target && previous != s->highlight[i])
+                InvalidateRect(target, NULL, FALSE);
         }
         if (s->sdl_ready && !s->probing)
             controller_tick(s);
+        int preview_frame = launcher_scene_frames(s->scene);
+        if (s->page == HOME && preview_frame > s->preview_frame) {
+            s->preview_frame = preview_frame;
+            RedrawWindow(win, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN);
+        }
         launcher_photos_step(&s->photos, elapsed);
         if (s->photos.current && s->photos.phase >= 6.5)
             RedrawWindow(win, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN);
@@ -1153,7 +1331,7 @@ static int screenshot(HWND window, const char *path)
     HDC dc = GetDC(window), mem = CreateCompatibleDC(dc);
     BITMAPINFO info = {0};
     info.bmiHeader.biSize = sizeof info.bmiHeader;
-    info.bmiHeader.biWidth = 900;
+    info.bmiHeader.biWidth = LAUNCHER_WIDTH;
     info.bmiHeader.biHeight = -700;
     info.bmiHeader.biPlanes = 1;
     info.bmiHeader.biBitCount = 32;
@@ -1167,14 +1345,16 @@ static int screenshot(HWND window, const char *path)
     }
     HBITMAP old = SelectObject(mem, bmp);
     int ok = PrintWindow(window, mem, PW_CLIENTONLY) != 0;
-    for (int i = 0; i < 900 * 700; i++) {
+    for (int i = 0; i < LAUNCHER_WIDTH * LAUNCHER_HEIGHT; i++) {
         uint8_t b = pixels[i * 4];
         pixels[i * 4] = pixels[i * 4 + 2];
         pixels[i * 4 + 2] = b;
         pixels[i * 4 + 3] = 255;
     }
     size_t bytes = 0;
-    void *png = ok ? tdefl_write_image_to_png_file_in_memory(pixels, 900, 700, 4, &bytes) : NULL;
+    void *png = ok ? tdefl_write_image_to_png_file_in_memory(pixels, LAUNCHER_WIDTH,
+                                                             LAUNCHER_HEIGHT, 4, &bytes)
+                   : NULL;
     wchar_t name[LAUNCHER_PATH];
     FILE *f = png && wide(path, name, LAUNCHER_PATH) ? _wfopen(name, L"wb") : NULL;
     ok = f && fwrite(png, 1, bytes, f) == bytes;
@@ -1191,7 +1371,7 @@ static int run_screen(launcher_startup *start, const char *shot, const char *inp
 {
     launcher_window s = {0};
     s.start = start;
-    s.probing=shot!=NULL || inputs!=NULL;
+    s.probing = shot != NULL || inputs != NULL;
     s.hover = -1;
     s.selection = start->preferences.disc[0] ? 0 : 1;
     launcher_options_load(&s.current, start->video_file, start->preferences.saves);
@@ -1217,35 +1397,40 @@ static int run_screen(launcher_startup *start, const char *shot, const char *inp
         s.result = -1;
         goto end;
     }
-    RECT r = {0, 0, 900, 700};
+    RECT r = {0, 0, LAUNCHER_WIDTH, LAUNCHER_HEIGHT};
     AdjustWindowRect(&r, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, FALSE);
-    HWND win = CreateWindowExW(WS_EX_COMPOSITED,
-        cls.lpszClassName, L"OpenGT4",
+    HWND win = CreateWindowExW(
+        WS_EX_COMPOSITED, cls.lpszClassName, L"Moon Engine",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN, CW_USEDEFAULT,
         CW_USEDEFAULT, r.right - r.left, r.bottom - r.top, NULL, NULL, cls.hInstance, &s);
     if (!win) {
         s.result = -1;
         goto end;
     }
-    for (int i=0;i<8;i++)
-        s.rows[i]=control(&s,L"BUTTON",row_names[i],BS_OWNERDRAW|BS_NOTIFY|WS_TABSTOP,
-                          ROW+i,0,0,1,1);
+    for (int i = 0; i < 8; i++)
+        s.rows[i] = control(&s, L"BUTTON", row_names[i], BS_OWNERDRAW | BS_NOTIFY | WS_TABSTOP,
+                            ROW + i, 0, 0, 1, 1);
     refresh_disc(&s);
     page(&s, HOME);
-    s.update_button=control(&s,L"BUTTON",L"Update",BS_OWNERDRAW|WS_TABSTOP,UPDATE,660,646,155,38);
-    ShowWindow(s.update_button,SW_HIDE);
-    s.update_check=control(&s,L"BUTTON",L"Updates",BS_OWNERDRAW|WS_TABSTOP,UPDATE_CHECK,660,18,220,34);
-    s.music_mute=control(&s,L"BUTTON",L"Music",BS_OWNERDRAW|WS_TABSTOP,MUSIC_MUTE,20,18,200,34);
-    ShowWindow(s.music_mute,s.disc_valid?SW_SHOW:SW_HIDE);
-    if(start->preferences.check_updates && !shot && !inputs)
-        s.update_job=launcher_update_start(OPENGT4_UPDATE_URL,OPENGT4_UPDATE_TOKEN,NULL);
+    s.update_button =
+        control(&s, L"BUTTON", L"Update", BS_OWNERDRAW | WS_TABSTOP, UPDATE, 660, 646, 155, 38);
+    ShowWindow(s.update_button, SW_HIDE);
+    s.update_check = control(&s, L"BUTTON", L"Updates", BS_OWNERDRAW | WS_TABSTOP, UPDATE_CHECK,
+                             660, 18, 220, 34);
+    s.music_mute =
+        control(&s, L"BUTTON", L"Music", BS_OWNERDRAW | WS_TABSTOP, MUSIC_MUTE, 20, 18, 200, 34);
+    MoveWindow(s.music_mute, 32, 24, 150, 30, FALSE);
+    MoveWindow(s.update_check, LAUNCHER_WIDTH - 230, 24, 198, 30, FALSE);
+    ShowWindow(s.music_mute, s.disc_valid ? SW_SHOW : SW_HIDE);
+    if (start->preferences.check_updates && !shot && !inputs)
+        s.update_job = launcher_update_start(OPENGT4_UPDATE_URL, OPENGT4_UPDATE_TOKEN, NULL);
     ShowWindow(win, SW_SHOW);
     UpdateWindow(win);
     s.sdl_ready = SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS) == 0;
     if (s.sdl_ready && !s.probing)
         controller_tick(&s);
     s.last_tick = GetTickCount64();
-    SetTimer(win, 1, 33, NULL);
+    SetTimer(win, 1, LAUNCHER_INTERVAL_MS, NULL);
     /* Reproducible UI probes use the real window messages and fields; no ISO
        is required. Play is opt-in; probes never open path selectors. */
     char *sequence = inputs ? strdup(inputs) : NULL, *token = sequence;
@@ -1253,25 +1438,67 @@ static int run_screen(launcher_startup *start, const char *shot, const char *inp
         next = strchr(token, ',');
         if (next)
             *next++ = 0;
-        if (!strncmp(token,"music-mute:",11)) {
-            s.start->preferences.mute_music=!atoi(token+11);
-            SendMessageW(win,WM_COMMAND,MUSIC_MUTE,0);
-        } else if (!strncmp(token,"update-check:",13)) {
-            s.start->preferences.check_updates=!atoi(token+13);
-            SendMessageW(win,WM_COMMAND,UPDATE_CHECK,0);
-        } else if (!strncmp(token,"update-manifest:",16)) {
-            FILE *file=fopen(token+16,"rb"); char json[16385];
-            if(file) {
-                size_t count=fread(json,1,sizeof json-1,file);fclose(file);json[count]=0;
-                launcher_update_manifest m;
-                int available=start->preferences.check_updates && launcher_update_parse(json,&m) &&
-                              launcher_update_newer(m.version,OPENGT4_VERSION);
-                if(available) s.update_manifest=m;
-                ShowWindow(s.update_button,available?SW_SHOW:SW_HIDE);
+        if (!strncmp(token, "scene-benchmark:", 16)) {
+            if (s.disc_valid && !s.scene)
+                s.scene = launcher_scene_open(start->preferences.disc, start->preferences.saves,
+                                              s.current.renderer, 0);
+            Uint64 begin = SDL_GetTicks64();
+            int frames = atoi(token + 16);
+            unsigned paints = s.paint_count;
+            double paint_ms = s.paint_ms;
+            while (launcher_scene_frames(s.scene) < frames && SDL_GetTicks64() - begin < 30000) {
+                MSG pending;
+                for (int messages = 0;
+                     messages < 8 && PeekMessageW(&pending, NULL, 0, 0, PM_REMOVE); messages++) {
+                    TranslateMessage(&pending);
+                    DispatchMessageW(&pending);
+                }
+                SDL_Delay(1);
             }
-        } else if (!strncmp(token,"disc:",5)) {
-            snprintf(s.start->preferences.disc,LAUNCHER_PATH,"%s",token+5);
-            refresh_disc(&s); page(&s,HOME);
+            launcher_scene_pause(s.scene, 1);
+            printf("LAUNCHER BENCH frames=%d wall=%llu paints=%u paint=%.3f ms\n",
+                   launcher_scene_frames(s.scene), (unsigned long long)(SDL_GetTicks64() - begin),
+                   s.paint_count - paints,
+                   (s.paint_ms - paint_ms) / fmax(1, s.paint_count - paints));
+            launcher_scene_report(s.scene);
+        } else if (!strcmp(token, "scene") || !strncmp(token, "scene-time:", 11)) {
+            if (s.disc_valid && !s.scene)
+                s.scene = launcher_scene_open(start->preferences.disc, start->preferences.saves,
+                                              s.current.renderer, 1);
+            int ready = launcher_scene_frames(s.scene) + 24;
+            if (!strncmp(token, "scene-time:", 11))
+                launcher_scene_seek(s.scene, (float)atof(token + 11));
+            launcher_scene_pause(s.scene, 0);
+            for (int i = 0; i < 1000 && launcher_scene_frames(s.scene) < ready; i++)
+                SDL_Delay(20);
+            launcher_scene_pause(s.scene, 1);
+            SDL_Delay(100);
+            RedrawWindow(win, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+        } else if (!strncmp(token, "music-mute:", 11)) {
+            s.start->preferences.mute_music = !atoi(token + 11);
+            SendMessageW(win, WM_COMMAND, MUSIC_MUTE, 0);
+        } else if (!strncmp(token, "update-check:", 13)) {
+            s.start->preferences.check_updates = !atoi(token + 13);
+            SendMessageW(win, WM_COMMAND, UPDATE_CHECK, 0);
+        } else if (!strncmp(token, "update-manifest:", 16)) {
+            FILE *file = fopen(token + 16, "rb");
+            char json[16385];
+            if (file) {
+                size_t count = fread(json, 1, sizeof json - 1, file);
+                fclose(file);
+                json[count] = 0;
+                launcher_update_manifest m;
+                int available = start->preferences.check_updates &&
+                                launcher_update_parse(json, &m) &&
+                                launcher_update_newer(m.version, OPENGT4_VERSION);
+                if (available)
+                    s.update_manifest = m;
+                ShowWindow(s.update_button, available ? SW_SHOW : SW_HIDE);
+            }
+        } else if (!strncmp(token, "disc:", 5)) {
+            snprintf(s.start->preferences.disc, LAUNCHER_PATH, "%s", token + 5);
+            refresh_disc(&s);
+            page(&s, HOME);
         } else if (!strcmp(token, "video"))
             SendMessageW(win, WM_COMMAND, ROW + 2, 0);
         else if (!strcmp(token, "audio"))
@@ -1299,10 +1526,11 @@ static int run_screen(launcher_startup *start, const char *shot, const char *inp
                 SetFocus(s.rows[selected]);
                 hover(&s, selected);
             }
-        } else if (!strncmp(token,"animate:",8)) {
-            double step=atof(token+8)/140.;
-            for(int i=0;i<8;i++) s.highlight[i]=s.hover==i?(float)fmin(1,step):0;
-            RedrawWindow(win,NULL,NULL,RDW_INVALIDATE|RDW_ALLCHILDREN|RDW_UPDATENOW);
+        } else if (!strncmp(token, "animate:", 8)) {
+            double step = atof(token + 8) / 140.;
+            for (int i = 0; i < 8; i++)
+                s.highlight[i] = s.hover == i ? (float)fmin(1, step) : 0;
+            RedrawWindow(win, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
         } else if (!strncmp(token, "hover:", 6)) {
             int item = atoi(token + 6);
             if (s.page == HOME && item >= 0 && item < 8)
@@ -1312,10 +1540,9 @@ static int run_screen(launcher_startup *start, const char *shot, const char *inp
             SendMessageW(win, WM_COMMAND, ROW + 6, 0);
         else if (!strcmp(token, "pump-play")) {
             /* Test: SDL's Windows pump dispatches Play and can consume WM_QUIT. */
-            PostMessageW(win,WM_COMMAND,ROW,0);
+            PostMessageW(win, WM_COMMAND, ROW, 0);
             controller_tick(&s);
-        }
-        else if (!strcmp(token, "play"))
+        } else if (!strcmp(token, "play"))
             SendMessageW(win, WM_COMMAND, ROW, 0);
         else if (!strcmp(token, "test-audio") && s.page == AUDIO)
             SendMessageW(win, WM_COMMAND, TEST_AUDIO, 0);
@@ -1332,14 +1559,24 @@ static int run_screen(launcher_startup *start, const char *shot, const char *inp
     }
     free(sequence);
     UpdateWindow(win);
-    int visible=0;
-    for (int i=0;i<8;i++) if (IsWindowVisible(s.rows[i])) visible++;
-    printf("LAUNCHER STAGE %s CACHE %d BUTTONS %d\n",s.disc_valid?"options":"disc",s.skin.cache_hit,visible);
-    printf("LAUNCHER UPDATE %s CHECK %d VERSION %s\n",IsWindowVisible(s.update_button)?s.update_manifest.version:"none",
-           start->preferences.check_updates,OPENGT4_VERSION);
-    printf("LAUNCHER FILTER %s\n",s.skin.filter?"FSR1":"none");
-    printf("LAUNCHER MUSIC MUTE %d\n",s.start->preferences.mute_music);
-    printf("LAUNCHER PRESENTATION cursor=%d audio=%d hover=%.2f\n",s.cursor!=NULL,s.menu_audio!=NULL,s.highlight[s.selection]);
+    int visible = 0;
+    for (int i = 0; i < 8; i++)
+        if (IsWindowVisible(s.rows[i]))
+            visible++;
+    printf("LAUNCHER STAGE %s CACHE %d BUTTONS %d\n", s.disc_valid ? "options" : "disc",
+           s.skin.cache_hit, visible);
+    printf("LAUNCHER UPDATE %s CHECK %d VERSION %s\n",
+           IsWindowVisible(s.update_button) ? s.update_manifest.version : "none",
+           start->preferences.check_updates, OPENGT4_VERSION);
+    printf("LAUNCHER FILTER %s\n", s.skin.filter ? "FSR1" : "none");
+    printf("LAUNCHER DOCK 8 SIZE %d %d SCENE %d\n", LAUNCHER_WIDTH, LAUNCHER_HEIGHT,
+           launcher_scene_frames(s.scene));
+    launcher_scene_report(s.scene);
+    printf("LAUNCHER RASTER builds=%u hits=%u\n", s.skin.raster_builds, s.skin.raster_hits);
+    printf("LAUNCHER CAR %s\n", launcher_scene_caption(s.scene));
+    printf("LAUNCHER MUSIC MUTE %d\n", s.start->preferences.mute_music);
+    printf("LAUNCHER PRESENTATION cursor=%d audio=%d hover=%.2f\n", s.cursor != NULL,
+           s.menu_audio != NULL, s.highlight[s.selection]);
     if (inputs)
         printf("LAUNCHER FOCUS %d\n", s.selection);
     if (shot) {
@@ -1376,16 +1613,22 @@ static int run_screen(launcher_startup *start, const char *shot, const char *inp
         }
         if (msg.message == WM_KEYDOWN && s.page == HOME &&
             (msg.wParam == VK_LEFT || msg.wParam == VK_RIGHT || msg.wParam == VK_UP ||
-             msg.wParam == VK_DOWN))
-            continue; /* no keyboard walk through the tiles: the mouse chooses */
+             msg.wParam == VK_DOWN)) {
+            pad_navigate(&s, (int)msg.wParam);
+            continue;
+        }
         if (!IsDialogMessageW(win, &msg)) {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
     }
 end:
+    launcher_scene_close(s.scene);
     launcher_audio_close(s.menu_audio);
-    if(s.cursor) { SetCursor(LoadCursor(NULL,IDC_ARROW)); DestroyCursor(s.cursor); }
+    if (s.cursor) {
+        SetCursor(LoadCursor(NULL, IDC_ARROW));
+        DestroyCursor(s.cursor);
+    }
     launcher_update_release(s.update_job);
     for (int p = 0; p < 2; p++)
         if (s.pads[p])
@@ -1449,9 +1692,14 @@ int launcher_bootstrap(int *argc, char ***argv, launcher_startup *start)
         strcpy(start->preferences.disc, disc);
     }
     char message[256];
+    launcher_options options;
+    launcher_options_load(&options, start->video_file, start->preferences.saves);
+    /* A saved experimental backend must not trap a launcher-bypass user.
+       Reopen preparation so OpenGL can be selected again. */
+    int backend_needs_setup = moon_renderer_unavailable(options.renderer) != NULL;
     /* Validate before reading Options artwork; the first stage never opens
        game assets. Cached art cannot make an invalid disc valid. */
-    if (force || start->preferences.show ||
+    if (force || start->preferences.show || backend_needs_setup ||
         !launcher_validate_disc(start->preferences.disc, message, sizeof message)) {
 #ifdef _WIN32
         int result = run_screen(start, shot, inputs);

@@ -11,6 +11,9 @@
 #include "plat_sdl.h"
 #include "video_gl.h"
 #include "render3d.h"
+#ifdef MOON_PC_VULKAN
+#include "vk_render.h"
+#endif
 #include "platform/platform.h"
 #include <SDL.h>
 #include "miniz.h"
@@ -110,24 +113,32 @@ static void benchmark(showroom *s, race_view *v, const char *car)
         return;
     if (frames > 10000)
         frames = 10000;
-    void(APIENTRY * finish)(void) = (void(APIENTRY *)(void))SDL_GL_GetProcAddress("glFinish");
-    if (!finish)
-        return;
     video_set_vsync(0);
     plat_video_begin_frame();
     for (int i = 0; i < 10; i++) {
         benchmark_frame(s, v, car);
-        finish();
+        glFinish();
     }
     Uint64 start = SDL_GetPerformanceCounter();
+#ifdef MOON_PC_VULKAN
+    moon_vk_render_stats before = moon_vk_render_statistics();
+#endif
     for (int i = 0; i < frames; i++) {
         benchmark_frame(s, v, car);
-        finish();
+        glFinish();
     }
     double ms =
         (SDL_GetPerformanceCounter() - start) * 1000.0 / SDL_GetPerformanceFrequency() / frames;
     fprintf(stderr, "renderer benchmark: %d frames %.3f ms/frame (CPU + GPU, vsync off)\n", frames,
             ms);
+#ifdef MOON_PC_VULKAN
+    if (moon_vk_render_active()) {
+        moon_vk_render_stats after = moon_vk_render_statistics();
+        fprintf(stderr, "Vulkan benchmark: %llu submissions, %llu readbacks\n",
+                (unsigned long long)(after.submissions - before.submissions),
+                (unsigned long long)(after.readbacks - before.readbacks));
+    }
+#endif
     r3d_stats stats = r3d_frame_stats();
     fprintf(stderr, "renderer frame: %u draws, %u triangles, %u groups culled\n", stats.draws,
             stats.triangles, stats.culled_groups);

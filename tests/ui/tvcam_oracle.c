@@ -284,6 +284,7 @@ int main(int argc, char **argv)
             call(&e, 0x37c138);
             gt4_tvcam_view out;
             CHECK(gt4_tvcam_step(n,&t,&out));
+            CHECK(out.cut == (frame == 1));
             if (getenv("GT4_TVCAM_ORACLE_NEGATIVE") && tick == 5)
                 n->yaw.pos += .1f;
             CHECK(n->rng==ee_r32(&e,RNG));

@@ -110,6 +110,7 @@ static void log_line(void *user, const char *msg)
 
 static int to_int(ah_val v);
 
+static int bar_input(menu *m, ui_widget *w, menu_input input);
 #include "menu_widgets.inc"
 
 #include "menu_engine_objects.inc"
@@ -1369,6 +1370,87 @@ void menu_send_key(menu *m, int keysym, int release)
     apply_pages(m);
 }
 
+/* the keys a SliderBar takes (002DF848): a popup slider only X while
+   closed, everything while open; a plain one only its direction's arrows */
+static int slider_key(ui_widget *w, menu_input input)
+{
+    if ((int)mp_number(w->src, "popup", 0))
+        return w->option_open || input == MENU_ACCEPT;
+    if ((int)mp_number(w->src, "direction", 0) == 1)
+        return input == MENU_UP || input == MENU_DOWN;
+    return input == MENU_LEFT || input == MENU_RIGHT;
+}
+/* The bars' own keys, given to the bar w (focused, or the target of a
+   script's MKeyPressEvent). 1 when the bar took the key. */
+static int bar_input(menu *m, ui_widget *w, menu_input input)
+{
+    if (!strcmp(w->type, "ScaleBar") && !w->slider_range_set) {
+        /* mScaleBar +0x244 (00238D10), popup mode (+0xF0): Return opens it
+           (00238BE0, value kept) or closes it (00238C60); Escape closes it
+           with cancel (+0x104), the kept value back. Open, Left/Right
+           (00238A70/00238B28, horizontal +0xC0) subtract/add step clamped to
+           min/max (00239098/00239048) and call onValueChanged (00238978);
+           closed, the arrows are the base widget's (00263D28). */
+        if (!w->option_open && input != MENU_ACCEPT)
+            return 0;
+        if (input == MENU_ACCEPT) {
+            if (!w->option_open)
+                w->photo_saved = w->photo_value;
+            w->option_open = !w->option_open;
+            return 1;
+        }
+        float before = w->photo_value;
+        if (input == MENU_BACK) {
+            w->photo_value = w->photo_saved;
+            w->option_open = 0;
+        } else if (input == MENU_LEFT || input == MENU_RIGHT) {
+            float step = w->photo_step;
+            if (!(step > 0))
+                step = 1; /* A: pad repetition pending. */
+            w->photo_value = fminf(w->photo_max, fmaxf(w->photo_min, w->photo_value + (input == MENU_LEFT ? -step : step)));
+        }
+        if (w->photo_value != before) {
+            ah_val ctx = ah_objv(m->context), result;
+            ah_call_member(m->vm, widget_module(m, w), "onValueChanged", 1, &ctx, &result);
+        }
+        return 1;
+    }
+    if ((!strcmp(w->type, "SliderBar") ||
+                !strcmp(w->type, "ScaleBar") && w->slider_range_set) &&
+               slider_key(w, input)) {
+        /* mSliderBar +0x244 (002DF848). With the layout's popup (+0xC0, every
+           slider but option2/3's position bars) X opens it (002DF738, "cursor",
+           value kept at +0xF8), the arrows of its direction step it while open
+           (002DF640) and every other key is taken; X closes it (002DF7B0),
+           Circle puts the kept value back. Without popup the arrows step it
+           directly (002DF540) and the rest goes to the base widget. */
+        int popup = (int)mp_number(w->src, "popup", 0) != 0;
+        int vertical = (int)mp_number(w->src, "direction", 0) == 1;
+        if (popup && input == MENU_ACCEPT) {
+            if (!w->option_open)
+                w->option_pending = w->focus_index;
+            w->option_open = !w->option_open;
+            menu_play_effect(m, "cursor");
+            return 1;
+        }
+        int old = w->focus_index;
+        if (input == MENU_BACK) {
+            assign_index(w, w->option_pending);
+            w->option_open = 0;
+            menu_play_effect(m, "cursor");
+        } else if (vertical ? input == MENU_UP || input == MENU_DOWN
+                            : input == MENU_LEFT || input == MENU_RIGHT)
+            assign_index(w, old + (input == MENU_LEFT || input == MENU_UP ? -1 : 1));
+        if (old != w->focus_index) {
+            ah_val args[2] = {ah_objv(m->context), ah_int(w->focus_index)}, result;
+            ah_call_member(m->vm, widget_module(m, w), "onValueChanged", 2, args, &result);
+            if (input != MENU_BACK)
+                menu_play_effect(m, "param");
+        }
+        return 1;
+    }
+    return 0;
+}
 void menu_send_input(menu *m, menu_input input)
 {
     if (attract_left && m && !strcmp(ui_root_name(m->ui, menu_active_root(m)), "MovieRoot"))
@@ -1426,50 +1508,7 @@ void menu_send_input(menu *m, menu_input input)
             return;
         }
     }
-    if (!strcmp(w->type, "ScaleBar") && !w->slider_range_set &&
-        (w->option_open || input == MENU_ACCEPT)) {
-        /* P: keyboard adapter invokes the original onValueChanged; floating
-           step/min/max/value are supplied by photo_shoot.ad Reset methods. */
-        if (input == MENU_ACCEPT) {
-            w->option_open = !w->option_open;
-            return;
-        }
-        if (input == MENU_BACK) {
-            w->option_open = 0;
-            return;
-        }
-        float step = w->photo_step;
-        if (!(step > 0))
-            step = 1; /* A: pad repetition pending. */
-        w->photo_value = fminf(
-            w->photo_max,
-            fmaxf(w->photo_min,
-                  w->photo_value + (input == MENU_LEFT || input == MENU_DOWN ? -step : step)));
-        ah_val ctx = ah_objv(m->context), result;
-        ah_call_member(m->vm, widget_module(m, w), "onValueChanged", 1, &ctx, &result);
-    } else if ((!strcmp(w->type, "SliderBar") ||
-                !strcmp(w->type, "ScaleBar") && w->slider_range_set) &&
-               (w->option_open || input == MENU_ACCEPT || input == MENU_LEFT ||
-                input == MENU_RIGHT)) {
-        if (input == MENU_ACCEPT) {
-            if (!w->option_open)
-                w->option_pending = w->focus_index;
-            w->option_open = !w->option_open;
-            menu_play_effect(m, "select");
-            return;
-        }
-        int old = w->focus_index;
-        if (input == MENU_BACK) {
-            assign_index(w, w->option_pending);
-            w->option_open = 0;
-            menu_play_effect(m, "cancel");
-        } else
-            assign_index(w, old + (input == MENU_LEFT || input == MENU_DOWN ? -1 : 1));
-        if (old != w->focus_index) {
-            ah_val args[2] = {ah_objv(m->context), ah_int(w->focus_index)}, result;
-            ah_call_member(m->vm, widget_module(m, w), "onValueChanged", 2, args, &result);
-            menu_play_effect(m, "param");
-        }
+    if (bar_input(m, w, input)) {
     } else if (!strcmp(w->type, "ListBox") && (int)mp_number(w->src, "direction", 0) == 1 &&
                (input == MENU_UP || input == MENU_DOWN) && w->nkids > 1) {
         /* a vertical ListBox (labomode.ad's lists): up and down move along

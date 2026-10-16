@@ -1,4 +1,7 @@
 #include "gl.h"
+#ifdef MOON_PC_VULKAN
+#include "vk_render.h"
+#endif
 
 #include <stdio.h>
 #include <string.h>
@@ -14,7 +17,19 @@ unsigned gl_program_count(void)
 #ifndef __SWITCH__
 #define OPENGT4_GL_DEFINE(type, name) type name;
 OPENGT4_GL_FUNCS(OPENGT4_GL_DEFINE)
+MOON_GL_BASE_FUNCS(OPENGT4_GL_DEFINE)
 #undef OPENGT4_GL_DEFINE
+#endif
+
+#ifndef __SWITCH__
+static void *graphics_proc(const char *name)
+{
+#ifdef MOON_PC_VULKAN
+    if (moon_vk_render_active())
+        return moon_vk_render_proc(name);
+#endif
+    return SDL_GL_GetProcAddress(name);
+}
 #endif
 
 int gl_load(void)
@@ -24,12 +39,13 @@ int gl_load(void)
 #else
     int ok = 1;
 #define OPENGT4_GL_LOAD(type, name)                                                                \
-    name = (type)SDL_GL_GetProcAddress(strncmp(#name, "opengt4_", 8) ? #name : #name + 8);         \
+    name = (type)graphics_proc(strncmp(#name, "opengt4_", 8) ? #name : #name + 8);         \
     if (!name) {                                                                                   \
         fprintf(stderr, "OpenGL: missing %s\n", #name);                                            \
         ok = 0;                                                                                    \
     }
     OPENGT4_GL_FUNCS(OPENGT4_GL_LOAD)
+    MOON_GL_BASE_FUNCS(OPENGT4_GL_LOAD)
 #undef OPENGT4_GL_LOAD
     return ok;
 #endif
@@ -38,6 +54,14 @@ int gl_load(void)
 int gl_reversed_z;
 int gl_enable_reversed_z(void)
 {
+#ifdef MOON_PC_VULKAN
+    if (moon_vk_render_active()) {
+        gl_reversed_z = 1;
+        glDepthFunc(GL_GREATER);
+        glClearDepth(0);
+        return 1;
+    }
+#endif
     typedef void(APIENTRY * clip_control_fn)(GLenum, GLenum);
     clip_control_fn clip_control = (clip_control_fn)SDL_GL_GetProcAddress("glClipControl");
     if (!clip_control || getenv("OPENGT4_CLASSIC_DEPTH"))

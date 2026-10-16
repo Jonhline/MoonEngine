@@ -1,8 +1,12 @@
 <div align="center">
 
-# OpenGT4
+# Moon Engine
 
 **A native PC port of Gran Turismo 4. Bring your own disc.**
+
+Previously named OpenGT4. The executable (`opengt4.exe`), build targets and
+save/configuration paths retain their compatibility names during the rename.
+Tourist Trophy support is planned on the same base; it is not playable yet.
 
 ![Platform](https://img.shields.io/badge/platform-Windows-0078D6)
 ![Disc](https://img.shields.io/badge/disc-NTSC--U%20SCUS--97328-555)
@@ -16,14 +20,14 @@
 > This repository contains **no Gran Turismo 4 data**: no disc image, executables, BIOS, music, models, textures or save files. You need your own copy of the game and your own dump of the disc. Issues asking for game files will be closed.
 
 > [!NOTE]
-> OpenGT4 is an unofficial fan project, not affiliated with or endorsed by Sony Interactive Entertainment or Polyphony Digital. Gran Turismo is a trademark of Sony Interactive Entertainment; all trademarks belong to their owners. The project is developed with heavy AI assistance.
+> Moon Engine is an unofficial fan project, not affiliated with or endorsed by Sony Interactive Entertainment or Polyphony Digital. Gran Turismo is a trademark of Sony Interactive Entertainment; all trademarks belong to their owners. The project is developed with heavy AI assistance.
 
 ---
 
 ## Play
 
 1. Download the latest `OpenGT4-<version>-setup.exe` from the Releases page and run it, or take `OpenGT4-<version>-win64.zip` and unzip it anywhere.
-2. Run OpenGT4. Choose **Game disc** and select your own Gran Turismo 4 disc image (NTSC-U, SCUS-97328).
+2. Run Moon Engine. Choose **Game disc** and select your own Gran Turismo 4 disc image (NTSC-U, SCUS-97328).
 3. Adjust Video, Audio and Controls if you like, then choose **Play**.
 
 Your disc image stays where it is. To update, run the new installer over the old one; your saves and settings are kept.
@@ -34,7 +38,7 @@ Versions 1.01 and 2.00 of the disc have been tested and run the same. To check a
 
 ## Known issues
 
-OpenGT4 is in alpha. Before reporting a problem, check this list and the open [Issues](../../issues).
+Moon Engine is in alpha. Before reporting a problem, check this list and the open [Issues](../../issues).
 
 - LAN play is not available (the menu shows "Coming soon").
 - Some sounds and visual details still differ from the PS2.

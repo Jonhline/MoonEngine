@@ -50,6 +50,7 @@ typedef struct {
     int fullscreen;
     int vsync;
     int upscale; /* 0 native; 1..4 FSR 1 ultra quality/quality/balanced/performance */
+    int backend; /* PC graphics API: 0 OpenGL, 1 Vulkan. Ignored by Switch. */
 } plat_video_desc;
 
 int plat_video_init(const plat_video_desc *desc);

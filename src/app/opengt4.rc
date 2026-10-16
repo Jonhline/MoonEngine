@@ -13,9 +13,9 @@ BEGIN
   BLOCK "040904b0"
   BEGIN
    VALUE "CompanyName", "OpenGT4\0"
-   VALUE "FileDescription", "OpenGT4\0"
+   VALUE "FileDescription", "Moon Engine\0"
    VALUE "FileVersion", OPENGT4_VERSION "\0"
-   VALUE "ProductName", "OpenGT4\0"
+   VALUE "ProductName", "Moon Engine\0"
    VALUE "ProductVersion", OPENGT4_VERSION "\0"
   END
  END

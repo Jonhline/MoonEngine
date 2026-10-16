@@ -1266,6 +1266,14 @@ static int widget_get(ah_vm *vm, ah_obj *self, const char *s, ah_val *out)
             *out = ah_float(*field);
             return 1;
         }
+        if (!strcmp(s, "popup")) { /* MScaleBar.popup: open (+0x100) */
+            *out = ah_int(w->option_open);
+            return 1;
+        }
+    }
+    if (!strcmp(w->type, "SliderBar") && !strcmp(s, "is_popuped")) { /* MSliderBar +0x10C */
+        *out = ah_int(w->option_open);
+        return 1;
     }
     /* Photo filters use SliderBar.repeat_start. The script assigns it;
        its module value must remain numeric, rather than a TextFace string. */

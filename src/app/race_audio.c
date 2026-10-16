@@ -57,7 +57,7 @@ struct race_audio {
     int camera_view, have_camera, have_setup;
     int cars, playing, frames;
     float eye_previous[3];
-    int have_eye;
+    int have_eye, camera_cut;
     uint32_t random;
     gt4_car_backfire backfire[6];
     unsigned exhaust_count[6];
@@ -588,7 +588,9 @@ static void listener(race_audio *a, gt4_car_listener *l, const float *eye, const
         l->eye_previous[k] = eye[k];
         l->eye[k] = a->have_eye ? a->eye_previous[k] : eye[k];
     }
-    l->continuous = 1; /* A: the cut flag (camera +0x16B) is not tracked */
+    /* Original: func_003B5E80 +0x58..0xBC tests camera +0x16B.
+       A cut restarts the voices and skips displacement-based Doppler. */
+    l->continuous = a->have_eye && !a->camera_cut;
     l->type = view == 0 ? 0 : view == 1 ? 2 : view == 6 ? 1 : 3;
     l->angle = 0;
 }
@@ -630,6 +632,12 @@ static void tick(race_audio *a, const gt4_race_run *run, const float *eye, const
         a->random = a->random * 1103515245u + 12345u; /* A: 00579358's draw */
         gt4_car_sound_frame_build(&f, a->state + i, &out, entry, &l, i == 0 && view != -1, 0,
                                   a->random >> 16);
+        if (out.restart) {
+            for (int k = 0; k < 3; k++)
+                gt4_sd_engine_stop(a->sd, &a->engine[i][k]);
+            for (int k = 0; k < GT4_CAR_TONES; k++)
+                gt4_sd_stop(a->sd, &a->tone[i][k]);
+        }
         gt4_car_sound_requests(&f, a->state + i, &a->setup, &out);
         static const int engine_order[3] = {0, 1, 2};
         for (int k = 0; k < 3; k++) {
@@ -658,18 +666,23 @@ static void tick(race_audio *a, const gt4_race_run *run, const float *eye, const
         gt4_ambient_out amb;
         float right[3] = {rows[0], rows[1], rows[2]};
         gt4_ambient_frame(&a->ambient_state, race, &l, right, 0, a->setup.master, &amb);
+        if (amb.restart)
+            for (int k = 0; k < 10; k++)
+                gt4_sd_stop(a->sd, &a->ambient[k]);
         /* 00398A70: air, city, crowds, cheer, sea, tunnel1_l/r, tunnel2_l/r, heri */
         static const uint8_t effect[10] = {31, 32, 33, 61, 34, 35, 36, 37, 38, 30};
-        for (int k = 0; k < 5; k++)
-            gt4_sd_play(a->sd, &a->ambient[k], a->effect_by_enum[effect[k]], 0, amb.left[k],
-                        amb.right[k], amb.pitch[k], amb.priority[k], 0x40);
-        for (int k = 0; k < 4; k++)
-            gt4_sd_play(a->sd, &a->ambient[5 + k], a->effect_by_enum[effect[5 + k]], 0,
-                        amb.tunnel[k][0], amb.tunnel[k][1], 1.0f, amb.tunnel_priority[k / 2], 0x40);
-        gt4_sd_play(a->sd, &a->ambient[9], a->effect_by_enum[effect[9]], 0, amb.heri, amb.heri,
-                    1.0f, amb.heri_priority, 0x40);
-        if (!amb.restart)
-            a->depth = amb.depth;
+        if (!amb.restart) {
+            for (int k = 0; k < 5; k++)
+                gt4_sd_play(a->sd, &a->ambient[k], a->effect_by_enum[effect[k]], 0, amb.left[k],
+                            amb.right[k], amb.pitch[k], amb.priority[k], 0x40);
+            for (int k = 0; k < 4; k++)
+                gt4_sd_play(a->sd, &a->ambient[5 + k], a->effect_by_enum[effect[5 + k]], 0,
+                            amb.tunnel[k][0], amb.tunnel[k][1], 1.0f, amb.tunnel_priority[k / 2],
+                            0x40);
+            gt4_sd_play(a->sd, &a->ambient[9], a->effect_by_enum[effect[9]], 0, amb.heri, amb.heri,
+                        1.0f, amb.heri_priority, 0x40);
+        }
+        a->depth = amb.depth;
     }
     /* 0039E9B0 +0x38..+0x88 / +0x0C4..+0x194, played by 0039DA80: count_d
        at 180, 120, 60 frames left (func_0034C1C8 under 240, the race's
@@ -683,6 +696,7 @@ static void tick(race_audio *a, const gt4_race_run *run, const float *eye, const
     driver_tick(a);
     memcpy(a->eye_previous, eye, sizeof a->eye_previous);
     a->have_eye = 1;
+    a->camera_cut = 0;
 }
 
 /* the sequences' notes due and the driver's tick (the IOP's, which runs
@@ -754,6 +768,8 @@ void race_audio_update(race_audio *a, const gt4_race_run *run, const float *eye,
         gt4_car_sound_setup_race(&a->setup, gt4_race_run_conductor(run), 1, master);
         a->have_setup = 1;
     }
+    if (a->have_camera && a->camera_view != view)
+        race_audio_camera_cut(a);
     memcpy(a->camera_eye, eye, sizeof a->camera_eye);
     memcpy(a->camera_rows, rows, sizeof a->camera_rows);
     a->camera_view = view;
@@ -761,6 +777,12 @@ void race_audio_update(race_audio *a, const gt4_race_run *run, const float *eye,
     music_volume_update(a, run);
     if (!a->playing)
         a->playing = plat_audio_set_music(render, a) == 0;
+}
+
+void race_audio_camera_cut(race_audio *a)
+{
+    if (a)
+        a->camera_cut = 1;
 }
 
 void race_audio_step(race_audio *a, const gt4_race_run *run)

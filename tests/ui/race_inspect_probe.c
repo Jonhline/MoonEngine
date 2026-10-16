@@ -8,6 +8,7 @@
 #include "video_gl.h"
 #include "career_license_disc.h"
 #include "car_model.h"
+#include "vk_render.h"
 static Uint8 fixture_key[SDL_NUM_SCANCODES];
 static const Uint8 *fixture_keys(int *n)
 {
@@ -54,6 +55,52 @@ static int shot(race_game *g, const char *prefix, const char *name)
     plat_video_end_frame();
     return o != NULL;
 }
+static int benchmark_race(race_game *g, const char *prefix)
+{
+    video_set_menu_pacing(0);
+    video_set_vsync(0);
+    fixture_key[SDL_SCANCODE_UP] = 1;
+    for (int i = 0; i < 600; i++)
+        race_game_update(g, 1. / 60);
+    Uint64 update = 0, render = 0, present = 0;
+    moon_vk_render_stats before = {0};
+    const int frames = 120;
+    for (int i = -20; i < frames; i++) {
+        Uint64 start = SDL_GetPerformanceCounter();
+        if (i == 0)
+            before = moon_vk_render_statistics();
+        race_game_update(g, 1. / 60);
+        Uint64 updated = SDL_GetPerformanceCounter();
+        plat_video_begin_frame();
+        CHECK(race_game_draw(g));
+        Uint64 drawn = SDL_GetPerformanceCounter();
+        plat_video_end_frame();
+        if (i >= 0) {
+            update += updated - start;
+            render += drawn - updated;
+            present += SDL_GetPerformanceCounter() - drawn;
+        }
+    }
+    double scale = 1000. / SDL_GetPerformanceFrequency() / frames;
+    fprintf(stderr, "race benchmark: %d frames update=%.3f render=%.3f present=%.3f total=%.3f ms/frame\n",
+            frames, update * scale, render * scale, present * scale,
+            (update + render + present) * scale);
+    CHECK(!g->pause && !g->held && g->run);
+    moon_vk_render_stats after = moon_vk_render_statistics();
+    fprintf(stderr, "race benchmark: uploaded=%llu state=%08lx\n",
+            (unsigned long long)(after.vertex_upload_bytes - before.vertex_upload_bytes),
+            (unsigned long)mz_crc32(0, gt4_phys_mem, 0x2000000));
+    char state_path[1024];
+    snprintf(state_path, sizeof state_path, "%s.state", prefix);
+    FILE *state = fopen(state_path, "wb");
+    CHECK(state);
+    CHECK(fwrite(gt4_phys_mem, 1, 0x2000000, state) == 0x2000000);
+    CHECK(!fclose(state));
+    CHECK(shot(g, prefix, "benchmark"));
+    race_game_close(g);
+    plat_video_shutdown();
+    return 0;
+}
 int main(int argc, char **argv)
 {
     if (argc < 3)
@@ -82,6 +129,8 @@ int main(int argc, char **argv)
         ready = race_game_poll(g);
     }
     CHECK(ready==1);
+    if (getenv("PROBE_BENCHMARK"))
+        return benchmark_race(g, argv[2]);
     if (getenv("PROBE_CINEMA_TEST")) {
         race_game_update(g, 0);
         uint8_t *before = malloc(0x2000000);

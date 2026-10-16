@@ -1,5 +1,10 @@
+#include "ipic.h"
 typedef struct {
     gt4_vol *volume;
+    gt4_ipic ipic;
+    uint8_t *ipic_data, *ipic_pixels;
+    plat_texture *poster;
+    int poster_index;
     SDL_Thread *thread;
     SDL_mutex *lock;
     SDL_cond *wake;
@@ -9,10 +14,36 @@ typedef struct {
     unsigned generation, completed, displayed, finish_notified;
     int stop, interlace, repeat, audio_track, seen, drawn, muted, failed, unavailable;
 } movie_view;
+static void movie_preload_ipic(movie_view *v)
+{
+#ifndef __SWITCH__
+    /* Original: func_001FD528 +0x3C..0x68 loads the named .ipic archive.
+       arcade.ad loadIpic("course") L30 preloads the menu movie pictures. */
+    size_t size = 0;
+    uint8_t *data = v->volume ? gt4_vol_read(v->volume, "/mpeg/main/course.ipic", &size) : NULL;
+    gt4_ipic archive;
+    if (!gt4_ipic_open(&archive, data, size)) {
+        free(data);
+        return;
+    }
+    uint8_t *pixels = sdl_movie_ipic_archive_decode(&archive);
+    if (!pixels) {
+        free(data);
+        return;
+    }
+    SDL_LockMutex(v->lock);
+    v->ipic = archive;
+    v->ipic_data = data;
+    v->ipic_pixels = pixels;
+    SDL_UnlockMutex(v->lock);
+    fprintf(stderr, "movie: preloaded %u original menu pictures\n", archive.count);
+#endif
+}
 static int movie_worker(void *arg)
 {
     movie_view *v = arg;
     unsigned handled = 0;
+    movie_preload_ipic(v);
     for (;;) {
         SDL_LockMutex(v->lock);
         while (!v->stop && handled == v->generation && !v->retired)
@@ -121,6 +152,9 @@ static int draw_movie(void *user, const char *name, float x, float y, float w, f
         v->generation++;
         SDL_CondSignal(v->wake);
     }
+    int poster_index = gt4_ipic_find(&v->ipic, name);
+    const uint8_t *poster_pixels =
+        poster_index >= 0 ? v->ipic_pixels + (size_t)poster_index * 640 * 448 * 4 : NULL;
     v->unavailable = v->completed == v->generation && v->failed;
     if (v->completed == v->generation && v->pending &&
         (sdl_movie_ready(v->pending) || sdl_movie_finished(v->pending)) && !v->retired &&
@@ -134,14 +168,29 @@ static int draw_movie(void *user, const char *name, float x, float y, float w, f
     }
     SDL_UnlockMutex(v->lock);
     /* Only a visible MovieFace may enable movie audio. */
-    sdl_movie_audio(v->decoder, !v->muted && audio_track > 0);
+    sdl_movie_audio(v->decoder, v->displayed == v->generation && !v->muted && audio_track > 0);
     float blend = v->previous ? (float)((plat_time_ns() - v->switched) / 180000000.0) : 1;
     if (blend > 1)
         blend = 1;
-    if (v->previous)
+    if (poster_pixels && (!v->poster || v->poster_index != poster_index)) {
+        if (v->poster)
+            plat_texture_update(v->poster, poster_pixels);
+        else
+            v->poster = plat_texture_create(640, 448, poster_pixels);
+        v->poster_index = poster_index;
+    }
+    int has_poster = poster_pixels && v->poster;
+    if (has_poster && (v->displayed != v->generation || v->previous)) {
+        uint8_t tint[4] = {255, 255, 255, (uint8_t)(opacity * 255)};
+        plat_draw_quad(v->poster, x, y, w, h, 0, 0, 1, 1, tint);
+    } else if (v->previous)
         sdl_movie_draw(v->previous, x, y, w, h, opacity);
-    int drawn = sdl_movie_draw(v->decoder, x, y, w, h, opacity * blend);
-    v->drawn = drawn && v->displayed == v->generation && blend >= 1;
+    int drawn = has_poster && v->displayed != v->generation
+                    ? 1
+                    : sdl_movie_draw(v->decoder, x, y, w, h, opacity * blend);
+    /* An authored still is already a usable MovieFace. Waiting for the PSS
+       decoder here made the outer loading gate consume course-card input. */
+    v->drawn = has_poster || (drawn && v->displayed == v->generation && blend >= 1);
     if (v->previous && blend >= 1) {
         SDL_LockMutex(v->lock);
         if (!v->retired) {

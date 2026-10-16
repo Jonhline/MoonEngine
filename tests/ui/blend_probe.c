@@ -1,5 +1,6 @@
 /* Synthetic GL probe: no disc, captured state or original assets. */
 #include "platform/platform.h"
+#include "plat_sdl.h"
 #include "video_gl.h"
 #include "ui_motion.h"
 #include <math.h>
@@ -18,7 +19,7 @@ int main(int argc, char **argv)
     (void)argv;
     plat_video_desc desc = {640, 480, 0, 0, 0};
     CHECK(plat_video_init(&desc)==0);
-    SDL_HideWindow(SDL_GL_GetCurrentWindow());
+    SDL_HideWindow(plat_sdl_window());
     plat_video_set_view(640, 480);
     const uint8_t white[4] = {255, 255, 255, 255}, black[4] = {0, 0, 0, 255};
     const uint8_t yellow[4] = {255, 255, 0, 255}, red[4] = {255, 0, 0, 255};
@@ -67,7 +68,7 @@ int main(int argc, char **argv)
     /* 00215FE0 scales each authored X by framebuffer_width/640.
        Exercise both a widget and its scissor at an actual 16:9 resolution;
        ordinary race HUD projection deliberately keeps its own aspect. */
-    SDL_SetWindowSize(SDL_GL_GetCurrentWindow(), 960, 540);
+    SDL_SetWindowSize(plat_sdl_window(), 960, 540);
     video_set_aspect(1);
     for (int menu = 0; menu < 2; menu++) {
         video_set_menu_projection(menu && !getenv("GT4_MENU_SCISSOR_NEGATIVE"));

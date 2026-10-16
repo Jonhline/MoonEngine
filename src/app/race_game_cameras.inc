@@ -132,6 +132,8 @@ static int dive_camera(race_game *g)
     }
     t.ctx = g;
     int kind = gt4_dive_step(g->dive, &t, &v);
+    if (kind && v.cut)
+        race_audio_camera_cut(g->audio);
     if (kind ==
         2) { /* a camera on the car: its model's point (A: the player's model's points for any car) */
         float point[8], eye[3], rows[9], sx;
@@ -222,6 +224,8 @@ static int tv_camera(race_game *g)
     gt4_tvcam_set_zoom(g->tvcam, g->replaying ? g->zoom : 1); /* Triangle's zoom */
     if (!gt4_tvcam_step(g->tvcam, &t, &v))
         return 0;
+    if (v.cut)
+        race_audio_camera_cut(g->audio);
     look(g, v.eye, v.target, v.roll, v.sx, v.sy);
     race_view_show_car(g->view, 1);
     return 1;

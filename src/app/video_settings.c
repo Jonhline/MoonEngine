@@ -1,5 +1,6 @@
 #include "platform/switch_file.h"
 #include "video_settings.h"
+#include "platform/renderer_backend.h"
 #include "video_gl.h"
 #ifdef __SWITCH__
 #include "launcher.h"
@@ -52,7 +53,15 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
         return;
     char line[128], key[40];
     int value;
-    while (fgets(line, sizeof line, f))
+    while (fgets(line, sizeof line, f)) {
+#ifndef __SWITCH__
+        if (!strncmp(line, "renderer=", 9)) {
+            line[strcspn(line, "\r\n")] = 0;
+            int backend = moon_renderer_parse(line + 9);
+            if (backend >= 0)
+                s->current.renderer = backend;
+        }
+#endif
         if (sscanf(line, "%39[^=]=%d", key, &value) == 2) {
             if (!strcmp(key, "width") && value >= 640 && value <= 7680)
                 s->current.video.width = value;
@@ -73,6 +82,7 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
             if (!strcmp(key, "text_sharpness") && value >= 0 && value <= 100)
                 s->current.text = value;
         }
+    }
     fclose(f);
 }
 
@@ -99,6 +109,10 @@ static void save(video_settings *s)
             "width=%d\nheight=%d\nfullscreen=%d\nvsync=%d\nupscaling=%d\nui_filter=%d\ntext_sharpness=%d\naspect_ratio=%d\n",
             v->video.width, v->video.height, v->video.fullscreen, v->video.vsync, v->video.upscale,
             v->filter, v->text, v->aspect) > 0;
+#ifndef __SWITCH__
+    if (fprintf(f, "renderer=%s\n", moon_renderer_name(v->renderer)) < 0)
+        ok = 0;
+#endif
 #ifdef __SWITCH__
     if (fprintf(f, "disc=%s\nsaves=%s\nshow=0\n", paths.disc, paths.saves) < 0)
         ok = 0;

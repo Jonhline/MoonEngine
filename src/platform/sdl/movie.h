@@ -1,11 +1,16 @@
 #ifndef OPENGT4_SDL_MOVIE_H
 #define OPENGT4_SDL_MOVIE_H
+#include "ipic.h"
 #include <stddef.h>
 #include <stdint.h>
 typedef struct sdl_movie sdl_movie;
 /* Silent menu MPEG-2 video. Decoding runs off the render/audio threads. */
 sdl_movie *sdl_movie_open(const uint8_t *data, size_t size, int interlace, int repeat,
                           int audio_track);
+/* Worker-only: decode count IPU pictures into caller-owned 640x448 RGBA frames.
+   No renderer calls or playback clock; NULL unless all pictures decode. */
+uint8_t *sdl_movie_ipic_decode(const uint8_t *stream, size_t size, unsigned count);
+uint8_t *sdl_movie_ipic_archive_decode(const gt4_ipic *archive);
 /* Called only by the rendering thread. Disabling closes the device before
    the decoder can be handed to the disposal worker. */
 void sdl_movie_audio(sdl_movie *m, int enabled);

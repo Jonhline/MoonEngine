@@ -7,6 +7,7 @@
 typedef struct {
     plat_video_desc video;
     int filter, text, aspect;
+    int renderer;
 } pc_video_options;
 typedef struct {
     pc_video_options current, draft;

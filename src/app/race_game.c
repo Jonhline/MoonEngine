@@ -75,7 +75,7 @@ struct race_game {
     int arcade_owned_on;
     race_hud *hud_2p;
     int camera_2p, view_held_2p, look_back_2p, retry_requested;
-    int pause_keys_2p[6];
+    int pause_keys_2p[7];
     float split_eye[2][3], split_rows[2][9], split_projection[2][3];
     int split_camera_valid[2];
     /* B-Spec: the next race's (COMMAND_SPECTATOR) and the pad's buttons
@@ -131,7 +131,7 @@ struct race_game {
     int quit;          /* the pause menu chose to leave */
     int replay_back_held;
     SDL_JoystickID pad_id;
-    int pause_keys[6]; /* the pad's Start, D-pad and A held, for their edges */
+    int pause_keys[7]; /* Start, D-pad and both pause confirmation buttons. */
     int confirm_held;
     char names[6][96];          /* each car's name (CAR_NAME, the StrDB's) */
     gt4_motion_bank *start_cam; /* the course's start camera motions (header +0xD0) */
@@ -2083,6 +2083,7 @@ static void split_camera_audio_update(race_game *g)
 }
 static void race_camera_audio_update(race_game *g, double dt)
 {
+    int previous_start = g->start_cam_on, previous_tv = g->tv_on;
     if (g->split) {
         split_camera_audio_update(g);
         return;
@@ -2147,6 +2148,8 @@ static void race_camera_audio_update(race_game *g, double dt)
             race_view_show_car(g->view, view != 0);
         }
     }
+    if (previous_start != g->start_cam_on || previous_tv != g->tv_on)
+        race_audio_camera_cut(g->audio);
     if (!g->inspect_on || !g->inspect_seeded)
         license_camera(g);
     if (!g->split && !g->start_cam_on && (!g->inspect_on || !g->inspect_seeded)) {

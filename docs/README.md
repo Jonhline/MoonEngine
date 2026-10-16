@@ -1,4 +1,4 @@
-# OpenGT4 documentation
+# Moon Engine documentation
 
 Start with [How it works](HOW_IT_WORKS.md), then [Building and testing](BUILDING_AND_TESTING.md).
 [Architecture](ARCHITECTURE.md) maps the execution model to source directories.
@@ -16,6 +16,8 @@ Start with [How it works](HOW_IT_WORKS.md), then [Building and testing](BUILDING
 - [GT Mode interface](GT_MODE_UI.md): scripts, career objects and presentation boundaries.
 - [Cinematic camera](CINEMATIC_CAMERA.md): controls for the deliberate PC camera feature.
 - [Display settings](PC_VIDEO_UI.md): host display choices and their persistence.
+- [PC launcher](LAUNCHER.md): disc-backed fonts and icons, live car preview,
+  cinematic cameras and presentation limits.
 - [Development notes](notes/README.md): implementation history, original
   addresses, experiments and positive/negative test evidence.
 
@@ -35,6 +37,8 @@ Start with [How it works](HOW_IT_WORKS.md), then [Building and testing](BUILDING
 ## Rendering, racing and persistence
 
 - [Renderer](RENDERER.md): OpenGL backend and native scene submission.
+- [PC backends](VULKAN.md): backend selection, Vulkan device foundation,
+  focused tests and the remaining scene-rendering work.
 - [Models](MODELS.md), [showroom](SHOWROOM_SCENE.md): car assets and studio scenes.
 - [Courses](COURSES.md): geometry, collision data and scene loading.
 - [Cars](CAR_CATALOG.md), [course catalog](COURSE_CATALOG.md): disc-backed selection data.

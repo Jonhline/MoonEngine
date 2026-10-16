@@ -15,6 +15,8 @@ void race_audio_update(race_audio *audio, const gt4_race_run *run, const float e
 /* Each race frame (1/60 s), as the game's sound runs: the cars, the
    course's ambience and the driver, from the last camera given. */
 void race_audio_step(race_audio *audio, const gt4_race_run *run);
+/* Camera discontinuity: suppress displacement Doppler on the next tick. */
+void race_audio_camera_cut(race_audio *audio);
 /* 003B6B78 gates the pulse with the resident model outlet count. */
 void race_audio_set_exhaust_count(race_audio *audio, unsigned entry, unsigned count);
 /* The backfire's four flames of car `entry` (time, size, turn); 1 when one burns */

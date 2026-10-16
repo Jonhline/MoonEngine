@@ -1,0 +1,610 @@
+#include "vk_internal.hpp"
+#include <glslang/Public/ShaderLang.h>
+#include <glslang/Public/ResourceLimits.h>
+#include <SPIRV/GlslangToSpv.h>
+#include <regex>
+#include <sstream>
+
+namespace moon {
+static int aligned(int value, int alignment)
+{
+    return (value + alignment - 1) / alignment * alignment;
+}
+static std::string trim(std::string text)
+{
+    auto first = text.find_first_not_of(" \t\r\n");
+    return first == std::string::npos
+               ? ""
+               : text.substr(first, text.find_last_not_of(" \t\r\n") - first + 1);
+}
+static std::string declarations(Program &p, const std::string &source)
+{
+    std::regex declaration(R"(uniform\s+(\w+)\s+([^;]+);)");
+    std::regex member(R"((\w+)\s*(?:\[\s*(\d+)\s*\])?)");
+    for (auto it = std::sregex_iterator(source.begin(), source.end(), declaration);
+         it != std::sregex_iterator(); ++it) {
+        std::string type = (*it)[1], list = (*it)[2];
+        for (auto item = std::sregex_iterator(list.begin(), list.end(), member);
+             item != std::sregex_iterator(); ++item) {
+            std::string name = (*item)[1];
+            auto found = std::find_if(p.uniforms.begin(), p.uniforms.end(),
+                                      [&](const Uniform &u) { return u.name == name; });
+            if (found != p.uniforms.end())
+                continue;
+            Uniform uniform;
+            uniform.name = name;
+            uniform.type = type;
+            uniform.count = (*item)[2].matched ? std::stoi((*item)[2]) : 1;
+            p.uniforms.push_back(uniform);
+        }
+    }
+    return std::regex_replace(source, declaration, "");
+}
+static std::string interface_locations(Program &p, std::string source, bool vertex,
+                                       std::map<std::string, int> &varyings)
+{
+    std::regex declaration(
+        R"((?:layout\s*\(\s*location\s*=\s*(\d+)\s*\)\s*)?\b(in|out)\s+(\w+)\s+(\w+)\s*;)");
+    std::string result;
+    size_t last = 0;
+    int attribute = 0;
+    for (auto it = std::sregex_iterator(source.begin(), source.end(), declaration);
+         it != std::sregex_iterator(); ++it) {
+        auto match = *it;
+        bool input = match[2] == "in";
+        std::string name = match[4];
+        int location;
+        if (vertex && input) {
+            location = match[1].matched ? std::stoi(match[1]) : attribute++;
+            if (location >= 16)
+                throw std::runtime_error("Vulkan vertex input limit exceeded");
+            p.inputs[location] = true;
+        } else if (!vertex && !input)
+            location = 0;
+        else {
+            if (!varyings.count(name))
+                varyings[name] = (int)varyings.size();
+            location = varyings[name];
+        }
+        result += source.substr(last, match.position() - last);
+        result += "layout(location=" + std::to_string(location) + ") " + match[2].str() + " " +
+                  match[3].str() + " " + name + ";";
+        last = match.position() + match.length();
+    }
+    return result + source.substr(last);
+}
+bool compile(Program &p)
+{
+    /* Both stages share one explicitly laid-out block. Uniform setters and
+       shaders therefore use the same offsets, including vec3/matrix arrays. */
+    try {
+        std::string vertex = declarations(p, p.vertex), fragment = declarations(p, p.fragment);
+        int offset = 0, sampler = 0;
+        std::string block = "layout(std140,set=0,binding=0) uniform MoonUniforms {\n";
+        std::string textures;
+        for (auto &u : p.uniforms) {
+            if (u.type == "sampler2D") {
+                if (sampler >= 8)
+                    throw std::runtime_error("Vulkan sampler limit exceeded");
+                u.sampler = sampler++;
+                textures += "layout(set=0,binding=" + std::to_string(u.sampler + 1) +
+                            ") uniform sampler2D " + u.name + ";\n";
+                continue;
+            }
+            int alignment = 4, size = 4;
+            u.components = 1;
+            if (u.type.find("vec") != std::string::npos) {
+                u.components = u.type.back() - '0';
+                size = u.components * 4;
+                alignment = u.components == 2 ? 8 : 16;
+            } else if (u.type == "mat3" || u.type == "mat4") {
+                u.components = u.type.back() - '0';
+                alignment = 16;
+                size = u.components * 16;
+            }
+            if (u.count > 1)
+                alignment = 16;
+            u.offset = aligned(offset, alignment);
+            u.stride = u.count > 1 ? aligned(size, 16) : size;
+            offset = u.offset + u.stride * u.count;
+            block += "layout(offset=" + std::to_string(u.offset) + ") " + u.type + " " + u.name;
+            if (u.count > 1)
+                block += "[" + std::to_string(u.count) + "]";
+            block += ";\n";
+        }
+        if (!offset) {
+            block += "vec4 moon_unused;\n";
+            offset = 16;
+        }
+        block += "};\n";
+        p.values.resize(aligned(offset, 16));
+        std::map<std::string, int> varyings;
+        vertex = interface_locations(p, vertex, true, varyings);
+        fragment = interface_locations(p, fragment, false, varyings);
+        std::regex version(R"(#version[^\n]*\n)");
+        vertex = std::regex_replace(vertex, version, "");
+        fragment = std::regex_replace(fragment, version, "");
+        vertex = std::regex_replace(vertex, std::regex(R"(\bgl_VertexID\b)"), "gl_VertexIndex");
+        /* Shared frontend uses ZERO_TO_ONE when reversed depth is enabled. */
+        std::string prefix = "#version 450 core\n" + block + textures;
+        vertex = prefix + vertex;
+        fragment = prefix + fragment;
+        static const bool initialized = glslang::InitializeProcess();
+        if (!initialized)
+            throw std::runtime_error("glslang initialization failed");
+        glslang::TShader vs(EShLangVertex), fs(EShLangFragment);
+        const char *v = vertex.c_str(), *f = fragment.c_str();
+        vs.setStrings(&v, 1);
+        fs.setStrings(&f, 1);
+        EShMessages messages = (EShMessages)(EShMsgSpvRules | EShMsgVulkanRules);
+        for (auto *shader : {&vs, &fs}) {
+            shader->setEnvInput(glslang::EShSourceGlsl, shader->getStage(),
+                                glslang::EShClientVulkan, 450);
+            shader->setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_0);
+            shader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_0);
+            if (!shader->parse(GetDefaultResources(), 450, false, messages))
+                throw std::runtime_error(shader->getInfoLog());
+        }
+        glslang::TProgram program;
+        program.addShader(&vs);
+        program.addShader(&fs);
+        if (!program.link(messages))
+            throw std::runtime_error(program.getInfoLog());
+        auto module = [&](EShLanguage stage, VkShaderModule &module) {
+            std::vector<unsigned> words;
+            glslang::SpvOptions options;
+            options.disableOptimizer = true;
+            glslang::GlslangToSpv(*program.getIntermediate(stage), words, &options);
+            VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+            info.codeSize = words.size() * 4;
+            info.pCode = words.data();
+            check(vkCreateShaderModule(context().device, &info, nullptr, &module),
+                  "vkCreateShaderModule");
+        };
+        module(EShLangVertex, p.vs);
+        module(EShLangFragment, p.fs);
+        VkPipelineLayoutCreateInfo layout{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+        layout.setLayoutCount = 1;
+        layout.pSetLayouts = &context().descriptors;
+        check(vkCreatePipelineLayout(context().device, &layout, nullptr, &p.layout),
+              "vkCreatePipelineLayout");
+        p.linked = true;
+        return true;
+    } catch (const std::exception &e) {
+        p.error = e.what();
+        fprintf(stderr, "Vulkan shader: %s\n", e.what());
+        return false;
+    }
+}
+VkSampler Context::sampler(const Image &im)
+{
+    std::array<int, 6> key = {im.min_filter, im.mag_filter, im.wrap_s,
+                              im.wrap_t,     im.max_level,  im.levels};
+    auto found = samplers.find(key);
+    if (found != samplers.end())
+        return found->second;
+    VkSamplerCreateInfo info{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    info.magFilter = im.mag_filter == GL_NEAREST ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+    info.minFilter = im.min_filter == GL_NEAREST || im.min_filter == GL_NEAREST_MIPMAP_NEAREST ||
+                             im.min_filter == GL_NEAREST_MIPMAP_LINEAR
+                         ? VK_FILTER_NEAREST
+                         : VK_FILTER_LINEAR;
+    info.mipmapMode =
+        im.min_filter == GL_NEAREST_MIPMAP_LINEAR || im.min_filter == GL_LINEAR_MIPMAP_LINEAR
+            ? VK_SAMPLER_MIPMAP_MODE_LINEAR
+            : VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    auto address = [](int wrap) {
+        return wrap == GL_REPEAT            ? VK_SAMPLER_ADDRESS_MODE_REPEAT
+               : wrap == GL_MIRRORED_REPEAT ? VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT
+               : wrap == GL_CLAMP_TO_BORDER ? VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER
+                                            : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    };
+    info.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+    info.addressModeU = address(im.wrap_s);
+    info.addressModeV = address(im.wrap_t);
+    info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    info.maxLod = im.min_filter == GL_NEAREST || im.min_filter == GL_LINEAR
+                      ? 0.f
+                      : (float)std::max(0, std::min(im.max_level, im.levels - 1));
+    VkSampler result;
+    check(vkCreateSampler(device, &info, nullptr, &result), "vkCreateSampler");
+    samplers[key] = result;
+    return result;
+}
+VkRenderPass Context::render_pass(VkFormat color, VkFormat depth)
+{
+    std::array<int, 2> key = {(int)color, (int)depth};
+    auto found = passes.find(key);
+    if (found != passes.end())
+        return found->second;
+    VkAttachmentDescription attachments[2]{};
+    for (int i = 0; i < 2; i++) {
+        attachments[i].format = i ? depth : color;
+        attachments[i].samples = VK_SAMPLE_COUNT_1_BIT;
+        attachments[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        attachments[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        attachments[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        attachments[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+        attachments[i].initialLayout = attachments[i].finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+    }
+    VkAttachmentReference color_ref{0, VK_IMAGE_LAYOUT_GENERAL},
+        depth_ref{1, VK_IMAGE_LAYOUT_GENERAL};
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &color_ref;
+    if (depth)
+        subpass.pDepthStencilAttachment = &depth_ref;
+    VkRenderPassCreateInfo info{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+    info.attachmentCount = depth ? 2 : 1;
+    info.pAttachments = attachments;
+    info.subpassCount = 1;
+    info.pSubpasses = &subpass;
+    VkRenderPass result;
+    check(vkCreateRenderPass(device, &info, nullptr, &result), "vkCreateRenderPass");
+    passes[key] = result;
+    return result;
+}
+static VkBlendFactor blend_factor(GLenum factor)
+{
+    switch (factor) {
+    case GL_ZERO:
+        return VK_BLEND_FACTOR_ZERO;
+    case GL_ONE:
+        return VK_BLEND_FACTOR_ONE;
+    case GL_SRC_COLOR:
+        return VK_BLEND_FACTOR_SRC_COLOR;
+    case GL_ONE_MINUS_SRC_COLOR:
+        return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+    case GL_DST_COLOR:
+        return VK_BLEND_FACTOR_DST_COLOR;
+    case GL_ONE_MINUS_DST_COLOR:
+        return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
+    case GL_SRC_ALPHA:
+        return VK_BLEND_FACTOR_SRC_ALPHA;
+    case GL_ONE_MINUS_SRC_ALPHA:
+        return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    case GL_DST_ALPHA:
+        return VK_BLEND_FACTOR_DST_ALPHA;
+    case GL_ONE_MINUS_DST_ALPHA:
+        return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
+    case GL_CONSTANT_COLOR:
+        return VK_BLEND_FACTOR_CONSTANT_COLOR;
+    case GL_ONE_MINUS_CONSTANT_COLOR:
+        return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
+    case GL_CONSTANT_ALPHA:
+        return VK_BLEND_FACTOR_CONSTANT_ALPHA;
+    case GL_ONE_MINUS_CONSTANT_ALPHA:
+        return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA;
+    default:
+        throw std::runtime_error("Unsupported Vulkan blend factor");
+    }
+}
+static VkBlendOp blend_op(GLenum op)
+{
+    return op == GL_FUNC_SUBTRACT           ? VK_BLEND_OP_SUBTRACT
+           : op == GL_FUNC_REVERSE_SUBTRACT ? VK_BLEND_OP_REVERSE_SUBTRACT
+           : op == GL_MIN                   ? VK_BLEND_OP_MIN
+           : op == GL_MAX                   ? VK_BLEND_OP_MAX
+                                            : VK_BLEND_OP_ADD;
+}
+static VkFormat attribute_format(const Attribute &a)
+{
+    if (!a.enabled)
+        return VK_FORMAT_R32G32B32A32_SFLOAT;
+    if (a.type == GL_FLOAT) {
+        const VkFormat types[] = {VK_FORMAT_R32_SFLOAT, VK_FORMAT_R32G32_SFLOAT,
+                                  VK_FORMAT_R32G32B32_SFLOAT, VK_FORMAT_R32G32B32A32_SFLOAT};
+        return types[a.size - 1];
+    }
+    if (a.type == GL_UNSIGNED_BYTE && a.size == 4 && a.normalized)
+        return VK_FORMAT_R8G8B8A8_UNORM;
+    throw std::runtime_error("Unsupported Vulkan vertex format");
+}
+VkPipeline pipeline(Context &c, Program &p, VkRenderPass pass, GLenum topology)
+{
+    auto &s = c.state;
+    auto &vao = c.arrays[s.vao];
+    std::vector<uint64_t> key = {(uint64_t)pass, topology,     s.blend,     s.depth,      s.cull,
+                                 s.depth_write,  s.depth_func, s.cull_face, s.front_face, s.src_rgb,
+                                 s.dst_rgb,      s.src_a,      s.dst_a,     s.eq_rgb,     s.eq_a};
+    for (bool write : s.color_write)
+        key.push_back(write);
+    for (int i = 0; i < 16; i++)
+        if (p.inputs[i]) {
+            auto &a = vao.attributes[i];
+            key.push_back(a.enabled);
+            key.push_back(attribute_format(a));
+            key.push_back(a.stride);
+        }
+    auto found = p.pipelines.find(key);
+    if (found != p.pipelines.end())
+        return found->second;
+    VkPipelineShaderStageCreateInfo stages[2]{};
+    stages[0].sType = stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = p.vs;
+    stages[0].pName = "main";
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = p.fs;
+    stages[1].pName = "main";
+    std::vector<VkVertexInputBindingDescription> bindings;
+    std::vector<VkVertexInputAttributeDescription> attributes;
+    for (unsigned i = 0; i < 16; i++)
+        if (p.inputs[i]) {
+            const auto &a = vao.attributes[i];
+            bindings.push_back(
+                {i,
+                 a.enabled ? (uint32_t)(a.stride ? a.stride : a.size * (a.type == GL_FLOAT ? 4 : 1))
+                           : 0u,
+                 VK_VERTEX_INPUT_RATE_VERTEX});
+            attributes.push_back({i, i, attribute_format(a), 0});
+        }
+    VkPipelineVertexInputStateCreateInfo vertex{
+        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    vertex.vertexBindingDescriptionCount = (uint32_t)bindings.size();
+    vertex.pVertexBindingDescriptions = bindings.data();
+    vertex.vertexAttributeDescriptionCount = (uint32_t)attributes.size();
+    vertex.pVertexAttributeDescriptions = attributes.data();
+    VkPipelineInputAssemblyStateCreateInfo assembly{
+        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    assembly.topology = topology == GL_TRIANGLE_FAN ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN
+                                                    : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkPipelineViewportStateCreateInfo viewport{
+        VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    viewport.viewportCount = viewport.scissorCount = 1;
+    VkPipelineRasterizationStateCreateInfo raster{
+        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    raster.polygonMode = VK_POLYGON_MODE_FILL;
+    raster.lineWidth = 1;
+    raster.cullMode = !s.cull                  ? VK_CULL_MODE_NONE
+                      : s.cull_face == GL_BACK ? VK_CULL_MODE_BACK_BIT
+                                               : VK_CULL_MODE_FRONT_BIT;
+    /* Positive-height Vulkan viewports reverse the frontend's winding test.
+       Rows stay bottom-up internally and are flipped only for presentation. */
+    raster.frontFace =
+        s.front_face == GL_CCW ? VK_FRONT_FACE_CLOCKWISE : VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    VkPipelineMultisampleStateCreateInfo samples{
+        VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    samples.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineDepthStencilStateCreateInfo depth{
+        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    depth.depthTestEnable = s.depth;
+    depth.depthWriteEnable = s.depth && s.depth_write;
+    depth.depthCompareOp = (VkCompareOp)(s.depth_func - GL_NEVER);
+    depth.maxDepthBounds = 1;
+    VkPipelineColorBlendAttachmentState color{};
+    color.blendEnable = s.blend;
+    color.srcColorBlendFactor = blend_factor(s.src_rgb);
+    color.dstColorBlendFactor = blend_factor(s.dst_rgb);
+    color.srcAlphaBlendFactor = blend_factor(s.src_a);
+    color.dstAlphaBlendFactor = blend_factor(s.dst_a);
+    color.colorBlendOp = blend_op(s.eq_rgb);
+    color.alphaBlendOp = blend_op(s.eq_a);
+    for (unsigned i = 0; i < 4; i++)
+        if (s.color_write[i])
+            color.colorWriteMask |= 1u << i;
+    VkPipelineColorBlendStateCreateInfo blend{
+        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    blend.attachmentCount = 1;
+    blend.pAttachments = &color;
+    VkDynamicState states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR,
+                               VK_DYNAMIC_STATE_BLEND_CONSTANTS};
+    VkPipelineDynamicStateCreateInfo dynamic{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dynamic.dynamicStateCount = 3;
+    dynamic.pDynamicStates = states;
+    VkGraphicsPipelineCreateInfo info{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    info.stageCount = 2;
+    info.pStages = stages;
+    info.pVertexInputState = &vertex;
+    info.pInputAssemblyState = &assembly;
+    info.pViewportState = &viewport;
+    info.pRasterizationState = &raster;
+    info.pMultisampleState = &samples;
+    info.pDepthStencilState = &depth;
+    info.pColorBlendState = &blend;
+    info.pDynamicState = &dynamic;
+    info.layout = p.layout;
+    info.renderPass = pass;
+    VkPipeline result;
+    check(vkCreateGraphicsPipelines(c.device, VK_NULL_HANDLE, 1, &info, nullptr, &result),
+          "vkCreateGraphicsPipelines");
+    p.pipelines[key] = result;
+    return result;
+}
+void Context::draw(GLenum topology, int first, int count)
+{
+    if (count < 1)
+        return;
+    auto &p = programs[state.program];
+    if (!p.linked)
+        return;
+    auto *target = color(state.draw_fb);
+    if (!target)
+        return;
+    auto *z = depth(state.draw_fb);
+    auto &vao = arrays[state.vao];
+    /* Upload immutable meshes before reserving this draw's arena slice:
+       an upload may flush a full arena, invalidating earlier slice offsets. */
+    std::array<const Buffer *, 16> resident{};
+    for (int i = 0; i < 16; i++)
+        if (p.inputs[i] && vao.attributes[i].enabled) {
+            int shared = -1;
+            for (int j = 0; j < i; j++)
+                if (p.inputs[j] && vao.attributes[j].enabled &&
+                    vao.attributes[j].buffer == vao.attributes[i].buffer) {
+                    shared = j;
+                    break;
+                }
+            resident[i] = shared < 0 ? vertex_buffer(vao.attributes[i].buffer) : resident[shared];
+        }
+    size_t bytes = p.values.size() + 512;
+    std::map<std::pair<unsigned, size_t>, bool> reserved;
+    for (int i = 0; i < 16; i++)
+        if (p.inputs[i]) {
+            auto &a = vao.attributes[i];
+            size_t stride = a.stride ? a.stride : a.size * (a.type == GL_FLOAT ? 4 : 1);
+            /* Interleaved attributes share one upload below. Reserving the
+               vertex range per attribute wastes staging capacity and can
+               force unnecessary CPU/GPU fence waits. */
+            if (!a.enabled)
+                bytes += 16;
+            else if (!resident[i] &&
+                     reserved.emplace(std::make_pair(a.buffer, stride), true).second)
+                bytes += (size_t)count * stride;
+            bytes += 16;
+        }
+    size_t offset = reserve(
+        bytes, std::max((size_t)16, (size_t)properties.limits.minUniformBufferOffsetAlignment));
+    memcpy((uint8_t *)arena.mapped + offset, p.values.data(), p.values.size());
+    size_t vertex_offset = offset + aligned((int)p.values.size(), 16);
+    std::array<VkDeviceSize, 16> offsets{};
+    std::array<VkBuffer, 16> vertex_handles{};
+    vertex_handles.fill(arena.handle);
+    std::map<std::pair<unsigned, size_t>, size_t> copied;
+    for (unsigned i = 0; i < 16; i++)
+        if (p.inputs[i]) {
+            auto &a = vao.attributes[i];
+            offsets[i] = vertex_offset;
+            if (a.enabled) {
+                size_t stride = a.stride ? a.stride : a.size * (a.type == GL_FLOAT ? 4 : 1);
+                auto &source = buffers[a.buffer];
+                size_t start = first * stride;
+                if (start > source.size() ||
+                    a.offset + (count - 1) * stride + a.size * (a.type == GL_FLOAT ? 4 : 1) >
+                        source.size() - start)
+                    throw std::runtime_error("Vulkan vertex attribute bounds");
+                if (resident[i]) {
+                    vertex_handles[i] = resident[i]->handle;
+                    offsets[i] = start + a.offset;
+                    continue;
+                }
+                auto key = std::make_pair(a.buffer, stride);
+                auto previous = copied.find(key);
+                if (previous != copied.end())
+                    offsets[i] = previous->second + a.offset;
+                else {
+                    size_t size = std::min((size_t)count * stride,
+                                           source.size() - std::min(start, source.size()));
+                    if (start > source.size())
+                        throw std::runtime_error("Vulkan vertex buffer bounds");
+                    memcpy((uint8_t *)arena.mapped + vertex_offset, source.data() + start, size);
+                    statistics.vertex_upload_bytes += size;
+                    copied[key] = vertex_offset;
+                    offsets[i] = vertex_offset + a.offset;
+                    vertex_offset += aligned((int)size, 16);
+                }
+            } else {
+                float value[4] = {0, 0, 0, 1};
+                memcpy((uint8_t *)arena.mapped + vertex_offset, value, 16);
+                vertex_offset += 16;
+            }
+        }
+    VkDescriptorSetAllocateInfo allocation{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    allocation.descriptorPool = descriptor_pool;
+    allocation.descriptorSetCount = 1;
+    allocation.pSetLayouts = &descriptors;
+    VkDescriptorSet set;
+    check(vkAllocateDescriptorSets(device, &allocation, &set), "vkAllocateDescriptorSets");
+    descriptor_count++;
+    VkDescriptorBufferInfo uniform_buffer{arena.handle, offset, p.values.size()};
+    std::array<VkDescriptorImageInfo, 8> images{};
+    unsigned sampler_count = 0;
+    for (auto &u : p.uniforms)
+        if (u.sampler >= 0) {
+            sampler_count = std::max(sampler_count, (unsigned)u.sampler + 1);
+            unsigned texture = u.unit >= 0 && u.unit < 16 ? state.textures[u.unit] : 0;
+            auto found = textures.find(texture);
+            auto *im = found != textures.end() && found->second ? found->second.get() : white.get();
+            images[u.sampler] = {sampler(*im), im->view, VK_IMAGE_LAYOUT_GENERAL};
+        }
+    std::array<VkWriteDescriptorSet, 9> writes{};
+    /* Unused shader bindings need no descriptor write. Course materials use
+       only a subset of the shared layout's eight texture slots. */
+    for (unsigned i = 0; i <= sampler_count; i++) {
+        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[i].dstSet = set;
+        writes[i].dstBinding = i;
+        writes[i].descriptorCount = 1;
+        writes[i].descriptorType =
+            i ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        if (i)
+            writes[i].pImageInfo = &images[i - 1];
+        else
+            writes[i].pBufferInfo = &uniform_buffer;
+    }
+    vkUpdateDescriptorSets(device, sampler_count + 1, writes.data(), 0, nullptr);
+    VkRenderPass pass = render_pass(target->format, z ? z->format : VK_FORMAT_UNDEFINED);
+    VkImageView views[] = {target->attachment, z ? z->attachment : VK_NULL_HANDLE};
+    /* Attachment ordering and blending are already ordered within a subpass.
+       Keep compatible draws together instead of draining the GPU between
+       every course material. Transfers and clears end the pass via barrier(). */
+    if (pass_color != views[0] || pass_depth != views[1]) {
+        barrier();
+        VkFramebufferCreateInfo framebuffer{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+        framebuffer.renderPass = pass;
+        framebuffer.attachmentCount = z ? 2 : 1;
+        framebuffer.pAttachments = views;
+        framebuffer.width = target->width;
+        framebuffer.height = target->height;
+        framebuffer.layers = 1;
+        VkFramebuffer fb;
+        check(vkCreateFramebuffer(device, &framebuffer, nullptr, &fb), "vkCreateFramebuffer");
+        transient_targets.push_back(fb);
+        VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+        begin.renderPass = pass;
+        begin.framebuffer = fb;
+        begin.renderArea.extent = {(uint32_t)target->width, (uint32_t)target->height};
+        vkCmdBeginRenderPass(command, &begin, VK_SUBPASS_CONTENTS_INLINE);
+        statistics.passes++;
+        pass_color = views[0];
+        pass_depth = views[1];
+    }
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline(*this, p, pass, topology));
+    VkViewport viewport{(float)state.viewport[0],
+                        (float)state.viewport[1],
+                        (float)state.viewport[2],
+                        (float)state.viewport[3],
+                        0,
+                        1};
+    vkCmdSetViewport(command, 0, 1, &viewport);
+    VkRect2D clip{{0, 0}, {(uint32_t)target->width, (uint32_t)target->height}};
+    if (state.clip) {
+        int x0 = std::max(0, state.scissor[0]), y0 = std::max(0, state.scissor[1]);
+        int x1 = std::min(target->width, state.scissor[0] + state.scissor[2]),
+            y1 = std::min(target->height, state.scissor[1] + state.scissor[3]);
+        clip = {{x0, y0}, {(uint32_t)std::max(0, x1 - x0), (uint32_t)std::max(0, y1 - y0)}};
+    }
+    vkCmdSetScissor(command, 0, 1, &clip);
+    vkCmdSetBlendConstants(command, state.blend_color);
+    vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, p.layout, 0, 1, &set, 0,
+                            nullptr);
+    for (unsigned i = 0; i < 16; i++)
+        if (p.inputs[i])
+            vkCmdBindVertexBuffers(command, i, 1, &vertex_handles[i], &offsets[i]);
+    vkCmdDraw(command, count, 1, 0, 0);
+    statistics.draws++;
+}
+void uniform(int location, int count, int components, const void *values, bool matrix)
+{
+    auto &p = context().programs[context().state.program];
+    if (location < 0 || location >= (int)p.uniforms.size())
+        return;
+    auto &u = p.uniforms[location];
+    if (u.sampler >= 0) {
+        u.unit = *(const int *)values;
+        return;
+    }
+    for (int i = 0; i < std::min(count, u.count); i++) {
+        auto *out = p.values.data() + u.offset + i * u.stride;
+        if (matrix)
+            for (int col = 0; col < components; col++)
+                memcpy(out + col * 16,
+                       (const uint8_t *)values +
+                           (i * components * components + col * components) * 4,
+                       components * 4);
+        else
+            memcpy(out, (const uint8_t *)values + i * components * 4, components * 4);
+    }
+}
+} // namespace moon

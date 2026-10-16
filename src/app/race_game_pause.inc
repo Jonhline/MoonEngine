@@ -146,10 +146,10 @@ static void pause_input(race_game *g)
     if (g->split) {
         plat_pad_state p;
         int connected = plat_input_poll(1, &p);
-        static const int buttons[6] = {GT4_PAD_START, GT4_PAD_UP,    GT4_PAD_DOWN,
-                                       GT4_PAD_LEFT,  GT4_PAD_RIGHT, GT4_PAD_CROSS};
-        static const int codes[6] = {0, 38, 40, 37, 39, 13};
-        for (int k = 0; k < 6; k++) {
+        static const int buttons[7] = {GT4_PAD_START, GT4_PAD_UP, GT4_PAD_DOWN,
+                                       GT4_PAD_LEFT, GT4_PAD_RIGHT, GT4_PAD_CROSS, GT4_PAD_CIRCLE};
+        static const int codes[7] = {0, 38, 40, 37, 39, 13, 13};
+        for (int k = 0; k < 7; k++) {
             int down = connected && (p.buttons & (1u << buttons[k]));
             if (down && !g->pause_keys_2p[k]) {
                 if (k == 0)
@@ -160,11 +160,11 @@ static void pause_input(race_game *g)
             g->pause_keys_2p[k] = down;
         }
     }
-    static const SDL_GameControllerButton button[6] = {
+    static const SDL_GameControllerButton button[7] = {
         SDL_CONTROLLER_BUTTON_START,      SDL_CONTROLLER_BUTTON_DPAD_UP,
         SDL_CONTROLLER_BUTTON_DPAD_DOWN,  SDL_CONTROLLER_BUTTON_DPAD_LEFT,
-        SDL_CONTROLLER_BUTTON_DPAD_RIGHT, SDL_CONTROLLER_BUTTON_A};
-    static const int code[6] = {0, 38, 40, 37, 39, 13};
+        SDL_CONTROLLER_BUTTON_DPAD_RIGHT, SDL_CONTROLLER_BUTTON_A, SDL_CONTROLLER_BUTTON_B};
+    static const int code[7] = {0, 38, 40, 37, 39, 13, 13};
     g->pad = plat_sdl_pad(0);
     SDL_JoystickID id = g->pad ? SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(g->pad)) : -1;
     if (!g->pad || id != g->pad_id) {
@@ -198,7 +198,7 @@ static void pause_input(race_game *g)
         }
         return;
     }
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 7; i++) {
         int down = SDL_GameControllerGetButton(g->pad, button[i]);
         if (down && !g->pause_keys[i]) {
             /* 003DF978 +0xd4 -> 003EBF40: the licence result receives
@@ -206,13 +206,13 @@ static void pause_input(race_game *g)
                without this route only keyboard keys reached Retry/Exit.
                Start remains the existing draw_result confirm shortcut. */
             if (g->result && g->last_prepared && license_exam(g)) {
-                if (i)
+                if (i && i != 6)
                     race_result_key(g->result, code[i]);
             } else if (i == 0)
                 pause_toggle(g);
             else if (g->pause)
                 race_pause_key(g->pause, code[i]);
-            else if (race_pitmenu_up(g->pitmenu)) {
+            else if (i != 6 && race_pitmenu_up(g->pitmenu)) {
                 race_pitmenu_key(g->pitmenu, code[i]);
                 g->pit_touched |= 1;
             }

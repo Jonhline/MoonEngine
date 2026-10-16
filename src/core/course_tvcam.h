@@ -23,6 +23,7 @@ typedef struct {
 typedef struct {
     float eye[3], target[3], roll, fov, sx, sy;
     int shot;
+    int cut; /* First frame of a newly selected shot, including reselection. */
     float pitch, heading;
 } gt4_tvcam_view;
 

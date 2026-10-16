@@ -1,5 +1,6 @@
 #include "platform/switch_file.h"
 #include "platform/windows_file.h"
+#include "platform/renderer_backend.h"
 #include "launcher.h"
 #include "platform/platform.h"
 #include "vol.h"
@@ -233,7 +234,13 @@ int launcher_options_load(launcher_options *o, const char *video, const char *sa
     char line[1024], key[64], payload[768];
     int n, type;
     if (f) {
-        while (fgets(line, sizeof line, f))
+        while (fgets(line, sizeof line, f)) {
+            if (!strncmp(line, "renderer=", 9)) {
+                line[strcspn(line, "\r\n")] = 0;
+                int backend = moon_renderer_parse(line + 9);
+                if (backend >= 0)
+                    o->renderer = backend;
+            }
             if (sscanf(line, "%63[^=]=%d", key, &n) == 2) {
                 if (!strcmp(key, "width") && n >= 640 && n <= 7680)
                     o->width = n;
@@ -252,6 +259,7 @@ int launcher_options_load(launcher_options *o, const char *video, const char *sa
                 else if (!strcmp(key, "aspect_ratio") && n >= 0 && n <= 1)
                     o->aspect = n;
             }
+        }
         fclose(f);
     }
     char path[LAUNCHER_PATH + 16];
@@ -324,7 +332,7 @@ int launcher_options_save(const launcher_options *o, const char *video, const ch
     if (o->width < 640 || o->width > 7680 || o->height < 480 || o->height > 4320 ||
         o->fullscreen < 0 || o->fullscreen > 1 || o->vsync < 0 || o->vsync > 1 || o->upscale < 0 ||
         o->upscale > 4 || o->filter < 0 || o->filter > 2 || o->text < 0 || o->text > 100 ||
-        o->aspect < 0 || o->aspect > 1)
+        o->aspect < 0 || o->aspect > 1 || o->renderer < 0 || o->renderer >= MOON_RENDERER_COUNT)
         return 0;
     for (int i = 0; i < 7; i++)
         if (o->volume[i] < 0 || o->volume[i] > 128)
@@ -347,9 +355,9 @@ int launcher_options_save(const launcher_options *o, const char *video, const ch
         ok =
             fprintf(
                 f,
-                "width=%d\nheight=%d\nfullscreen=%d\nvsync=%d\nupscaling=%d\nui_filter=%d\ntext_sharpness=%d\naspect_ratio=%d\n",
+                "width=%d\nheight=%d\nfullscreen=%d\nvsync=%d\nupscaling=%d\nui_filter=%d\ntext_sharpness=%d\naspect_ratio=%d\nrenderer=%s\n",
                 o->width, o->height, o->fullscreen, o->vsync, o->upscale, o->filter, o->text,
-                o->aspect) > 0;
+                o->aspect, moon_renderer_name(o->renderer)) > 0;
         if (fclose(f))
             ok = 0;
         if (!ok || !replace_file(tmp, video))

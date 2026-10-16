@@ -385,3 +385,13 @@ void plat_audio_fade_music(float seconds)
         seconds > 0 && seconds < 60 ? (unsigned)(seconds * 48000) : 1;
     SDL_UnlockAudioDevice(audio_device);
 }
+
+int plat_sdl_music_fading(void)
+{
+    if (!audio_device)
+        return 0;
+    SDL_LockAudioDevice(audio_device);
+    int fading = music_fade_left != 0;
+    SDL_UnlockAudioDevice(audio_device);
+    return fading;
+}

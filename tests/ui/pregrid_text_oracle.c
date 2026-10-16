@@ -99,12 +99,15 @@ int main(int argc, char **argv)
     gt4_vol *vol = gt4_vol_open(argv[2], &err);
     CHECK(vol);
     size_t bytes;
-    uint8_t *data = gt4_vol_read(vol, "/font/system.fnt", &bytes);
+    int race_font = getenv("GT4_HUD_FONT_ORACLE") != NULL;
+    uint8_t *data = gt4_vol_read(vol, race_font ? "/font/race.fnt" : "/font/system.fnt", &bytes);
     CHECK(data);
     const uint32_t bank = 0x1600000, context = 0x1700000, source = 0x1710000,
                    destination = 0x1720000;
     memcpy(c.ram + bank, data, bytes);
     const char *names[] = {"hm_16", "hn_14", "hb_24", "FC_26"};
+    if (race_font)
+        names[0] = "FC_48";
     unsigned pairs = 0, abbreviations = 0;
     int rounding = fegetround();
     fesetround(FE_TOWARDZERO);
@@ -116,7 +119,7 @@ int main(int argc, char **argv)
     CHECK(fabsf(getf(&c,context)-212.f/255.f)<.000001f && ee_r32(&c,context+0x24)==4);
     CHECK(ee_r32(&c,context+0x3c)==0 && getf(&c,context+0x40)==0 && getf(&c,context+0x4c)==1);
     CHECK(!strcmp((char *)c.ram+0x6991a8,"hn_14"));
-    for (unsigned f = 0; f < 4; f++) {
+    for (unsigned f = 0; f < (race_font ? 1u : 4u); f++) {
         CHECK(gt4_font_decode(data,bytes,names[f],&face)==1);
         uint32_t faceoff = 0;
         for (unsigned i = 0; i < (unsigned)(data[16] | data[17] << 8); i++) {
@@ -162,6 +165,10 @@ int main(int argc, char **argv)
                 CHECK(fabsf((100+step)-getf(&c,context+0x30))<0.00001f);
                 pairs++;
             }
+        if (race_font) {
+            gt4_font_free(&face);
+            continue;
+        }
         const char *texts[] = {"VW Karmann Ghia Coupe (Type-1) '68",
                                "Dodge RAM 1500 LARAMIE Hemi '04",
                                "Ford Ka '01",

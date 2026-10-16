@@ -1,5 +1,29 @@
 # Renderer
 
+## Native PC Vulkan renderer, 15 October 2026
+
+Vulkan now draws the shared 2D/3D renderer without creating an OpenGL context.
+The [backend guide](../VULKAN.md) describes resources, shader compilation,
+selection, tests and remaining limits. Corrected positive-viewport winding,
+transparent-border shadow sampling and float depth-only attachment mapping.
+Showroom and Tsukuba captures ran under the Khronos validation layer without
+reported API errors. The deterministic disc comparator recorded mean RGB
+differences 0.020918/255 (Tsukuba), 0.103857/255 (showroom), and 0 (Options).
+Synthetic tests also cover capture, clipped clears, resize and FSR.
+Grade P: host API addition and comparison, not new PS2 certification.
+Single-sample scenes and no anisotropy remain differences from the GL path;
+Linux runtime, broad replay/Photo coverage and performance work remain open.
+The earlier foundation-only entry below is superseded by this implementation.
+
+## PC backend foundation, 15 October 2026
+
+The PC product now displays Moon Engine. Executable/build names and preference
+paths retain OpenGT4 compatibility. The [backend guide](../VULKAN.md) describes
+selection and the Vulkan foundation. The GPU transfer/readback test ran on a
+GeForce GTX 1650. Nine focused tests passed, including deliberate negatives.
+This is a PC addition (P); Vulkan game drawing, presentation and image comparison
+are pending. No Switch graphics implementation was changed.
+
 ## Video backend (OpenGL 3.3)
 
 `src/platform/sdl/video_gl.c` owns the window and an OpenGL 3.3 core

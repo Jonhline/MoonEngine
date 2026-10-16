@@ -1641,12 +1641,24 @@ int main(void)
     slider->focus_index = 0;
     menu_send_input(m, MENU_RIGHT);
     CHECK(slider->focus_index==1 && slider_changes==1);
+    /* 002DF848: a slider with the layout's popup changes only after X opens
+       it (002DF738); closed, the arrows are the base widget's */
+    const char *popup_source = "SliderBar { popup digit {1} range [2] { digit {-5} digit {5} } }";
+    mp_node *popup_node = mp_parse(popup_source, strlen(popup_source), slider_error, sizeof slider_error);
+    CHECK(popup_node);
+    slider->src = popup_node;
+    menu_send_input(m, MENU_RIGHT);
+    set_focus(m, slider);
+    CHECK(slider->focus_index==1 && slider_changes==1 && !slider->option_open);
     menu_send_input(m, MENU_ACCEPT);
     CHECK(slider->option_open);
     menu_send_input(m, MENU_RIGHT);
     CHECK(slider->focus_index==2);
+    menu_send_input(m, MENU_UP);   /* 002DF640: a horizontal slider ignores Up, and keeps it */
+    CHECK(slider->focus_index==2 && slider->option_open && m->focus[0]==slider);
     menu_send_input(m, MENU_BACK);
     CHECK(!slider->option_open && slider->focus_index==1 && slider_changes==3);
+    slider->src = slider_node;
     slider->visible = 0;
 
     /* Fitting content must never slide horizontally when focusing its edge. */
