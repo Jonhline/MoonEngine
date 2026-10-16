@@ -92,7 +92,7 @@ static int race_init(ee_ctx *c, uint32_t conductor, char *msg, size_t len)
     return ok;
 }
 
-static int run(ee_ctx *c, uint32_t addr, char *msg, size_t len)
+int run(ee_ctx *c, uint32_t addr, char *msg, size_t len)
 {
     jmp_buf exit_jmp, *keep = c->exit_jmp;
     int rc;

@@ -2,7 +2,12 @@
 #include "../../src/core/menu.c"
 #include "ee.h"
 #include <fenv.h>
+#ifdef _WIN32
 #include <direct.h>
+#else
+#include <sys/stat.h>                 /* POSIX mkdir() for the _mkdir() calls below */
+#define _mkdir(p) mkdir((p), 0755)
+#endif
 #include "miniz.h"
 ee_fn recomp_lookup(uint32_t);
 #define CHECK(x)                                                                                   \
