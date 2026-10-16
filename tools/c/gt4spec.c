@@ -84,6 +84,39 @@ int main(int argc, char **argv)
         }
         return 0;
     }
+    if (!strcmp(argv[2], "--carname") && argc >= 4) {
+        /* CAR_NAME_american.dbt (GTDB, width 16) keyed by the car id; +0 name
+           string, +8 short-name string, +12 description id. --rows dumps the
+           first rows with their strings, to check the key scheme. */
+        size_t nl2 = 0, nn = 0, ns2 = 0;
+        uint8_t *lab = table(v, "GENERIC_CAR.idi", &nl2), *names = table(v, "CAR_NAME_american.dbt", &nn),
+                *strings = table(v, "american_StrDB.sdb", &ns2);
+        uint8_t r[64];
+        if (!lab || !names || !strings) { fprintf(stderr, "name tables missing\n"); return 1; }
+        if (!strcmp(argv[3], "--rows")) {
+            uint32_t c = u32(names + 8), w = u32(names + 12);
+            printf("CAR_NAME count %u width %u\n", c, w);
+            for (uint32_t i = 0; i < c && i < 24; i++) {
+                int n2 = gt4_specdb_row_at(names, nn, i, r, sizeof r);
+                if (n2 <= 0) break;
+                const char *name = gt4_specdb_string(strings, ns2, u32(r));
+                printf("  row %u id 0x%x  +0=%-5u \"%s\"  +8=%-5u +12=%u\n", i, u32(names + 16 + (size_t)i * 8),
+                       u32(r), name ? name : "?", u32(r + 8), u32(r + 12));
+            }
+            return 0;
+        }
+        uint32_t cid;
+        if (!gt4_specdb_label(lab, nl2, argv[3], &cid)) { fprintf(stderr, "unknown car %s\n", argv[3]); return 1; }
+        int w = gt4_specdb_row(names, nn, cid, r, sizeof r);
+        printf("%s id %u  CAR_NAME row %d bytes:\n", argv[3], cid, w);
+        dump("CAR_NAME", r, w, -1);
+        if (w == 16) {
+            const char *name = gt4_specdb_string(strings, ns2, u32(r));
+            const char *shortn = gt4_specdb_string(strings, ns2, u32(r + 8));
+            printf(" name=\"%s\" short=\"%s\" desc=%u\n", name ? name : "?", shortn ? shortn : "?", u32(r + 12));
+        }
+        return 0;
+    }
     labels = table(v, "GENERIC_CAR.idi", &nl);
     gc = table(v, "GENERIC_CAR.dbt", &ng);
     dp = table(v, "DEFAULT_PARTS.dbt", &nd);

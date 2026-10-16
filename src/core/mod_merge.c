@@ -123,7 +123,12 @@ static uint8_t *merge_offset_table(const uint8_t *d, size_t dn, const uint8_t *m
     for (uint32_t i = 0; i < mc; i++) {
         uint32_t off = le32(m + 16 + (size_t)i * entry_size);
         size_t at = 16 + (dc + (size_t)i) * entry_size;
-        put32(out + at, (uint32_t)(pool_d + (off < base_m ? 0 : off - base_m)));
+        /* A mod entry's offset is pool-relative (0 = the pool's first string),
+           but tolerate an absolute offset too: an offset at or past the mod's
+           own entry table is measured from the file's start. Both map into the
+           merged pool, which holds the disc's pool first. */
+        uint32_t rel = off < base_m ? off : (uint32_t)(off - base_m);
+        put32(out + at, (uint32_t)(pool_d + rel));
         if (entry_size == 8) put32(out + at + 4, le32(m + 20 + (size_t)i * 8));
     }
     if (entry_size == 8)                     /* label -> id: an id may not be reused (docs/NEW-CARS.md §2) */

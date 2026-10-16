@@ -438,6 +438,21 @@ add_executable(gt4car_survey tools/c/gt4car_survey.c src/platform/sdl/car_model.
 target_include_directories(gt4car_survey PRIVATE src/platform/sdl)
 target_link_libraries(gt4car_survey PRIVATE ${MOON_CORE_STACK} miniz)
 
+# The mod SDK: a car/course gets its own rows, and a .glb becomes a CAR4 model.
+add_executable(gt4table_dump tools/c/gt4table_dump.c)
+target_link_libraries(gt4table_dump PRIVATE ${MOON_CORE_STACK})
+add_executable(moonmod_addcar tools/c/moonmod_addcar.c)
+target_link_libraries(moonmod_addcar PRIVATE ${MOON_CORE_STACK})
+add_executable(moonmod_addtrack tools/c/moonmod_addtrack.c)
+target_link_libraries(moonmod_addtrack PRIVATE ${MOON_CORE_STACK})
+add_executable(gt4model_write tools/c/gt4model_write.c)
+target_link_libraries(gt4model_write PRIVATE ${MOON_CORE_STACK})
+add_executable(moonmod_glbcar tools/c/moonmod_glbcar.c)
+target_link_libraries(moonmod_glbcar PRIVATE ${MOON_CORE_STACK})
+
+add_executable(moonmod_img tools/c/moonmod_img.c)
+target_link_libraries(moonmod_img PRIVATE ${MOON_CORE_STACK})
+
 add_executable(gt4hdui tools/c/gt4hdui.c)
 target_link_libraries(gt4hdui PRIVATE ${MOON_CORE_STACK} miniz)
 
