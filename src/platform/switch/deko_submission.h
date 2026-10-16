@@ -1,6 +1,6 @@
 /* Switch work budget, not a claimed driver limit or an original-game value. */
-#ifndef OPENGT4_DEKO_SUBMISSION_H
-#define OPENGT4_DEKO_SUBMISSION_H
+#ifndef MOON_DEKO_SUBMISSION_H
+#define MOON_DEKO_SUBMISSION_H
 #include <deko3d.h>
 #include <stddef.h>
 

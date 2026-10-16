@@ -1,5 +1,5 @@
-#ifndef OPENGT4_RTEXT_H
-#define OPENGT4_RTEXT_H
+#ifndef MOON_RTEXT_H
+#define MOON_RTEXT_H
 #include <stddef.h>
 #include <stdint.h>
 typedef struct {

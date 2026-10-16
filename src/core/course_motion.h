@@ -6,8 +6,8 @@
  * the car), as the start camera (CameraPathanim, func_0037D620) plays
  * them through func_003EBCE8 / func_0042B440.
  */
-#ifndef OPENGT4_COURSE_MOTION_H
-#define OPENGT4_COURSE_MOTION_H
+#ifndef MOON_COURSE_MOTION_H
+#define MOON_COURSE_MOTION_H
 
 #include <stddef.h>
 #include <stdint.h>

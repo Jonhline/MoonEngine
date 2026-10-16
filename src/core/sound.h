@@ -1,5 +1,5 @@
-#ifndef OPENGT4_SOUND_H
-#define OPENGT4_SOUND_H
+#ifndef MOON_SOUND_H
+#define MOON_SOUND_H
 #include "vol.h"
 #include <stdint.h>
 typedef struct gt4_sound gt4_sound;

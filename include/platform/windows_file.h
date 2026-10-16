@@ -1,5 +1,5 @@
-#ifndef OPENGT4_WINDOWS_FILE_H
-#define OPENGT4_WINDOWS_FILE_H
+#ifndef MOON_WINDOWS_FILE_H
+#define MOON_WINDOWS_FILE_H
 
 #ifdef _WIN32
 #include <windows.h>

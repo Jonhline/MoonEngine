@@ -1,6 +1,6 @@
 /* Full-target GPU composition vertices, independent of presentation aspect. */
-#ifndef OPENGT4_DEKO_COMPOSITION_H
-#define OPENGT4_DEKO_COMPOSITION_H
+#ifndef MOON_DEKO_COMPOSITION_H
+#define MOON_DEKO_COMPOSITION_H
 #include <string.h>
 
 typedef struct nd_ui_vertex {

@@ -34,7 +34,7 @@ fixture = root / 'headless-eeMemory.bin'
 fixture.write_bytes(ram)
 # Match the native application's presentation boundary; no HLE expansion.
 env = {key: value for key, value in os.environ.items()
-       if not key.startswith('PHYS_') and key != 'OPENGT4_COVERAGE'}
+       if not key.startswith('PHYS_') and key != 'MOON_COVERAGE'}
 env['PHYS_HEADLESS'] = '1'
 frames = 600  # bounded regression length, not a game timing constant
 for name, native in (('original', []), ('native', ['all'])):

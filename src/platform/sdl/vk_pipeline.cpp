@@ -305,17 +305,19 @@ VkPipeline pipeline(Context &c, Program &p, VkRenderPass pass, GLenum topology)
 {
     auto &s = c.state;
     auto &vao = c.arrays[s.vao];
-    std::vector<uint64_t> key = {(uint64_t)pass, topology,     s.blend,     s.depth,      s.cull,
-                                 s.depth_write,  s.depth_func, s.cull_face, s.front_face, s.src_rgb,
-                                 s.dst_rgb,      s.src_a,      s.dst_a,     s.eq_rgb,     s.eq_a};
-    for (bool write : s.color_write)
-        key.push_back(write);
-    for (int i = 0; i < 16; i++)
+    /* Fixed shader input slots avoid allocating a vector for every draw. */
+    std::array<uint64_t, 67> key = {(uint64_t)pass, topology,      s.blend,      s.depth,
+                                    s.cull,         s.depth_write, s.depth_func, s.cull_face,
+                                    s.front_face,   s.src_rgb,     s.dst_rgb,    s.src_a,
+                                    s.dst_a,        s.eq_rgb,      s.eq_a};
+    for (unsigned i = 0; i < 4; i++)
+        key[15 + i] = s.color_write[i];
+    for (unsigned i = 0; i < 16; i++)
         if (p.inputs[i]) {
             auto &a = vao.attributes[i];
-            key.push_back(a.enabled);
-            key.push_back(attribute_format(a));
-            key.push_back(a.stride);
+            key[19 + i * 3] = a.enabled;
+            key[20 + i * 3] = attribute_format(a);
+            key[21 + i * 3] = a.stride;
         }
     auto found = p.pipelines.find(key);
     if (found != p.pipelines.end())
@@ -412,6 +414,84 @@ VkPipeline pipeline(Context &c, Program &p, VkRenderPass pass, GLenum topology)
     p.pipelines[key] = result;
     return result;
 }
+VkDescriptorSet Context::draw_descriptors(const Program &p)
+{
+    std::array<VkDescriptorImageInfo, 8> images{};
+    unsigned sampler_count = 0;
+    for (auto &u : p.uniforms)
+        if (u.sampler >= 0) {
+            sampler_count = std::max(sampler_count, (unsigned)u.sampler + 1);
+            unsigned texture = u.unit >= 0 && u.unit < 16 ? state.textures[u.unit] : 0;
+            auto found = textures.find(texture);
+            auto *im = found != textures.end() && found->second ? found->second.get() : white.get();
+            images[u.sampler] = {sampler(*im), im->view, VK_IMAGE_LAYOUT_GENERAL};
+        }
+    /* Descriptor contents depend on textures and uniform range, not on the
+       draw's uniform slice. Dynamic offsets keep each draw's values distinct. */
+    std::array<uint64_t, 17> key{};
+    key[0] = p.values.size();
+    for (unsigned i = 0; i < sampler_count; i++) {
+        key[1 + i * 2] = (uint64_t)images[i].sampler;
+        key[2 + i * 2] = (uint64_t)images[i].imageView;
+    }
+    if (!uncached_descriptors) {
+        auto found = draw_sets.find(key);
+        if (found != draw_sets.end())
+            return found->second;
+    }
+    VkDescriptorSetAllocateInfo allocation{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    allocation.descriptorPool = descriptor_pool;
+    allocation.descriptorSetCount = 1;
+    allocation.pSetLayouts = &descriptors;
+    VkDescriptorSet set;
+    check(vkAllocateDescriptorSets(device, &allocation, &set), "vkAllocateDescriptorSets");
+    descriptor_count++;
+    VkDescriptorBufferInfo uniform_buffer{arena.handle, 0, p.values.size()};
+    std::array<VkWriteDescriptorSet, 9> writes{};
+    /* Unused shader bindings need no descriptor write. Course materials use
+       only a subset of the shared layout's eight texture slots. */
+    for (unsigned i = 0; i <= sampler_count; i++) {
+        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[i].dstSet = set;
+        writes[i].dstBinding = i;
+        writes[i].descriptorCount = 1;
+        writes[i].descriptorType = i ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+                                     : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+        if (i)
+            writes[i].pImageInfo = &images[i - 1];
+        else
+            writes[i].pBufferInfo = &uniform_buffer;
+    }
+    vkUpdateDescriptorSets(device, sampler_count + 1, writes.data(), 0, nullptr);
+    statistics.descriptor_updates++;
+    if (!uncached_descriptors)
+        draw_sets.emplace(key, set);
+    return set;
+}
+VkFramebuffer Context::target_framebuffer(Image &color, Image *depth, VkRenderPass pass)
+{
+    std::array<VkImageView, 2> key = {color.attachment, depth ? depth->attachment : VK_NULL_HANDLE};
+    if (!transient_framebuffers) {
+        auto found = target_cache.find(key);
+        if (found != target_cache.end())
+            return found->second;
+    }
+    VkFramebufferCreateInfo info{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+    info.renderPass = pass;
+    info.attachmentCount = depth ? 2 : 1;
+    info.pAttachments = key.data();
+    info.width = color.width;
+    info.height = color.height;
+    info.layers = 1;
+    VkFramebuffer framebuffer;
+    check(vkCreateFramebuffer(device, &info, nullptr, &framebuffer), "vkCreateFramebuffer");
+    statistics.framebuffer_creations++;
+    if (transient_framebuffers)
+        transient_targets.push_back(framebuffer);
+    else
+        target_cache.emplace(key, framebuffer);
+    return framebuffer;
+}
 void Context::draw(GLenum topology, int first, int count)
 {
     if (count < 1)
@@ -439,18 +519,23 @@ void Context::draw(GLenum topology, int first, int count)
             resident[i] = shared < 0 ? vertex_buffer(vao.attributes[i].buffer) : resident[shared];
         }
     size_t bytes = p.values.size() + 512;
-    std::map<std::pair<unsigned, size_t>, bool> reserved;
+    std::array<size_t, 16> strides{};
+    std::array<int, 16> shared;
+    shared.fill(-1);
     for (int i = 0; i < 16; i++)
         if (p.inputs[i]) {
             auto &a = vao.attributes[i];
             size_t stride = a.stride ? a.stride : a.size * (a.type == GL_FLOAT ? 4 : 1);
-            /* Interleaved attributes share one upload below. Reserving the
-               vertex range per attribute wastes staging capacity and can
-               force unnecessary CPU/GPU fence waits. */
+            strides[i] = stride;
+            for (int j = 0; j < i; j++)
+                if (p.inputs[j] && vao.attributes[j].enabled &&
+                    a.buffer == vao.attributes[j].buffer && stride == strides[j]) {
+                    shared[i] = j;
+                    break;
+                }
             if (!a.enabled)
                 bytes += 16;
-            else if (!resident[i] &&
-                     reserved.emplace(std::make_pair(a.buffer, stride), true).second)
+            else if (!resident[i] && shared[i] < 0)
                 bytes += (size_t)count * stride;
             bytes += 16;
         }
@@ -461,7 +546,6 @@ void Context::draw(GLenum topology, int first, int count)
     std::array<VkDeviceSize, 16> offsets{};
     std::array<VkBuffer, 16> vertex_handles{};
     vertex_handles.fill(arena.handle);
-    std::map<std::pair<unsigned, size_t>, size_t> copied;
     for (unsigned i = 0; i < 16; i++)
         if (p.inputs[i]) {
             auto &a = vao.attributes[i];
@@ -479,18 +563,16 @@ void Context::draw(GLenum topology, int first, int count)
                     offsets[i] = start + a.offset;
                     continue;
                 }
-                auto key = std::make_pair(a.buffer, stride);
-                auto previous = copied.find(key);
-                if (previous != copied.end())
-                    offsets[i] = previous->second + a.offset;
-                else {
+                if (shared[i] >= 0) {
+                    unsigned previous = (unsigned)shared[i];
+                    offsets[i] = offsets[previous] - vao.attributes[previous].offset + a.offset;
+                } else {
                     size_t size = std::min((size_t)count * stride,
                                            source.size() - std::min(start, source.size()));
                     if (start > source.size())
                         throw std::runtime_error("Vulkan vertex buffer bounds");
                     memcpy((uint8_t *)arena.mapped + vertex_offset, source.data() + start, size);
                     statistics.vertex_upload_bytes += size;
-                    copied[key] = vertex_offset;
                     offsets[i] = vertex_offset + a.offset;
                     vertex_offset += aligned((int)size, 16);
                 }
@@ -500,40 +582,7 @@ void Context::draw(GLenum topology, int first, int count)
                 vertex_offset += 16;
             }
         }
-    VkDescriptorSetAllocateInfo allocation{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-    allocation.descriptorPool = descriptor_pool;
-    allocation.descriptorSetCount = 1;
-    allocation.pSetLayouts = &descriptors;
-    VkDescriptorSet set;
-    check(vkAllocateDescriptorSets(device, &allocation, &set), "vkAllocateDescriptorSets");
-    descriptor_count++;
-    VkDescriptorBufferInfo uniform_buffer{arena.handle, offset, p.values.size()};
-    std::array<VkDescriptorImageInfo, 8> images{};
-    unsigned sampler_count = 0;
-    for (auto &u : p.uniforms)
-        if (u.sampler >= 0) {
-            sampler_count = std::max(sampler_count, (unsigned)u.sampler + 1);
-            unsigned texture = u.unit >= 0 && u.unit < 16 ? state.textures[u.unit] : 0;
-            auto found = textures.find(texture);
-            auto *im = found != textures.end() && found->second ? found->second.get() : white.get();
-            images[u.sampler] = {sampler(*im), im->view, VK_IMAGE_LAYOUT_GENERAL};
-        }
-    std::array<VkWriteDescriptorSet, 9> writes{};
-    /* Unused shader bindings need no descriptor write. Course materials use
-       only a subset of the shared layout's eight texture slots. */
-    for (unsigned i = 0; i <= sampler_count; i++) {
-        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[i].dstSet = set;
-        writes[i].dstBinding = i;
-        writes[i].descriptorCount = 1;
-        writes[i].descriptorType =
-            i ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        if (i)
-            writes[i].pImageInfo = &images[i - 1];
-        else
-            writes[i].pBufferInfo = &uniform_buffer;
-    }
-    vkUpdateDescriptorSets(device, sampler_count + 1, writes.data(), 0, nullptr);
+    VkDescriptorSet set = draw_descriptors(p);
     VkRenderPass pass = render_pass(target->format, z ? z->format : VK_FORMAT_UNDEFINED);
     VkImageView views[] = {target->attachment, z ? z->attachment : VK_NULL_HANDLE};
     /* Attachment ordering and blending are already ordered within a subpass.
@@ -541,16 +590,7 @@ void Context::draw(GLenum topology, int first, int count)
        every course material. Transfers and clears end the pass via barrier(). */
     if (pass_color != views[0] || pass_depth != views[1]) {
         barrier();
-        VkFramebufferCreateInfo framebuffer{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-        framebuffer.renderPass = pass;
-        framebuffer.attachmentCount = z ? 2 : 1;
-        framebuffer.pAttachments = views;
-        framebuffer.width = target->width;
-        framebuffer.height = target->height;
-        framebuffer.layers = 1;
-        VkFramebuffer fb;
-        check(vkCreateFramebuffer(device, &framebuffer, nullptr, &fb), "vkCreateFramebuffer");
-        transient_targets.push_back(fb);
+        VkFramebuffer fb = target_framebuffer(*target, z, pass);
         VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
         begin.renderPass = pass;
         begin.framebuffer = fb;
@@ -577,11 +617,15 @@ void Context::draw(GLenum topology, int first, int count)
     }
     vkCmdSetScissor(command, 0, 1, &clip);
     vkCmdSetBlendConstants(command, state.blend_color);
-    vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, p.layout, 0, 1, &set, 0,
-                            nullptr);
+    uint32_t dynamic_offset = (uint32_t)offset;
+    vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, p.layout, 0, 1, &set, 1,
+                            &dynamic_offset);
+    unsigned binding_count = 0;
     for (unsigned i = 0; i < 16; i++)
         if (p.inputs[i])
-            vkCmdBindVertexBuffers(command, i, 1, &vertex_handles[i], &offsets[i]);
+            binding_count = i + 1;
+    if (binding_count)
+        vkCmdBindVertexBuffers(command, 0, binding_count, vertex_handles.data(), offsets.data());
     vkCmdDraw(command, count, 1, 0, 0);
     statistics.draws++;
 }

@@ -11,12 +11,12 @@ int main(int argc,char **argv)
 {
     if(argc>2 && !strcmp(argv[1],"--network")) {
 #ifdef _WIN32
-        const char *url=getenv("OPENGT4_TEST_UPDATE_URL"),*token=getenv("OPENGT4_TEST_UPDATE_TOKEN");
+        const char *url=getenv("MOON_TEST_UPDATE_URL"),*token=getenv("MOON_TEST_UPDATE_TOKEN");
         launcher_update_job *j=launcher_update_start(url,token,NULL);CHECK(j);
         launcher_update_manifest m;int r=0;
         for(int i=0;i<300 && !(r=launcher_update_poll(j,&m,NULL));i++) Sleep(50);
         if(!strcmp(argv[2],"hidden")) {CHECK(r==-1);launcher_update_release(j);puts("PASS no update offer on equal/error response");return 0;}
-        CHECK(r==1 && launcher_update_newer(m.version,OPENGT4_VERSION));launcher_update_release(j);
+        CHECK(r==1 && launcher_update_newer(m.version,MOON_VERSION));launcher_update_release(j);
         j=launcher_update_start(url,token,&m);CHECK(j);
         const wchar_t *path=NULL;r=0;
         for(int i=0;i<600 && !(r=launcher_update_poll(j,NULL,&path));i++) Sleep(50);
@@ -35,9 +35,9 @@ int main(int argc,char **argv)
     CHECK(!launcher_update_newer("0.2.9","0.3.0"));CHECK(launcher_update_newer("1.0.0","0.99.99"));
     CHECK(!launcher_update_newer("0.03.0","0.2.0"));CHECK(!launcher_update_newer("1.0.0.exe","0.2.0"));
     launcher_update_manifest m;
-    const char *valid="{\"version\":\"0.3.0\",\"setup\":\"OpenGT4-0.3.0-setup.exe\",\"sha256\":\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\",\"size\":3,\"notes\":\"Test\\nupdate\"}";
+    const char *valid="{\"version\":\"0.3.0\",\"setup\":\"MoonEngine-0.3.0-setup.exe\",\"sha256\":\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\",\"size\":3,\"notes\":\"Test\\nupdate\"}";
     CHECK(launcher_update_parse(valid,&m) && m.size==3 && !strcmp(m.notes,"Test\nupdate"));
-    char damaged[4096];strcpy(damaged,valid);char *p=strstr(damaged,"OpenGT4");p[0]='/' ;CHECK(!launcher_update_parse(damaged,&m));
+    char damaged[4096];strcpy(damaged,valid);char *p=strstr(damaged,"MoonEngine");p[0]='/' ;CHECK(!launcher_update_parse(damaged,&m));
     CHECK(!launcher_update_parse("{}",&m));CHECK(!launcher_update_parse("{\"version\":\"0.3.0\",}",&m));
     CHECK(!launcher_update_parse("{\"notes\":\"\\u\"}",&m));
     CHECK(!launcher_update_parse("{\"size\":999999999999999999999999}",&m));

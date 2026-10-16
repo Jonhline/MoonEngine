@@ -888,7 +888,7 @@ int main(int argc, char **argv)
     c.exit_jmp = &exit_jmp;
 
     phys_natives_select(argc > 6 ? argv[6] : NULL);
-    if (getenv("OPENGT4_COVERAGE"))
+    if (getenv("MOON_COVERAGE"))
         phys_coverage = calloc(0x00520000u / 4, sizeof *phys_coverage);
     if (getenv("PHYS_INPUT_SEED")) {
         input_state = (uint32_t)strtoul(getenv("PHYS_INPUT_SEED"), NULL, 0);
@@ -896,7 +896,7 @@ int main(int argc, char **argv)
     }
     phys_natives_install(&c);
 
-    if (getenv("OPENGT4_MATHCHECK")) {
+    if (getenv("MOON_MATHCHECK")) {
         /* Original vs rewritten float functions over a sweep of inputs. */
         static const struct {
             uint32_t addr;
@@ -1091,7 +1091,7 @@ int main(int argc, char **argv)
         fwrite(c.ram, 1, EE_RAM_SIZE, f);
         fclose(f);
     }
-    if (phys_coverage && (f = fopen(getenv("OPENGT4_COVERAGE"), "w")) != NULL) {
+    if (phys_coverage && (f = fopen(getenv("MOON_COVERAGE"), "w")) != NULL) {
         for (uint32_t k = 0; k < 0x00520000u / 4; k++)
             if (phys_coverage[k])
                 fprintf(f, "0x%06x %u\n", 0x00100000u + k * 4, phys_coverage[k]);

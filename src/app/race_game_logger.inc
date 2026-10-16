@@ -15,7 +15,7 @@ static void logger_sample(race_game *g)
     }
     fesetenv(&env);
     if (gt4_race_run_finished(g->run)) {
-        if (getenv("OPENGT4_LICENSE_LOGGER_LOG"))
+        if (getenv("MOON_LICENSE_LOGGER_LOG"))
             fprintf(stderr, "logger: finished at %u points\n", g->license_log.count);
         g->license_log_collecting = 0;
         /* 00122D38: each entry's laps added up; A: the race's clock
@@ -25,7 +25,7 @@ static void logger_sample(race_game *g)
             if (gt4_race_run_hud(g->run, i, &hud) && hud.line_time != 0x157529FFu)
                 g->log_time[i] = hud.line_time;
         }
-        if (getenv("OPENGT4_LICENSE_LOGGER_LOG"))
+        if (getenv("MOON_LICENSE_LOGGER_LOG"))
             fprintf(stderr, "licence logger: points=%u distance=%.6f max-speed=%.6f\n",
                     g->license_log.count, gt4_logger_length(&g->license_log),
                     g->license_log.maximum_speed);
@@ -98,7 +98,7 @@ void race_game_logger_analyze_end(race_game *g, int track, int ok)
         g->log_time[1] = u;
     }
     race_game_return_pregrid(g);
-    if (getenv("OPENGT4_LICENSE_LOGGER_LOG"))
+    if (getenv("MOON_LICENSE_LOGGER_LOG"))
         fprintf(stderr, "logger analysis%s: A %u points, B %u points\n", ok ? "" : " stopped",
                 g->license_log.count, g->log_b.count);
 }
@@ -245,7 +245,7 @@ int race_game_logger_source(const race_game *g, menu_logger_source *s)
     s->track[0] = &g->license_log;
     if (g->log_b.count)
         s->track[1] = &g->log_b;
-    if (getenv("OPENGT4_LICENSE_LOGGER_LOG"))
+    if (getenv("MOON_LICENSE_LOGGER_LOG"))
         fprintf(stderr, "logger source: A %u points %.1f m, B %u points, collecting %d\n",
                 g->license_log.count, gt4_logger_length(&g->license_log), g->log_b.count,
                 g->license_log_collecting);
@@ -277,7 +277,7 @@ int race_game_logger_source(const race_game *g, menu_logger_source *s)
             s->power[i] = g->logger_loaded_power[i];
         }
     snprintf(s->course, sizeof s->course, "%s", g->last_course);
-    if (getenv("OPENGT4_LICENSE_LOGGER_LOG"))
+    if (getenv("MOON_LICENSE_LOGGER_LOG"))
         fprintf(stderr, "logger source: cars '%s' %d / '%s' %d, times %u / %u\n", s->car[0],
                 s->power[0], s->car[1], s->power[1], s->time[0], s->time[1]);
     /* logger.ad setLoggerInfo: RaceModeName's key and the number after

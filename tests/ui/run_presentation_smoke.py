@@ -13,7 +13,7 @@ cases=[
     ("paint_wrap",base+",right",11,"car color=Capri-Blau  (1/11)"),
 ]
 for name,inputs,color,expected in cases:
-    result=subprocess.run([str(Path("build/Release/opengt4.exe").resolve()),str(args.disc.resolve()),"arcade","TopRoot","--preview-courses","--input",inputs,"--input-interval","0.06","--color",str(color),"--shot",str(out/(name+".png"))],capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=30)
+    result=subprocess.run([str(Path("build/Release/MoonEngine.exe").resolve()),str(args.disc.resolve()),"arcade","TopRoot","--preview-courses","--input",inputs,"--input-interval","0.06","--color",str(color),"--shot",str(out/(name+".png"))],capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=30)
     log=result.stdout+result.stderr;(out/(name+".log")).write_text(log,encoding="utf-8")
     assert result.returncode==0 and expected in log and "timed out" not in log,log
     if "paint" in name or name=="rapid_cars":assert "showroom: ka_01 model=fdeu0006" in log,log

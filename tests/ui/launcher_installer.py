@@ -9,23 +9,23 @@ import time
 ROOT=Path(__file__).resolve().parents[2]
 p=argparse.ArgumentParser()
 p.add_argument("version")
-p.add_argument("--config",type=Path,default=Path(os.environ["APPDATA"])/"OpenGT4/publish.ini")
+p.add_argument("--config",type=Path,default=Path(os.environ["APPDATA"])/"MoonEngine/publish.ini")
 a=p.parse_args()
 assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+",a.version)
 root=ROOT/"build/launcher-install-proof";root.mkdir(parents=True,exist_ok=True)
 install=root/"installed";install.mkdir(exist_ok=True)
 marker=install/"existing-save.fixture";marker.write_bytes(b"keep this save")
-s=(ROOT/"tools/installer/opengt4.iss").read_text()
-s=s.replace("AppId={{6B0E5C2A-4F1D-4B8E-9A47-0D3C5E2F7A91}","AppId=OpenGT4UpdaterIsolatedTest")
-s=s.replace("AppName=OpenGT4","AppName=OpenGT4 Updater Test").replace("DefaultGroupName=OpenGT4","DefaultGroupName=OpenGT4 Updater Test")
-s=s.replace('#define Source "..\\..\\dist\\OpenGT4-" + Version + "-win64"', '#define Source "'+str(ROOT/"dist"/("OpenGT4-"+a.version+"-win64"))+'"')
-s=s.replace("SetupIconFile=..\\..\\res\\opengt4.ico","SetupIconFile="+str(ROOT/"res/opengt4.ico"))
+s=(ROOT/"tools/installer/moonengine.iss").read_text()
+s=s.replace("AppId={{6B0E5C2A-4F1D-4B8E-9A47-0D3C5E2F7A91}","AppId=MoonEngineUpdaterIsolatedTest")
+s=s.replace("AppName=Moon Engine","AppName=Moon Engine Updater Test").replace("DefaultGroupName=Moon Engine","DefaultGroupName=Moon Engine Updater Test")
+s=s.replace('#define Source "..\\..\\dist\\MoonEngine-" + Version + "-win64"', '#define Source "'+str(ROOT/"dist"/("MoonEngine-"+a.version+"-win64"))+'"')
+s=s.replace("SetupIconFile=..\\..\\res\\moonengine.ico","SetupIconFile="+str(ROOT/"res/moonengine.ico"))
 # Same Files/Run; a separate AppId and no shortcuts isolate the test.
 s=s[:s.index("[Icons]")]+s[s.index("[Run]"):]
 script=root/"test.iss";script.write_text(s)
 c=configparser.ConfigParser(interpolation=None);c.read(a.config,encoding="utf-8")
 subprocess.run([c["package"]["iscc"],"/DVersion="+a.version,"/O"+str(root),"/Ftest-setup",str(script)],check=True,stdout=subprocess.DEVNULL)
-exe=install/"opengt4.exe"
+exe=install/"MoonEngine.exe"
 ps="C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
 query="Get-CimInstance Win32_Process | Where-Object {$_.ExecutablePath -eq '"+str(exe).replace("'","''")+"'}"
 def close_test_game():

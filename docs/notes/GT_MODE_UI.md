@@ -3,7 +3,7 @@
 This work is restricted to native menu presentation. Physics and race
 simulation are outside its scope.
 
-Run `build/Release/opengt4.exe "<disc.iso>" gtmode` to open the map directly.
+Run `build/Release/MoonEngine.exe "<disc.iso>" gtmode` to open the map directly.
 Arrows move the focus, Enter opens a page, Escape returns. The original Arcade
 entry still encounters the unimplemented save check; use this direct preview.
 An optional fourth argument selects a debug screen, such as `LicenseRoot`.
@@ -269,7 +269,7 @@ limitations outside these rectangle/stock tests.
 
 ### Continuação GT Auto: rodas no modelo (2026-10-05)
 
-`CarFace.wheel` passa o label original à apresentação; loader lê `/wheel/menu/<label>` como 00454270 e substitui os aros sob os transforms já existentes. `car_garage` recupera a roda normal do corpo +0x468. Nenhuma mudança na seleção/modelos da corrida. Nota A: sem comparação do original para o encaixe customizado, motions/câmera do GT Auto pendentes. Captura da loja `build/gt_auto_custom_wheel2.png` evidencia carro fora de quadro; não aceitar essa tela como concluída. Probe `build/wheel_changed.png` isola o modelo. Teste contrato/negativo: OPENGT4_PROBE_TEST_WHEEL / OPENGT4_PROBE_WHEEL_NEGATIVE no showroom_probe, quatro carros. Spoiler visível, câmbio automático, avisos e fluxo completo compra/save continuam pendentes.
+`CarFace.wheel` passa o label original à apresentação; loader lê `/wheel/menu/<label>` como 00454270 e substitui os aros sob os transforms já existentes. `car_garage` recupera a roda normal do corpo +0x468. Nenhuma mudança na seleção/modelos da corrida. Nota A: sem comparação do original para o encaixe customizado, motions/câmera do GT Auto pendentes. Captura da loja `build/gt_auto_custom_wheel2.png` evidencia carro fora de quadro; não aceitar essa tela como concluída. Probe `build/wheel_changed.png` isola o modelo. Teste contrato/negativo: MOON_PROBE_TEST_WHEEL / MOON_PROBE_WHEEL_NEGATIVE no showroom_probe, quatro carros. Spoiler visível, câmbio automático, avisos e fluxo completo compra/save continuam pendentes.
 
 ### Continuação GT Auto: câmera do disco (2026-10-05)
 
@@ -277,11 +277,11 @@ loadModelOptionMotion (001391D0 -> 0013A678) lê os arquivos Mot1 dos GPBs, com 
 
 ### Continuação GT Auto: asa visível (2026-10-05)
 
-Modelo externo `/wing/menu/<label>` carregado como 00454378. Montagem 004533A8: CarInfo+0x50 -> geometry+0xd0 posição e geometry+0xdc*0.5 escala uniforme. Callback 47 seleciona branch de suporte 0/1 conforme flag instalada, como 00453950/00453488. CarFace.wing recarrega apresentação; car_garage recupera WING da folha ativa +0x100. p000 remove; corrida mantém seus loaders existentes. Contrato validado em BEAT, Ka, 120i e Focus RS com OPENGT4_PROBE_TEST_WING, negativo OPENGT4_PROBE_WING_NEGATIVE falha (exit1). Capturas build/wing_probe.png e build/gt_auto_wing2.png. A: comparação PCSX2, animações do GT Auto e compra/save completos pendentes.
+Modelo externo `/wing/menu/<label>` carregado como 00454378. Montagem 004533A8: CarInfo+0x50 -> geometry+0xd0 posição e geometry+0xdc*0.5 escala uniforme. Callback 47 seleciona branch de suporte 0/1 conforme flag instalada, como 00453950/00453488. CarFace.wing recarrega apresentação; car_garage recupera WING da folha ativa +0x100. p000 remove; corrida mantém seus loaders existentes. Contrato validado em BEAT, Ka, 120i e Focus RS com MOON_PROBE_TEST_WING, negativo MOON_PROBE_WING_NEGATIVE falha (exit1). Capturas build/wing_probe.png e build/gt_auto_wing2.png. A: comparação PCSX2, animações do GT Auto e compra/save completos pendentes.
 
 ### GT Auto: eventos de compra (05/10/2026)
 
-`putBuyWheelEvent` e `putBuyWingEvent` agora seguem o calendário binário original em vez do registro genérico: tipos 6/7, chaves nos namespaces 29/30, categoria/detalhe truncados para byte, avanço de um dia. Fontes: 0042F3C0, 0042F408, 004409D8, 00440B18. Nota A: bytes reservados do histórico de pilha são zerados na ponte Adhoc; o helper preserva os bytes recebidos. Teste `gtmode_purchase_menu ISO --shop-catalog` passou incluindo cinco eventos/dias; negativo GT4_CUSTOM_EVENT_NEGATIVE falhou na chave alterada. Build opengt4 passou e 23/23 CTest. Continua pendente validar compra/cancelamento/reabertura do save pelas telas e os avisos de tuning no mapa.
+`putBuyWheelEvent` e `putBuyWingEvent` agora seguem o calendário binário original em vez do registro genérico: tipos 6/7, chaves nos namespaces 29/30, categoria/detalhe truncados para byte, avanço de um dia. Fontes: 0042F3C0, 0042F408, 004409D8, 00440B18. Nota A: bytes reservados do histórico de pilha são zerados na ponte Adhoc; o helper preserva os bytes recebidos. Teste `gtmode_purchase_menu ISO --shop-catalog` passou incluindo cinco eventos/dias; negativo GT4_CUSTOM_EVENT_NEGATIVE falhou na chave alterada. Build moonengine passou e 23/23 CTest. Continua pendente validar compra/cancelamento/reabertura do save pelas telas e os avisos de tuning no mapa.
 
 ### Compra pela interface e reabertura (05/10/2026)
 
@@ -318,7 +318,7 @@ linear/ramp contínuo; ADSR/reverb/quantização original ainda pendentes.
 Apresentação A: composição dos mecânicos/alinhamentos e câmera precisam de
 comparação PCSX2, sombras dos adicionais e backend software faltam. Não
 ajustar offsets no olho. Probes wash/oil detectam cada modelo separadamente;
-OPENGT4_PROBE_SERVICE_NEGATIVE remove tracks e falha. Capturas/provas em
+MOON_PROBE_SERVICE_NEGATIVE remove tracks e falha. Capturas/provas em
 build/gtauto-functional, só locais. App CarWashRoot completa serviço e
 mantém Exit ativo. GT Auto integral e GT Mode completo não certificados.
 
@@ -368,10 +368,10 @@ sombras, backend software e movimento 2 completo da pose (00153C90..A4).
 Reverb offline não conserva estado compartilhado IOP; cauda de 1 s é A.
 PCM e fase áudio/UI sem comparação. Não transferir E dos helpers para isso.
 
-Probes: OPENGT4_PROBE_SERVICE=wash/oil, OPENGT4_PROBE_SERVICE_PAGE=1,
-OPENGT4_PROBE_SERVICE_TIME no tempo acima; óleo MR com
-OPENGT4_PROBE_SERVICE_ALIGNMENT=10 e carro beat_f_92, cor 1.
-OPENGT4_PROBE_SERVICE_NEGATIVE remove tracks e falha.
+Probes: MOON_PROBE_SERVICE=wash/oil, MOON_PROBE_SERVICE_PAGE=1,
+MOON_PROBE_SERVICE_TIME no tempo acima; óleo MR com
+MOON_PROBE_SERVICE_ALIGNMENT=10 e carro beat_f_92, cor 1.
+MOON_PROBE_SERVICE_NEGATIVE remove tracks e falha.
 Provas/logs em build/gtauto-presentation, locais; física preservada.
 
 

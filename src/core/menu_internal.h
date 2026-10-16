@@ -1,6 +1,6 @@
 /* Private layout shared by the menu implementation fragments. */
-#ifndef OPENGT4_MENU_INTERNAL_H
-#define OPENGT4_MENU_INTERNAL_H
+#ifndef MOON_MENU_INTERNAL_H
+#define MOON_MENU_INTERNAL_H
 #include "favorites.h"
 
 typedef struct menu_actor menu_actor;

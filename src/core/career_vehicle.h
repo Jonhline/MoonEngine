@@ -1,5 +1,5 @@
-#ifndef OPENGT4_CAREER_VEHICLE_H
-#define OPENGT4_CAREER_VEHICLE_H
+#ifndef MOON_CAREER_VEHICLE_H
+#define MOON_CAREER_VEHICLE_H
 #include <stdint.h>
 #include "car.h"
 #include "career_original.h"

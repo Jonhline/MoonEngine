@@ -37,8 +37,8 @@ borrão de rodas durante essa apresentação.
 
 ## Conferência
 
-Compilar `opengt4`, `pregrid_menu`, `pregrid_probe`; para o oráculo,
-configurar `OPENGT4_RECOMP_TESTS=ON` e compilar `pregrid_oracle`.
+Compilar `moonengine`, `pregrid_menu`, `pregrid_probe`; para o oráculo,
+configurar `MOON_RECOMP_TESTS=ON` e compilar `pregrid_oracle`.
 O desmonte e `extracted/core.bin` são dependências locais do oráculo,
 nunca do executável do jogo.
 
@@ -60,7 +60,7 @@ SceneViewFace ainda não têm prova; não chamar o conjunto de exato.
 Captura de desenvolvimento sem navegar o catálogo:
 
 ```text
-opengt4.exe disco.iso arcade TopRoot --pre-race --race-course grandvalley_east --race-car ka_01 --no-config --window 960x720 --shot extracted/handoff/pregrid.png --shot-delay 1
+MoonEngine.exe disco.iso arcade TopRoot --pre-race --race-course grandvalley_east --race-car ka_01 --no-config --window 960x720 --shot extracted/handoff/pregrid.png --shot-delay 1
 ```
 
 `--pre-race` usa um grid de diagnóstico fixo, como `--drive`. O fluxo

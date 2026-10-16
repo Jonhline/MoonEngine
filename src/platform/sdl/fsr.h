@@ -1,6 +1,6 @@
 /* FSR 1 scene reconstruction; needs an OpenGL 4.3 context. */
-#ifndef OPENGT4_FSR_H
-#define OPENGT4_FSR_H
+#ifndef MOON_FSR_H
+#define MOON_FSR_H
 
 #include <stdint.h>
 #include "gl.h"

@@ -3,7 +3,7 @@
 # Run from the repository root in Git Bash; outputs go to $OUT.
 #
 #   sh tests/physics/compare.sh build
-#       build opengt4_physics, opengt4_recomp_physics and physics_run
+#       build moon_physics, moon_recomp_physics and physics_run
 #       straight with MSBuild (no CMake regeneration)
 #   sh tests/physics/compare.sh old
 #       build $OUT/pr_old.exe from HEAD's physics sources (the working
@@ -21,7 +21,7 @@
 #
 # Other checks: PHYS_AB=<case>:<n> (physics_run, made-up states, see
 # ab_test in step_run.c), PHYS_BRIDGE_LOG=<file> (each call the rewrite
-# still makes to the original), OPENGT4_COVERAGE=<file>.
+# still makes to the original), MOON_COVERAGE=<file>.
 set -u
 ISO=${ISO:?set ISO to your own disc image}
 OUT=${OUT:-build/physics_cmp}
@@ -30,7 +30,7 @@ MSB=${MSB:-"/c/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/MSBui
 mkdir -p "$OUT"
 
 build() {
-    for p in opengt4_physics opengt4_recomp_physics physics_run; do
+    for p in moon_physics moon_recomp_physics physics_run; do
         "$MSB" build/$p.vcxproj -p:Configuration=Release -p:BuildProjectReferences=false -v:minimal -nologo 2>&1 | grep -E " error|warning C"
     done
     return 0

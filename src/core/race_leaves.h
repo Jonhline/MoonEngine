@@ -11,8 +11,8 @@
  * in the game: D_00621B50 +0xA8 is set to 0 (func_003C2B20) and nothing
  * sets it again.
  */
-#ifndef OPENGT4_RACE_LEAVES_H
-#define OPENGT4_RACE_LEAVES_H
+#ifndef MOON_RACE_LEAVES_H
+#define MOON_RACE_LEAVES_H
 
 #include <stddef.h>
 #include <stdint.h>

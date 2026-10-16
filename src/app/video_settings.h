@@ -1,5 +1,5 @@
-#ifndef OPENGT4_VIDEO_SETTINGS_H
-#define OPENGT4_VIDEO_SETTINGS_H
+#ifndef MOON_VIDEO_SETTINGS_H
+#define MOON_VIDEO_SETTINGS_H
 #include "platform/platform.h"
 #include "ui.h"
 #include "menu.h"

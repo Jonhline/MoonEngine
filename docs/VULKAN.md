@@ -10,14 +10,14 @@ Older files retain OpenGL, and in-game display settings preserve the key.
 Explicit invocations can override it:
 
 ```powershell
-.\build\Release\opengt4.exe "C:/discs/GT4.iso" --renderer vulkan
-.\build\Release\opengt4.exe "C:/discs/GT4.iso" --renderer opengl
+.\build\Release\MoonEngine.exe "C:/discs/GT4.iso" --renderer vulkan
+.\build\Release\MoonEngine.exe "C:/discs/GT4.iso" --renderer opengl
 ```
 
 Unknown command-line names are rejected. For rendering tools without that
-argument, `OPENGT4_GRAPHICS_API=opengl` or `vulkan` overrides the descriptor
+argument, `MOON_GRAPHICS_API=opengl` or `vulkan` overrides the descriptor
 at the platform boundary, taking precedence over its backend field.
-`OPENGT4_WINDOW_HIDDEN=1` supports offscreen tests. Switch keeps its renderer.
+`MOON_WINDOW_HIDDEN=1` supports offscreen tests. Switch keeps its renderer.
 
 ## Implementation
 
@@ -57,7 +57,7 @@ These dependencies are not built for Switch.
 A separate diagnostic needs neither a disc nor a window:
 
 ```powershell
-.\build\Release\opengt4.exe --vulkan-check
+.\build\Release\MoonEngine.exe --vulkan-check
 ```
 
 It verifies device creation and a submitted transfer through 1,024 readback
@@ -66,7 +66,7 @@ words. It does not check image output.
 ## Verification
 
 ```powershell
-cmake --build build --config Release --target vulkan_device_tests vulkan_frame_tests renderer_backend_tests launcher_tests ui_blend_probe showroom_probe opengt4
+cmake --build build --config Release --target vulkan_device_tests vulkan_frame_tests renderer_backend_tests launcher_tests ui_blend_probe showroom_probe moonengine
 ctest --test-dir build -C Release -R "^(vulkan_|renderer_|launcher_config)" --output-on-failure
 ```
 
@@ -77,14 +77,14 @@ ctest --test-dir build -C Release -R "^(vulkan_|renderer_|launcher_config)" --ou
   resize/presentation and flat-color FSR output. Its negative corrupts a pixel.
 - `vulkan_blend` runs the existing viewport/blend probe through Vulkan,
   including all 129 fixed blend coefficients; its negative changes the result.
-- `vulkan_disc`, registered with `OPENGT4_TEST_DISC`, compares a Ka in Tsukuba,
+- `vulkan_disc`, registered with `MOON_TEST_DISC`, compares a Ka in Tsukuba,
   the showroom entrance and Options through both APIs. Restarting the entrance
   selects the same studio light-animation time. Limits: mean RGB difference
   at most 1/255; at most 0.1% of channels differing by more than 32 levels.
   Its negative inverts the comparison image.
 - `vulkan_race` renders 60 Tsukuba frames with GPU and CPU reflection
-  composition. The GPU path must perform zero readbacks and exactly two
-  submissions per frame (render and presentation). Pixels must differ by no
+  composition. The GPU path must perform zero readbacks and one
+  submission per steady-state frame (render and presentation together). Pixels must differ by no
   more than 2/255; the measured maximum was 1/255. Its negative restores CPU
   reflection readback and must fail the residency check. The synthetic frame
   also checks that 128 compatible draws share a pass without submission and
@@ -103,7 +103,7 @@ has grade **P**; existing renderer fidelity limits still apply.
 Current limitations: single-sample scene attachments, no anisotropic filtering,
 no adapter picker, no HDR or device-loss recovery, and no Linux runtime
 validation yet. Not every menu, car, circuit, replay or Photo mode combination
-has been exercised. There is no performance improvement claim.
+has been exercised. Measured performance changes are scoped to the fixtures below.
 
 API references: [Vulkan specification](https://docs.vulkan.org/spec/latest/index.html),
 [official headers](https://github.com/KhronosGroup/Vulkan-Headers/tree/v1.3.296),
@@ -120,7 +120,7 @@ Vulkan now reuses the existing GPU reflection helper, keeping all six faces
 and the sphere map resident. The helper's name (`switch_render.c`) reflects
 its earlier platform use; this change enables it on PC without changing the
 Switch renderer. OpenGL retains CPU composition as a reference. Setting
-`OPENGT4_REFLECTION_CPU=1` before startup selects that reference for Vulkan.
+`MOON_REFLECTION_CPU=1` before startup selects that reference for Vulkan.
 No reflection faces, draw distance or physics updates are removed.
 
 In the hidden Ka/Tsukuba rendering probe at 640x448 on the GTX 1650, 120
@@ -141,7 +141,7 @@ once at first use. Initial `BufferSubData` assembly remains static; subsequent
 edits invalidate the resident version and use streaming. Replaced/deleted
 buffers survive until the fence completes. Interleaved attributes share a
 resident-buffer lookup, and descriptor writes cover only the program's
-texture bindings. `OPENGT4_VK_STREAM_GEOMETRY=1` retains the previous streamed
+texture bindings. `MOON_VK_STREAM_GEOMETRY=1` retains the previous streamed
 path as a comparison reference. This changes graphics resource management,
 not meshes, visibility, animation, game rules or physics.
 
@@ -175,3 +175,65 @@ paths, not additional PS2 fidelity coverage.
 Eleven focused Vulkan cases passed, including the deliberate streaming,
 image and simulation-memory negatives. The geometry and running-race
 comparisons also passed with Khronos validation enabled, without API errors.
+
+## Submission and descriptor reuse
+
+Rendering and presentation now share a command buffer and submission during
+steady-state drawing. A barrier orders the screen image writes before its
+presentation blit; the acquire semaphore is waited at the transfer stage.
+One frame remains in flight. Queue completion still protects command-pool,
+staging-memory and presentation-semaphore reuse. Readback and swapchain
+recreation retain explicit completion. Descriptor pools, cached sets and
+retired images/buffers are reset only after the submission completes.
+`MOON_VK_SPLIT_PRESENT=1` retains the former separate render/present submissions.
+
+Uniform data still has its own aligned slice for every draw. Dynamic uniform
+offsets allow draws with the same texture views, samplers and uniform range
+to reuse an immutable descriptor set until the submission pool resets.
+Changing texture/sampler state selects a different set; updating a texture's
+contents preserves its view. `MOON_VK_UNCACHED_DESCRIPTORS=1` retains one
+allocation/update per draw for comparison. The fixed-size pipeline key and
+attribute bookkeeping also avoid per-draw temporary heap containers, and
+one vertex-buffer bind describes all used attribute slots.
+
+`vulkan_submission` compares both resource paths in the actual six-car
+Tsukuba race at 1280x896 and 1920x1080, after loading and warm-up, with VSync
+disabled. It requires identical draw counts, final RGB pixels and the full
+32 MiB physics state. The optimized path uses 120 submissions over 120
+measured frames; the reference uses 240. Descriptor update and framebuffer creation counts must fall.
+The negative restores split submission and must fail that gate. The
+synthetic frame checks descriptor reuse over 128 compatible draws; its
+negative disables caching. These are PC invariance/performance checks (P),
+not new PS2 fidelity claims or a guaranteed FPS on every course/device.
+
+Framebuffer objects are cached by their immutable attachment views instead
+of recreated at each render-pass boundary. An image's deferred destruction
+removes its cached framebuffers before destroying its views. Resizing and
+texture replacement therefore cannot retain dangling attachments. Setting
+`MOON_VK_TRANSIENT_TARGETS=1` restores per-pass framebuffer creation;
+`vulkan_targets_negative` enables it and must fail the creation-count check.
+
+On the GTX 1650, three alternating runs of the pre-change executable and
+optimized executable at 1280x896 gave median frame times of 12.871 and
+12.341 ms (about 77.7 and 81.0 FPS, a 4.1% frame-time reduction). Each run
+measured 120 frames after 20 warm-up frames; all three pairs retained exactly
+the same final pixels and physics state. These timings exclude loading and
+use VSync off. An earlier single baseline measurement was 13.848 ms; the
+paired medians are the comparison used here.
+
+At 1920x1080, the six-car fixture measured 14.204 ms/frame (about 70.4 FPS).
+This is a scenario measurement, not a guaranteed minimum or a pre-change
+1080p executable comparison. The resource-reference run measured 14.588 ms.
+Over 120 frames the optimized path performed 30,134 descriptor updates and
+240 framebuffer creations; the retained reference performed 119,245 and
+12,393, with the same 119,245 draw calls in both. Timing varies with system
+load, so automated gates use resource counts and image/state invariance.
+The renderer still has one frame in flight and performs a completion wait
+before reusing its resources. Physics remains at its existing 60 Hz rate.
+With VSync enabled on a 60 Hz display, presentation remains limited to 60 Hz.
+
+Thirteen focused cases passed, including deliberate descriptor, submission,
+framebuffer, geometry, pixel and simulation-state failures. The synthetic
+frame, paired running-race comparison and framebuffer negative also passed
+with the Khronos validation layer enabled, without reported API errors.
+The full test suite was not run.

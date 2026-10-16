@@ -1,6 +1,6 @@
 /* P: Switch GPU budget, independent of the original simulation and UI size. */
-#ifndef OPENGT4_SWITCH_QUALITY_H
-#define OPENGT4_SWITCH_QUALITY_H
+#ifndef MOON_SWITCH_QUALITY_H
+#define MOON_SWITCH_QUALITY_H
 
 static inline void switch_scene_dimensions(int width, int height, int *w, int *h)
 {

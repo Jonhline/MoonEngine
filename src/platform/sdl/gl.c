@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
 static unsigned program_count;
 unsigned gl_program_count(void)
 {
@@ -15,10 +15,10 @@ unsigned gl_program_count(void)
 #endif
 
 #ifndef __SWITCH__
-#define OPENGT4_GL_DEFINE(type, name) type name;
-OPENGT4_GL_FUNCS(OPENGT4_GL_DEFINE)
-MOON_GL_BASE_FUNCS(OPENGT4_GL_DEFINE)
-#undef OPENGT4_GL_DEFINE
+#define MOON_GL_DEFINE(type, name) type name;
+MOON_GL_FUNCS(MOON_GL_DEFINE)
+MOON_GL_BASE_FUNCS(MOON_GL_DEFINE)
+#undef MOON_GL_DEFINE
 #endif
 
 #ifndef __SWITCH__
@@ -38,15 +38,15 @@ int gl_load(void)
     return gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress);
 #else
     int ok = 1;
-#define OPENGT4_GL_LOAD(type, name)                                                                \
-    name = (type)graphics_proc(strncmp(#name, "opengt4_", 8) ? #name : #name + 8);         \
+#define MOON_GL_LOAD(type, name)                                                                \
+    name = (type)graphics_proc(strncmp(#name, "moon_", 5) ? #name : #name + 5);         \
     if (!name) {                                                                                   \
         fprintf(stderr, "OpenGL: missing %s\n", #name);                                            \
         ok = 0;                                                                                    \
     }
-    OPENGT4_GL_FUNCS(OPENGT4_GL_LOAD)
-    MOON_GL_BASE_FUNCS(OPENGT4_GL_LOAD)
-#undef OPENGT4_GL_LOAD
+    MOON_GL_FUNCS(MOON_GL_LOAD)
+    MOON_GL_BASE_FUNCS(MOON_GL_LOAD)
+#undef MOON_GL_LOAD
     return ok;
 #endif
 }
@@ -64,7 +64,7 @@ int gl_enable_reversed_z(void)
 #endif
     typedef void(APIENTRY * clip_control_fn)(GLenum, GLenum);
     clip_control_fn clip_control = (clip_control_fn)SDL_GL_GetProcAddress("glClipControl");
-    if (!clip_control || getenv("OPENGT4_CLASSIC_DEPTH"))
+    if (!clip_control || getenv("MOON_CLASSIC_DEPTH"))
         return gl_reversed_z = 0;
     clip_control(0x8CA1 /* GL_LOWER_LEFT */, 0x935F /* GL_ZERO_TO_ONE */);
     if (glGetError() != GL_NO_ERROR) {
@@ -122,7 +122,7 @@ GLuint gl_program(const char *vertex, const char *fragment)
         glDeleteProgram(p);
         return 0;
     }
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     program_count++;
 #endif
 #ifdef __SWITCH__

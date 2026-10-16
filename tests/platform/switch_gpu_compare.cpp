@@ -187,13 +187,13 @@ void mesh_matrix()
 int main(int, char **)
 {
     mkdir("sdmc:/switch", 0777);
-    mkdir("sdmc:/switch/opengt4", 0777);
-    if (!std::freopen("sdmc:/switch/opengt4/gpu-compare.log", "w", stderr))
+    mkdir("sdmc:/switch/moonengine", 0777);
+    if (!std::freopen("sdmc:/switch/moonengine/gpu-compare.log", "w", stderr))
         return 1;
     std::setvbuf(stderr, nullptr, _IONBF, 0);
     std::fprintf(
         stderr,
-        "OpenGT4 GPU comparison v2: first=7715ae8 broken=36fe696 fixed=arithmetic-alpha; no disc or saves\n");
+        "Moon Engine GPU comparison v2: first=7715ae8 broken=36fe696 fixed=arithmetic-alpha; no disc or saves\n");
     std::fesetround(FE_TOWARDZERO);
     if (plat_video_init(nullptr) < 0) {
         std::fprintf(stderr, "GPU comparison initialization FAIL\n");

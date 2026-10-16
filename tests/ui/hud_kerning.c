@@ -33,7 +33,7 @@ static void record_glyph(const plat_texture *texture, float x, float y, float w,
 int main(int argc, char **argv)
 {
     CHECK(argc >= 2);
-    SDL_setenv("OPENGT4_WINDOW_HIDDEN", "1", 1);
+    SDL_setenv("MOON_WINDOW_HIDDEN", "1", 1);
     plat_video_desc desc = {320, 240, 0, 0, 0};
     CHECK(!plat_video_init(&desc));
     gt4_vol *vol = gt4_vol_open(argv[1], NULL);

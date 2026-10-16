@@ -1,5 +1,5 @@
-#ifndef OPENGT4_LICENSE_IMAGE_H
-#define OPENGT4_LICENSE_IMAGE_H
+#ifndef MOON_LICENSE_IMAGE_H
+#define MOON_LICENSE_IMAGE_H
 #include <stdint.h>
 /* Scene +E308: channel exponents, black/white endpoints, saturation. */
 void gt4_license_image_options(const int options[4], float parameters[6]);

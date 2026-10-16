@@ -107,7 +107,7 @@ static void benchmark_frame(showroom *s, race_view *v, const char *car)
 }
 static void benchmark(showroom *s, race_view *v, const char *car)
 {
-    const char *value = getenv("OPENGT4_PROBE_FRAMES");
+    const char *value = getenv("MOON_PROBE_FRAMES");
     int frames = value ? atoi(value) : 0;
     if (frames <= 0)
         return;
@@ -149,16 +149,16 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: showroom_probe disc car output.png [color] [seconds]\n");
         return 2;
     }
-    plat_video_desc desc = {640, 448, 0, 0, getenv("OPENGT4_UPSCALE") != NULL};
+    plat_video_desc desc = {640, 448, 0, 0, getenv("MOON_UPSCALE") != NULL};
     const char *size =
-        getenv("OPENGT4_WINDOW"); /* e.g. 1920x1344: GPU captures at that resolution */
+        getenv("MOON_WINDOW"); /* e.g. 1920x1344: GPU captures at that resolution */
     if (size && sscanf(size, "%dx%d", &desc.width, &desc.height) != 2)
         return 2;
     if (plat_video_init(&desc))
         return 1;
     plat_video_set_view(640, 448);
     SDL_HideWindow(SDL_GetWindowFromID(1));
-    if (getenv("OPENGT4_PROBE_SERVICE_BLEND")) {
+    if (getenv("MOON_PROBE_SERVICE_BLEND")) {
         unsigned cases = 0;
         int ok = 1;
         float maximum = 0;
@@ -181,14 +181,14 @@ int main(int argc, char **argv)
                         glClearColor(src[sample][0] / 255.f, src[sample][1] / 255.f,
                                      src[sample][2] / 255.f, 1);
                         glClear(GL_COLOR_BUFFER_BIT);
-                        int index = getenv("OPENGT4_PROBE_SERVICE_SAMPLE_NEGATIVE") ? 0 : sample;
+                        int index = getenv("MOON_PROBE_SERVICE_SAMPLE_NEGATIVE") ? 0 : sample;
                         r3d_end_layer_sample(opacity, add, index, samples);
                     }
                     int w, h;
                     uint8_t *pixels = plat_sdl_read_pixels(&w, &h);
                     ok = ok && pixels;
                     unsigned fix = gt4_service_blend_fix(opacity);
-                    if (getenv("OPENGT4_PROBE_SERVICE_BLEND_NEGATIVE"))
+                    if (getenv("MOON_PROBE_SERVICE_BLEND_NEGATIVE"))
                         fix ^= 16;
                     for (int k = 0; k < 3 && pixels; k++) {
                         float merged = samples == 1 ? src[0][k] : (src[0][k] + src[1][k]) * .5f;
@@ -211,7 +211,7 @@ int main(int argc, char **argv)
         plat_video_shutdown();
         return ok ? 0 : 1;
     }
-    const char *course = getenv("OPENGT4_COURSE"); /* race view: car on this course's grid */
+    const char *course = getenv("MOON_COURSE"); /* race view: car on this course's grid */
     if (course) {
         int color = argc > 4 ? atoi(argv[4]) : 0, r = 0;
         race_view *v = race_view_open(argv[1]);
@@ -247,7 +247,7 @@ int main(int argc, char **argv)
         plat_video_shutdown();
         return ok ? 0 : 1;
     }
-    if (getenv("OPENGT4_PROBE_TEST_WING")) {
+    if (getenv("MOON_PROBE_TEST_WING")) {
         const char *err = NULL;
         gt4_vol *vol = gt4_vol_open(argv[1], &err);
         car_model_tables *tables = vol ? car_model_tables_open(vol) : NULL;
@@ -256,7 +256,7 @@ int main(int argc, char **argv)
             tables ? car_model_load_parts(vol, tables, argv[2], 0, NULL, "p001") : NULL;
         car_model *restored =
             tables ? car_model_load_parts(vol, tables, argv[2], 0, NULL, "p000") : NULL;
-        if (getenv("OPENGT4_PROBE_WING_NEGATIVE") && restored)
+        if (getenv("MOON_PROBE_WING_NEGATIVE") && restored)
             restored->car->triangles[0].v[0].p[0] += 1;
         int ok = stock && changed && restored && changed->car->count > stock->car->count &&
                  stock->car->count == restored->car->count &&
@@ -274,7 +274,7 @@ int main(int argc, char **argv)
             ok ? "PASS" : "FAIL");
         return ok ? 0 : 1;
     }
-    if (getenv("OPENGT4_PROBE_TEST_WHEEL")) {
+    if (getenv("MOON_PROBE_TEST_WHEEL")) {
         const char *err = NULL;
         gt4_vol *vol = gt4_vol_open(argv[1], &err);
         car_model_tables *tables = vol ? car_model_tables_open(vol) : NULL;
@@ -282,7 +282,7 @@ int main(int argc, char **argv)
         car_model *changed =
             tables ? car_model_load_wheel(vol, tables, argv[2], 0, "brdg001w") : NULL;
         car_model *restored = tables ? car_model_load_wheel(vol, tables, argv[2], 0, "w000") : NULL;
-        if (getenv("OPENGT4_PROBE_WHEEL_NEGATIVE") && restored)
+        if (getenv("MOON_PROBE_WHEEL_NEGATIVE") && restored)
             restored->car->triangles[0].v[0].p[0] += 1;
         int ok =
             stock && changed && restored && stock->body_count == changed->body_count &&
@@ -317,10 +317,10 @@ int main(int argc, char **argv)
     showroom *s = showroom_open(argv[1]);
     if (!s)
         return 1;
-    const char *wing = getenv("OPENGT4_PROBE_WING");
+    const char *wing = getenv("MOON_PROBE_WING");
     if (wing)
         showroom_set_wing(s, wing);
-    const char *wheel = getenv("OPENGT4_PROBE_WHEEL");
+    const char *wheel = getenv("MOON_PROBE_WHEEL");
     if (wheel)
         showroom_set_wheel(s, wheel);
     int ready = 0, color = argc > 4 ? atoi(argv[4]) : 0, applied = !color;
@@ -341,12 +341,12 @@ int main(int argc, char **argv)
     /* The number of frames spent waiting for the asynchronous load varies
        between runs; restart the rotation so captures are reproducible. */
     showroom_set_angle(s, 0);
-    if (getenv("OPENGT4_PROBE_SERVICE")) {
+    if (getenv("MOON_PROBE_SERVICE")) {
         /* main.c uses the menu's 640x480 canvas; the 640x448 canvas above
            is for standalone showroom/race probes. Do not compare a menu
            through the race canvas and attribute its stretch to the model. */
         plat_video_set_view(640, 480);
-        int wash = !strcmp(getenv("OPENGT4_PROBE_SERVICE"), "wash");
+        int wash = !strcmp(getenv("MOON_PROBE_SERVICE"), "wash");
         const char *error = NULL;
         size_t bytes = 0;
         gt4_vol *vol = gt4_vol_open(argv[1], &error);
@@ -373,11 +373,11 @@ int main(int argc, char **argv)
             bank[i] = (gt4_service_model){models[i], n, (uint64_t)i + 100};
             ok = ok && models[i];
         }
-        float service_time = getenv("OPENGT4_PROBE_SERVICE_TIME")
-                                 ? (float)atof(getenv("OPENGT4_PROBE_SERVICE_TIME"))
+        float service_time = getenv("MOON_PROBE_SERVICE_TIME")
+                                 ? (float)atof(getenv("MOON_PROBE_SERVICE_TIME"))
                                  : 5;
-        int service_alignment = getenv("OPENGT4_PROBE_SERVICE_ALIGNMENT")
-                                    ? atoi(getenv("OPENGT4_PROBE_SERVICE_ALIGNMENT"))
+        int service_alignment = getenv("MOON_PROBE_SERVICE_ALIGNMENT")
+                                    ? atoi(getenv("MOON_PROBE_SERVICE_ALIGNMENT"))
                                     : 9;
         for (int i = 0; i < count; i++) {
             size_t n = 0;
@@ -432,7 +432,7 @@ int main(int argc, char **argv)
         ui_project *page = NULL;
         int root = -1;
         service_page page_car = {s, &face, argv[2]};
-        if (getenv("OPENGT4_PROBE_SERVICE_PAGE")) {
+        if (getenv("MOON_PROBE_SERVICE_PAGE")) {
             char err[256];
             page = ui_project_load(vol, "gtmode", err, sizeof err);
             for (int i = 0; page && i < ui_root_count(page); i++)
@@ -494,7 +494,7 @@ int main(int argc, char **argv)
         showroom_service_channels(&face, cam, service_time);
         int w = 0, h = 0;
         unsigned changes[2] = {0};
-        if (getenv("OPENGT4_PROBE_SERVICE_NEGATIVE"))
+        if (getenv("MOON_PROBE_SERVICE_NEGATIVE"))
             face.motion_count = 0;
         for (int i = 0; i < 30; i++) {
             service_frame(s, argv[2], &face, page, root);
@@ -560,7 +560,7 @@ int main(int argc, char **argv)
         plat_video_shutdown();
         return ok ? 0 : 1;
     }
-    if (getenv("OPENGT4_PROBE_TEST_CREW")) {
+    if (getenv("MOON_PROBE_TEST_CREW")) {
         const char *error = NULL;
         gt4_vol *vol = gt4_vol_open(argv[1], &error);
         size_t bytes = 0, model_size = 0, motion_size = 0, camera_size = 0;
@@ -601,7 +601,7 @@ int main(int argc, char **argv)
         face.crew_size = model_size;
         face.crew_motion = motion;
         face.crew_serial = 1;
-        if (getenv("OPENGT4_PROBE_CREW_NEGATIVE"))
+        if (getenv("MOON_PROBE_CREW_NEGATIVE"))
             face.crew_motion = NULL;
         plat_video_begin_frame();
         showroom_draw_face(s, argv[2], 0, &face);
@@ -640,8 +640,8 @@ int main(int argc, char **argv)
         plat_video_shutdown();
         return ok ? 0 : 1;
     }
-    /* OPENGT4_PROBE_APPEAR: capture [seconds] into the car's entrance instead */
-    if (getenv("OPENGT4_PROBE_APPEAR"))
+    /* MOON_PROBE_APPEAR: capture [seconds] into the car's entrance instead */
+    if (getenv("MOON_PROBE_APPEAR"))
         showroom_hide(s);
     plat_video_begin_frame();
     showroom_draw(s, argv[2], 0);

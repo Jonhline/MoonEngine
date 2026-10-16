@@ -1,5 +1,5 @@
-#ifndef OPENGT4_CAREER_CALENDAR_H
-#define OPENGT4_CAREER_CALENDAR_H
+#ifndef MOON_CAREER_CALENDAR_H
+#define MOON_CAREER_CALENDAR_H
 #include <stdint.h>
 /* Original month offsets supplied from CORE.GT4, never embedded tables. */
 typedef struct {

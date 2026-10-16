@@ -14,7 +14,7 @@ import subprocess
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("disc", type=Path)
-    p.add_argument("--exe", type=Path, default=Path("build/career-native/Release/opengt4.exe"))
+    p.add_argument("--exe", type=Path, default=Path("build/career-native/Release/MoonEngine.exe"))
     p.add_argument("--vol-exe", type=Path, default=Path("build/Release/gt4vol.exe"))
     p.add_argument("--projects", nargs="+", default=["gtmode", "option", "arcade"])
     p.add_argument("--output", type=Path, default=Path("build/ui-audit"))

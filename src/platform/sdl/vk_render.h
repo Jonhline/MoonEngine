@@ -14,7 +14,7 @@ void moon_vk_render_present(void);
 int moon_vk_render_vsync(int enabled);
 typedef struct {
     uint64_t submissions, passes, draws, readbacks;
-    uint64_t vertex_upload_bytes;
+    uint64_t vertex_upload_bytes, descriptor_updates, framebuffer_creations;
 } moon_vk_render_stats;
 moon_vk_render_stats moon_vk_render_statistics(void);
 #ifdef __cplusplus

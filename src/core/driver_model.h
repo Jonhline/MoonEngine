@@ -1,5 +1,5 @@
-#ifndef OPENGT4_DRIVER_MODEL_H
-#define OPENGT4_DRIVER_MODEL_H
+#ifndef MOON_DRIVER_MODEL_H
+#define MOON_DRIVER_MODEL_H
 #include <stddef.h>
 #include <stdint.h>
 

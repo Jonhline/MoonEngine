@@ -1,6 +1,6 @@
 /* SDL-specific extras the app uses until input moves behind platform.h. */
-#ifndef OPENGT4_PLAT_SDL_H
-#define OPENGT4_PLAT_SDL_H
+#ifndef MOON_PLAT_SDL_H
+#define MOON_PLAT_SDL_H
 
 typedef struct {
     int key;

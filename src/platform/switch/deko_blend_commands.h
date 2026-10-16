@@ -1,6 +1,6 @@
 /* Maxwell blend commands for the native Switch target (no desktop changes). */
-#ifndef OPENGT4_DEKO_BLEND_COMMANDS_H
-#define OPENGT4_DEKO_BLEND_COMMANDS_H
+#ifndef MOON_DEKO_BLEND_COMMANDS_H
+#define MOON_DEKO_BLEND_COMMANDS_H
 #include <deko3d.h>
 
 static inline uint32_t nd_blend_factor_command(unsigned value)

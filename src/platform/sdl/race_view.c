@@ -1699,7 +1699,7 @@ static void draw_shadow(const race_asset *env, const car_meshes *m,
         memcpy(shadow.shadow_rgb, env->shadow_rgb, sizeof shadow.shadow_rgb);
         float alpha = env->shadow_alpha *
                       (sun * (env->shadow_sun - env->shadow_shade) + env->shadow_shade) * level;
-        if (m->cast && alpha > 0 && !getenv("OPENGT4_NO_CAST_SHADOW")) {
+        if (m->cast && alpha > 0 && !getenv("MOON_NO_CAST_SHADOW")) {
             r3d_view flat = shadow;
             float way[3] = {0, 0, 0};
             for (int c = 0; c < 3; c++)
@@ -1888,7 +1888,7 @@ static void course_reflection(race_view *v, const float centre[3], const r3d_vie
     /* Keep Vulkan reflections resident: six synchronous face readbacks
        otherwise serialize the race frame. CPU composition remains a reference. */
 #ifdef MOON_PC_VULKAN
-    if (moon_vk_render_active() && !getenv("OPENGT4_REFLECTION_CPU"))
+    if (moon_vk_render_active() && !getenv("MOON_REFLECTION_CPU"))
 #endif
         if (!v->gpu_env)
             v->gpu_env = switch_gpu_env_create(ENV_FACE, ENV_SIZE);
@@ -2002,7 +2002,7 @@ static void road_sheen(race_view *v, const r3d_view *world)
 {
     const race_asset *a = v->now;
     r3d_view m = *world, t = *world;
-    if (!v->sheen_mask || a->sheen_size <= 0 || getenv("OPENGT4_NO_SHEEN"))
+    if (!v->sheen_mask || a->sheen_size <= 0 || getenv("MOON_NO_SHEEN"))
         return;
     r3d_clear_alpha(0);
     m.fog = 0;
@@ -2067,7 +2067,7 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
        colours (71 -> 142). Where the game doubles (its vertex program or
        a pass over the frame) is not read yet. */
     world.color_scale = 2;
-    world.fog = v->now->fog && !getenv("OPENGT4_NO_FOG");
+    world.fog = v->now->fog && !getenv("MOON_NO_FOG");
     world.fog_distance = v->now->fog_distance;
     world.fog_max = v->now->fog_max;
     memcpy(world.fog_rgb, v->now->fog_rgb, sizeof world.fog_rgb);
@@ -2091,7 +2091,7 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
     car.color_scale = 0;
     memcpy(car.rot, rot, sizeof rot);
     memcpy(car.pos, pos, sizeof pos);
-#ifndef OPENGT4_DEKO3D
+#ifndef MOON_DEKO3D
     if (!pregrid)
         course_reflection(v, pos, &world);
 #endif /* P: native Switch uses resident static environment probes. */
@@ -2136,13 +2136,13 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
     unsigned pass = v->screen_reflect ? 1 : split_mode ? 2 : 0;
     selected.model_list = gt4_course_vision_select(v->now->vision + pass, world.cam, NULL);
     r3d_draw(v->world, &selected);
-#ifndef OPENGT4_DEKO3D
+#ifndef MOON_DEKO3D
     road_sheen(v, &world);
 #endif /* P: native Switch forward shading replaces the road reflection passes. */
     /* 003E5338 / 003E4A28: normal GDGT models in the object frame,
        Env0 lighting from the original per-object RNW4 light bytes.
        Geometry/textures stay resident; each draw changes only its pose. */
-    if (v->gadgets && v->now->gadgets && !getenv("OPENGT4_TEST_HIDE_GADGETS")) {
+    if (v->gadgets && v->now->gadgets && !getenv("MOON_TEST_HIDE_GADGETS")) {
         gt4_course_gadgets *g = v->now->gadgets;
         for (unsigned pass = 0; pass < 2; pass++) {
             if (pass && (v->gadget_section < 0 || (unsigned)v->gadget_section >= g->sections))

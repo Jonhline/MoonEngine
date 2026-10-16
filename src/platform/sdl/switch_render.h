@@ -1,6 +1,6 @@
 /* Switch-only render work, also compiled by the host GPU comparison fixture. */
-#ifndef OPENGT4_SWITCH_RENDER_H
-#define OPENGT4_SWITCH_RENDER_H
+#ifndef MOON_SWITCH_RENDER_H
+#define MOON_SWITCH_RENDER_H
 #include "platform/platform.h"
 typedef struct switch_gpu_image switch_gpu_image;
 int switch_gpu_warmup(void);

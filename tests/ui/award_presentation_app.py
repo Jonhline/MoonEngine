@@ -11,8 +11,8 @@ out.mkdir(parents=True, exist_ok=True)
 with tempfile.TemporaryDirectory(prefix="profile-", dir=out) as saves:
     seed = subprocess.run([fixture, disc, "--seed", saves], capture_output=True, text=True, timeout=30)
     assert seed.returncode == 0, seed.stdout + seed.stderr
-    env = dict(os.environ, SDL_AUDIODRIVER="dummy", OPENGT4_PRESENT_TRACE="1",
-               OPENGT4_PRESENT_CAPTURE=str(out / "phase"))
+    env = dict(os.environ, SDL_AUDIODRIVER="dummy", MOON_PRESENT_TRACE="1",
+               MOON_PRESENT_CAPTURE=str(out / "phase"))
     run = subprocess.run([exe, disc, "gtmode", "PresentRoot", "--save-dir", saves,
                           "--input", "accept", "--with-music", "--window", "960x720",
                           "--shot-delay", "1", "--shot", str(out / "final.png")],

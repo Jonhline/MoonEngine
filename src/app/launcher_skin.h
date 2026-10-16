@@ -1,5 +1,5 @@
-#ifndef OPENGT4_LAUNCHER_SKIN_H
-#define OPENGT4_LAUNCHER_SKIN_H
+#ifndef MOON_LAUNCHER_SKIN_H
+#define MOON_LAUNCHER_SKIN_H
 #include "mproject.h"
 #include "launcher_fsr.h"
 #include "font.h"

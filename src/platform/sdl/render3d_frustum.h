@@ -1,5 +1,5 @@
-#ifndef OPENGT4_RENDER3D_FRUSTUM_H
-#define OPENGT4_RENDER3D_FRUSTUM_H
+#ifndef MOON_RENDER3D_FRUSTUM_H
+#define MOON_RENDER3D_FRUSTUM_H
 #include "render3d.h"
 #include <math.h>
 

@@ -233,7 +233,7 @@ static void ui_mesh_draw(void *mesh, const mp_node *node, const float angles[3],
                                 xs,
                                 xa * ya};
         ui_model_pivot_offset(v.rot, rest_matrix, icon->ground_pivot, v.pos);
-        if (getenv("OPENGT4_ICON_PIVOT_TRACE")) {
+        if (getenv("MOON_ICON_PIVOT_TRACE")) {
             float center[3];
             for (int i = 0; i < 3; i++) {
                 center[i] = v.pos[i];
@@ -343,12 +343,12 @@ static void present_progress(menu *m, int state, const char *message, int button
             fill->progress = 1; /* the PC reads the file at once: the bar full (P) */
         progress_open = 1;
     } else if (state == 0) {
-        if (progress_open && getenv("OPENGT4_PROGRESS_SHOT")) { /* tests: the dialog as it closes */
+        if (progress_open && getenv("MOON_PROGRESS_SHOT")) { /* tests: the dialog as it closes */
             video_set_menu_pacing(1);
             video_set_menu_projection(1);
             plat_video_begin_frame();
             draw_pages(m, NULL, NULL);
-            screenshot(getenv("OPENGT4_PROGRESS_SHOT"));
+            screenshot(getenv("MOON_PROGRESS_SHOT"));
             plat_video_end_frame();
         }
         progress_open = 0;
@@ -543,7 +543,7 @@ static void present_wait(menu *m, float seconds, void *user)
     /* Loading readiness follows the original fade actors, independently of
        asset-read latency; no additional fixed sleep is needed. */
     uint64_t start = plat_time_ns();
-    int trace = getenv("OPENGT4_PRESENT_TRACE") && seconds >= 1 && menu_active_root(m) >= 0 &&
+    int trace = getenv("MOON_PRESENT_TRACE") && seconds >= 1 && menu_active_root(m) >= 0 &&
                 !strcmp(ui_root_name(menu_ui(m), menu_active_root(m)), "PresentRoot");
     static unsigned ceremony_wait;
     unsigned trace_id = trace ? ++ceremony_wait : 0;
@@ -603,7 +603,7 @@ static void present_wait(menu *m, float seconds, void *user)
         }
         draw_pages(m, NULL, NULL);
         if (trace && !captured && (plat_time_ns() - start) / 1e9 > .1) {
-            const char *prefix = getenv("OPENGT4_PRESENT_CAPTURE");
+            const char *prefix = getenv("MOON_PRESENT_CAPTURE");
             if (prefix) {
                 char path[512];
                 snprintf(path, sizeof path, "%s-%u.png", prefix, trace_id);
@@ -612,7 +612,7 @@ static void present_wait(menu *m, float seconds, void *user)
             captured = 1;
         }
         if (trace && captured == 1 && (plat_time_ns() - start) / 1e9 > .75) {
-            const char *prefix = getenv("OPENGT4_PRESENT_CAPTURE");
+            const char *prefix = getenv("MOON_PRESENT_CAPTURE");
             if (prefix) {
                 char path[512];
                 snprintf(path, sizeof path, "%s-%u-late.png", prefix, trace_id);
@@ -664,7 +664,7 @@ static void pump_loading_work(void *user)
     uint64_t now = plat_time_ns();
     if (presentation_clock && now - presentation_clock < UINT64_C(16000000))
         return;
-    if (getenv("OPENGT4_LOADING_TRACE"))
+    if (getenv("MOON_LOADING_TRACE"))
         fprintf(stderr, "loading work frame: gap=%.3f ms\n",
                 presentation_clock ? (now - presentation_clock) / 1e6 : 0);
     SDL_PumpEvents();
@@ -744,7 +744,7 @@ static void switch_to(gt4_vol *vol, menu **cache, menu **mn, int *proj, char *ne
         *requested_root++ = 0;
     for (int i = 0; i < NPROJECTS; i++)
         if (!strcmp(next, projects[i])) {
-            if (getenv("OPENGT4_MENU_TRACE"))
+            if (getenv("MOON_MENU_TRACE"))
                 printf("project route: %s -> %s\n", projects[*proj], projects[i]);
             char photo_course[32] = "", photo_car[96] = "";
             int photo_color = 0;
@@ -1216,7 +1216,7 @@ static int present_dialog(menu *m, const char *title, const char *message, int t
             dialog_shot = NULL;
         }
         plat_video_end_frame();
-        if (getenv("OPENGT4_DIALOG_TRACE"))
+        if (getenv("MOON_DIALOG_TRACE"))
             fprintf(stderr, "dialog frame: %.3f ms\n", (plat_time_ns() - draw_start) / 1e6);
         if (forced >= 0 && !closing && motion_time >= .5f) {
             menu_play_effect(m, "ok");
@@ -1395,7 +1395,7 @@ static void report_choices(const ui_widget *w)
     for (int i = 0; i < w->nkids; i++)
         report_choices(w->kids[i]);
 }
-/* tests: OPENGT4_UI_TREE prints the page's widgets (layout checks) */
+/* tests: MOON_UI_TREE prints the page's widgets (layout checks) */
 static void report_tree(const ui_widget *w, int depth)
 {
     if (!w || depth > 14)

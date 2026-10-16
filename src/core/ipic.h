@@ -1,5 +1,5 @@
-#ifndef OPENGT4_IPIC_H
-#define OPENGT4_IPIC_H
+#ifndef MOON_IPIC_H
+#define MOON_IPIC_H
 #include <stddef.h>
 #include <stdint.h>
 typedef struct {

@@ -1,5 +1,5 @@
-#ifndef OPENGT4_CAREER_EVENT_H
-#define OPENGT4_CAREER_EVENT_H
+#ifndef MOON_CAREER_EVENT_H
+#define MOON_CAREER_EVENT_H
 #include "physics/race_run.h"
 #include "career_race_lookup.h"
 

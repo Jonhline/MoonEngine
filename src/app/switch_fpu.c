@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
-int opengt4_switch_fpu_check(void)
+int moon_switch_fpu_check(void)
 {
     uint64_t fpcr;
     __asm__ volatile("mrs %0, fpcr" : "=r"(fpcr));

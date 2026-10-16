@@ -1,6 +1,6 @@
 # Nintendo Switch
 
-OpenGT4 runs as a native ARM64 homebrew application. The user has reached
+MoonEngine runs as a native ARM64 homebrew application. The user has reached
 menus and races on hardware; native deko3d improves performance but has reported
 material defects under investigation. Cross builds and host checks alone do
 not establish console image correctness or complete floating-point fidelity.
@@ -16,8 +16,8 @@ transfer/particle/blend checks await hardware execution. Mesa measurements
 below are historical; native log windows of 30.45-54.43 FPS do not establish
 sustained 60 FPS for races.
 
-For the native tree use `-B build-switch/deko -DOPENGT4_SWITCH_RENDERER=deko3d`.
-Use `-DOPENGT4_SWITCH_RENDERER=mesa` explicitly to retain the previous Switch
+For the native tree use `-B build-switch/deko -DMOON_SWITCH_RENDERER=deko3d`.
+Use `-DMOON_SWITCH_RENDERER=mesa` explicitly to retain the previous Switch
 renderer. The SDK already includes deko3d and UAM; no game assets are embedded.
 Only shaders written for this project are compiled into the executable.
 
@@ -28,21 +28,21 @@ in `C:\devkitPro`, selecting Switch Development. In its MSYS2 terminal:
 
 ```sh
 pacman -S --needed switch-dev switch-sdl2 switch-mesa switch-glad ninja
-cd /f/OpenGT4
+cd /f/MoonEngine
 cmake -S . -B build-switch/nro -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/Switch.cmake" \
   -DCMAKE_BUILD_TYPE=Release \
-  -DOPENGT4_SWITCH_ICON="$PWD/build/switch-setup/opengt4.jpg"
+  -DMOON_SWITCH_ICON="$PWD/build/switch-setup/moonengine.jpg"
 cmake --build build-switch/nro -j8
 ```
 
 `DEVKITPRO` selects a different SDK installation. The wrapper uses the SDK's
 [official Switch toolchain and packaging helpers](https://github.com/devkitPro/pacman-packages/tree/master/cmake/switch).
 The icon argument must point to a local 256x256 RGB JPEG. This installation
-converted the user's `Documents/OpenGt4ico.png` into the ignored build folder.
+converted the user's `Documents/MoonEngineico.png` into the ignored build folder.
 No SDK, console keys, game data or packaged executable belongs in Git.
 
-The build outputs `opengt4.nro` and the independent `switch_fpu_probe.nro`
+The build outputs `moonengine.nro` and the independent `switch_fpu_probe.nro`
 under `build-switch/nro`. It uses packaged SDL2 and Mesa/EGL with glad,
 OpenGL 3.3 core, and disables FSR.
 Videos return unavailable through the
@@ -52,18 +52,18 @@ Missing C declarations encountered by the ARM compiler were fixed explicitly.
 
 ## SD layout and first launch
 
-Copy `opengt4.nro` into `sdmc:/switch/opengt4/`. Put your own disc dump at
-`sdmc:/switch/opengt4/gt4.iso`. A single GT4 ISO exceeds FAT32's 4 GiB file
+Copy `moonengine.nro` into `sdmc:/switch/moonengine/`. Put your own disc dump at
+`sdmc:/switch/moonengine/gt4.iso`. A single GT4 ISO exceeds FAT32's 4 GiB file
 limit, so this single-file workflow needs exFAT. It does not include an ISO
 split-file reader.
 
 Open Homebrew Menu by holding R while launching a game (application mode,
 full RAM). Album applet mode does not provide enough memory for this port.
-Select OpenGT4. The application creates `config.ini` if missing:
+Select MoonEngine. The application creates `config.ini` if missing:
 
 ```ini
-disc=sdmc:/switch/opengt4/gt4.iso
-saves=sdmc:/switch/opengt4/
+disc=sdmc:/switch/moonengine/gt4.iso
+saves=sdmc:/switch/moonengine/
 show=0
 ```
 
@@ -72,7 +72,7 @@ The same file accepts `vsync=1`, `upscaling=0`, `ui_filter=0`,
 `aspect_ratio=0`; Windows retains its aspect-ratio selection. Existing video-setting saves
 preserve the disc and save-directory fields. Profiles, replay files, photos,
 game options and the startup log live below the selected SD save directory;
-`opengt4.log` itself remains in `sdmc:/switch/opengt4/`.
+`moonengine.log` itself remains in `sdmc:/switch/moonengine/`.
 
 The renderer starts at 1280x720 handheld or 1920x1080 docked. devkitPro SDL
 handles subsequent docking changes on its resizable window; its advertised
@@ -85,7 +85,7 @@ Place the independent probe at
 `sdmc:/switch/switch_fpu_probe/switch_fpu_probe.nro`, in its own folder.
 Homebrew Menu treats a folder containing a same-named NRO as an application
 shortcut, hiding other NROs in that folder. The delivery ZIP separates the
-probe from `opengt4` so both entries are visible.
+probe from `moonengine` so both entries are visible.
 Run `switch_fpu_probe.nro` before the game and report its PASS/FAIL message.
 It checks [ARM FPCR](https://documentation-service.arm.com/static/5e7e16dfb2608e4d7f0a2f8b)
 rounding toward zero and flush-to-zero, an arithmetic
@@ -104,7 +104,7 @@ POSIX overwrite operation expected by the desktop save writer. The supplied
 SD listing contains valid-size `active.ogt4`/slots alongside `.tmp.4294967295`
 and backup temporaries. Loading a profile also rewrites its active marker,
 so failed replacement can leave an existing profile inactive at startup.
-The config points to `sdmc:/switch/opengt4/`; no path migration is required.
+The config points to `sdmc:/switch/moonengine/`; no path migration is required.
 
 Switch-only replacement moves an existing destination to `.replace-old`,
 installs the fully written temporary file, commits the filesystem and removes
@@ -133,7 +133,7 @@ Put the Switch and PC on the same network and activate nxlink in Homebrew
 Menu (Y in versions that expose the netloader shortcut). From Windows:
 
 ```powershell
-C:/devkitPro/tools/bin/nxlink.exe -a SWITCH_IP build-switch/nro/opengt4.nro
+C:/devkitPro/tools/bin/nxlink.exe -a SWITCH_IP build-switch/nro/moonengine.nro
 ```
 
 The disc and save directory still belong on SD. Use the local startup log to
@@ -160,13 +160,13 @@ No NSP has been generated or validated in this first milestone.
 ### Console-created HOME shortcut
 
 The user prefers creating the shortcut on the console, as in their existing
-homebrew package. Sphaira supports selecting OpenGT4 in Homebrew, pressing
+homebrew package. Sphaira supports selecting Moon Engine in Homebrew, pressing
 X for Options, then Install Forwarder. Its
 [homebrew menu implementation](https://github.com/NaGaa95/sphaira/blob/master/sphaira/source/ui/menus/homebrew.cpp)
 reads the NRO's name and embedded icon for the installation form. This is
 an alternative to exporting keys for PC packaging, subject to the installed
 Sphaira version and its setup. No console shortcut has been validated here.
-Keep `switch/opengt4/opengt4.nro` in place after creating the shortcut.
+Keep `switch/moonengine/moonengine.nro` in place after creating the shortcut.
 
 The user's supplied cover replaces the local 256x256 JPEG embedded in the
 NRO; it is not included in the repository. A forwarder created before the
@@ -184,7 +184,7 @@ menu/controller/race/audio validation.
 ### Baseline measurement build
 
 The stage profiler uses libnx `armGetSystemTick` and `armTicksToNs`. It writes
-one aggregate per two seconds to `switch/opengt4/opengt4.log`, plus context
+one aggregate per two seconds to `switch/moonengine/moonengine.log`, plus context
 changes and individual load events. It does not print for each frame. Reports
 include frame mean/maximum, FPS, project/page/car/course, handheld/docked mode
 and drawable size. Nested spans charge exclusive CPU wall time for the native
@@ -195,7 +195,7 @@ not a frame duration. Submission spans include CPU batching/culling and driver
 backpressure; they are not isolated GPU times. GL work outside the measured
 mesh/2D boundaries remains in its parent scene time or uninstrumented time.
 No new GPU synchronization or readback is used. Switch disables the desktop
-`OPENGT4_VIDEO_PROFILE` path that forces `glFinish`.
+`MOON_VIDEO_PROFILE` path that forces `glFinish`.
 
 `Switch load` events measure project/root preparation and race/showroom asset
 workers; nested loads retain their own names and inclusive elapsed time.
@@ -220,8 +220,8 @@ new read-ahead or background menu preparation has been enabled yet.
 
 #### Reproducible console procedure
 
-1. Replace only `switch/opengt4/opengt4.nro` on **1: SD Card** in DBI MTP.
-   Keep the ISO, saves and config. Exit MTP/DBI, then launch OpenGT4 through
+1. Replace only `switch/moonengine/moonengine.nro` on **1: SD Card** in DBI MTP.
+   Keep the ISO, saves and config. Exit MTP/DBI, then launch Moon Engine through
    application-mode Homebrew Menu (hold R over a game).
 2. Handheld: leave the main menu idle for 20 seconds. Enter the same showroom
    twice, returning between visits; wait for the car and remain for 20 seconds.
@@ -229,7 +229,7 @@ new read-ahead or background menu preparation has been enabled yet.
 3. Arcade: drive Tsukuba for at least 20 seconds after loading, then drive
    Nürburgring Nordschleife for the same duration, using the same car/settings.
    Repeat a course load to compare first and second asset preparation.
-4. Exit the application, enter DBI MTP, copy `switch/opengt4/opengt4.log` to
+4. Exit the application, enter DBI MTP, copy `switch/moonengine/moonengine.log` to
    the PC and rename the copy `switch-handheld.log` **before relaunching**.
 5. Repeat the same scenes docked and copy `switch-docked.log`. A second full
    launch can separately check cold-process loading; keep its log too.
@@ -336,7 +336,7 @@ The diagnostic NRO cross build completed; seven focused Windows video/renderer
 tests passed, including their existing negative cases. No complete suite was
 rerun for this diagnostic-only round. Hardware timings and the aspect-ratio
 result remain pending. When configuring from devkitPro MSYS2 on Windows,
-`-DPython3_EXECUTABLE=/f/OpenGT4/.venv/Scripts/python.exe` selects this checkout's
+`-DPython3_EXECUTABLE=/f/MoonEngine/.venv/Scripts/python.exe` selects this checkout's
 host interpreter for the locally generated release header.
 
 ### Second handheld sample and next render budget
@@ -487,7 +487,7 @@ completed deko3d backend. Its changes are compile-time Switch boundaries:
   their maximum level and the existing native mip selection shader remain.
   This filter-cost choice is a P adaptation, not an unchanged PC pixel claim.
 
-`OPENGT4_SWITCH_UNCACHED` is an internal diagnostic environment override for
+`MOON_SWITCH_UNCACHED` is an internal diagnostic environment override for
 comparing binding/batch submission with the previous path. It is not a game
 option and does not turn PC texture extras back on. Showroom logs include
 last-pass texture updates/hits and merged groups; those counts are not totals
@@ -515,7 +515,7 @@ no complete suite was run for this renderer iteration.
 
 ### Adapted submission: next console sample and shader work
 
-The next supplied handheld log (`opengt4 (3).log`) confirms the submission
+The next supplied handheld log (`moonengine (3).log`) confirms the submission
 profile and Arcade warm-up were active. The first GameRoot readiness marker
 fell from 1360.377 ms in the preceding log to 15.001 ms (15.107 ms on return).
 This moves 4151.567 ms of preparation behind the initial loading screen; it
@@ -552,7 +552,7 @@ without reflection, and derivative/logarithm calculations without authored mip
 selection. Base-only simple-wrap sampling bypasses manual address preparation;
 reflection bilinear interpolation uses one hardware base-level sample instead
 of four explicit fetches. Native mip/nearest/region-addressing paths remain.
-`OPENGT4_SWITCH_SHADER_REFERENCE` selects the previous shader branches for
+`MOON_SWITCH_SHADER_REFERENCE` selects the previous shader branches for
 internal comparison; the startup marker now reports `shader_fast=1`.
 
 The host GPU test compares 240 combinations of flat/lit/specular/reflection
@@ -568,7 +568,7 @@ room preparation, direct CarFace resolution and deko3d remain unfinished.
 
 ### Shader iteration: console feedback and draw-state reuse
 
-The supplied `opengt4 (4).log` confirms `shader_fast=1`, handheld application
+The supplied `moonengine (4).log` confirms `shader_fast=1`, handheld application
 mode, unchanged settings, and readable save slots 1-3. Arcade GameRoot readiness
 remains short (14.515 ms first visit, 14.888 ms return). The first showroom still
 takes 2387.294 ms, including 1017.82 ms first submission; shader work did not
@@ -701,9 +701,9 @@ Switch deko3d selftest: mesh/depth=PASS
 
 Those hardware selftests have not run here. An upload/2D failure stops video
 initialization; a mesh failure reports failed warm-up. Copy only the new
-`opengt4.nro`, retain ISO/configuration/saves and keep the old NRO as a rollback.
+`moonengine.nro`, retain ISO/configuration/saves and keep the old NRO as a rollback.
 Start in application mode by holding R over a game. Check the main menu,
-GT map/showroom and a fixed Arcade race; copy opengt4.log before the next start.
+GT map/showroom and a fixed Arcade race; copy moonengine.log before the next start.
 The next milestone is console startup/image/control validation, followed by
 measuring the same race and addressing the remaining native-renderer issues.
 
@@ -728,7 +728,7 @@ These are CPU/build proofs, not console startup or GPU pixel proofs. The
 renderer remains P and hardware validation remains pending.
 
 Startup now flushes SDL/device/queue/framebuffer/swapchain/shader/acquire
-milestones and the SDK debug callback to opengt4.log. This is boot/error logging,
+milestones and the SDK debug callback to moonengine.log. This is boot/error logging,
 not per-frame output. Replace only the NRO, retaining configuration and saves.
 If startup fails again, copy the new log before reopening; it should identify
 the last completed stage. The previous Mesa NRO can still be restored.
@@ -878,7 +878,7 @@ artifact audit pass. Native boot now additionally checks reused DATE and
 a textured particle quad through actual deko commands; these new checks
 have not yet run on the console. No new NRO package has been released.
 
-The supplied opengt4 (9).log identifies the automatic presentation as
+The supplied moonengine (9).log identifies the automatic presentation as
 /replay/Rdemo0/Rdemo0, Bentley Speed 8 / paris_rally. Its sustained measured
 windows range from 30.45 to 54.43 FPS; the regular late windows retain
 about 120 simulation calls per two seconds. Thus that sample does not
@@ -959,7 +959,7 @@ A-Spec trajectory problem is independent of these Switch-only rendering changes.
 ### Partial-surface flicker: scene reset and frame reuse (2026-10-14)
 
 The user reports that individual roof/window/body sections flicker rapidly;
-the last graphics-audit package did not resolve it. Supplied opengt4 (10).log
+the last graphics-audit package did not resolve it. Supplied moonengine (10).log
 confirms upload, image-blit, reused-DATE and particle PASS on hardware, but
 material-blend FAIL and combined mesh/depth FAIL. This is a native GPU failure
 that the host shader/blend-state tests did not cover; complete scenes remain A.
@@ -1064,7 +1064,7 @@ No failures are disabled, relabeled PASS or used to claim visual fidelity.
 The two first shaders load lazily only when the diagnostic requests them;
 ordinary game calls use the unchanged zero probe flags. Windows sources
 and game logic are untouched. The separate test reads no disc, profile or
-configuration and writes only switch/opengt4/gpu-compare.log. It returns to
+configuration and writes only switch/moonengine/gpu-compare.log. It returns to
 the Homebrew Menu after displaying a short result colour.
 
 Build the switch_gpu_compare_nro target. The ARM64 ELF/NRO and seven UAM
@@ -1128,8 +1128,8 @@ and expected bytes. First shader sources remain byte-identical to 7715ae8,
 and the broken vertex source matches c8087e4. The ARM64 game and standalone
 diagnostic NROs build. The standalone package now places its NRO directly in
 `/switch/switch_gpu_compare.nro`: Sphaira's default fast scan finds
-`/switch/opengt4/opengt4.nro` and can skip a second NRO in that same folder.
-Its log continues to use `/switch/opengt4/gpu-compare.log`.
+`/switch/moonengine/moonengine.nro` and can skip a second NRO in that same folder.
+Its log continues to use `/switch/moonengine/gpu-compare.log`.
 
 Full car flicker, checker bands, race colours and the new vertex workaround
 remain A pending the next console log and visual check. In particular, the
@@ -1191,15 +1191,15 @@ The offsets are 0x38cc, 0x12dd28, 0x146548, 0x56eca4, 0x56c5e8 and
 0x56fd18. Result 0x367 is MAKERESULT(359,1), the release deko3d SDK's generic
 failure, not evidence of a CPU physics crash or an allocation failure.
 The three older system-process reports and the Sphaira/hbl reports do not
-identify an OpenGT4 instruction. Older OpenGT4 reports also contain 0x367;
+identify an Moon Engine instruction. Older Moon Engine reports also contain 0x367;
 their differing build IDs are not symbolicated with this ELF.
 
 The release SDK removes its GPU fault warnings. Its installed diagnostic
 archive retains Queue::checkError's NvError classification: page fault and
 address/access, method error and command, rejected list or GPU timeout.
-Use -DOPENGT4_DEKO_DIAGNOSTICS=ON for the next console reproduction; game
+Use -DMOON_DEKO_DIAGNOSTICS=ON for the next console reproduction; game
 code remains Release with its existing optimization. The callback flushes
-these warnings to opengt4.log and logs the three frame slots' draw/upload
+these warnings to moonengine.log and logs the three frame slots' draw/upload
 counts, stream/command blocks and last vertex extent/target only on failure.
 There is no per-draw printf or additional GPU idle wait. SDK error callbacks
 abort after recording the error instead of opening its interactive dialog.
@@ -1213,7 +1213,7 @@ UI draws, truncated storage and overflow. Its negative truncates the final
 course vertex and fails. All 28 focused deko tests pass, including negatives.
 The native diagnostic ELF/NRO is checked for retained SDK fault messages;
 a deliberate diagnostic-removal audit must fail. Full console crash
-resolution remains pending the diagnostic opengt4.log. This build also
+resolution remains pending the diagnostic moonengine.log. This build also
 includes the independently tested full-image composition repair above.
 Desktop graphics and physics source are unchanged.
 

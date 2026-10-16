@@ -1,7 +1,7 @@
 /* Engine: torque curve, engine braking and the power factor from the engine's
    wear state. */
-#ifndef OPENGT4_PHYS_ENGINE_H
-#define OPENGT4_PHYS_ENGINE_H
+#ifndef MOON_PHYS_ENGINE_H
+#define MOON_PHYS_ENGINE_H
 
 #include "phys.h"
 

@@ -14,11 +14,11 @@ for scene in ("tsukuba", "showroom", "menu"):
     frames = []
     for backend in ("opengl", "vulkan"):
         env = os.environ.copy()
-        for key in ("OPENGT4_COURSE", "OPENGT4_SHADOW_CPU", "OPENGT4_UPSCALE",
-                    "OPENGT4_VK_SYNC", "OPENGT4_RENDERER", "OPENGT4_PROBE_APPEAR"):
+        for key in ("MOON_COURSE", "MOON_SHADOW_CPU", "MOON_UPSCALE",
+                    "MOON_VK_SYNC", "MOON_RENDERER", "MOON_PROBE_APPEAR"):
             env.pop(key, None)
-        env["OPENGT4_WINDOW_HIDDEN"] = "1"
-        env["OPENGT4_GRAPHICS_API"] = backend
+        env["MOON_WINDOW_HIDDEN"] = "1"
+        env["MOON_GRAPHICS_API"] = backend
         path = output / f"{scene}-{backend}.png"
         if scene == "menu":
             command = [str(player), str(disc), "option", "ScreenRoot", "--renderer", backend,
@@ -27,11 +27,11 @@ for scene in ("tsukuba", "showroom", "menu"):
         else:
             command = [str(probe), str(disc), "ka_01", str(path)]
             if scene == "tsukuba":
-                env["OPENGT4_COURSE"] = scene
+                env["MOON_COURSE"] = scene
             else:
                 # Restart the entrance so asynchronous load time does not
                 # choose different samples of the studio's light animation.
-                env["OPENGT4_PROBE_APPEAR"] = "1"
+                env["MOON_PROBE_APPEAR"] = "1"
                 command += ["0", "3"]
         result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=90)
         log = result.stdout + result.stderr

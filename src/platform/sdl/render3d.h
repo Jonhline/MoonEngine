@@ -5,8 +5,8 @@
  * action, destination alpha test, texture addressing modes, CarFace
  * lighting and the spherical environment reflection. See docs/RENDERER.md.
  */
-#ifndef OPENGT4_RENDER3D_H
-#define OPENGT4_RENDER3D_H
+#ifndef MOON_RENDER3D_H
+#define MOON_RENDER3D_H
 
 #include "model.h"
 #include "tex1.h"
@@ -61,7 +61,7 @@ typedef struct {
 } r3d_view;
 
 int r3d_available(void);
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
 /* P: initialize and exercise lazy GPU passes before interactive screens. */
 int r3d_warmup(void);
 #endif
@@ -159,7 +159,7 @@ void r3d_sprite_texture_destroy(r3d_sprite_texture *t);
 void r3d_draw_sprites(const r3d_sprite_texture *t, const r3d_view *view, const float *corners,
                       int squares, int mode);
 
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
 /* Borrow the GPU-produced environment for this submission; owner retains it. */
 void r3d_gpu_environment(unsigned texture, int width, int height);
 void r3d_copy_target(unsigned destination_fbo, int destination_x);

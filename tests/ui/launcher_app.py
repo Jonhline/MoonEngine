@@ -52,7 +52,7 @@ def main():
     check((video.read_bytes() if video.exists() else None) == video_before,
           "blocked settings cannot change video configuration")
     metadata = root / "latest.json"
-    release = dict(version="0.3.0", setup="OpenGT4-0.3.0-setup.exe", sha256="0" * 64, size=3, notes="Test")
+    release = dict(version="0.3.0", setup="MoonEngine-0.3.0-setup.exe", sha256="0" * 64, size=3, notes="Test")
     metadata.write_text(json.dumps(release), encoding="utf-8")
     # The fixture compares against the version stamped into this build.
     version = plain.split(" VERSION ")[1].splitlines()[0]

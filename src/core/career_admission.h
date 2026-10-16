@@ -1,5 +1,5 @@
-#ifndef OPENGT4_CAREER_ADMISSION_H
-#define OPENGT4_CAREER_ADMISSION_H
+#ifndef MOON_CAREER_ADMISSION_H
+#define MOON_CAREER_ADMISSION_H
 #include "vol.h"
 #include <stdint.h>
 /* 001A1C60: zero/unknown restriction gives an empty array, not nil. */

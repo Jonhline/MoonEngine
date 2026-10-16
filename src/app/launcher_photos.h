@@ -1,5 +1,5 @@
-#ifndef OPENGT4_LAUNCHER_PHOTOS_H
-#define OPENGT4_LAUNCHER_PHOTOS_H
+#ifndef MOON_LAUNCHER_PHOTOS_H
+#define MOON_LAUNCHER_PHOTOS_H
 #include <stdint.h>
 /* P: local native photographs. Never read the disc or bundle game imagery. */
 typedef struct {

@@ -1,5 +1,5 @@
-#ifndef OPENGT4_LAUNCHER_AUDIO_H
-#define OPENGT4_LAUNCHER_AUDIO_H
+#ifndef MOON_LAUNCHER_AUDIO_H
+#define MOON_LAUNCHER_AUDIO_H
 #include <stdint.h>
 typedef struct launcher_audio launcher_audio;
 launcher_audio *launcher_audio_open(const char *disc, int device);

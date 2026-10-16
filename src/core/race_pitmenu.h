@@ -5,8 +5,8 @@
  * NITEM, DEFAULTVAL, RETURNVAL). The host opens it when the watched car's
  * stop asks (0035BC70) and hands the choice to the car (0035BF08).
  */
-#ifndef OPENGT4_RACE_PITMENU_H
-#define OPENGT4_RACE_PITMENU_H
+#ifndef MOON_RACE_PITMENU_H
+#define MOON_RACE_PITMENU_H
 
 #include "vol.h"
 

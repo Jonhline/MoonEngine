@@ -1,5 +1,5 @@
-#ifndef OPENGT4_PHOTO_PAUSE_H
-#define OPENGT4_PHOTO_PAUSE_H
+#ifndef MOON_PHOTO_PAUSE_H
+#define MOON_PHOTO_PAUSE_H
 #include "photo_mode.h"
 #include "strobe_player.h"
 typedef struct photo_pause photo_pause;

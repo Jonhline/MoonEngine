@@ -229,7 +229,7 @@ for the PCSX2 capture and what cannot be compared directly.
 Build and run:
 
 ```
-cmake -S . -B build -DOPENGT4_RECOMP_TESTS=ON
+cmake -S . -B build -DMOON_RECOMP_TESTS=ON
 cmake --build build --config Release --target initsys_run ee_unit_tests
 build/Release/ee_unit_tests.exe
 .venv/Scripts/python tests/initsys/run_test.py

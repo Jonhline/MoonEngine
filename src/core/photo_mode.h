@@ -1,5 +1,5 @@
-#ifndef OPENGT4_PHOTO_MODE_H
-#define OPENGT4_PHOTO_MODE_H
+#ifndef MOON_PHOTO_MODE_H
+#define MOON_PHOTO_MODE_H
 #include "course.h"
 /* PhotoPause 003C4D98/9C -> PhotoDevelop+118. */
 #define GT4_PHOTO_SAMPLES 32

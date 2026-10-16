@@ -1,5 +1,5 @@
-#ifndef OPENGT4_LICENSE_PRESENTATION_H
-#define OPENGT4_LICENSE_PRESENTATION_H
+#ifndef MOON_LICENSE_PRESENTATION_H
+#define MOON_LICENSE_PRESENTATION_H
 #include <stdint.h>
 #include <stddef.h>
 /* RaceDisplayElement's first 12 bytes: shown/alignment/position/size. */

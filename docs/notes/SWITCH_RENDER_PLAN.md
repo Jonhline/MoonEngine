@@ -75,7 +75,7 @@ uninstrumented confirmation and never force glFinish.
 
 Diagnostic A/B workloads should independently freeze/bypass reflection
 *production*, simplify shading, lower only 3D resolution, and replace detailed
-geometry. OPENGT4_NO_REFLECT currently skips reflective mesh groups but does
+geometry. MOON_NO_REFLECT currently skips reflective mesh groups but does
 not bypass course_reflection's six producer views: it alone cannot measure
 that producer's cost. Such bypasses are diagnostic controls, not release fixes.
 

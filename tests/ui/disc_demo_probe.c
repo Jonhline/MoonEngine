@@ -46,7 +46,7 @@ int main(int argc, char **argv)
            catalog smoke check. This does not claim original trajectory parity. */
         int ticks = theater_long ? 5400 : bspec_test ? 1200 : 120;
         if (theater_long)
-            SDL_setenv("OPENGT4_RACE_REPLAY_LOG", "1", 1);
+            SDL_setenv("MOON_RACE_REPLAY_LOG", "1", 1);
         int checked_bspec = 0;
         for (int k = 0; k < (theater_long ? 1 : count); k++) {
             gt4_replay_file file;

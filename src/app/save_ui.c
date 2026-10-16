@@ -102,7 +102,7 @@ static int enter_cards(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_v
         child->visible = decoration ? 1 : child == s->welcome ? s->first_run : !s->first_run;
     }
     if (s->first_run) {
-        heading(s, s->page, "Welcome to OpenGT4");
+        heading(s, s->page, "Welcome to Moon Engine");
         menu_native_focus(s->owner, ui_widget_child(s->welcome, "Begin"));
         tip(s, "Create a player profile, import a savegame, or continue without saving.");
         *ret = ah_int(0);

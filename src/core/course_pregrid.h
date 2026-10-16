@@ -1,7 +1,7 @@
 /* Arcade SceneViewFace camera: course header +0xC0, REP4, mode 5.
    The borrowed course bytes must remain alive until close. */
-#ifndef OPENGT4_COURSE_PREGRID_H
-#define OPENGT4_COURSE_PREGRID_H
+#ifndef MOON_COURSE_PREGRID_H
+#define MOON_COURSE_PREGRID_H
 #include <stddef.h>
 #include <stdint.h>
 typedef struct gt4_pregrid gt4_pregrid;

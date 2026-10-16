@@ -184,7 +184,7 @@ zero, as the PS2 FPU rounds.
 | 0x357700 | `gt4_car_engine_update` | identical; 0x35c0b8 (only when `car+0x5be` is set) still runs the original |
 | 0x357418, 0x360f80, 0x3573a8, 0x359830 | `gt4_car_tyre_grip`: per wheel, grip = load * curve(load / axle reference) * axle multiplier * mu(surface) * curve(camber + body roll) | identical; Ka at the corner: loads 3502/1620/2803/1163 N, grip 4070/2072/3263/1421 N. Tyre wear/heat (0x356ef0, session flags 0x68/0x69 off in all snapshots) runs the original |
 | 0x467470, 0x463bb8 | `gt4_surface_factor` (driving modes with a surface table, used by the second car) | identical |
-| 0x57d1f0, 0x57d2b8, 0x36cb90, 0x36cb20, 0x36cc40 | `gt4_sinf`, `gt4_cosf`, `gt4_angle_wrap`, `gt4_angle_diff` | identical on 4 million inputs each (`OPENGT4_MATHCHECK`) |
+| 0x57d1f0, 0x57d2b8, 0x36cb90, 0x36cb20, 0x36cc40 | `gt4_sinf`, `gt4_cosf`, `gt4_angle_wrap`, `gt4_angle_diff` | identical on 4 million inputs each (`MOON_MATHCHECK`) |
 | 0x3535b0 | `gt4_car_drivetrain`: the whole transmission step | identical; gearbox kinds 1-3 and 0x351eb0 run the original |
 | 0x3511a0, 0x350fb8, 0x351178, 0x350e28, 0x350da0 | clutch state machine, brake and handbrake torque, wheel flags; engine speed implied by the driven wheels (overall ratio per gear: Ka -13.86, 13.52, 7.93, 5.22, 3.76, 2.97) | identical |
 | 0x3534a0 | rolling resistance: sum of load * surface coefficient times a speed curve | identical |
@@ -272,7 +272,7 @@ the eight outline points (reproduced), and the one below.
 MSVC compiles float selects such as `x <= 0 ? 0 : x` to `maxss`/`minss`,
 even with `/fp:strict`, and then returns the wrong zero on a tie (-0
 against 0), where the PS2 keeps the sign. Clamps against zero use
-`gt4_select` (a select on the bits) instead. `opengt4_physics` is built
+`gt4_select` (a select on the bits) instead. `moon_physics` is built
 with `/fp:strict` so the rounding mode is respected.
 
 Branches that no snapshot exercises are not rewritten on trust: the
@@ -591,9 +591,9 @@ which the PS2 reads as -FLT_MAX (its FPU has no NaN or infinity).
    function (recompiled, `tools/recomp`) and the C rewrite on the same
    inputs and compare, then compare whole laps against PCSX2 recordings.
 
-## Driving a snapshot (opengt4_drive, transitional)
+## Driving a snapshot (moon_drive, transitional)
 
-`opengt4_drive <disc.iso> <eeMemory.bin> [Scratchpad.bin]` runs the step
+`moon_drive <disc.iso> <eeMemory.bin> [Scratchpad.bin]` runs the step
 at 60 Hz on the RAM of a savestate and draws the car on the course with
 the native renderer (`src/platform/sdl/race_view.c`, apart from the menus'
 showroom). The wheels are drawn as their own models: each gets the steer
@@ -637,7 +637,7 @@ controller and camera objects.
 
 ## Out of the snapshot
 
-`opengt4_drive <disc.iso> - --car <code> --course <name> [--elf core.elf]`
+`moon_drive <disc.iso> - --car <code> --course <name> [--elf core.elf]`
 (and `physics_run - - ...` with `PHYS_BUILD=<core.elf>`) run without a
 savestate. `tests/physics/race_build.c` loads the executable's image (its
 loadable segments, bss zero) and makes the few objects the setup and the
@@ -681,7 +681,7 @@ with an empty garage), and the Time Trial session itself.
 
 A race against the AI (the Arcade's session) is built the same way
 (`phys_race_build_arcade`; `PHYS_ARCADE=<cars>` with `PHYS_BUILD`,
-`opengt4_drive --arcade [--ai code,...]`), at the addresses of the
+`moon_drive --arcade [--ai code,...]`), at the addresses of the
 Arcade captures. The words it needs were found on `ar_02` by splitting
 top-down by address (`build/physics_cmp/delta.py`, local: 118 tests at
 16 KB, then to single words): 40 of them. The display units, the

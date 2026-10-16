@@ -241,7 +241,7 @@ Tests cover negative/repeated coordinates, both clamped edges, nonzero region
 bounds, region-repeat masks, and metadata decoding. All 14 CTest tests and nine
 car navigation checks pass. Same-angle M Coupe captures before/after confirm the
 upper duplicate strip is removed; Cobra and the navigation sample cars were also
-checked. The updated opengt4 executable includes this correction.
+checked. The updated moonengine executable includes this correction.
 
 
 ## Converter survey, matrix commands and VM command sizes (2026-09-27)

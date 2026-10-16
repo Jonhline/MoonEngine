@@ -1,5 +1,5 @@
-#ifndef OPENGT4_RACE_PIT_WALK_H
-#define OPENGT4_RACE_PIT_WALK_H
+#ifndef MOON_RACE_PIT_WALK_H
+#define MOON_RACE_PIT_WALK_H
 #include <stdint.h>
 /* 003D36D0 / 003D3E80: native presentation state, never service physics.
    The target is an anchor index instead of the original self pointer. */

@@ -1,5 +1,5 @@
-#ifndef OPENGT4_SAVE_H
-#define OPENGT4_SAVE_H
+#ifndef MOON_SAVE_H
+#define MOON_SAVE_H
 #include "adhoc/adhoc_vm.h"
 #include <stddef.h>
 #include <stdint.h>

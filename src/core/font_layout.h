@@ -1,5 +1,5 @@
-#ifndef OPENGT4_FONT_LAYOUT_H
-#define OPENGT4_FONT_LAYOUT_H
+#ifndef MOON_FONT_LAYOUT_H
+#define MOON_FONT_LAYOUT_H
 #include "font.h"
 /* Proportional FT01 placement from 00492978; previous=0 after a space. */
 float gt4_font_original_step(const gt4_font *f, unsigned previous, unsigned code, float scale,

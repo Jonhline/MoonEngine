@@ -1,5 +1,5 @@
-#ifndef OPENGT4_ALBUM_SLIDE_H
-#define OPENGT4_ALBUM_SLIDE_H
+#ifndef MOON_ALBUM_SLIDE_H
+#define MOON_ALBUM_SLIDE_H
 #include <stdint.h>
 #define GT4_ALBUM_CAPACITY 400
 /* Native counterpart of 001C5E48..001C6580's 0x54-byte slide. */

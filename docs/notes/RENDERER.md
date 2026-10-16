@@ -18,7 +18,7 @@ The earlier foundation-only entry below is superseded by this implementation.
 ## PC backend foundation, 15 October 2026
 
 The PC product now displays Moon Engine. Executable/build names and preference
-paths retain OpenGT4 compatibility. The [backend guide](../VULKAN.md) describes
+paths retain Moon Engine compatibility. The [backend guide](../VULKAN.md) describes
 selection and the Vulkan foundation. The GPU transfer/readback test ran on a
 GeForce GTX 1650. Nine focused tests passed, including deliberate negatives.
 This is a PC addition (P); Vulkan game drawing, presentation and image comparison
@@ -35,7 +35,7 @@ window is visible or hidden (tests).
 The menus keep their 640x480 virtual screen: `plat_video_set_view` sets it,
 it is letterboxed into the window, and all 2D drawing (`plat_draw_quad*`,
 glyphs, rotated quads, clipping) is batched into textured triangles. The
-window size sets the resolution: `opengt4 ... --window 1920x1080` or
+window size sets the resolution: `moonengine ... --window 1920x1080` or
 `--fullscreen`. Menu captures under SDL_Renderer and OpenGL match.
 
 ## 3D (render3d.c)
@@ -43,7 +43,7 @@ window size sets the resolution: `opengt4 ... --window 1920x1080` or
 Car and course models are converted once (`src/core/model.c`) and uploaded
 as vertex buffers and textures. Consecutive triangles with the same state
 form one draw. The shaders reproduce the software rasterizer of
-`showroom.c`, which remains the reference (`OPENGT4_RENDERER=software`):
+`showroom.c`, which remains the reference (`MOON_RENDERER=software`):
 
 | PS2 rule | GPU implementation |
 |----------|--------------------|
@@ -92,8 +92,8 @@ licence kept there), embedded at build time. Needs an OpenGL 4.x context
   applied in the upscaled texels. Region-repeat textures are left as they
   are (their bit masks do not scale).
 - Default on; `--upscale off` disables it. `showroom_probe` stays without
-  upscaling unless `OPENGT4_UPSCALE` is set, so reference comparisons are
-  unchanged (`OPENGT4_WINDOW=WxH` sets its resolution).
+  upscaling unless `MOON_UPSCALE` is set, so reference comparisons are
+  unchanged (`MOON_WINDOW=WxH` sets its resolution).
 
 Everything happens in video memory from the user's own disc; nothing is
 written out. Expectations: edges get firmer and halos go away; detail that
@@ -146,7 +146,7 @@ user's disc. The earlier bring-up notes above describe previous stages.
 - Studio shadow targets/shaders persist; the GPU draws one silhouette and
   two blur passes at 320x224. Light position, darkness and blur come from
   `light.mot`. The five-tap Gaussian is an approximation of PS2 jittered
-  projection; the CPU reference remains available via `OPENGT4_SHADOW_CPU=1`.
+  projection; the CPU reference remains available via `MOON_SHADOW_CPU=1`.
 - Ordered batches have conservative model-space bounds and at most 128
   triangles. Off-screen batches are rejected before state changes or DATE
   copies. No material sorting changes native mask/transparency order.
@@ -172,8 +172,8 @@ and menu pacing disabled, with `glFinish` included in elapsed time:
 
 These are scene measurements, not whole-game FPS guarantees. Tsukuba and Nurburgring captures
 with culling enabled/disabled are pixel-identical. Reproduce with
-`OPENGT4_PROBE_FRAMES=300` and `showroom_probe`; set `OPENGT4_COURSE=tsukuba`
-for the track, `OPENGT4_DISABLE_CULL=1` for the comparison. Captures/research
+`MOON_PROBE_FRAMES=300` and `showroom_probe`; set `MOON_COURSE=tsukuba`
+for the track, `MOON_DISABLE_CULL=1` for the comparison. Captures/research
 remain local in `extracted/renderer/`.
 
 Validation: 807/807 CAR4 models convert; 19 CTest tests pass, including 100,000
@@ -227,14 +227,14 @@ for the full audit, native function evidence, validation and remaining work.
 ## Course colour and sets against PCSX2 savestates — 2026-10-02
 
 The savestates in `captures/physics/*.p2s` carry PCSX2's own screenshot of
-the moment (`Screenshot.png`). `OPENGT4_RACE_SNAPSHOT=<capture>.eeMemory.bin`
+the moment (`Screenshot.png`). `MOON_RACE_SNAPSHOT=<capture>.eeMemory.bin`
 loads that moment's guest memory into the native race (conductor found by
 its session table), takes the captured lineup's models and freezes it, with
 no HUD and no start camera, so the same frame can be compared side by side:
 
 ```bash
-OPENGT4_RACE_SNAPSHOT=captures/physics/s03.eeMemory.bin OPENGT4_RACE_VIEW=0 \
-  build/Release/opengt4.exe "$ISO" --drive --race-course laguna --window 640x480 --shot s03.png --shot-delay 8
+MOON_RACE_SNAPSHOT=captures/physics/s03.eeMemory.bin MOON_RACE_VIEW=0 \
+  build/Release/MoonEngine.exe "$ISO" --drive --race-course laguna --window 640x480 --shot s03.png --shot-delay 8
 ```
 
 `s01`..`s06` and `roof` are Laguna Seca / Nürburgring Arcade races (RACE
@@ -309,7 +309,7 @@ arrows turn, Shift accelerates; the camera ignores collisions, and F3
 restores the race view. Player commands become neutral while inspecting;
 the race continues. Speeds 3/15 m/s, turn 1.5 rad/s and pitch limit 1.55
 are deliberate PC controls, not PS2 constants. Real frame time controls
-movement independently of `OPENGT4_RACE_SPEED`.
+movement independently of `MOON_RACE_SPEED`.
 
 `race_inspect_probe disc.iso output-prefix [--negative]` verifies the
 actual app camera/keyboard code without sending OS input, and captures
@@ -389,7 +389,7 @@ no guessed smoothing or showroom-rim substitution was introduced.
 ## Course fog and road sheen — 2026-10-02
 
 Both read from the game, then compared with the PCSX2 screenshots inside
-the savestates (`OPENGT4_RACE_SNAPSHOT`, above). `OPENGT4_NO_SHEEN=1`
+the savestates (`MOON_RACE_SNAPSHOT`, above). `MOON_NO_SHEEN=1`
 turns the sheen off for a before/after.
 
 **Fog.** `func_00397CE0` (the environment applied before the scene) calls
@@ -442,8 +442,8 @@ was there before and is not explained.
 ## Car shadows in the race — 2026-10-02
 
 Read from the game, compared with the PCSX2 screenshots of `s03` (Laguna
-Seca) and `s06` (Grand Valley). `OPENGT4_NO_CAST_SHADOW=1` leaves the blot
-alone, `OPENGT4_NO_FOG=1` turns the course's fog off.
+Seca) and `s06` (Grand Valley). `MOON_NO_CAST_SHADOW=1` leaves the blot
+alone, `MOON_NO_FOG=1` turns the course's fog off.
 
 The scene's car pass (`func_00340950`) sets the shadow's colour before
 each car (`func_0038F240`: Env0 +0xA60 divided by +0x38, alpha +0xA6C, and

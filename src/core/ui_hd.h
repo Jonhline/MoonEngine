@@ -5,8 +5,8 @@
  * height (little endian), then the width * height RGBA texels as raw
  * deflate.
  */
-#ifndef OPENGT4_UI_HD_H
-#define OPENGT4_UI_HD_H
+#ifndef MOON_UI_HD_H
+#define MOON_UI_HD_H
 
 #include <stdint.h>
 

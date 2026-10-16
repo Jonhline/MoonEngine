@@ -201,8 +201,8 @@ static sdl_movie *open_media(const uint8_t *data, size_t size, int interlace, in
             wcscpy(cut + 1, L"ffmpeg.exe");
         }
         if (!cut || GetFileAttributesW(exe) == INVALID_FILE_ATTRIBUTES) {
-#ifdef OPENGT4_FFMPEG
-            MultiByteToWideChar(CP_UTF8, 0, OPENGT4_FFMPEG, -1, exe, MAX_PATH);
+#ifdef MOON_FFMPEG
+            MultiByteToWideChar(CP_UTF8, 0, MOON_FFMPEG, -1, exe, MAX_PATH);
             if (GetFileAttributesW(exe) == INVALID_FILE_ATTRIBUTES)
 #endif
             {

@@ -59,7 +59,7 @@ Start with [How it works](HOW_IT_WORKS.md), then [Building and testing](BUILDING
 
 ## Original executable research
 
-These describe reference tooling, not the runtime of `opengt4`.
+These describe reference tooling, not the runtime of `moonengine`.
 
 - [CORE.GT4](analysis/CORE_FORMAT.md): executable container and unpacking.
 - [Symbols](analysis/SYMBOLS.md): library identification and original addresses.

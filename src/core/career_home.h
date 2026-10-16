@@ -1,5 +1,5 @@
-#ifndef OPENGT4_CAREER_HOME_H
-#define OPENGT4_CAREER_HOME_H
+#ifndef MOON_CAREER_HOME_H
+#define MOON_CAREER_HOME_H
 #include <stdint.h>
 /* D_00623E40 in the user's CORE.GT4. */
 typedef struct {

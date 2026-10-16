@@ -8,18 +8,25 @@
 
 int launcher_bootstrap(int *argc, char ***argv, launcher_startup *start)
 {
-    const char *root = "sdmc:/switch/opengt4";
+    /* P: the folder of the project's former name (disc, saves, settings)
+       keeps working while no Moon Engine folder exists */
+    static char root[64] = "sdmc:/switch/moonengine", file[96];
+    struct stat st;
+    if (stat(root, &st) && !stat("sdmc:/switch/opengt4", &st))
+        snprintf(root, sizeof root, "sdmc:/switch/opengt4");
     mkdir("sdmc:/switch", 0777);
     if (!gt4_save_mkdir(root))
         return -1;
-    FILE *log = freopen("sdmc:/switch/opengt4/opengt4.log", "w", stderr);
+    snprintf(file, sizeof file, "%s/moonengine.log", root);
+    FILE *log = freopen(file, "w", stderr);
     (void)log;
     /* Keep complete diagnostic records available after HOME -> Close. */
     setvbuf(stderr, NULL, _IOLBF, 8192);
     gt4_phys_fpu_enter();
-    if (!opengt4_switch_fpu_check())
+    if (!moon_switch_fpu_check())
         return -1;
-    if (!launcher_preferences_load(&start->preferences, "sdmc:/switch/opengt4/config.ini"))
+    snprintf(file, sizeof file, "%s/config.ini", root);
+    if (!launcher_preferences_load(&start->preferences, file))
         return -1;
     if (!start->preferences.disc[0])
         snprintf(start->preferences.disc, LAUNCHER_PATH, "%s/gt4.iso", root);
@@ -32,7 +39,7 @@ int launcher_bootstrap(int *argc, char ***argv, launcher_startup *start)
     else if (!launcher_preferences_save(&start->preferences))
         return -1;
     snprintf(start->video_file, LAUNCHER_PATH, "%s", start->preferences.file);
-    start->arguments[0] = *argc > 0 && *argv ? (*argv)[0] : "opengt4";
+    start->arguments[0] = *argc > 0 && *argv ? (*argv)[0] : "moonengine";
     start->arguments[1] = start->preferences.disc;
     start->arguments[2] = "--save-dir";
     start->arguments[3] = start->preferences.saves;
@@ -45,7 +52,7 @@ int launcher_bootstrap(int *argc, char ***argv, launcher_startup *start)
     SDL_SetHint(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, "0");
     /* Reuse the existing five-second pose trace for disc/attract replays.
        This is diagnostic output, not a simulation tick or renderer setting. */
-    SDL_setenv("OPENGT4_RACE_REPLAY_LOG", "1", 0);
+    SDL_setenv("MOON_RACE_REPLAY_LOG", "1", 0);
     return 1;
 }
 

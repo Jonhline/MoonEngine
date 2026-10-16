@@ -18,9 +18,9 @@ for name in ["latest.json",manifest["setup"]]:
         try:get(name,credential)
         except urllib.error.HTTPError as e:assert e.code==401
         else:raise AssertionError("unauthorized binary access")
-env=dict(os.environ,OPENGT4_TEST_UPDATE_URL=url,OPENGT4_TEST_UPDATE_TOKEN=token)
+env=dict(os.environ,MOON_TEST_UPDATE_URL=url,MOON_TEST_UPDATE_TOKEN=token)
 newer=tuple(map(int,manifest["version"].split(".")))>tuple(map(int,local.split(".")))
 subprocess.run([exe,"--network","available" if newer else "hidden"],env=env,check=True,timeout=90)
-env["OPENGT4_TEST_UPDATE_TOKEN"]="invalid"
+env["MOON_TEST_UPDATE_TOKEN"]="invalid"
 subprocess.run([exe,"--network","hidden"],env=env,check=True,timeout=30)
 print("PASS Oracle HTTPS authorization, native transport and silent check errors")

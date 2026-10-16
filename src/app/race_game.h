@@ -1,7 +1,7 @@
 /* A race in the game: the native race (src/core/physics/race_run.c) with
    the player's controller, drawn by the race view. */
-#ifndef OPENGT4_RACE_GAME_H
-#define OPENGT4_RACE_GAME_H
+#ifndef MOON_RACE_GAME_H
+#define MOON_RACE_GAME_H
 
 #include <stddef.h>
 #include "physics/race_run.h"

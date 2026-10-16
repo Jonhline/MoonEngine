@@ -1,5 +1,5 @@
-#ifndef OPENGT4_PS2_MEDIA_H
-#define OPENGT4_PS2_MEDIA_H
+#ifndef MOON_PS2_MEDIA_H
+#define MOON_PS2_MEDIA_H
 #include "vol.h"
 #include "driver_pose.h"
 typedef struct {

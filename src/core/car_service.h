@@ -1,5 +1,5 @@
-#ifndef OPENGT4_CAR_SERVICE_H
-#define OPENGT4_CAR_SERVICE_H
+#ifndef MOON_CAR_SERVICE_H
+#define MOON_CAR_SERVICE_H
 #include <stddef.h>
 #include <stdint.h>
 /* Additional models and independent motion controllers, 00153FC8/001540C8.

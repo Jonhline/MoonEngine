@@ -243,7 +243,7 @@ int plat_audio_init(const plat_audio_desc *desc, plat_audio_cb cb, void *user)
     if (cb) {
         for (int i = 0; i < MUSIC_AHEAD / MUSIC_BLOCK; i++)
             music_produce();
-        music_thread = SDL_CreateThread(music_worker, "OpenGT4 music", NULL);
+        music_thread = SDL_CreateThread(music_worker, "Moon Engine music", NULL);
         if (!music_thread) {
             SDL_CloseAudioDevice(audio_device);
             audio_device = 0;
@@ -253,7 +253,7 @@ int plat_audio_init(const plat_audio_desc *desc, plat_audio_cb cb, void *user)
         }
     }
     {
-        const char *path = getenv("OPENGT4_CAPTURE_AUDIO");
+        const char *path = getenv("MOON_CAPTURE_AUDIO");
         if (path && *path)
             audio_capture = fopen(path, "wb");
         audio_capture_started = 0;
@@ -285,7 +285,7 @@ int plat_audio_set_music(plat_audio_cb cb, void *user)
     if (cb) {
         for (int i = 0; i < MUSIC_AHEAD / MUSIC_BLOCK; i++)
             music_produce();
-        music_thread = SDL_CreateThread(music_worker, "OpenGT4 music", NULL);
+        music_thread = SDL_CreateThread(music_worker, "Moon Engine music", NULL);
         if (!music_thread) {
             audio_callback = NULL;
             audio_user = NULL;

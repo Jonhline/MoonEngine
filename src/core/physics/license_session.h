@@ -1,5 +1,5 @@
-#ifndef OPENGT4_LICENSE_SESSION_H
-#define OPENGT4_LICENSE_SESSION_H
+#ifndef MOON_LICENSE_SESSION_H
+#define MOON_LICENSE_SESSION_H
 #include <stdint.h>
 /* RaceLicense's conductor (vtable 00685A40). Guest addresses use car.h. */
 #define GT4_LICENSE_SESSION_VT 0x00685a40u

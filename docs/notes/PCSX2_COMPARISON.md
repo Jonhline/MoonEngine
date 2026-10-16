@@ -17,8 +17,8 @@ precisa, sem passo manual extra:
 | `GS.bin` | a memória de vídeo (texturas, framebuffer) |
 | `SPU2.bin` | o estado do som (vozes, reverb) |
 
-O OpenGT4 já sabe desenhar uma corrida a partir de uma memória capturada
-(`OPENGT4_RACE_SNAPSHOT`, `gt4_race_run_restore`). Então, para tudo que é
+O Moon Engine já sabe desenhar uma corrida a partir de uma memória capturada
+(`MOON_RACE_SNAPSHOT`, `gt4_race_run_restore`). Então, para tudo que é
 corrida, **um savestate vira um teste automático**: tirar a memória, desenhar
 o mesmo quadro no nosso motor e comparar com o `Screenshot.png` do próprio
 savestate.
@@ -52,7 +52,7 @@ A pasta `captures/` é local e nunca vai para o git.
 |---|---|---|---|
 | **A. Quadro da corrida** | imagem 3D e HUD num instante | savestate com `Screenshot.png` | total: nossa memória restaurada do mesmo savestate, desenho, diferença por pixel/SSIM |
 | **B. Estado em números** | posições, tempos, voltas, câmera, valores do HUD | dois savestates (início e fim) de uma sequência determinística | total: rodamos do primeiro até o quadro do segundo e comparamos a memória campo a campo |
-| **C. Tela 2D (menus)** | layout, textos, ícones, cores | savestate parado na tela | quase total: chegamos à mesma página com `OPENGT4_ACTIVATE`/`--input`, captura, diferença com máscara das partes animadas |
+| **C. Tela 2D (menus)** | layout, textos, ícones, cores | savestate parado na tela | quase total: chegamos à mesma página com `MOON_ACTIVATE`/`--input`, captura, diferença com máscara das partes animadas |
 | **D. Animação e tempo** | transições, fades, contagem, câmeras em movimento | captura de vídeo 60 fps | semi: alinhar pelo primeiro quadro que muda e comparar quadro a quadro |
 | **E. Som** | músicas, motores, efeitos, vozes | áudio da captura de vídeo | semi: onsets/duração/espectro medidos; a nota final é de ouvido |
 | **F. Fluxo e comportamento** | o que acontece ao apertar X, ordem de telas, saves | você jogando os dois | manual, com roteiro curto por item |
@@ -169,19 +169,19 @@ sequência (câmeras, HUD, sombra, fumaça); cada savestate leva um segundo.
   arquivo de referência, como rodar o nosso lado (variáveis/argumentos),
   máscara de regiões animadas, limite de diferença.
 - `p2s.py`: tira `Screenshot.png` e `eeMemory.bin` do savestate.
-- `run.py`: para cada caso com referência, roda o OpenGT4 (corrida:
-  `OPENGT4_RACE_SNAPSHOT=<eeMemory>`; menus: o caminho de `OPENGT4_ACTIVATE`),
+- `run.py`: para cada caso com referência, roda o Moon Engine (corrida:
+  `MOON_RACE_SNAPSHOT=<eeMemory>`; menus: o caminho de `MOON_ACTIVATE`),
   compara (`tests/ui/png_diff.py`, SSIM com numpy) e gera um relatório HTML
   local com referência, nosso quadro, diferença e nota.
 - Os casos que passarem viram teste do `ctest` com a referência local, como
   os testes com o disco já fazem (ficam de fora quando o arquivo não existe).
 
 Prova da ideia (12/10/2026), slot 03 da referência (Ka em Laguna Seca, câmera
-de trás): `eeMemory.bin` do `.p2s` em `OPENGT4_RACE_SNAPSHOT`, `--drive
+de trás): `eeMemory.bin` do `.p2s` em `MOON_RACE_SNAPSHOT`, `--drive
 --race-course laguna --window 640x480`, quadro lado a lado com o
 `Screenshot.png`. Pista, céu, fundo e carro saem no mesmo lugar. Falta para
 a ferramenta: escolher a câmera pela memória capturada (hoje é
-`OPENGT4_RACE_VIEW` à mão: 0 deu a vista sem o carro, 1 a de trás, 2 o
+`MOON_RACE_VIEW` à mão: 0 deu a vista sem o carro, 1 a de trás, 2 o
 céu), desenhar o HUD nesse modo congelado (hoje não aparece) e tirar a pista
 do argumento, lendo-a da memória. Já aparece uma diferença real: a nossa
 câmera de trás está mais alta e mais longe que a do PCSX2.

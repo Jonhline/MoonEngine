@@ -10,8 +10,8 @@
  * return from an interrupt handler that readied a higher-priority thread.
  * See docs/analysis/THREADS.md for what is and is not modelled.
  */
-#ifndef OPENGT4_EE_THREAD_H
-#define OPENGT4_EE_THREAD_H
+#ifndef MOON_EE_THREAD_H
+#define MOON_EE_THREAD_H
 
 #include "ee.h"
 
@@ -66,4 +66,4 @@ int32_t ee_k_wait_sema(ee_ctx *c, int *ret_set, char *note, size_t n);
 int32_t ee_k_poll_sema(ee_ctx *c, int *ret_set, char *note, size_t n);
 int32_t ee_k_refer_sema_status(ee_ctx *c, int *ret_set, char *note, size_t n);
 
-#endif /* OPENGT4_EE_THREAD_H */
+#endif /* MOON_EE_THREAD_H */

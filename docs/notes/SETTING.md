@@ -29,7 +29,7 @@ no Setting abre o gráfico. OK aplica o painel, Cancel descarta, Left/Right ajus
 ## Verificação
 
 ```
-cmake --build build --config Release --target opengt4 gtmode_setting_menu gtmode_setting_oracle
+cmake --build build --config Release --target moonengine gtmode_setting_menu gtmode_setting_oracle
 ctest --test-dir build -C Release -R gtmode_setting --output-on-failure
 ```
 
@@ -115,7 +115,7 @@ fora do teste de entrada em Settings.
   e type=1/pares (0029E9D0..EA04). Binding do Composite chamado popup
   deixou de abrir o controle indevidamente. Vértices dos strokes corrigidos
   para a ordem da API; sem alocação por stroke/frame.
-- Referências opcionais no CMake: OPENGT4_SETTING_REFERENCE aponta para o
+- Referências opcionais no CMake: MOON_SETTING_REFERENCE aponta para o
   eeMemory.bin local do slot 2 e habilita teste/negativos. Capturas do app
   Honda em build/setting-completion/beat-{gears,setting-fixed}.png.
   Nenhuma edição na pasta physics; commits sem push.

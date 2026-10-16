@@ -14,13 +14,13 @@ negative = "--negative" in sys.argv[4:]
 results = []
 for stream in (False, True):
     env = os.environ.copy()
-    for key in ("OPENGT4_VK_STREAM_GEOMETRY", "OPENGT4_VK_SYNC", "OPENGT4_REFLECTION_CPU",
-                "OPENGT4_RACE_SPEED", "OPENGT4_RACE_SNAPSHOT", "OPENGT4_RACE_PAUSE",
+    for key in ("MOON_VK_STREAM_GEOMETRY", "MOON_VK_SYNC", "MOON_REFLECTION_CPU",
+                "MOON_RACE_SPEED", "MOON_RACE_SNAPSHOT", "MOON_RACE_PAUSE",
                 "PROBE_LICENSE", "PROBE_CAR", "PROBE_RIVAL"):
         env.pop(key, None)
-    env.update(OPENGT4_WINDOW_HIDDEN="1", OPENGT4_GRAPHICS_API="vulkan", PROBE_BENCHMARK="1")
+    env.update(MOON_WINDOW_HIDDEN="1", MOON_GRAPHICS_API="vulkan", PROBE_BENCHMARK="1")
     if stream:
-        env["OPENGT4_VK_STREAM_GEOMETRY"] = "1"
+        env["MOON_VK_STREAM_GEOMETRY"] = "1"
     prefix = output / ("streamed" if stream else "resident")
     run = subprocess.run([str(probe), str(disc), str(prefix)],
                          env=env, capture_output=True, text=True, timeout=90)

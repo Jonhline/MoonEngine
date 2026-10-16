@@ -10,8 +10,8 @@
  * therefore unsets on an empty value, exactly like the CRT it replaces. Both return 0
  * on success, which is what the tests' CHECK(!_putenv_s(...)) expects.
  */
-#ifndef OPENGT4_MSVC_COMPAT_H
-#define OPENGT4_MSVC_COMPAT_H
+#ifndef MOON_MSVC_COMPAT_H
+#define MOON_MSVC_COMPAT_H
 
 #ifndef _WIN32
 
@@ -20,17 +20,17 @@
 
 /* The Win32 process id is used by the tests for a per-run unique directory name.
  * getpid() is the same thing on POSIX. */
-static inline unsigned long opengt4_getpid(void) { return (unsigned long)getpid(); }
+static inline unsigned long moon_getpid(void) { return (unsigned long)getpid(); }
 
-static inline int opengt4_putenv_s(const char *name, const char *value) {
+static inline int moon_putenv_s(const char *name, const char *value) {
     if (!name) return -1;
     if (!value || !*value) return unsetenv(name);
     return setenv(name, value, 1);
 }
 
-#define _putenv_s opengt4_putenv_s
-#define GetCurrentProcessId() opengt4_getpid()
+#define _putenv_s moon_putenv_s
+#define GetCurrentProcessId() moon_getpid()
 
 #endif /* !_WIN32 */
 
-#endif /* OPENGT4_MSVC_COMPAT_H */
+#endif /* MOON_MSVC_COMPAT_H */

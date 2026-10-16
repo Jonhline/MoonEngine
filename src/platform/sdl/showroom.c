@@ -55,7 +55,7 @@ struct showroom {
     unsigned profile_count;
 #endif
     float focal; /* projection: pixels per unit at depth 1 */
-    /* GPU renderer (default; OPENGT4_RENDERER=software selects the reference) */
+    /* GPU renderer (default; MOON_RENDERER=software selects the reference) */
     int gpu;
     const car_asset *gpu_for;
     r3d_mesh *gpu_car, *gpu_shadow, *gpu_hull;
@@ -1079,7 +1079,7 @@ static void draw_gpu(showroom *s)
 #endif
     }
     if (s->active && s->showing) {
-        if (s->gpu && !getenv("OPENGT4_SHADOW_CPU") && s->studio_count == 4 && s->light) {
+        if (s->gpu && !getenv("MOON_SHADOW_CPU") && s->studio_count == 4 && s->light) {
             float L[4] = {0}, darkness = 0, blur = 0, t = gt4_mot1_wrap(s->light, s->light_time);
             if (gt4_mot1_light(s->light, 0x0F, 0, t, L) == 3 &&
                 gt4_mot1_value(s->light, "shadowDarkness0", t, &darkness)) {
@@ -1644,7 +1644,7 @@ showroom *showroom_open(const char *disc)
         return NULL;
     carface_camera(s);
     {
-        const char *r = getenv("OPENGT4_RENDERER");
+        const char *r = getenv("MOON_RENDERER");
         s->gpu = !(r && !strcmp(r, "software"));
     }
     s->disc = strdup(disc);
@@ -1844,7 +1844,7 @@ int showroom_draw(showroom *s, const char *code, float dt)
             r3d_environment_changed();
         else
             s->env_now = s->environment_count > 0 ? s->environment : NULL;
-        if (!s->gpu || getenv("OPENGT4_SHADOW_CPU"))
+        if (!s->gpu || getenv("MOON_SHADOW_CPU"))
             studio_shadow(
                 s,
                 s->active && s->showing && s->studio_count == 4 && !s->face ? s->active->car : NULL,

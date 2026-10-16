@@ -48,73 +48,73 @@ typedef void(APIENTRYP MOON_PFN_glViewport)(GLint x, GLint y, GLsizei width, GLs
 typedef void(APIENTRYP MOON_PFN_glEnable)(GLenum cap);
 
 #define MOON_GL_BASE_FUNCS(X)                                                                      \
-    X(MOON_PFN_glEnable, opengt4_glEnable)                                                         \
-    X(MOON_PFN_glBindTexture, opengt4_glBindTexture)                                               \
-    X(MOON_PFN_glClear, opengt4_glClear)                                                           \
-    X(MOON_PFN_glClearColor, opengt4_glClearColor)                                                 \
-    X(MOON_PFN_glClearDepth, opengt4_glClearDepth)                                                 \
-    X(MOON_PFN_glColorMask, opengt4_glColorMask)                                                   \
-    X(MOON_PFN_glCopyTexSubImage2D, opengt4_glCopyTexSubImage2D)                                   \
-    X(MOON_PFN_glCullFace, opengt4_glCullFace)                                                     \
-    X(MOON_PFN_glDeleteTextures, opengt4_glDeleteTextures)                                         \
-    X(MOON_PFN_glDepthFunc, opengt4_glDepthFunc)                                                   \
-    X(MOON_PFN_glDepthMask, opengt4_glDepthMask)                                                   \
-    X(MOON_PFN_glDisable, opengt4_glDisable)                                                       \
-    X(MOON_PFN_glDrawArrays, opengt4_glDrawArrays)                                                 \
-    X(MOON_PFN_glFinish, opengt4_glFinish)                                                         \
-    X(MOON_PFN_glFrontFace, opengt4_glFrontFace)                                                   \
-    X(MOON_PFN_glGenTextures, opengt4_glGenTextures)                                               \
-    X(MOON_PFN_glGetError, opengt4_glGetError)                                                     \
-    X(MOON_PFN_glGetFloatv, opengt4_glGetFloatv)                                                   \
-    X(MOON_PFN_glGetIntegerv, opengt4_glGetIntegerv)                                               \
-    X(MOON_PFN_glGetString, opengt4_glGetString)                                                   \
-    X(MOON_PFN_glGetTexImage, opengt4_glGetTexImage)                                               \
-    X(MOON_PFN_glGetTexLevelParameteriv, opengt4_glGetTexLevelParameteriv)                         \
-    X(MOON_PFN_glGetTexParameteriv, opengt4_glGetTexParameteriv)                                   \
-    X(MOON_PFN_glIsEnabled, opengt4_glIsEnabled)                                                   \
-    X(MOON_PFN_glPixelStorei, opengt4_glPixelStorei)                                               \
-    X(MOON_PFN_glReadPixels, opengt4_glReadPixels)                                                 \
-    X(MOON_PFN_glScissor, opengt4_glScissor)                                                       \
-    X(MOON_PFN_glTexImage2D, opengt4_glTexImage2D)                                                 \
-    X(MOON_PFN_glTexParameterf, opengt4_glTexParameterf)                                           \
-    X(MOON_PFN_glTexParameteri, opengt4_glTexParameteri)                                           \
-    X(MOON_PFN_glTexSubImage2D, opengt4_glTexSubImage2D)                                           \
-    X(MOON_PFN_glViewport, opengt4_glViewport)
+    X(MOON_PFN_glEnable, moon_glEnable)                                                         \
+    X(MOON_PFN_glBindTexture, moon_glBindTexture)                                               \
+    X(MOON_PFN_glClear, moon_glClear)                                                           \
+    X(MOON_PFN_glClearColor, moon_glClearColor)                                                 \
+    X(MOON_PFN_glClearDepth, moon_glClearDepth)                                                 \
+    X(MOON_PFN_glColorMask, moon_glColorMask)                                                   \
+    X(MOON_PFN_glCopyTexSubImage2D, moon_glCopyTexSubImage2D)                                   \
+    X(MOON_PFN_glCullFace, moon_glCullFace)                                                     \
+    X(MOON_PFN_glDeleteTextures, moon_glDeleteTextures)                                         \
+    X(MOON_PFN_glDepthFunc, moon_glDepthFunc)                                                   \
+    X(MOON_PFN_glDepthMask, moon_glDepthMask)                                                   \
+    X(MOON_PFN_glDisable, moon_glDisable)                                                       \
+    X(MOON_PFN_glDrawArrays, moon_glDrawArrays)                                                 \
+    X(MOON_PFN_glFinish, moon_glFinish)                                                         \
+    X(MOON_PFN_glFrontFace, moon_glFrontFace)                                                   \
+    X(MOON_PFN_glGenTextures, moon_glGenTextures)                                               \
+    X(MOON_PFN_glGetError, moon_glGetError)                                                     \
+    X(MOON_PFN_glGetFloatv, moon_glGetFloatv)                                                   \
+    X(MOON_PFN_glGetIntegerv, moon_glGetIntegerv)                                               \
+    X(MOON_PFN_glGetString, moon_glGetString)                                                   \
+    X(MOON_PFN_glGetTexImage, moon_glGetTexImage)                                               \
+    X(MOON_PFN_glGetTexLevelParameteriv, moon_glGetTexLevelParameteriv)                         \
+    X(MOON_PFN_glGetTexParameteriv, moon_glGetTexParameteriv)                                   \
+    X(MOON_PFN_glIsEnabled, moon_glIsEnabled)                                                   \
+    X(MOON_PFN_glPixelStorei, moon_glPixelStorei)                                               \
+    X(MOON_PFN_glReadPixels, moon_glReadPixels)                                                 \
+    X(MOON_PFN_glScissor, moon_glScissor)                                                       \
+    X(MOON_PFN_glTexImage2D, moon_glTexImage2D)                                                 \
+    X(MOON_PFN_glTexParameterf, moon_glTexParameterf)                                           \
+    X(MOON_PFN_glTexParameteri, moon_glTexParameteri)                                           \
+    X(MOON_PFN_glTexSubImage2D, moon_glTexSubImage2D)                                           \
+    X(MOON_PFN_glViewport, moon_glViewport)
 
 #define MOON_GL_BASE_DECLARE(type, name) extern type name;
 MOON_GL_BASE_FUNCS(MOON_GL_BASE_DECLARE)
 #undef MOON_GL_BASE_DECLARE
-#define glEnable opengt4_glEnable
-#define glBindTexture opengt4_glBindTexture
-#define glClear opengt4_glClear
-#define glClearColor opengt4_glClearColor
-#define glClearDepth opengt4_glClearDepth
-#define glColorMask opengt4_glColorMask
-#define glCopyTexSubImage2D opengt4_glCopyTexSubImage2D
-#define glCullFace opengt4_glCullFace
-#define glDeleteTextures opengt4_glDeleteTextures
-#define glDepthFunc opengt4_glDepthFunc
-#define glDepthMask opengt4_glDepthMask
-#define glDisable opengt4_glDisable
-#define glDrawArrays opengt4_glDrawArrays
-#define glFinish opengt4_glFinish
-#define glFrontFace opengt4_glFrontFace
-#define glGenTextures opengt4_glGenTextures
-#define glGetError opengt4_glGetError
-#define glGetFloatv opengt4_glGetFloatv
-#define glGetIntegerv opengt4_glGetIntegerv
-#define glGetString opengt4_glGetString
-#define glGetTexImage opengt4_glGetTexImage
-#define glGetTexLevelParameteriv opengt4_glGetTexLevelParameteriv
-#define glGetTexParameteriv opengt4_glGetTexParameteriv
-#define glIsEnabled opengt4_glIsEnabled
-#define glPixelStorei opengt4_glPixelStorei
-#define glReadPixels opengt4_glReadPixels
-#define glScissor opengt4_glScissor
-#define glTexImage2D opengt4_glTexImage2D
-#define glTexParameterf opengt4_glTexParameterf
-#define glTexParameteri opengt4_glTexParameteri
-#define glTexSubImage2D opengt4_glTexSubImage2D
-#define glViewport opengt4_glViewport
+#define glEnable moon_glEnable
+#define glBindTexture moon_glBindTexture
+#define glClear moon_glClear
+#define glClearColor moon_glClearColor
+#define glClearDepth moon_glClearDepth
+#define glColorMask moon_glColorMask
+#define glCopyTexSubImage2D moon_glCopyTexSubImage2D
+#define glCullFace moon_glCullFace
+#define glDeleteTextures moon_glDeleteTextures
+#define glDepthFunc moon_glDepthFunc
+#define glDepthMask moon_glDepthMask
+#define glDisable moon_glDisable
+#define glDrawArrays moon_glDrawArrays
+#define glFinish moon_glFinish
+#define glFrontFace moon_glFrontFace
+#define glGenTextures moon_glGenTextures
+#define glGetError moon_glGetError
+#define glGetFloatv moon_glGetFloatv
+#define glGetIntegerv moon_glGetIntegerv
+#define glGetString moon_glGetString
+#define glGetTexImage moon_glGetTexImage
+#define glGetTexLevelParameteriv moon_glGetTexLevelParameteriv
+#define glGetTexParameteriv moon_glGetTexParameteriv
+#define glIsEnabled moon_glIsEnabled
+#define glPixelStorei moon_glPixelStorei
+#define glReadPixels moon_glReadPixels
+#define glScissor moon_glScissor
+#define glTexImage2D moon_glTexImage2D
+#define glTexParameterf moon_glTexParameterf
+#define glTexParameteri moon_glTexParameteri
+#define glTexSubImage2D moon_glTexSubImage2D
+#define glViewport moon_glViewport
 #endif
 #endif

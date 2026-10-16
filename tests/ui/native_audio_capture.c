@@ -26,9 +26,9 @@ int main(int argc, char **argv)
     SDL_SetMainReady();
     SDL_setenv("SDL_AUDIODRIVER", "dummy", 1);
 #ifdef _WIN32
-    _putenv_s("OPENGT4_CAPTURE_AUDIO", argv[1]);
+    _putenv_s("MOON_CAPTURE_AUDIO", argv[1]);
 #else
-    setenv("OPENGT4_CAPTURE_AUDIO", argv[1], 1);
+    setenv("MOON_CAPTURE_AUDIO", argv[1], 1);
 #endif
     CHECK(!SDL_Init(SDL_INIT_TIMER|SDL_INIT_EVENTS));
     uint64_t before = plat_time_ns();

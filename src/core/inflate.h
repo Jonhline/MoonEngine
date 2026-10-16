@@ -1,6 +1,6 @@
 /* Raw deflate (no zlib header), as used by GT4's compressed files. */
-#ifndef OPENGT4_INFLATE_H
-#define OPENGT4_INFLATE_H
+#ifndef MOON_INFLATE_H
+#define MOON_INFLATE_H
 
 #include <stddef.h>
 

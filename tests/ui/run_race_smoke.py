@@ -11,7 +11,7 @@ p.add_argument("disc", type=Path)
 args = p.parse_args()
 out = Path("build/race_smoke")
 out.mkdir(parents=True, exist_ok=True)
-exe = str(Path("build/Release/opengt4.exe").resolve())
+exe = str(Path("build/Release/MoonEngine.exe").resolve())
 
 
 def run(name, options, success=True):

@@ -1,5 +1,5 @@
-#ifndef OPENGT4_FAVORITES_H
-#define OPENGT4_FAVORITES_H
+#ifndef MOON_FAVORITES_H
+#define MOON_FAVORITES_H
 #include "adhoc/adhoc_vm.h"
 #include <stdint.h>
 

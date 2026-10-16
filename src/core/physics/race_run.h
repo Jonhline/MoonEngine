@@ -5,8 +5,8 @@
  * frame by frame. Nothing goes to original code. One race at a time (the
  * physics' memory is global, gt4_phys_mem).
  */
-#ifndef OPENGT4_RACE_RUN_H
-#define OPENGT4_RACE_RUN_H
+#ifndef MOON_RACE_RUN_H
+#define MOON_RACE_RUN_H
 
 #include <stddef.h>
 #include <stdint.h>

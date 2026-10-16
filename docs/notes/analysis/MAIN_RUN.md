@@ -1,6 +1,6 @@
 # Running into main
 
-Target `main_run` (built with `-DOPENGT4_RECOMP_TESTS=ON`) recompiles from
+Target `main_run` (built with `-DMOON_RECOMP_TESTS=ON`) recompiles from
 crt0 through `main` and runs with no stop address, until the first thing the
 runtime does not provide. It is a probe, not a test with pass criteria.
 

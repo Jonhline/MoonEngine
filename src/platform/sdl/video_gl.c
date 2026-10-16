@@ -20,7 +20,7 @@
 #include "vk_render.h"
 #endif
 #include "fsr.h"
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
 #include "switch_quality.h"
 #endif
 
@@ -72,7 +72,7 @@ static unsigned char *capture_pixels;
 static uint64_t capture_frame;
 int video_export_fixed_step(void)
 {
-    return capture_stream && getenv("OPENGT4_CAPTURE_FIXED_STEP") != NULL;
+    return capture_stream && getenv("MOON_CAPTURE_FIXED_STEP") != NULL;
 }
 
 /* frame target */
@@ -270,7 +270,7 @@ int plat_video_init(const plat_video_desc *d)
     /* P: optional placement for filming on the user's secondary monitor.
        Ordinary launches retain SDL's centered window. */
     int window_x = SDL_WINDOWPOS_CENTERED, window_y = SDL_WINDOWPOS_CENTERED;
-    const char *capture_position = getenv("OPENGT4_WINDOW_POSITION");
+    const char *capture_position = getenv("MOON_WINDOW_POSITION");
     if (capture_position && sscanf(capture_position, "%d,%d", &window_x, &window_y) == 2)
         SDL_SetHint(SDL_HINT_WINDOW_NO_ACTIVATION_WHEN_SHOWN, "1");
     int window_width = d->width, window_height = d->height, fullscreen = d->fullscreen;
@@ -284,16 +284,16 @@ int plat_video_init(const plat_video_desc *d)
 #endif
     /* Keep Switch packaging independent of the PC product rename. */
 #ifdef __SWITCH__
-    const char *product_title = "OpenGT4";
+    const char *product_title = "Moon Engine";
 #else
     const char *product_title = "Moon Engine";
 #endif
     Uint32 graphics_flags = SDL_WINDOW_OPENGL;
-    if (getenv("OPENGT4_WINDOW_HIDDEN"))
+    if (getenv("MOON_WINDOW_HIDDEN"))
         graphics_flags |= SDL_WINDOW_HIDDEN;
 #ifdef MOON_PC_VULKAN
     int backend = d->backend;
-    const char *override = getenv("OPENGT4_GRAPHICS_API");
+    const char *override = getenv("MOON_GRAPHICS_API");
     if (override && !strcmp(override, "vulkan"))
         backend = 1;
     else if (override && !strcmp(override, "opengl"))
@@ -348,15 +348,15 @@ int plat_video_init(const plat_video_desc *d)
 #endif
         fprintf(stderr, "%s: reversed float depth\n", api);
     }
-    profile_frames = getenv("OPENGT4_VIDEO_PROFILE") != NULL;
+    profile_frames = getenv("MOON_VIDEO_PROFILE") != NULL;
 #ifdef __SWITCH__
     /* The passive benchmark must never force GPU completion. */
     profile_frames = 0;
 #endif
-    capture_pipe = getenv("OPENGT4_CAPTURE_PIPE");
-    capture_gate = getenv("OPENGT4_CAPTURE_GATE");
-    capture_times_path = getenv("OPENGT4_CAPTURE_TIMES");
-    const char *capture_size = getenv("OPENGT4_CAPTURE_SIZE");
+    capture_pipe = getenv("MOON_CAPTURE_PIPE");
+    capture_gate = getenv("MOON_CAPTURE_GATE");
+    capture_times_path = getenv("MOON_CAPTURE_TIMES");
+    const char *capture_size = getenv("MOON_CAPTURE_SIZE");
     if (capture_size && (sscanf(capture_size, "%dx%d", &capture_w, &capture_h) != 2 ||
                          capture_w < 1 || capture_h < 1 || capture_w > 4096 || capture_h > 4096))
         capture_w = capture_h = 0;
@@ -682,7 +682,7 @@ void plat_video_end_frame(void)
     /* Offline export consumes the FBO itself. An optional sparse preview
        avoids background-window swap throttling while preserving every
        exported frame. Ordinary gameplay always presents every frame. */
-    if (!video_export_fixed_step() || !getenv("OPENGT4_CAPTURE_SPARSE_PREVIEW") ||
+    if (!video_export_fixed_step() || !getenv("MOON_CAPTURE_SPARSE_PREVIEW") ||
         capture_frame % 60 == 0)
     {
 #ifdef MOON_PC_VULKAN
@@ -832,7 +832,7 @@ void video_begin_scene(void)
     video_flush2d();
     output_w = fb_w;
     output_h = fb_h;
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     /* P: only 3D is reduced; native-size UI is drawn after video_end_scene.
        Single-sample rendering avoids desktop MSAA resolve/bandwidth costs. */
     int w, h, samples = 1, mode = 0;
@@ -856,7 +856,7 @@ void video_begin_scene(void)
     }
     if (w != scene_w || h != scene_h || samples != scene_samples) {
         glBindRenderbuffer(GL_RENDERBUFFER, scene_color);
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
         /* Multisample storage with samples=1 may round up to the driver's
            minimum (four on the host fixture); request ordinary storage. */
         glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w, h);
@@ -864,7 +864,7 @@ void video_begin_scene(void)
         glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_RGBA8, w, h);
 #endif
         glBindRenderbuffer(GL_RENDERBUFFER, scene_depth);
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
         glRenderbufferStorage(GL_RENDERBUFFER, gl_reversed_z ? 0x8CAD : GL_DEPTH24_STENCIL8, w, h);
 #else
         glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples,
@@ -921,7 +921,7 @@ void video_end_scene(void)
                       GL_NEAREST);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     GLuint resolved = scene_tex;
-#if !defined(__SWITCH__) && !defined(OPENGT4_SWITCH_RENDER_TEST)
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)
     if (scene_w != output_w || scene_h != output_h) {
         GLuint reconstructed = fsr_resolve(scene_tex, scene_w, scene_h, output_w, output_h);
         if (reconstructed)

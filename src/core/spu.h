@@ -1,5 +1,5 @@
-#ifndef OPENGT4_SPU_H
-#define OPENGT4_SPU_H
+#ifndef MOON_SPU_H
+#define MOON_SPU_H
 /* The PS2 sound chip's voice and reverb as the PC plays them, 48 kHz.
    The game's driver decides the registers (0055DF70 packet: PITCH, VOLL,
    VOLR, SSA, ADSR1, ADSR2, key on/off, EON, reverb attributes); this

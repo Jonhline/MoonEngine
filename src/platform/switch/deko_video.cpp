@@ -306,7 +306,7 @@ int plat_video_init(const plat_video_desc *)
     std::fflush(stderr);
     if (!ok) {
         plat_video_shutdown();
-        SDL_SetError("deko3d GPU startup check failed; see opengt4.log");
+        SDL_SetError("deko3d GPU startup check failed; see moonengine.log");
         return -1;
     }
     return 0;

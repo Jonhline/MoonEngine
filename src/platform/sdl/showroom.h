@@ -1,5 +1,5 @@
-#ifndef OPENGT4_SHOWROOM_H
-#define OPENGT4_SHOWROOM_H
+#ifndef MOON_SHOWROOM_H
+#define MOON_SHOWROOM_H
 typedef struct showroom showroom;
 showroom *showroom_open(const char *disc);
 void showroom_close(showroom *s);

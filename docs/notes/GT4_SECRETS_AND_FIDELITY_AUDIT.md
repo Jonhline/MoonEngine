@@ -1,6 +1,6 @@
 # GT4: segredos, eventos e requisitos de fidelidade
 
-Pesquisa realizada em 01/10/2026 no código do OpenGT4, nos scripts do disco do usuário e na internet. Referência principal: GT4 retail NTSC-U, SCUS-97328; não misturar Prologue, Online Public Beta, Spec II ou outros mods com a versão original. O disco US também contém tabelas regionais EU, JP e KR; sua presença não certifica o comportamento completo dessas edições.
+Pesquisa realizada em 01/10/2026 no código do Moon Engine, nos scripts do disco do usuário e na internet. Referência principal: GT4 retail NTSC-U, SCUS-97328; não misturar Prologue, Online Public Beta, Spec II ou outros mods com a versão original. O disco US também contém tabelas regionais EU, JP e KR; sua presença não certifica o comportamento completo dessas edições.
 
 Este é um inventário verificável do material examinado, não uma garantia de que nenhum segredo ainda desconhecido existe. Código presente, caminho acessível e comportamento fiel são três verificações diferentes. Não foram implementados novos recursos durante esta pesquisa.
 
@@ -56,7 +56,7 @@ As cinco sequências abaixo foram extraídas do `gtmode.adc` local. O manipulado
 
 Validar também: reset da sequência com tecla errada, escopo da tela/foco, persistência do índice, sons, atualização da UI, registros, premiações e efeitos sobre percentual. Não inferir que forçar o ouro por cheat executa todos os mesmos efeitos de vencer uma corrida real.
 
-**Estado OpenGT4:** scripts presentes; a interface pública `menu_input`/mapeamento de teclado examinados só expõem direções, aceitar e voltar. `event_call()` monta `keysym`, mas não acrescenta `event.port`. Falta certificar encaminhamento de Select, Start, L1/L2/R1/R2 e identidade do controle. Sem isso, sequências existentes podem ser inacessíveis ao jogador.
+**Estado Moon Engine:** scripts presentes; a interface pública `menu_input`/mapeamento de teclado examinados só expõem direções, aceitar e voltar. `event_call()` monta `keysym`, mas não acrescenta `event.port`. Falta certificar encaminhamento de Select, Start, L1/L2/R1/R2 e identidade do controle. Sem isso, sequências existentes podem ser inacessíveis ao jogador.
 
 ## Menu secreto de Options
 

@@ -21,12 +21,12 @@ a = p.parse_args()
 root = Path("build/ui-audit/license-app") / a.case
 root.mkdir(parents=True, exist_ok=True)
 env = os.environ.copy()
-for key in ["OPENGT4_RACE_AUTOPILOT", "OPENGT4_RACE_SNAPSHOT", "OPENGT4_RACE_RESULT_CONFIRM", "OPENGT4_LICENSE_RESULT_KEYS", "OPENGT4_LICENSE_TEST_WAIT"]:
+for key in ["MOON_RACE_AUTOPILOT", "MOON_RACE_SNAPSHOT", "MOON_RACE_RESULT_CONFIRM", "MOON_LICENSE_RESULT_KEYS", "MOON_LICENSE_TEST_WAIT"]:
     env.pop(key, None)
-env["OPENGT4_LICENSE_TEST_BRAKE_AT"] = "1420" if a.case == "fail" else "980"
+env["MOON_LICENSE_TEST_BRAKE_AT"] = "1420" if a.case == "fail" else "980"
 if a.case == "fail":
-    env["OPENGT4_LICENSE_TEST_WAIT"] = "900"
-env["OPENGT4_RACE_SPEED"] = "4"
+    env["MOON_LICENSE_TEST_WAIT"] = "900"
+env["MOON_RACE_SPEED"] = "4"
 delay = {"pregrid": 2, "race": 4, "result": 13, "fail": 18, "exit": 23, "retry": 24, "next": 32, "leave": 33}[a.case]
 args = [str(a.exe.resolve()), str(a.disc.resolve()), "gtmode", "LicenseRoot",
         "--save-dir", tempfile.mkdtemp(prefix="saves-", dir=root), "--input", "accept,accept",
@@ -37,9 +37,9 @@ if a.case != "pregrid":
         quick += "," + ",".join(["right"] * (7 if a.case == "next" else 8)) + ",accept"
     args += ["--quick-input", quick]
 if a.case in ["exit", "next", "leave"]:
-    env["OPENGT4_LICENSE_RESULT_KEYS"] = "8:40,9:13"
+    env["MOON_LICENSE_RESULT_KEYS"] = "8:40,9:13"
 elif a.case == "retry":
-    env["OPENGT4_LICENSE_RESULT_KEYS"] = "8:38,9:13"
+    env["MOON_LICENSE_RESULT_KEYS"] = "8:38,9:13"
 with (root / "app.log").open("w", encoding="utf-8", newline="") as log:
     result = subprocess.run(args, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=100)
 text = (root / "app.log").read_text(encoding="utf-8")

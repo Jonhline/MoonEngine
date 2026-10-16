@@ -378,17 +378,7 @@ static void APIENTRY vkglClear(GLbitfield mask)
         if (aspect) {
             c.barrier();
             VkRenderPass pass = c.render_pass(color->format, depth->format);
-            VkImageView views[] = {color->attachment, depth->attachment};
-            VkFramebufferCreateInfo framebuffer{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-            framebuffer.renderPass = pass;
-            framebuffer.attachmentCount = 2;
-            framebuffer.pAttachments = views;
-            framebuffer.width = color->width;
-            framebuffer.height = color->height;
-            framebuffer.layers = 1;
-            VkFramebuffer fb;
-            check(vkCreateFramebuffer(c.device, &framebuffer, nullptr, &fb), "clear framebuffer");
-            c.transient_targets.push_back(fb);
+            VkFramebuffer fb = c.target_framebuffer(*color, depth, pass);
             VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
             begin.renderPass = pass;
             begin.framebuffer = fb;
@@ -753,7 +743,7 @@ static void APIENTRY vkglDrawArrays(GLenum topology, GLint first, GLsizei count)
 {
     try {
         context().draw(topology, first, count);
-        if (getenv("OPENGT4_VK_SYNC"))
+        if (getenv("MOON_VK_SYNC"))
             context().flush();
     } catch (const std::exception &e) {
         fprintf(stderr, "Vulkan draw failed: %s (first=%d count=%d)\n", e.what(), first, count);

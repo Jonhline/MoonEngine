@@ -1,5 +1,5 @@
-#ifndef OPENGT4_PHYS_NATIVES_H
-#define OPENGT4_PHYS_NATIVES_H
+#ifndef MOON_PHYS_NATIVES_H
+#define MOON_PHYS_NATIVES_H
 #include "ee.h"
 /* Rewritten functions to use: NULL none, "all", or addresses ("0x357700,...") */
 void phys_natives_select(const char *list);

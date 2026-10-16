@@ -1,6 +1,6 @@
 /* Native mapping of the desktop material blend boundary. */
-#ifndef OPENGT4_DEKO_BLEND_H
-#define OPENGT4_DEKO_BLEND_H
+#ifndef MOON_DEKO_BLEND_H
+#define MOON_DEKO_BLEND_H
 #include <deko3d.h>
 
 static inline DkBlendFactor nd_blend_factor(int a, int b, DkBlendFactor coefficient,

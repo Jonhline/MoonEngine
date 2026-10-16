@@ -28,12 +28,12 @@ int main(int argc, char **argv)
     snprintf(times, sizeof times, "%s.csv", argv[1]);
     snprintf(gate, sizeof gate, "%s.start", argv[1]);
     remove(gate);
-    env("OPENGT4_CAPTURE_PIPE", argv[1]);
-    env("OPENGT4_CAPTURE_TIMES", times);
-    env("OPENGT4_CAPTURE_GATE", gate);
-    env("OPENGT4_CAPTURE_SIZE", "1920x1080");
-    env("OPENGT4_CAPTURE_FIXED_STEP", "1");
-    env("OPENGT4_WINDOW_POSITION", "-1600,30");
+    env("MOON_CAPTURE_PIPE", argv[1]);
+    env("MOON_CAPTURE_TIMES", times);
+    env("MOON_CAPTURE_GATE", gate);
+    env("MOON_CAPTURE_SIZE", "1920x1080");
+    env("MOON_CAPTURE_FIXED_STEP", "1");
+    env("MOON_WINDOW_POSITION", "-1600,30");
     plat_video_desc desc = {640, 360, 0, 0, 0};
     CHECK(!plat_video_init(&desc));
     SDL_HideWindow(SDL_GL_GetCurrentWindow());

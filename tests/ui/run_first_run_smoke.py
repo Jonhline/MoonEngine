@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 p=argparse.ArgumentParser()
 p.add_argument("disc",type=Path)
-p.add_argument("--exe",type=Path,default=Path("build/career-native/Release/opengt4.exe"))
+p.add_argument("--exe",type=Path,default=Path("build/career-native/Release/MoonEngine.exe"))
 a=p.parse_args()
 out=Path("build/ui-audit/first-run-tests");out.mkdir(parents=True,exist_ok=True)
 with tempfile.TemporaryDirectory(dir=out) as temporary:

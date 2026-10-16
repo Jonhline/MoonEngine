@@ -1,5 +1,5 @@
-#ifndef OPENGT4_MUSIC_H
-#define OPENGT4_MUSIC_H
+#ifndef MOON_MUSIC_H
+#define MOON_MUSIC_H
 #include "vol.h"
 typedef struct gt4_music gt4_music;
 gt4_music *gt4_music_decode(const uint8_t *ins, size_t ins_size, const uint8_t *sqt,

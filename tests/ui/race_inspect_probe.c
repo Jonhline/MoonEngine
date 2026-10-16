@@ -90,6 +90,12 @@ static int benchmark_race(race_game *g, const char *prefix)
     fprintf(stderr, "race benchmark: uploaded=%llu state=%08lx\n",
             (unsigned long long)(after.vertex_upload_bytes - before.vertex_upload_bytes),
             (unsigned long)mz_crc32(0, gt4_phys_mem, 0x2000000));
+    fprintf(stderr, "race benchmark: descriptors=%llu draws=%llu submissions=%llu\n",
+            (unsigned long long)(after.descriptor_updates - before.descriptor_updates),
+            (unsigned long long)(after.draws - before.draws),
+            (unsigned long long)(after.submissions - before.submissions));
+    fprintf(stderr, "race benchmark: framebuffers=%llu\n",
+            (unsigned long long)(after.framebuffer_creations - before.framebuffer_creations));
     char state_path[1024];
     snprintf(state_path, sizeof state_path, "%s.state", prefix);
     FILE *state = fopen(state_path, "wb");
@@ -106,6 +112,10 @@ int main(int argc, char **argv)
     if (argc < 3)
         return 2;
     plat_video_desc desc = {1280, 896, 0, 0, 0};
+    if (getenv("PROBE_WIDTH"))
+        desc.width = atoi(getenv("PROBE_WIDTH"));
+    if (getenv("PROBE_HEIGHT"))
+        desc.height = atoi(getenv("PROBE_HEIGHT"));
     CHECK(!plat_video_init(&desc));
     SDL_HideWindow(SDL_GetWindowFromID(1));
     plat_video_set_view(640, 448);
@@ -292,9 +302,9 @@ int main(int argc, char **argv)
         for (int mode = 0; mode < 3; mode++)
             for (int step = 0; step < 3; step++) {
 #ifdef _WIN32
-                _putenv_s("OPENGT4_RACE_FILM", modes[mode]);
+                _putenv_s("MOON_RACE_FILM", modes[mode]);
 #else
-                setenv("OPENGT4_RACE_FILM", modes[mode], 1);
+                setenv("MOON_RACE_FILM", modes[mode], 1);
 #endif
                 g->film_clock = 10 + step * 12;
                 film_camera(g, 1. / 60);

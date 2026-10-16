@@ -4,8 +4,8 @@
    from its curves, the aim on the car through the camera operator's
    springs (func_00384E58 / func_00384EE8). The borrowed course bytes must
    stay alive until close. */
-#ifndef OPENGT4_COURSE_TVCAM_H
-#define OPENGT4_COURSE_TVCAM_H
+#ifndef MOON_COURSE_TVCAM_H
+#define MOON_COURSE_TVCAM_H
 #include <stddef.h>
 #include <stdint.h>
 

@@ -1,6 +1,6 @@
 /* P: passive Switch CPU timing. Host builds do not evaluate diagnostic arguments. */
-#ifndef OPENGT4_SWITCH_PROFILE_H
-#define OPENGT4_SWITCH_PROFILE_H
+#ifndef MOON_SWITCH_PROFILE_H
+#define MOON_SWITCH_PROFILE_H
 #include <stdint.h>
 
 enum swp_stage {
@@ -19,7 +19,7 @@ enum swp_stage {
     SWP_STAGE_COUNT
 };
 
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_PROFILE_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_PROFILE_TEST)
 void swp_push(enum swp_stage stage);
 void swp_pop(void);
 void swp_frame(int width, int height);

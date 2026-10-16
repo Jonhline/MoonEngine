@@ -461,7 +461,7 @@ and close sync(.5), with confirmed exit -height and cancelled exit 480.
 Rechecked cross/block oracles: 24,000 cross phase updates, 301 cross scales,
 39,216 full block initializations and 1,568,640 block updates pass.
 menu_navigation and ui_text pass. Nine Arcade course routes and all four GT Mode event routes pass.
-Both Release executables were rebuilt, including build/Release/opengt4.exe.
+Both Release executables were rebuilt, including build/Release/MoonEngine.exe.
 An initial event-route run used a profile without a car and correctly
 opened "Please get in a car"; it is not counted as successful event coverage.
 Use build/ui-audit/routes/owned-saves for the car-owning profile.
@@ -593,8 +593,8 @@ original sound data changed for this fix.
 The backend test covers 100 failed playback/music requests, explicit recovery,
 output-device event recovery, and the existing buffered synthesis/underrun checks.
 The six-arrow real-disc main-menu route also passes with the audio driver forced
-unavailable. The rebuilt binary was placed at build/Release/opengt4-audio-fixed.exe
-because the user's running build/Release/opengt4.exe prevented relinking it.
+unavailable. The rebuilt binary was placed at build/Release/moonengine-audio-fixed.exe
+because the user's running build/Release/MoonEngine.exe prevented relinking it.
 
 
 ### Stationary modal exit and visible loading interval (2026-10-01)
@@ -641,7 +641,7 @@ cursor.adc L274/L290/L306; Escape still uses cancel (L258).
 Visibility regression checks hide/reveal without changing coordinates.
 
 Validation: menu_navigation and ui_text pass. Real-disc entry with an owned
-profile, exit confirmation, and exit cancellation pass on build/Release/opengt4.exe.
+profile, exit confirmation, and exit cancellation pass on build/Release/MoonEngine.exe.
 The confirmed-exit screenshot in build/ui-audit/gtmode-exit/exit_yes.png was
 visually checked: TopRoot retains Gran Turismo Mode selection with no arrow.
 SFX identities were checked against the original scripts above; waveform
@@ -760,7 +760,7 @@ com sincronização diagnóstica caiu de 46–50 ms para aproximadamente 6 ms,
 O frontend tem pacing de 60 Hz, inclusive diálogos e loading. A corrida mantém
 seu controle de quadros. Após aquecimento foram medidos 60 FPS sem VSync.
 
-`OPENGT4_VIDEO_PROFILE=1` habilita contadores e glFinish apenas para diagnóstico.
+`MOON_VIDEO_PROFILE=1` habilita contadores e glFinish apenas para diagnóstico.
 O caminho normal não sincroniza a GPU dessa maneira. Teste reproduzível:
 `tests/ui/run_menu_performance_smoke.py`; baseline visual opcional local.
 Os cinco fluxos de perfis/nova carreira/sair e ui_text/menu_navigation passaram.

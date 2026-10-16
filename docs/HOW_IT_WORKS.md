@@ -1,6 +1,6 @@
-# How OpenGT4 works
+# How Moon Engine works
 
-OpenGT4 is a native C reimplementation of Gran Turismo 4 for PC. It reads
+MoonEngine is a native C reimplementation of Gran Turismo 4 for PC. It reads
 the user's own disc image. The playable application does not execute PS2
 CPU instructions or boot the console's operating system.
 
@@ -47,7 +47,7 @@ Positive cases establish agreement. Intentional negative cases show that
 the comparator detects a changed value or missing behavior. Each result
 applies only to its tested inputs, fields and declared tolerance.
 
-The playable `opengt4` target in `CMakeLists.txt` does **not** link `src/ee/`
+The playable `moonengine` target in `CMakeLists.txt` does **not** link `src/ee/`
 or generated original-code chunks. The game can be built with recompilation
 tests disabled. That tooling is for analysis and verification only.
 

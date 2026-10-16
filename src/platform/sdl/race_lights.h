@@ -1,5 +1,5 @@
-#ifndef OPENGT4_RACE_LIGHTS_H
-#define OPENGT4_RACE_LIGHTS_H
+#ifndef MOON_RACE_LIGHTS_H
+#define MOON_RACE_LIGHTS_H
 #include "course.h"
 #include "render3d.h"
 /* Immutable RNW4 / Env0 car lighting, 0038E7F8 -> 0038EFF8.

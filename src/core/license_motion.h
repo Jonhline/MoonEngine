@@ -1,5 +1,5 @@
-#ifndef OPENGT4_LICENSE_MOTION_H
-#define OPENGT4_LICENSE_MOTION_H
+#ifndef MOON_LICENSE_MOTION_H
+#define MOON_LICENSE_MOTION_H
 #include <stddef.h>
 #include <stdint.h>
 typedef struct gt4_license_motion gt4_license_motion;

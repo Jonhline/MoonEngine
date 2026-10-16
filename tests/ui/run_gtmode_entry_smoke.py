@@ -8,11 +8,11 @@ import tempfile
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("disc", type=Path)
-    parser.add_argument("--exe", type=Path, default=Path("build/Release/opengt4.exe"))
+    parser.add_argument("--exe", type=Path, default=Path("build/Release/MoonEngine.exe"))
     args = parser.parse_args()
     output = Path("build/gtmode_entry_smoke")
     output.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="opengt4-entry-") as saves:
+    with tempfile.TemporaryDirectory(prefix="moonengine-entry-") as saves:
         def run(name, inputs, expected):
             result = subprocess.run(
                 [str(args.exe.resolve()), str(args.disc.resolve()), "arcade",

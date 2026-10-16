@@ -7,8 +7,8 @@
  * kernel records what it did in the trace, and says whether its behaviour is
  * implemented or only stubbed. See docs/analysis/EXECUTION_START.md.
  */
-#ifndef OPENGT4_EE_H
-#define OPENGT4_EE_H
+#ifndef MOON_EE_H
+#define MOON_EE_H
 
 #include <setjmp.h>
 #include <stdint.h>
@@ -202,4 +202,4 @@ void ee_trace(ee_ctx *c, const char *fmt, ...);
 }
 #endif
 
-#endif /* OPENGT4_EE_H */
+#endif /* MOON_EE_H */

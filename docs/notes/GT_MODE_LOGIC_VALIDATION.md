@@ -89,8 +89,8 @@ Argument conversion, script return convention and save bookkeeping are not
 part of the primitive validation.
 
 Oracle: `tests/gtmode/oracle_run.c`, separate `gtmode_oracle` executable under
-OPENGT4_RECOMP_TESTS. Only that target links generated original code and EE.
-`opengt4` does not link the oracle. Generated code is local build/gen/gtmode.c.
+MOON_RECOMP_TESTS. Only that target links generated original code and EE.
+`moonengine` does not link the oracle. Generated code is local build/gen/gtmode.c.
 
 577 independent cases per snapshot, 1,154 total: unmodified snapshot balance,
 8x8 boundary matrix and 512 deterministic random balance/delta bit patterns.
@@ -277,7 +277,7 @@ Live disc parameter provisioning and the imported selected-car native oil
 method are now integrated (see the later service validation section).
 Still pending: other car wear initialization, full maintenance/day flow,
 power response over mileage and the same actual oil-service action in
-PCSX2/OpenGT4. No physics file was edited
+PCSX2/MoonEngine. No physics file was edited
 for this port; other worktree changes are preserved.
 
 ```
@@ -486,7 +486,7 @@ Still required across the delivery: full buy/sell and used rotation,
 actual prize cars/championship outcomes, requirement enforcement,
 license timing/results and record lookup, opponent selection and A-Spec
 points, complete day/event effects, tuning prices/effects and wear
-initialization, and real before/after PCSX2/OpenGT4 actions with the same
+initialization, and real before/after PCSX2/MoonEngine actions with the same
 save. Registration candidates alone are never marked implemented.
 
 
@@ -538,7 +538,7 @@ the actual career flow remains pending.
 The SpecDB decoder oracle currently reuses a test-only generated closure
 with 170 functions and 36 unsupported sites; none was reached by the
 709-row tests. Generated C stays under ignored build/gen and is never
-linked into OpenGT4. The compact index/prize/mileage oracle has three
+linked into MoonEngine. The compact index/prize/mileage oracle has three
 functions and zero unsupported sites.
 
 Still outstanding: boxed native callback/full-memory validation, actual result updates, complete purchase/sale and used stock
@@ -610,7 +610,7 @@ linked into the application. No new Classic gameplay option was introduced.
   stock selection/weekly rotation; optional acquisition mileage is unported.
 - A-Spec calculation and aggregation, license result/award flow, tuning prices
   and effects, and remaining calendar transaction semantics.
-- Real before/after action comparisons in PCSX2 and OpenGT4 with the same save.
+- Real before/after action comparisons in PCSX2 and Moon Engine with the same save.
 
 Next step: finish MRaceData's original label resolution and car-state checks,
 then connect the exact result/award transactions to the imported race records.
@@ -708,7 +708,7 @@ not prove any actual purchase, sale, license award or event transaction.
   that does not certify the transaction or effect on the car.
 - Original result producers and full award transactions. Record attributes,
   packed primitive updates and native save round trips are now covered below.
-- Actual same-save before/after actions in PCSX2 and OpenGT4. The captured
+- Actual same-save before/after actions in PCSX2 and MoonEngine. The captured
   race states are not replacement evidence for these actions.
 
 Next implementation step: original record attribute/result producers and
@@ -789,18 +789,18 @@ sentinels, ordinary years, unsigned open type, runtime category-name lookup
 and callback fallback. Full original boxed callbacks remain outside scope.
 
 The runtime SpecDB prefix remains the project's US2560 dataset adapter;
-other regions are not certified. Release opengt4 builds with these ports.
+other regions are not certified. Release moonengine builds with these ports.
 The current regression commands and oracle scopes are reproducible using
 `gtmode_unit_oracle` and `gtmode_parts_oracle` with RAM, scratchpad and ISO
 arguments. Successful function comparisons do not substitute for actual
-same-save before/after purchases, events or tuning in PCSX2 and OpenGT4.
+same-save before/after purchases, events or tuning in PCSX2 and MoonEngine.
 
 Next implementation work remains complete original car construction and
 transaction state, event awards and entry enforcement, opponents, A-Spec,
 calendar producers and weekly used inventory, plus tuning effects. None of
 those larger flows is marked complete by the component checks above.
 
-Final verification for this revision: Release opengt4, menu_tests and
+Final verification for this revision: Release moonengine, menu_tests and
 gtmode_game_tests build; ctest specdb/menu_navigation/gtmode_game passes
 3/3. Both updated unit/parts oracle suites pass on all four captures.
 All files edited in this revision retain LF endings. No commit was made.
@@ -865,7 +865,7 @@ setup's signed color byte, alongside existing wear state. Native car prices
 use a base price read from the owning SpecDB row by the catalog binder; they
 remain bound after native load and require original mileage data. No extracted
 price/category/event table was embedded, and no original generated function
-is linked into opengt4.
+is linked into moonengine.
 
 Reproduce with gtmode_sale_oracle RAM SPR ISO PS2-CARD NATIVE-SAVE
 [ACTUAL-AFTER-RAM]. The output save belongs under ignored build/gtmode-temp.
@@ -880,7 +880,7 @@ other executions replay the same car/save scenario. Additional producer
 checks total 10,240 and color checks 1,280 across those executions, with
 repeated datasets explicitly counted as executions rather than distinct
 input cases. The actual sale comparison and the native disk save round trip
-pass. Release opengt4 builds, ctest specdb/menu_navigation/gtmode_game is
+pass. Release moonengine builds, ctest specdb/menu_navigation/gtmode_game is
 3/3, diff whitespace checks pass, and edited sources remain LF.
 
 
@@ -891,7 +891,7 @@ closure with the existing EE scheduler. Its fiber entry explicitly sets PS2
 rounding toward zero: setting the host thread's rounding alone is insufficient
 on Windows fibers. It verifies each explicitly invoked original entry against
 `extracted/core.bin`. Generated code stays in ignored `build/gen` and is not
-linked to `opengt4`. No physics sources/tests/docs were edited.
+linked to `moonengine`. No physics sources/tests/docs were edited.
 
 | Rule / original function | C implementation | Validation |
 | --- | --- | --- |
@@ -1044,7 +1044,7 @@ and audio; it certifies script/state/save behavior, not visual or audible output
 SpecDB rows, variation counts, mileage ranges, constants and original branch
 tables are read from the user's disc at runtime. The application factory runs
 C only. Generated EE code and the EE runtime are linked into the oracle target,
-not into `opengt4.exe` or the authored-menu test. No physics sources, physics
+not into `MoonEngine.exe` or the authored-menu test. No physics sources, physics
 tests, race_view or physics documentation were edited for this integration.
 Source changes retain LF. No commits were made for this task.
 
@@ -1443,7 +1443,7 @@ with the actual COURSE getter; complete setups and final RNG match.
 This integration test caught and fixed the COURSE table ID (0x22)
 versus decoded row width (22 decimal) distinction.
 
-After these changes, the Release opengt4 executable builds successfully,
+After these changes, the Release moonengine executable builds successfully,
 menu_tests and gtmode_game_tests rebuild, and all 22 CTest cases pass.
 Both authored payment oracles and the 8192-case result oracle also pass
 against the rebuilt native core. This build/regression check does not
@@ -1474,7 +1474,7 @@ each same VM to pre-race and verifies replay is absent. The existing
 --selector-negative returns 1. Grade C for this state bridge/page selection;
 this is not a drawing-list/pixel comparison or a complete career race.
 
-Release opengt4, pregrid_menu, menu_tests and gtmode_game_tests rebuilt
+Release moonengine, pregrid_menu, menu_tests and gtmode_game_tests rebuilt
 successfully after the descriptor/quick-work changes. All 22 CTest cases
 pass. No native solo_event/championship frontend launch was enabled yet.
 The next integration must retain the original RNG lifecycle, use this
@@ -1574,7 +1574,7 @@ or full session. Production nat_finish/main launch remains unconnected;
 no runtime random seed or championship sequence is invented. The CORE
 value at D_00621AE8 was observed to be zero and no direct call/pointer to
 003BB598 was found, but this is not yet proof of the full RNG lifecycle.
-Build opengt4 and all 22 CTest regressions pass.
+Build moonengine and all 22 CTest regressions pass.
 
 ## Integração de prova avulsa (04/10/2026)
 
@@ -1585,7 +1585,7 @@ persiste nas tentativas; o RNG inicial vem do construtor original de 00621AE8 (c
 Campeonato recebe aviso de sequência ainda ausente.
 
 ```powershell
-cmake --build build --config Release --target opengt4 gtmode_event_cycle_oracle
+cmake --build build --config Release --target moonengine gtmode_event_cycle_oracle
 build/Release/gtmode_event_cycle_oracle.exe '<ISO>' extracted/core.bin
 $env:GT4_EVENT_CYCLE_NEGATIVE='1'
 build/Release/gtmode_event_cycle_oracle.exe '<ISO>' extracted/core.bin
@@ -1634,7 +1634,7 @@ gtmode.ad:14542, encaminhando ao backend ADS existente; antes só admitia
 default_quick e interrompia a entrega. Não prova a paridade do som.
 
 ```powershell
-cmake --build build --config Release --target gtmode_award_delivery opengt4
+cmake --build build --config Release --target gtmode_award_delivery moonengine
 build/Release/gtmode_award_delivery.exe '<ISO>'
 $env:GT4_AWARD_DELIVERY_NEGATIVE='1'
 build/Release/gtmode_award_delivery.exe '<ISO>'
@@ -1670,7 +1670,7 @@ Na Sunday Cup, RNG final nas cinco provas e na repetição da primeira:
 00951950, f05daa70, 5031bd85, 609857c1, cc05d96b, c7fad104.
 
 ```powershell
-cmake --build build --config Release --target gtmode_grid_paint_oracle pregrid_probe opengt4
+cmake --build build --config Release --target gtmode_grid_paint_oracle pregrid_probe moonengine
 build/Release/gtmode_grid_paint_oracle.exe extracted/core.bin '<ISO>'
 $env:GT4_CAREER_GRID_CHAIN='1'
 build/Release/gtmode_grid_paint_oracle.exe extracted/core.bin '<ISO>'
@@ -1713,7 +1713,7 @@ GT4_CHAMPIONSHIP_RESUME_NEGATIVE (pontos),
 GT4_CHAMPIONSHIP_RESTORE_NEGATIVE (pintura) e
 GT4_CHAMPIONSHIP_MENU_STACK_NEGATIVE (seleção) retornam 1. Regressão:
 56 casos de gtmode_event_cycle_oracle, oráculos do campeonato e 22 CTest
-passam. opengt4.exe atualizado após bloqueio temporário do linker.
+passam. MoonEngine.exe atualizado após bloqueio temporário do linker.
 
 Nota C para integração do contexto; regras isoladas permanecem E.
 saveMenuStack/loadMenuStack persistem a pilha nativa menuPush/menuRef no
@@ -1759,19 +1759,19 @@ argumentos textuais e profundidades, com fronteira explícita na conversão
 de objetos para texto. GT4_MENU_STACK_BRIDGE_NEGATIVE altera o buffer
 extraído da ponte e retorna 1. Persistência do arquivo nativo e retomada
 completa continuam C. Passaram 34 campeonatos/200 etapas, 22 CTest, build
-opengt4 e diff --check. Sem commit/push.
+moonengine e diff --check. Sem commit/push.
 
 ### Metadados da sessão no pré-corrida do campeonato
 
 `MQuickWork` agora publica `Laps` e `CourseLength`, ausentes antes. Fonte: `00119AA0..00119AB4`, quick +0x4f4/+0x4f0, e `00395400`/`00396800` para runway +0x14. A ponte usa RACE +0, que em eventos vem do RACE do disco +0x43; não usa o padrão de voltas de `gt4_race_desc`.
 
-`pregrid_menu` e `pregrid_probe --championship` passam; controles de erro deliberado dos dois testes falham (exit 1). Build Release de `opengt4.exe` passa. Nota A: arredondamento com `nearbyintf` ainda precisa de oráculo EE para `cvt.w.s`. Secura da pista e opções de sessão continuam pendentes; nenhuma promoção do campeonato completo a E.
+`pregrid_menu` e `pregrid_probe --championship` passam; controles de erro deliberado dos dois testes falham (exit 1). Build Release de `MoonEngine.exe` passa. Nota A: arredondamento com `nearbyintf` ainda precisa de oráculo EE para `cvt.w.s`. Secura da pista e opções de sessão continuam pendentes; nenhuma promoção do campeonato completo a E.
 
 ### Correção e prova EE da conversão de extensão
 
 A hipótese anterior de arredondamento nearest-even estava errada: `00119AB0` trunca/satura. `gt4_career_course_length` substitui `nearbyintf` na ponte. O teste executa a rotina completa `00119918`, mantendo `00395400`/`00396800`; catálogo/rótulos/modo são fronteiras explícitas e zero participantes isola os campos quick +0x4f0/+0x4f4. 16.384 combinações de bits/voltas, incluindo limites, decimais, sinais, subnormais, NaN e infinitos, passam bit a bit; `GT4_COURSE_LENGTH_NEGATIVE` falha (exit 1). Conversão E, integração dos campos C (tolerância zero).
 
-`pregrid_probe --championship` passa nas três etapas reais após a correção. Compilação dos testes passou; link de `opengt4.exe` bloqueado por LNK1104 (arquivo em uso), com o executável em uso. Campeonato completo permanece A por opções/apresentação pendentes.
+`pregrid_probe --championship` passa nas três etapas reais após a correção. Compilação dos testes passou; link de `MoonEngine.exe` bloqueado por LNK1104 (arquivo em uso), com o executável em uso. Campeonato completo permanece A por opções/apresentação pendentes.
 
 ### Retorno das opções à sessão correta
 
@@ -1779,7 +1779,7 @@ A hipótese anterior de arredondamento nearest-even estava errada: `00119AB0` tr
 
 Botão Setting original emite COMMAND_SETTINGS e salva foco; o teste passa e GT4_CHAMPIONSHIP_SETTINGS_NEGATIVE falha. Original 00118EF0: despacho enum15 em 001192F0..00119308 abre projeto setting; Option enum22 abre option em 00119678..0011968C. Não ativado setting: teste de entrada revelou funções de carro ausentes (linhas 331..819 do script) e OptionMenu.setInsensitive. Pending F explícito. Spectator enum14 e FreeQualify enum20 são sessões diferentes (001191E8 e 00119310), não aliases de Start.
 
-Build Release opengt4.exe passou nesta etapa; arquivo anteriormente bloqueado ficou disponível.
+Build Release MoonEngine.exe passou nesta etapa; arquivo anteriormente bloqueado ficou disponível.
 
 ### Tempos e ordem de chegada no pós-corrida
 
@@ -1787,7 +1787,7 @@ Build Release opengt4.exe passou nesta etapa; arquivo anteriormente bloqueado fi
 
 Nova ponte race_game_quick_results reordena pelo rank estável, mapeia driver ao grid_slot original antes de copiar carro/pintura/tempo, atualiza slot do jogador. main usa a ponte nos eventos individuais e campeonato; antes os eventos preservavam ordem inicial e campeonato pressupunha slot==driver. Native getGridTime fornece palavras ao script original.
 
-Ponte C: pregrid_menu agora executa pós-corrida com seis entradas, compara getters e textos 2'03.456/marcador; pregrid_probe --championship confere grade real com ordem invertida, pintura, tempos e não-finalizados por HUD injetado e restaurado integralmente. Não prova corrida física completa ou pixels. GT4_GRID_TIME_BRIDGE_NEGATIVE e GT4_GRID_TIME_RESULT_NEGATIVE falham. Três etapas reais passam; opengt4.exe Release compilou. Pendências de Setting, Spectator e FreeQualify permanecem.
+Ponte C: pregrid_menu agora executa pós-corrida com seis entradas, compara getters e textos 2'03.456/marcador; pregrid_probe --championship confere grade real com ordem invertida, pintura, tempos e não-finalizados por HUD injetado e restaurado integralmente. Não prova corrida física completa ou pixels. GT4_GRID_TIME_BRIDGE_NEGATIVE e GT4_GRID_TIME_RESULT_NEGATIVE falham. Três etapas reais passam; MoonEngine.exe Release compilou. Pendências de Setting, Spectator e FreeQualify permanecem.
 
 ### Máscaras de indisponibilidade da tela Setting
 
@@ -1795,7 +1795,7 @@ Implementado OptionMenu.setInsensitive(context, array): 002C7A80 converte lista 
 
 ui_insensitive_oracle compara host nativo a 002C9B68/002C9740 com 4.096 casos, seis itens e decoração intercalada, listas 0..9, flags iniciais e índices variados. Métodos de traversal e redraw são fronteiras explícitas; getters/setter de flags originais executam. GT4_OPTION_INSENSITIVE_NEGATIVE falha com exit 1. Máscaras/seleção E; ponte de inteiros C com tolerância zero (conversão EE completa de outros tipos não exercitada).
 
-Tela Setting ainda depende de métodos de peças/regulagens do carro; nenhum getter ausente foi preenchido com valor fictício. Sua entrada pelo campeonato permanece pendente. Também corrigido erro de tipo encontrado em nat_pad_buttons: retorno ah_val volta a ah_int(0), em vez da chamada inválida ah_num(0). Build opengt4.exe e regressões verificados nesta etapa.
+Tela Setting ainda depende de métodos de peças/regulagens do carro; nenhum getter ausente foi preenchido com valor fictício. Sua entrada pelo campeonato permanece pendente. Também corrigido erro de tipo encontrado em nat_pad_buttons: retorno ah_val volta a ah_int(0), em vez da chamada inválida ah_num(0). Build MoonEngine.exe e regressões verificados nesta etapa.
 
 ### Propriedade slot da regulagem A/B/C
 
@@ -1825,7 +1825,7 @@ tipos, chave ausente UINT64_MAX, três folhas, preservação e retorno nil.
 `GT4_END_SETTING_NEGATIVE=1` modifica body+0xf0 e falha com exit 1.
 Consulta real do disco implementada, mas ainda sem prova própria.
 
-Oráculo completo passou; opengt4.exe Release compilou; 22/22 CTest e
+Oráculo completo passou; MoonEngine.exe Release compilou; 22/22 CTest e
 pregrid_menu (29 páginas originais) passaram. Tela completa continua F:
 ainda faltam beginSetting, listas de peças, setters/ranges, curvas de
 motor/câmbio e entrada/apresentação da tela.
@@ -1858,7 +1858,7 @@ reutiliza essa consulta, removendo a truncagem anterior para 16 bits.
 Essa integração com banco real ainda não tem comparação própria.
 
 Oráculo, 22/22 CTest e pregrid_menu (29 páginas) passaram. Core e harnesses
-compilaram. Link do opengt4.exe bloqueado por LNK1104: executável aberto;
+compilaram. Link do MoonEngine.exe bloqueado por LNK1104: executável aberto;
 a versão em disco ainda não inclui este passo. Não fechamos o jogo.
 Pendentes: inicialização do wrapper, metadados de beginSetting, listas e
 troca de peças, setters/ranges, curvas e fluxo/apresentação da tela.
@@ -1884,7 +1884,7 @@ O helper ainda não está integrado à construção dos carros Adhoc. Faltam
 a representação do cache, carregamento via `00449E10`, ligação de
 `beginSetting` e entrada completa da tela. A preservação do buffer passa;
 nenhum padrão inicial de memória foi inventado. Oráculo completo passou.
-Link opengt4.exe permanece bloqueado por LNK1104 (jogo aberto).
+Link MoonEngine.exe permanece bloqueado por LNK1104 (jogo aberto).
 
 ### Lote: estágio equipado, regras de remoção, existência e linhas do disco
 
@@ -1948,7 +1948,7 @@ independente do descompressor.
 
 Controles GT4_REMOVE_PART_NEGATIVE, GT4_DEFAULT_PART_NEGATIVE e
 GT4_DEFAULT_DISC_NEGATIVE falham com exit 1. Oráculo completo, 29 páginas
-e 22/22 testes CTest passaram. opengt4.exe Release foi recompilado.
+e 22/22 testes CTest passaram. MoonEngine.exe Release foi recompilado.
 
 Pendentes: instalação completa de changeParts (00440B50 e inicialização
 dos ajustes), integração do wrapper/cache e beginSetting, listas,
@@ -1991,7 +1991,7 @@ completa. Buffer precisa existir: beginSetting/construção continuam
 pendentes, e a ponte não inventa inicialização quando ele falta.
 
 GT4_INSTALL_DEFAULT_NEGATIVE altera um default e falha com exit 1.
-Oráculo completo e 22/22 CTest passaram; opengt4.exe Release recompilado.
+Oráculo completo e 22/22 CTest passaram; MoonEngine.exe Release recompilado.
 Outros defaults de instalação e fluxo Setting permanecem pendentes.
 Sem alteração de física, commit ou push.
 
@@ -2038,7 +2038,7 @@ frame (0042A660), so tracks belong to the following name marker.
 GTAutoRoot.gpb; `GT4_MODEL_CHANNEL_NEGATIVE` exits 1. Grade A for reader;
 skeletal stack and entrance rendering were subsequently added (below).
 
-Release opengt4.exe rebuilt. 23/23 CTest, --shop-catalog,
+Release MoonEngine.exe rebuilt. 23/23 CTest, --shop-catalog,
 --special-purchase, --ui-regression and --customization-purchase pass.
 At this stage customization still reported absent model animation methods and
 short_name_no_year; these successful tests did not certify those paths.
@@ -2063,15 +2063,15 @@ option camera as in 00153F28, preventing it from wrapping after the mechanic
 stops. --customization-purchase checks stop/restart/loop, with
 GT4_CREW_PLAYBACK_NEGATIVE exiting 1.
 
-OPENGT4_PROBE_TEST_CREW=1 showroom_probe ISO ka_01 build/gtauto_crew_probe.png
+MOON_PROBE_TEST_CREW=1 showroom_probe ISO ka_01 build/gtauto_crew_probe.png
 finds 3450 pixels changed versus the same scene without crew, plus extra
-draws. OPENGT4_PROBE_CREW_NEGATIVE removes the motion and exits 1 with zero
+draws. MOON_PROBE_CREW_NEGATIVE removes the motion and exits 1 with zero
 changed pixels. Actual application captures at 1/4 seconds:
 build/gtauto_mechanic_1.png and build/gtauto_mechanic_4.png. Grade A: no PCSX2
 pose/light comparison, own shadows and software equivalent; multiple models
 and service sequence/alignment are rejected explicitly, still pending.
 
-Release opengt4.exe/showroom_probe rebuilt. 23/23 CTest and shop catalog /
+Release MoonEngine.exe/showroom_probe rebuilt. 23/23 CTest and shop catalog /
 customization checks pass. No physics source changes, commit or push.
 
 ### GT Auto reported presentation defects (2026-10-06)
@@ -2127,7 +2127,7 @@ Prova: `gtmode_purchase_menu ISO --home-garage` passa botão original, 3 carros 
 
 Nota A. Ordenações usam inserção estável em empates, sem oráculo PS2; normalização de nomes UTF-16, filtros inválidos, modelos/anos desconhecidos e estatísticas compactas após tuning/desgaste ainda exigem comparação diferencial. Sem captura visual deste fluxo. A inicialização da Home ainda registra ausências de dayToWeekDay/MCalendar.getEvent, GetFormatString/getBspecTotalExperience e car_model no harness; o registro é reiniciado antes do botão Garage. Não declarar a Home inteira pronta ou E por este teste.
 
-Build Release completo passa, incluindo build/Release/opengt4.exe. CTest recompilado: 23/23. git diff --check sem erros. Nenhum push ou commit feito.
+Build Release completo passa, incluindo build/Release/MoonEngine.exe. CTest recompilado: 23/23. git diff --check sem erros. Nenhum push ou commit feito.
 
 ### 06/10: requisitos comuns e percurso Sunday Cup
 

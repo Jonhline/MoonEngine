@@ -1,5 +1,5 @@
-#ifndef OPENGT4_PHYS_RACE_SETUP_H
-#define OPENGT4_PHYS_RACE_SETUP_H
+#ifndef MOON_PHYS_RACE_SETUP_H
+#define MOON_PHYS_RACE_SETUP_H
 #include "ee.h"
 #include "vol.h"
 

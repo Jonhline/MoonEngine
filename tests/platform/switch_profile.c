@@ -1,5 +1,5 @@
 /* Deterministic timing fixture, with a deliberately incorrect expectation. */
-#define OPENGT4_SWITCH_PROFILE_TEST
+#define MOON_SWITCH_PROFILE_TEST
 #include "../../src/platform/common/switch_profile.c"
 #include <stdarg.h>
 #include <stdlib.h>

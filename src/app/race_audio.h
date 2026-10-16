@@ -1,5 +1,5 @@
-#ifndef OPENGT4_APP_RACE_AUDIO_H
-#define OPENGT4_APP_RACE_AUDIO_H
+#ifndef MOON_APP_RACE_AUDIO_H
+#define MOON_APP_RACE_AUDIO_H
 #include "race_run.h"
 #include "course.h"
 #include "race_pit_crew.h"

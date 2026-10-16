@@ -31,15 +31,15 @@ else:
     root = root.resolve()
     tape = root / "controller.pad"
     env = os.environ.copy()
-    for key in ["OPENGT4_RACE_AUTOPILOT", "OPENGT4_RACE_SNAPSHOT", "GT4_MISSION_LANE"]:
+    for key in ["MOON_RACE_AUTOPILOT", "MOON_RACE_SNAPSHOT", "GT4_MISSION_LANE"]:
         env.pop(key, None)
     env.update(GT4_MISSION_ONE=str(mission), GT4_MISSION_RUN="1",
                GT4_MISSION_STEER="1", GT4_MISSION_PAD_OUTPUT=str(tape))
     with (root / "driver.log").open("w", encoding="utf-8", newline="") as log:
         subprocess.run([str(a.exe.resolve().with_name("gtmode_mission_disc.exe")), str(a.disc.resolve())],
                        env=env, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=60)
-    env.update(OPENGT4_MISSION=f"l0m{mission:04d}", OPENGT4_MISSION_TEST_PAD=str(tape),
-               OPENGT4_RACE_SPEED="4", OPENGT4_RACE_RESULT_CONFIRM="1")
+    env.update(MOON_MISSION=f"l0m{mission:04d}", MOON_MISSION_TEST_PAD=str(tape),
+               MOON_RACE_SPEED="4", MOON_RACE_RESULT_CONFIRM="1")
     log_path = root / "app.log"
     shot = root / "frame.png"
     args = [str(a.exe.resolve()), str(a.disc.resolve()), "gtmode", "MissionRoot",

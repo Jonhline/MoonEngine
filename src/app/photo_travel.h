@@ -1,5 +1,5 @@
-#ifndef OPENGT4_PHOTO_TRAVEL_H
-#define OPENGT4_PHOTO_TRAVEL_H
+#ifndef MOON_PHOTO_TRAVEL_H
+#define MOON_PHOTO_TRAVEL_H
 #include "menu.h"
 typedef struct photo_travel photo_travel;
 photo_travel *photo_travel_open(const char *disc);

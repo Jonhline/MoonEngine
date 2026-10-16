@@ -1,5 +1,5 @@
-#ifndef OPENGT4_SCREEN_SETTING_H
-#define OPENGT4_SCREEN_SETTING_H
+#ifndef MOON_SCREEN_SETTING_H
+#define MOON_SCREEN_SETTING_H
 #include "platform/platform.h"
 typedef struct {
     plat_texture *capture;

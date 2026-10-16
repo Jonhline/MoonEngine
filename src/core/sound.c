@@ -356,7 +356,7 @@ int gt4_sound_play(gt4_sound *s, const char *name)
             for (size_t j = 0; j < frames * 2; j++)
                 pcm[j] = (int16_t)clamp((int)(pcm[j] * s->gain));
         }
-        if (getenv("OPENGT4_SOUND_TRACE"))
+        if (getenv("MOON_SOUND_TRACE"))
             fprintf(stderr, "sound: %s bank=%u sequence=%u frames=%zu\n", name, e[7], e[5], frames);
         int ok = plat_audio_play(pcm, frames, 48000, 2);
         if (owned)

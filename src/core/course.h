@@ -5,8 +5,8 @@
  * road surface triangles. Layouts cross-checked with Nenkai's MIT PDTools
  * (CourseDataFileGT4, RunwayData) and GT4Runway.bt; see docs/COURSES.md.
  */
-#ifndef OPENGT4_COURSE_H
-#define OPENGT4_COURSE_H
+#ifndef MOON_COURSE_H
+#define MOON_COURSE_H
 
 #include <stddef.h>
 #include <stdint.h>

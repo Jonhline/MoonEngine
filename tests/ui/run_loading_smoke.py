@@ -2,7 +2,7 @@
 import argparse, subprocess, shutil, tempfile, os, re
 from pathlib import Path
 from PIL import Image, ImageStat
-p=argparse.ArgumentParser();p.add_argument("disc",type=Path);p.add_argument("--save-dir",type=Path,required=True);p.add_argument("--exe",type=Path,default=Path("build/career-native/Release/opengt4.exe"));a=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument("disc",type=Path);p.add_argument("--save-dir",type=Path,required=True);p.add_argument("--exe",type=Path,default=Path("build/career-native/Release/MoonEngine.exe"));a=p.parse_args()
 out=Path("build/ui-audit/loading-routes");out.mkdir(parents=True,exist_ok=True)
 with tempfile.TemporaryDirectory(dir=out) as folder:
     saves=Path(folder)/"saves";shutil.copytree(a.save_dir,saves)
@@ -12,7 +12,7 @@ with tempfile.TemporaryDirectory(dir=out) as folder:
     for name,project,options,expected in cases:
         loader=out/(name+"_loading.png");final=out/(name+".png");reveal=out/(name+"_reveal.png")
         cmd=[str(a.exe.resolve()),str(a.disc.resolve()),project,"TopRoot","--save-dir",str(saves),"--with-music","--loading-logo","1","--loading-shot",str(loader),"--shot-delay","3.0","--shot",str(final),*options]
-        r=subprocess.run(cmd,env=dict(os.environ,OPENGT4_LOADING_TRACE="1",SDL_AUDIODRIVER="dummy",OPENGT4_LOADING_REVEAL_SHOT=str(reveal.resolve())),stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,encoding="utf-8",errors="replace",timeout=65)
+        r=subprocess.run(cmd,env=dict(os.environ,MOON_LOADING_TRACE="1",SDL_AUDIODRIVER="dummy",MOON_LOADING_REVEAL_SHOT=str(reveal.resolve())),stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,encoding="utf-8",errors="replace",timeout=65)
         log=r.stdout;(out/(name+".log")).write_text(log,encoding="utf-8")
         assert r.returncode==0 and expected in log,log
         assert "original assets unavailable" not in log,log

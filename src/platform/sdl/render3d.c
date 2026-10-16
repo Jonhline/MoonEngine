@@ -5,7 +5,7 @@
 #include "fsr.h"
 #include "render3d_frustum.h"
 #include "wheel_motion.h"
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
 #include "switch_quality.h"
 #endif
 #ifdef __SWITCH__
@@ -62,7 +62,7 @@ struct r3d_mesh {
 static GLuint program, dest_tex, dest_fbo, env_tex;
 static int dest_w, dest_h, env_w, env_h, env_dirty, failed, vp[4];
 static const tex1_image *env_source;
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST) || defined(MOON_PC_VULKAN)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST) || defined(MOON_PC_VULKAN)
 static GLuint gpu_environment;
 static int gpu_environment_w, gpu_environment_h;
 #endif
@@ -84,14 +84,14 @@ static struct {
     GLint fade, atest, afunc, aref, pass, date, date_bit, dest, envtex, envsize, viewport, focal_px;
     GLint skinned, palette, morph, colorop, colormul, coloradd;
     GLint fog, fogcol, grade_rgb, grade;
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     GLint switch_fast;
 #endif
 } U;
 
 static const char *vs =
     "#version 330 core\n"
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     "uniform int u_switch_fast;\n"
 #endif
     "layout(location=0) in vec3 a_pos; layout(location=1) in vec3 a_normal; layout(location=2) in vec2 a_uv;\n"
@@ -131,7 +131,7 @@ static const char *vs =
        nothing (its vertex colour, 1.0 doubled, made the grid's Cs * Ad + Cd
        tyre marks white at Tsukuba, user's PCSX2 report) */
     "  if(u_mode!=0){ v_light=u_mode==1?(u_specular_only==1?vec3(0.):a_rgb*u_cscale):a_rgb+u_shadow_rgb; if(u_colorop==1) v_light=v_light*u_colormul+u_coloradd; v_spec=vec3(0.); v_envuv=vec2(.5); return; }\n"
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     /* P: flat non-reflective vertices do not consume their normal. */
     "  vec3 wn=vec3(0.,1.,0.); if(u_switch_fast==0 || u_flat==0 || u_reflect==1) wn=normalize(u_rot*normal);\n"
     "  vec3 vdir=-u_f; if(u_mirror==1) wn.y=-wn.y; float dsum=0., ssum=0.;\n"
@@ -143,7 +143,7 @@ static const char *vs =
 #endif
     "  for(int l=0;l<3;l++){ float d=dot(wn,L[l]); dsum+=D[l]*max(0.,d); vec3 h=L[l]+vdir; float hl=length(h);\n"
     "    if(d>0. && hl>1e-6) ssum+=S[l]*pow(max(0.,dot(wn,h)/hl),a_shine_alpha.x); }\n"
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     "  }\n"
     /* VU1 0x215 sphere coordinates are consumed only by reflection layers. */
     "  v_envuv=vec2(.5); if(u_switch_fast==0 || u_reflect==1)\n"
@@ -187,7 +187,7 @@ static const char *vs =
 
 static const char *fs =
     "#version 330 core\n"
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     "uniform int u_switch_fast;\n"
 #endif
     "in float v_floor; uniform int u_mirror; in vec3 v_light; in vec3 v_spec; in vec2 v_envuv; in vec2 v_uv; in float v_alpha; out vec4 o;\n"
@@ -211,7 +211,7 @@ static const char *fs =
     "  return mix(mix(texelFetch(u_tex,ivec2(x,y),level),texelFetch(u_tex,ivec2(nx,y),level),f.x),\n"
     "             mix(texelFetch(u_tex,ivec2(x,ny),level),texelFetch(u_tex,ivec2(nx,ny),level),f.x),f.y); }\n"
     "void main(){\n"
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     /* No derivative/logarithm is needed without authored mip selection. */
     "  float lod=0.; if(u_switch_fast==0 || (u_has_tex==1 && u_mip_count>0 && u_minify>=2)){\n"
     "    vec2 dx=dFdx(v_uv*u_texsize),dy=dFdy(v_uv*u_texsize); lod=log2(max(max(length(dx),length(dy)),1e-8)); }\n"
@@ -220,7 +220,7 @@ static const char *fs =
 #endif
     "  if(u_mirror==1 && v_floor<0.) discard; vec4 t=vec4(1.); float ta=128.;\n"
     "  if(u_has_tex==1){\n"
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     /* Base-only simple wrapping can use the hardware's bilinear sample.
        Native mip, nearest and region-addressed cases retain the reference. */
     "    if(u_switch_fast==1 && !(u_mip_count>0 && u_minify>=2) && u_nearest==0 && u_wrap.x<2 && u_wrap.y<2)\n"
@@ -239,7 +239,7 @@ static const char *fs =
     "      t=fetch(texel(c.x,u_size.x,u_wrap.x,u_region.x,u_region.y),texel(c.y,u_size.y,u_wrap.y,u_region.z,u_region.w)); }\n"
     "    else if(u_wrap.x<2 && u_wrap.y<2) t=texture(u_tex,v_uv*u_texsize/vec2(u_size));\n"
     "    else t=mix(mix(fetch(tx,ty),fetch(nx,ty),fx),mix(fetch(tx,ny),fetch(nx,ny),fx),fy);\n"
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     "    }\n"
 #endif
     "    if(u_native==1) ta=t.a*255.;\n"
@@ -256,7 +256,7 @@ static const char *fs =
     "  if(u_reflect==1){\n"
     "    vec3 e=vec3(0.);\n"
     "    if(u_envsize.x>0){\n"
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     "      if(u_switch_fast==1){ vec2 halftexel=.5/vec2(u_envsize);\n"
     "        e=textureLod(u_envtex,clamp(v_envuv,halftexel,vec2(1.)-halftexel),0.).rgb; } else {\n"
 #endif
@@ -265,7 +265,7 @@ static const char *fs =
     "      int x0=int(ex), y0=int(ey), x1=min(x0+1,u_envsize.x-1), y1=min(y0+1,u_envsize.y-1); float fx=ex-float(x0), fy=ey-float(y0);\n"
     "      e=mix(mix(texelFetch(u_envtex,ivec2(x0,y0),0).rgb,texelFetch(u_envtex,ivec2(x1,y0),0).rgb,fx),\n"
     "            mix(texelFetch(u_envtex,ivec2(x0,y1),0).rgb,texelFetch(u_envtex,ivec2(x1,y1),0).rgb,fx),fy);\n"
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     "      }\n"
 #endif
     "    }\n"
@@ -293,15 +293,15 @@ int r3d_available(void)
     fprintf(
         stderr,
         "Switch renderer: adapted-gl state_cache=%d shader_fast=%d draw_state_cache=1 generated_mips=0 anisotropy=1\n",
-        getenv("OPENGT4_SWITCH_UNCACHED") == NULL,
-        getenv("OPENGT4_SWITCH_SHADER_REFERENCE") == NULL);
+        getenv("MOON_SWITCH_UNCACHED") == NULL,
+        getenv("MOON_SWITCH_SHADER_REFERENCE") == NULL);
 #endif
     if (!program) {
         failed = 1;
         return 0;
     }
 #define UNI(field, name) U.field = glGetUniformLocation(program, name)
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     UNI(switch_fast, "u_switch_fast");
 #endif
     UNI(rot, "u_rot");
@@ -396,7 +396,7 @@ static int same_group(const r3d_group *g, const gt4_triangle *t)
            g->lamp == t->lamp && !memcmp(&g->state, &t->state, sizeof g->state);
 }
 
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
 /* P: preserve 00455708 draw state while omitting redundant GL applications.
    Textures have a separate cache; no state survives a mesh submission or a
    second alpha/ghost pass. */
@@ -425,7 +425,7 @@ r3d_mesh *r3d_mesh_create_shared(const gt4_model *m, const r3d_mesh *shared)
 #endif
     if (shared && shared->ntextures != m->ntextures)
         return NULL;
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     /* A child may reference a texture its parent geometry did not use.
        Upload that child independently rather than sampling an absent handle. */
     for (int i = 0; shared && i < m->count; i++) {
@@ -611,7 +611,7 @@ r3d_mesh *r3d_mesh_create_shared(const gt4_model *m, const r3d_mesh *shared)
         }
     free(v);
     for (int i = 0; !shared && i < m->ntextures; i++) {
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
         int used = 0;
         for (int g = 0; g < mesh->ngroups && !used; g++)
             used = mesh->groups[g].texture == i || mesh->groups[g].wheel_blur_texture == i + 1;
@@ -674,7 +674,7 @@ r3d_mesh *r3d_mesh_create_shared(const gt4_model *m, const r3d_mesh *shared)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,
                             im->wrap_v ? GL_CLAMP_TO_EDGE : GL_REPEAT);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
             /* P: keep authored mip uploads above, omit PC-generated levels
                and anisotropy. Native GS mip selection remains in the shader. */
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -750,7 +750,7 @@ void r3d_mesh_destroy(r3d_mesh *mesh)
 void r3d_begin(float x, float y, float w, float h, const tex1_image *environment)
 {
     memset(&frame_stats, 0, sizeof frame_stats);
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST) || defined(MOON_PC_VULKAN)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST) || defined(MOON_PC_VULKAN)
     gpu_environment = 0;
 #endif
     video_flush2d();
@@ -782,7 +782,7 @@ void r3d_begin(float x, float y, float w, float h, const tex1_image *environment
             env_w = env_h = 0;
             if (environment) {
                 env_tex = upload(environment->width, environment->height, environment->rgba, NULL);
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
                 /* The reference uses texelFetch; the adapted path uses base
                    bilinear sampling. Neither needs generated mip levels. */
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -831,7 +831,7 @@ int r3d_begin_layer(int copy_page)
         glGenRenderbuffers(1, &layer.depth);
     }
     int width = vp[2], height = vp[3];
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     /* P: CarFace layers use the same Switch 3D budget as race/showroom.
        Keep the page viewport for composition, including its clipping. */
     switch_scene_dimensions(vp[2], vp[3], &width, &height);
@@ -1017,7 +1017,7 @@ int r3d_begin_target(int size)
             gl_reversed_z ? 0x8CAC /* GL_DEPTH_COMPONENT32F */ : GL_DEPTH_COMPONENT24, size, size);
         target_size = size;
     }
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     target_saved_fb = (int)video_draw_framebuffer();
 #else
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &target_saved_fb);
@@ -1058,7 +1058,7 @@ int r3d_begin_target(int size)
     return 1;
 }
 
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST) || defined(MOON_PC_VULKAN)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST) || defined(MOON_PC_VULKAN)
 void r3d_gpu_environment(unsigned texture, int width, int height)
 {
     gpu_environment = texture;
@@ -1366,7 +1366,7 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
     SWP_PUSH(SWP_GL);
     float planes[6][4];
     r3d_frustum(view, projection_x, planes);
-    int cull = getenv("OPENGT4_DISABLE_CULL") == NULL;
+    int cull = getenv("MOON_DISABLE_CULL") == NULL;
     float wheel_angle = view->wheel_interval;
     if (view->wheel_blur > 1) {
         /* 004522D8 +A8..+C0: exp(-20 * screen displacement). The PC
@@ -1402,8 +1402,8 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
         }
     }
     glUseProgram(program);
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
-    glUniform1i(U.switch_fast, getenv("OPENGT4_SWITCH_SHADER_REFERENCE") == NULL);
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
+    glUniform1i(U.switch_fast, getenv("MOON_SWITCH_SHADER_REFERENCE") == NULL);
 #endif
     int skinned = mesh->skinned && view->skin_palette != NULL;
     glUniform1i(U.skinned, skinned);
@@ -1471,7 +1471,7 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, dest_tex);
     glActiveTexture(GL_TEXTURE2);
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST) || defined(MOON_PC_VULKAN)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST) || defined(MOON_PC_VULKAN)
     glBindTexture(GL_TEXTURE_2D, gpu_environment ? gpu_environment : env_tex);
     glUniform2i(U.envsize, gpu_environment ? gpu_environment_w : env_w,
                 gpu_environment ? gpu_environment_h : env_h);
@@ -1487,18 +1487,18 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
        Distinct detailed/coarse meshes may occupy the same surface. */
     unsigned count =
         view->model_list ? (unsigned)view->model_list[0] | (unsigned)view->model_list[1] << 8 : 1;
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     /* P: reuse texture bindings/uniforms only inside this mesh submission.
        DATE snapshots and draw order (00396F00 +34..78) are unchanged. */
     const r3d_texture *last_texture = NULL;
     GLuint last_texture_id = 0;
     int texture_valid = 0;
-    int cache_textures = getenv("OPENGT4_SWITCH_UNCACHED") == NULL;
+    int cache_textures = getenv("MOON_SWITCH_UNCACHED") == NULL;
     const r3d_group *last_draw_state = NULL;
     GLint date_read_fb = 0, date_draw_fb = 0;
     int date_framebuffer_known = 0;
-    int no_reflect = getenv("OPENGT4_NO_REFLECT") != NULL;
-    int only_reflect = getenv("OPENGT4_ONLY_REFLECT") != NULL;
+    int no_reflect = getenv("MOON_NO_REFLECT") != NULL;
+    int only_reflect = getenv("MOON_ONLY_REFLECT") != NULL;
 #endif
     for (unsigned entry = 0; entry < count; entry++) {
         int first = 0, end = mesh->ngroups;
@@ -1530,7 +1530,7 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
             }
             const gt4_draw_state *s = &g->state;
             int vertices = g->count;
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
             /* P: combine consecutive visible opaque slices of the same
                resident VBO. Keep primitive order and model-list boundaries.
                Alpha-fail, DATE, blending, skin and ghost passes stay separate. */
@@ -1546,22 +1546,22 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
                     i++;
                 }
 #endif
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
             if (g->reflection && no_reflect)
                 continue;
             if (!g->reflection && only_reflect)
                 continue;
 #else
-            if (g->reflection && getenv("OPENGT4_NO_REFLECT"))
+            if (g->reflection && getenv("MOON_NO_REFLECT"))
                 continue;
-            if (!g->reflection && getenv("OPENGT4_ONLY_REFLECT"))
+            if (!g->reflection && getenv("MOON_ONLY_REFLECT"))
                 continue;
 #endif
             int texture = view->wheel_blur == 1 && g->wheel_blur_texture ? g->wheel_blur_texture - 1
                                                                          : g->texture;
             const r3d_texture *t =
                 texture >= 0 && texture < mesh->ntextures ? &mesh->textures[texture] : NULL;
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
             const r3d_texture *source_texture = t;
 #endif
             r3d_texture accumulated;
@@ -1578,7 +1578,7 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
                 t = &accumulated;
             }
             int state_changed = 1;
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
             state_changed = !cache_textures || view->ghost || !last_draw_state ||
                             !same_draw_state(last_draw_state, g);
             if (state_changed) {
@@ -1603,7 +1603,7 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
                 glUniform1i(U.reflect, g->reflection);
             }
             int texture_changed = 1;
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
             GLuint texture_id = t ? t->id : 0;
             texture_changed = !cache_textures || !texture_valid || source_texture != last_texture ||
                               texture_id != last_texture_id;
@@ -1654,7 +1654,7 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
                leaving stale masks (squares above the Ka's rear lamps).
                Blit to the resident single-sample mask; no CPU readback. */
                 GLint read_fb, draw_fb;
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
                 /* DATE temporarily changes these bindings and restores them
                    below. Query the actual nested target once per submission,
                    not twice for every destination-tested material. */
@@ -1718,7 +1718,7 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
                 glDrawArrays(GL_TRIANGLES, g->first, vertices);
                 frame_stats.draws++;
                 frame_stats.triangles += vertices / 3;
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
                 /* Fail actions changed pass, depth and channel masks. */
                 last_draw_state = NULL;
 #endif
@@ -2129,7 +2129,7 @@ void r3d_draw_sprites(const r3d_sprite_texture *t, const r3d_view *view, const f
     glUseProgram(program);
 }
 
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
 int r3d_warmup(void)
 {
     static int ready;

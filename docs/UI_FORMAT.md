@@ -1,7 +1,7 @@
 # GT4 UI projects
 
 Parser: `src/core/mproject.c`. Renderer: `src/core/ui.c`. Program:
-`opengt4 <disc.iso> [project] [screen] [--shot out.png]`.
+`moonengine <disc.iso> [project] [screen] [--shot out.png]`.
 
 ## Files
 

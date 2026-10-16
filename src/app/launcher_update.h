@@ -1,8 +1,8 @@
-#ifndef OPENGT4_LAUNCHER_UPDATE_H
-#define OPENGT4_LAUNCHER_UPDATE_H
+#ifndef MOON_LAUNCHER_UPDATE_H
+#define MOON_LAUNCHER_UPDATE_H
 #include <stdint.h>
-#ifndef OPENGT4_VERSION
-#define OPENGT4_VERSION "0.2.0"
+#ifndef MOON_VERSION
+#define MOON_VERSION "0.2.0"
 #endif
 typedef struct {
     char version[32], setup[160], sha256[65], notes[2048];

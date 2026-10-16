@@ -44,11 +44,11 @@ int main(int argc, char **argv)
     CHECK(argc>=3);
     int negative = argc > 3 && !strcmp(argv[3], "--negative");
 #ifdef _WIN32
-    _putenv_s("OPENGT4_RACE_AUTOPILOT", "1");
-    _putenv_s("OPENGT4_RACE_SPEED", "1");
+    _putenv_s("MOON_RACE_AUTOPILOT", "1");
+    _putenv_s("MOON_RACE_SPEED", "1");
 #else
-    setenv("OPENGT4_RACE_AUTOPILOT", "1", 1);
-    setenv("OPENGT4_RACE_SPEED", "1", 1);
+    setenv("MOON_RACE_AUTOPILOT", "1", 1);
+    setenv("MOON_RACE_SPEED", "1", 1);
 #endif
     plat_video_desc video = {640, 480, 0, 0, 0};
     CHECK(!plat_video_init(&video));

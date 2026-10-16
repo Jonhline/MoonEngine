@@ -1,5 +1,5 @@
-#ifndef OPENGT4_RACE_PIT_CREW_H
-#define OPENGT4_RACE_PIT_CREW_H
+#ifndef MOON_RACE_PIT_CREW_H
+#define MOON_RACE_PIT_CREW_H
 #include "license_motion.h"
 #include "driver_model.h"
 #include "race_pit_walk.h"

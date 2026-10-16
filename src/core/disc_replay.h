@@ -1,5 +1,5 @@
-#ifndef OPENGT4_DISC_REPLAY_H
-#define OPENGT4_DISC_REPLAY_H
+#ifndef MOON_DISC_REPLAY_H
+#define MOON_DISC_REPLAY_H
 #include "vol.h"
 #include "replay_file.h"
 typedef struct gt4_disc_replay gt4_disc_replay;

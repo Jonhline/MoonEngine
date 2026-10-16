@@ -10,12 +10,12 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[2]/"tools"))
 from publish_update import manifest,publish
 from configure_update import generate
 with tempfile.TemporaryDirectory() as directory:
-    root=Path(directory);setup=root/"OpenGT4-0.3.0-setup.exe";setup.write_bytes(b"fixture")
+    root=Path(directory);setup=root/"MoonEngine-0.3.0-setup.exe";setup.write_bytes(b"fixture")
     m=manifest(setup,"0.3.0","Notes")
     assert m["size"]==7 and m["sha256"]==hashlib.sha256(b"fixture").hexdigest()
     latest=root/"latest.json";latest.write_text(json.dumps(m))
     c=configparser.ConfigParser(interpolation=None)
-    c["ssh"]={"host":"example.invalid","user":"fixture","key":str(root/"key"),"directory":"/releases/opengt4"}
+    c["ssh"]={"host":"example.invalid","user":"fixture","key":str(root/"key"),"directory":"/releases/moonengine"}
     calls=[]
     publish(setup,latest,c,lambda args,**kwargs:calls.append(args))
     assert [x[0] for x in calls]==["scp","scp","ssh"]
@@ -27,12 +27,12 @@ with tempfile.TemporaryDirectory() as directory:
     except ValueError:pass
     else:raise AssertionError("unsafe destination accepted")
     private=root/"publish.ini";header=root/"generated.h"
-    private.write_text("[update]\nurl=https://example.invalid/opengt4/\ntoken=fixture-token\n")
+    private.write_text("[update]\nurl=https://example.invalid/moonengine/\ntoken=fixture-token\n")
     generate("0.3.0",str(private),str(header))
-    assert '#define OPENGT4_VERSION "0.3.0"' in header.read_text()
+    assert '#define MOON_VERSION "0.3.0"' in header.read_text()
     assert "fixture-token" in header.read_text()
     generate("0.3.0",str(root/"missing.ini"),str(header))
-    assert '#define OPENGT4_UPDATE_URL ""' in header.read_text()
+    assert '#define MOON_UPDATE_URL ""' in header.read_text()
     try:generate("0.3.0-alpha",str(private),str(header))
     except ValueError:pass
     else:raise AssertionError("unsupported version accepted")

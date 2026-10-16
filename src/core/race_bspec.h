@@ -7,8 +7,8 @@
  * off. The orders (pace, overtake, pit) are the game's 003F1BD8, handed to
  * the host; the race itself is the host's.
  */
-#ifndef OPENGT4_RACE_BSPEC_H
-#define OPENGT4_RACE_BSPEC_H
+#ifndef MOON_RACE_BSPEC_H
+#define MOON_RACE_BSPEC_H
 
 #include <stdint.h>
 #include "vol.h"

@@ -35,7 +35,7 @@ def main():
     fixture = args.destination / "headless-eeMemory.bin"
     fixture.write_bytes(ram)
     env = {k: v for k, v in os.environ.items()
-           if not k.startswith(("PHYS_", "GT4_SERIES_")) and k != "OPENGT4_COVERAGE"}
+           if not k.startswith(("PHYS_", "GT4_SERIES_")) and k != "MOON_COVERAGE"}
     env["PHYS_HEADLESS"] = "1"
     env["PHYS_FRAME"] = "1"
     env["PHYS_SERIES_INPUT"] = "1"

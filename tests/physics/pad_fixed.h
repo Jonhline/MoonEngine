@@ -3,8 +3,8 @@
    and then the brake, steering left and right in turns); the other cars
    keep their own controllers. The same in physics_run (PHYS_PAD_FIXED) and
    race_run_test, so both runs can be compared. */
-#ifndef OPENGT4_PAD_FIXED_H
-#define OPENGT4_PAD_FIXED_H
+#ifndef MOON_PAD_FIXED_H
+#define MOON_PAD_FIXED_H
 #include <stdint.h>
 #include <string.h>
 

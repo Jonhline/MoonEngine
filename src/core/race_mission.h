@@ -1,5 +1,5 @@
-#ifndef OPENGT4_RACE_MISSION_H
-#define OPENGT4_RACE_MISSION_H
+#ifndef MOON_RACE_MISSION_H
+#define MOON_RACE_MISSION_H
 #include <stdint.h>
 enum { GT4_MISSION_RUNNING, GT4_MISSION_BOARD, GT4_MISSION_RETURN, GT4_MISSION_STOPPED };
 /* Race queue at race+F4, read only; retain the previous presentation state. */

@@ -173,9 +173,9 @@ void race_game_draw_hud(race_game *g, double dt)
         return;
     }
     g->pad = plat_sdl_pad(0);
-    if (getenv("OPENGT4_RACE_SNAPSHOT"))
+    if (getenv("MOON_RACE_SNAPSHOT"))
         return; /* tests: the captured scene alone */
-    if (getenv("OPENGT4_RACE_FILM"))
+    if (getenv("MOON_RACE_FILM"))
         return; /* P: clean filming frame */
     /* the replay: the display off as replay_display_enable's default
        (P: what it shows when on is not read) */
@@ -188,7 +188,7 @@ void race_game_draw_hud(race_game *g, double dt)
         if (race_audio_music_title(g->audio, title, sizeof title, artist, sizeof artist)) {
             static char last[96];
             race_hud_music(g->hud, title, artist);
-            if (getenv("OPENGT4_SOUND_TRACE") && strcmp(last, title)) {
+            if (getenv("MOON_SOUND_TRACE") && strcmp(last, title)) {
                 fprintf(stderr, "race music title: %s / %s\n", title, artist);
                 snprintf(last, sizeof last, "%s", title);
             }

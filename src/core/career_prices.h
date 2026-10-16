@@ -1,5 +1,5 @@
-#ifndef OPENGT4_CAREER_PRICES_H
-#define OPENGT4_CAREER_PRICES_H
+#ifndef MOON_CAREER_PRICES_H
+#define MOON_CAREER_PRICES_H
 #include "spectables.h"
 typedef struct {
     uint8_t mileage_factors[80];

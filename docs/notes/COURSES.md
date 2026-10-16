@@ -18,10 +18,10 @@ change its distance. **Esc** returns to selection, or cancels a pending load.
 Menu music stops in the preview; engine/race audio is not implemented.
 
 ```powershell
-build/Release/opengt4.exe $disc --race-course tsukuba --race-car ka_01
-build/Release/opengt4.exe $disc --race-course tsukuba --race-car ka_01 --shot build/race.png
+build/Release/MoonEngine.exe $disc --race-course tsukuba --race-car ka_01
+build/Release/MoonEngine.exe $disc --race-course tsukuba --race-car ka_01 --shot build/race.png
 # Use menu selection instead of explicit labels:
-build/Release/opengt4.exe $disc arcade TopRoot --preview-courses --input accept,accept,accept,accept,down,accept,right --race-preview --shot build/race_menu.png
+build/Release/MoonEngine.exe $disc arcade TopRoot --preview-courses --input accept,accept,accept,accept,down,accept,right --race-preview --shot build/race_menu.png
 ```
 
 Local convenience launcher: `build/Carro na pista.cmd` (Ka at Tsukuba).
@@ -92,7 +92,7 @@ Layout references are the local research copies of Nenkai's MIT PDTools
 ## Checks
 
 ```powershell
-cmake --build build --config Release --target opengt4 showroom_probe course_tests model_tests gt4course
+cmake --build build --config Release --target moonengine showroom_probe course_tests model_tests gt4course
 ctest --test-dir build -C Release --output-on-failure
 .venv/Scripts/python.exe tests/ui/run_race_smoke.py $disc
 .venv/Scripts/python.exe tests/ui/run_car_smoke.py $disc

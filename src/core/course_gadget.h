@@ -1,5 +1,5 @@
-#ifndef OPENGT4_COURSE_GADGET_H
-#define OPENGT4_COURSE_GADGET_H
+#ifndef MOON_COURSE_GADGET_H
+#define MOON_COURSE_GADGET_H
 #include "course.h"
 #include "model.h"
 typedef struct {

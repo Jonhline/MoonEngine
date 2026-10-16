@@ -6,8 +6,8 @@
  * comes from the course file's "Env0" block (course header +0x80): six
  * classes of 0x44 bytes at +0x4D0, the surface to class table D_006A3A00.
  */
-#ifndef OPENGT4_RACE_SMOKE_H
-#define OPENGT4_RACE_SMOKE_H
+#ifndef MOON_RACE_SMOKE_H
+#define MOON_RACE_SMOKE_H
 
 #include <stddef.h>
 #include <stdint.h>

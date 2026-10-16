@@ -1,5 +1,5 @@
-#ifndef OPENGT4_CAREER_BSPEC_H
-#define OPENGT4_CAREER_BSPEC_H
+#ifndef MOON_CAREER_BSPEC_H
+#define MOON_CAREER_BSPEC_H
 #include <stdint.h>
 /* Persistent statistics (0x180), course skill bytes (8), live style (0x40). */
 int gt4_career_bspec_band(float rating);

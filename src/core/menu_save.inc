@@ -73,7 +73,7 @@ static int nat_pc_menu_action(ah_vm *vm, ah_obj *self, void *data, int argc, con
     menu *m = ah_user(vm);
     const char *action = data;
     if (!strcmp(action, "QuitGame")) {
-        if (menu_confirm(m, "Exit OpenGT4", "Exit the game?")) {
+        if (menu_confirm(m, "Exit Moon Engine", "Exit the game?")) {
             menu_save_capture(m);
             if (gt4_save_active() && gt4_save_dirty() && gt4_save_auto_enabled() &&
                 !gt4_save_store())

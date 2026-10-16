@@ -1,5 +1,5 @@
-#ifndef OPENGT4_CAREER_ORIGINAL_H
-#define OPENGT4_CAREER_ORIGINAL_H
+#ifndef MOON_CAREER_ORIGINAL_H
+#define MOON_CAREER_ORIGINAL_H
 #include <stdint.h>
 #include <stddef.h>
 /* 00119AB0: EE signed float-to-word conversion, truncating/saturating. */

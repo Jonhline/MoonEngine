@@ -1,5 +1,5 @@
-#ifndef OPENGT4_RACE_SOUND_H
-#define OPENGT4_RACE_SOUND_H
+#ifndef MOON_RACE_SOUND_H
+#define MOON_RACE_SOUND_H
 #include <stddef.h>
 #include <stdint.h>
 #include "vol.h"

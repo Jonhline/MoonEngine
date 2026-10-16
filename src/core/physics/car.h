@@ -2,8 +2,8 @@
    conductor + 0x6698). Offsets are from the car; the original code mostly
    addresses a block at car + 0x104, so both are noted. Names are provisional
    until docs/analysis/PHYSICS.md confirms them. */
-#ifndef OPENGT4_PHYS_CAR_H
-#define OPENGT4_PHYS_CAR_H
+#ifndef MOON_PHYS_CAR_H
+#define MOON_PHYS_CAR_H
 
 #include "phys.h"
 #include "fields_car.h"

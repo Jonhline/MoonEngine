@@ -1,6 +1,6 @@
 /* Switch-native GPU ownership. No Mesa/EGL objects cross this interface. */
-#ifndef OPENGT4_DEKO_DEVICE_H
-#define OPENGT4_DEKO_DEVICE_H
+#ifndef MOON_DEKO_DEVICE_H
+#define MOON_DEKO_DEVICE_H
 #include <deko3d.h>
 #include "deko_contract.h"
 #include <stddef.h>

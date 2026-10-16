@@ -50,9 +50,9 @@ int main(int argc, char **argv)
 {
     wchar_t directory[MAX_PATH], destination[MAX_PATH], source[MAX_PATH];
     CHECK(GetTempPathW(MAX_PATH, directory));
-    CHECK(swprintf(destination, MAX_PATH, L"%sopengt4-replace-%lu.dat", directory,
+    CHECK(swprintf(destination, MAX_PATH, L"%smoonengine-replace-%lu.dat", directory,
                    GetCurrentProcessId()) > 0);
-    CHECK(swprintf(source, MAX_PATH, L"%sopengt4-replace-%lu.tmp", directory,
+    CHECK(swprintf(source, MAX_PATH, L"%smoonengine-replace-%lu.tmp", directory,
                    GetCurrentProcessId()) > 0);
     DWORD flags = MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH;
     CHECK(write_file(destination, "original"));

@@ -7,7 +7,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <stdint.h>
-#ifdef OPENGT4_SWITCH_FILE_TEST
+#ifdef MOON_SWITCH_FILE_TEST
 extern int switch_test_rename(const char *, const char *);
 extern int switch_test_commit(const char *);
 extern uint64_t switch_test_ticks(void);

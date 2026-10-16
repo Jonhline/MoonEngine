@@ -4,7 +4,7 @@ from pathlib import Path
 p=argparse.ArgumentParser()
 p.add_argument("disc",type=Path)
 p.add_argument("--save-dir",type=Path,required=True)
-p.add_argument("--exe",type=Path,default=Path("build/career-native/Release/opengt4.exe"))
+p.add_argument("--exe",type=Path,default=Path("build/career-native/Release/MoonEngine.exe"))
 a=p.parse_args();out=Path("build/ui-audit/pc-menu");out.mkdir(parents=True,exist_ok=True)
 source={f.name:f.read_bytes() for f in a.save_dir.glob("*.ogt4")}
 with tempfile.TemporaryDirectory(dir=out) as temporary:

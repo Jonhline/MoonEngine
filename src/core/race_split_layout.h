@@ -1,5 +1,5 @@
-#ifndef OPENGT4_RACE_SPLIT_LAYOUT_H
-#define OPENGT4_RACE_SPLIT_LAYOUT_H
+#ifndef MOON_RACE_SPLIT_LAYOUT_H
+#define MOON_RACE_SPLIT_LAYOUT_H
 #include <stdint.h>
 
 typedef struct {

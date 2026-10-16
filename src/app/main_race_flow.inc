@@ -221,14 +221,14 @@ static int update_and_draw_race(app_race_flow *flow, double elapsed, int *car_re
             printf("race: the player finished\n");
         }
     }
-    { /* tests: OPENGT4_RACE_REPLAY_AFTER=<seconds> replays the race from then
-                   (with OPENGT4_REPLAY_SAVE, saved and read back first) */
+    { /* tests: MOON_RACE_REPLAY_AFTER=<seconds> replays the race from then
+                   (with MOON_REPLAY_SAVE, saved and read back first) */
         static double raced;
-        const char *after = getenv("OPENGT4_RACE_REPLAY_AFTER");
+        const char *after = getenv("MOON_RACE_REPLAY_AFTER");
         if (after && !race_game_replaying(flow->game) && (raced += elapsed) >= atof(after)) {
             char msg[256];
             raced = -1e9;
-            if (getenv("OPENGT4_REPLAY_SAVE")) {
+            if (getenv("MOON_REPLAY_SAVE")) {
                 gt4_replay_file r, back;
                 char name[64];
                 if (race_game_replay_export(flow->game, &r, GT4_REPLAY_FULL) &&

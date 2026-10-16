@@ -679,7 +679,7 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
         snprintf(d.course, sizeof d.course, "%s", course);
     snprintf(g->hud_course, sizeof g->hud_course, "%s", course);
     if (!prepared) {
-        d.laps = getenv("OPENGT4_RACE_LAPS") ? atoi(getenv("OPENGT4_RACE_LAPS"))
+        d.laps = getenv("MOON_RACE_LAPS") ? atoi(getenv("MOON_RACE_LAPS"))
                                              : g->laps; /* tests: a shorter race */
         d.tire = g->tire;
         d.time_trial = g->time_trial;
@@ -699,7 +699,7 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
                 d.owned_car[i] = g->split_options.owned_car[i];
             d.time_trial = d.bspec = 0;
         }
-        if (getenv("OPENGT4_RACE_BSPEC"))
+        if (getenv("MOON_RACE_BSPEC"))
             g->bspec = 1; /* tests: an Arcade race watched in B-Spec */
         d.bspec = g->bspec;
         d.manual = g->manual;
@@ -757,7 +757,7 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
     player_2p = g->split ? gt4_race_run_car(g->run, 1) : 0;
     memset(&command, 0, sizeof command);
     memset(&command_2p, 0, sizeof command_2p);
-    const char *mission_pad = getenv("OPENGT4_MISSION_TEST_PAD");
+    const char *mission_pad = getenv("MOON_MISSION_TEST_PAD");
     if (mission_pad && prepared && prepared->license == 3 && !g->replaying)
         g->mission_test_pad = fopen(mission_pad, "rb");
     memset(g->split_camera_valid, 0, sizeof g->split_camera_valid);
@@ -831,13 +831,13 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
         colors = prepared_colors;
     }
     /* tests: a PCSX2 capture's moment, frozen (render comparisons) */
-    if (getenv("OPENGT4_RACE_SNAPSHOT")) {
+    if (getenv("MOON_RACE_SNAPSHOT")) {
         static char snap[6][48];
         static const char *snap_cars[6];
         uint8_t *idi;
         size_t ni = 0;
-        if (!gt4_race_run_restore(g->run, getenv("OPENGT4_RACE_SNAPSHOT")))
-            fprintf(stderr, "race: cannot read the capture %s\n", getenv("OPENGT4_RACE_SNAPSHOT"));
+        if (!gt4_race_run_restore(g->run, getenv("MOON_RACE_SNAPSHOT")))
+            fprintf(stderr, "race: cannot read the capture %s\n", getenv("MOON_RACE_SNAPSHOT"));
         /* the captured lineup (race+0x60: the entries, each garage's car key at +0x20) */
         vol = gt4_vol_open(g->disc, &err);
         idi = vol ? gt4_vol_read(vol, "/specdb/GT4_US2560/GENERIC_CAR.idi", &ni) : NULL;
@@ -856,13 +856,13 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
         others = snap_cars + 1;
         colors = NULL;
     }
-    if (getenv("OPENGT4_RACE_AUTOPILOT"))
+    if (getenv("MOON_RACE_AUTOPILOT"))
         gt4_car_take_over(player, 5); /* tests: the model drives the player's car too */
-    if (g->split && getenv("OPENGT4_RACE_AUTOPILOT_2P"))
+    if (g->split && getenv("MOON_RACE_AUTOPILOT_2P"))
         gt4_car_take_over(gt4_race_run_car(g->run, 1),
                           5); /* P: second original model driver for unattended filming */
-    if (getenv("OPENGT4_RACE_VIEW"))
-        g->camera = atoi(getenv("OPENGT4_RACE_VIEW")); /* tests: the view to start in */
+    if (getenv("MOON_RACE_VIEW"))
+        g->camera = atoi(getenv("MOON_RACE_VIEW")); /* tests: the view to start in */
     g->run_bspec = d.bspec; /* the race built B-Spec (the world's +0xCC0..+0xCCC) */
     if (!g->replay_next) {  /* the lineup kept for the replay */
         g->disc_segments = g->disc_segment = g->disc_segments_2p = g->disc_segment_2p = 0;
@@ -928,7 +928,7 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
             cr && gt4_race_run_setup(g->run, 0, setup) &&
             gt4_car_ratings_setup(cr, setup, &g->open_power, &g->open_front, &g->open_rear);
         gt4_car_ratings_close(cr);
-        if (getenv("OPENGT4_RACE_REPLAY_LOG"))
+        if (getenv("MOON_RACE_REPLAY_LOG"))
             fprintf(stderr, "replay opening: %s power %.3f PS tyres %d/%d\n", g->names[0],
                     g->open_power, g->open_front, g->open_rear);
     }
@@ -1627,7 +1627,7 @@ static void inspect_camera(race_game *g, double dt)
 }
 
 /* P: authored PC camera moves for the user's native showcase, enabled only
-   by OPENGT4_RACE_FILM=orbit/crane/low. Reads the live pose and changes the
+   by MOON_RACE_FILM=orbit/crane/low. Reads the live pose and changes the
    camera/listener, never the car, controls, simulation speed or replay tape.
    Distances, lens and trajectories are deliberate filming choices, not PS2
    camera data. Clock starts after the race opening (10 seconds). */
@@ -1635,7 +1635,7 @@ static void film_camera(race_game *g, double dt)
 {
     if (g->cinema.on)
         return;
-    const char *mode = getenv("OPENGT4_RACE_FILM");
+    const char *mode = getenv("MOON_RACE_FILM");
     if (!mode || g->split ||
         (strcmp(mode, "orbit") && strcmp(mode, "crane") && strcmp(mode, "low")))
         return;
@@ -1853,7 +1853,7 @@ static int start_camera(race_game *g)
             rows[6 + k] = b[k];
         }
     }
-    if (getenv("OPENGT4_START_CAM_LOG") && h.start_frames % 30 == 0) /* tests */
+    if (getenv("MOON_START_CAM_LOG") && h.start_frames % 30 == 0) /* tests */
         fprintf(
             stderr,
             "start cam: %d frames, motion %d at %.3f, ref %.2f %.2f %.2f yaw %.3f, local eye %.2f %.2f %.2f target %.2f %.2f %.2f, fov %.3f\n",
@@ -2089,7 +2089,7 @@ static void race_camera_audio_update(race_game *g, double dt)
         return;
     }
     if (!g->inspect_on || !g->inspect_seeded) {
-        g->start_cam_on = getenv("OPENGT4_RACE_SNAPSHOT") ? 0 : start_camera(g);
+        g->start_cam_on = getenv("MOON_RACE_SNAPSHOT") ? 0 : start_camera(g);
         if (g->replaying)
             g->cue = race_audio_music_cue(g->audio, &g->cue_passed); /* 0033D170, each frame */
         if (g->replaying)
@@ -2104,7 +2104,7 @@ static void race_camera_audio_update(race_game *g, double dt)
         if (!g->tv_on)
             g->tv_on =
                 !g->start_cam_on &&
-                (rolling_phase(g) || (g->replaying && !g->car_cam) || getenv("OPENGT4_RACE_TV") ||
+                (rolling_phase(g) || (g->replaying && !g->car_cam) || getenv("MOON_RACE_TV") ||
                  (g->bspec_ui && race_bspec_view(g->bspec_ui) == 2)) &&
                 tv_camera(g);
         if (!g->tv_on && g->tvcam)
@@ -2185,7 +2185,7 @@ static void race_camera_audio_update(race_game *g, double dt)
             race_audio_update(
                 g->audio, g->run, eye, rows,
                 g->start_cam_on || g->tv_on || g->inspect_on || g->cinema.on ||
-                        getenv("OPENGT4_RACE_FILM") ||
+                        getenv("MOON_RACE_FILM") ||
                         (watched_car(g) < 6 && g->pit_crew[watched_car(g)].camera_control >= 0)
                     ? -1
                     : g->camera,
@@ -2216,11 +2216,11 @@ static void pit_frame(race_game *g, double dt)
     race_pitmenu_choice c;
     if (g->replaying || !g->run)
         return;
-    { /* tests: OPENGT4_RACE_PIT=x:<keys> has the B-Spec driver pit 8 s in, then
+    { /* tests: MOON_RACE_PIT=x:<keys> has the B-Spec driver pit 8 s in, then
            sends the menu Flash key codes ("38,39,13"), one each 0.4 s */
         static double clock, up;
         static int sent, keys;
-        const char *t = getenv("OPENGT4_RACE_PIT");
+        const char *t = getenv("MOON_RACE_PIT");
         if (t && g->bspec_ui && sent < 2 && (clock += dt) > 8) {
             sent++;
             bspec_order(g, 6, 1);
@@ -2323,7 +2323,7 @@ static void publish_photo_poses(race_game *g)
            code that blends it is not found */
         race_view_set_ghost(g->view, 0, .55f);
         if (!g->ghost_hidden &&
-            (gt4_race_run_ghost_on(g->run) || getenv("OPENGT4_RACE_SNAPSHOT")) &&
+            (gt4_race_run_ghost_on(g->run) || getenv("MOON_RACE_SNAPSHOT")) &&
             gt4_race_run_pose(g->run, 1, pos, rot, wheels)) {
             race_view_set_opponent(g->view, 0, pos, rot, wheels);
             update_wheel_motion(g, 1, rot);
@@ -2337,9 +2337,9 @@ void race_game_update(race_game *g, double dt)
     if (!g || !g->ready || !g->run || g->photo_held)
         return;
     pause_input(g);
-    { /* tests: OPENGT4_RACE_PAUSE=<seconds>[,key,key...] opens the pause
+    { /* tests: MOON_RACE_PAUSE=<seconds>[,key,key...] opens the pause
            menu then sends Flash key codes, one each half second */
-        const char *t = getenv("OPENGT4_RACE_PAUSE");
+        const char *t = getenv("MOON_RACE_PAUSE");
         static double clock;
         static int sent;
         if (t) {
@@ -2377,8 +2377,8 @@ void race_game_update(race_game *g, double dt)
     if (g->bspec_ui)
         dt *= race_bspec_speed(
             g->bspec_ui); /* the monitor's view speed (+0x74, x1..x3). A: how the world applies it not read */
-    if (getenv("OPENGT4_RACE_SPEED"))
-        dt *= atof(getenv("OPENGT4_RACE_SPEED")); /* tests: the race run faster */
+    if (getenv("MOON_RACE_SPEED"))
+        dt *= atof(getenv("MOON_RACE_SPEED")); /* tests: the race run faster */
     if (g->replaying && g->fast)
         dt *=
             2; /* A: the replay player's step (+0x74, func_003D9FB8: 1 to 3) taken as one up; L3's own handler not read */
@@ -2392,7 +2392,7 @@ void race_game_update(race_game *g, double dt)
     g->acc += dt;
     if (g->acc > 0.1 + dt)
         g->acc = 0.1 + dt;
-    if (getenv("OPENGT4_RACE_SNAPSHOT"))
+    if (getenv("MOON_RACE_SNAPSHOT"))
         g->acc = 0; /* tests: the captured moment stays */
     int stepped = 0;
     while (g->acc >= STEP) {
@@ -2435,7 +2435,7 @@ void race_game_update(race_game *g, double dt)
         }
         /* Controller sampling follows the physics step, including accelerated
            test runs. Ordinary input is still sampled by read_controls. */
-        if (getenv("OPENGT4_LICENSE_TEST_BRAKE_AT"))
+        if (getenv("MOON_LICENSE_TEST_BRAKE_AT"))
             read_controls(g);
         if (!SWP_VALUE(SWP_PHYSICS, gt4_race_run_frame(g->run))) {
             fprintf(stderr, "race: the step failed\n");
@@ -2518,7 +2518,7 @@ void race_game_update(race_game *g, double dt)
         SWP_VOID(SWP_AUDIO_CONTROL, race_audio_step(g->audio, g->run));
         stepped++;
         if (getenv(
-                "OPENGT4_RACE_REPLAY_LOG")) { /* tests: the player's place by the tape's step, live and replayed */
+                "MOON_RACE_REPLAY_LOG")) { /* tests: the player's place by the tape's step, live and replayed */
             size_t at = g->replaying ? g->tape_at : g->tape_n;
             float p3[3], r9[9], w[4][3];
             if (at && at % 300 == 0 && gt4_race_run_pose(g->run, 0, p3, r9, w))
@@ -2526,8 +2526,8 @@ void race_game_update(race_game *g, double dt)
                         g->replaying ? "play" : "live", at, p3[0], p3[1], p3[2]);
         }
         g->acc -= STEP;
-        { /* tests: OPENGT4_REPLAY_BUTTONS=<seconds>:<button>,... presses the replay's buttons */
-            const char *t = getenv("OPENGT4_REPLAY_BUTTONS");
+        { /* tests: MOON_REPLAY_BUTTONS=<seconds>:<button>,... presses the replay's buttons */
+            const char *t = getenv("MOON_REPLAY_BUTTONS");
             for (; g->replaying && t && *t; t = strchr(t, ',') ? strchr(t, ',') + 1 : "")
                 if ((size_t)(atof(t) * 60) == g->tape_at && strchr(t, ':'))
                     replay_button(g, atoi(strchr(t, ':') + 1));
@@ -2543,7 +2543,7 @@ void race_game_update(race_game *g, double dt)
         publish_photo_poses(g);
     /* Snapshot/initialization has no physics tick to publish its camera. */
     if (!stepped &&
-        (!g->audio || getenv("OPENGT4_RACE_SNAPSHOT") || (g->cinema.on && !g->cinema.seeded)))
+        (!g->audio || getenv("MOON_RACE_SNAPSHOT") || (g->cinema.on && !g->cinema.seeded)))
         race_camera_audio_update(g, camera_dt);
 }
 

@@ -13,7 +13,7 @@ read-only. gt4vol accepts a trailing --movies to inspect this volume.
 
 The Windows SDL backend uses the installed FFmpeg executable as an MPEG-2
 decoder, launched directly with CREATE_NO_WINDOW (no shell). Configure its
-real executable path, not a launcher shim, through OPENGT4_FFMPEG in CMake.
+real executable path, not a launcher shim, through MOON_FFMPEG in CMake.
 FFmpeg is not bundled. Non-Windows video playback is not implemented yet.
 Missing data/decoder is reported instead of supplying unrelated imagery.
 
@@ -60,7 +60,7 @@ replacement and cancellation; screenshots wait for the requested generation.
 
 ## Boot opening (2026-09-29)
 
-Running `opengt4.exe <disc>` with no other arguments (or `--intro`) starts the
+Running `MoonEngine.exe <disc>` with no other arguments (or `--intro`) starts the
 `boot` project's MovieRoot; `--skip-intro` disables it. The original script
 picks `opening_us` by region and sets `Mpeg.audio_track` (1 stereo, 2 Pro
 Logic II). Enter/Esc reach MovieRoot's onActivate/onCancel even without a

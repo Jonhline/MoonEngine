@@ -15,12 +15,12 @@ root = Path("build/disc-demo/app") / a.case
 root.mkdir(parents=True, exist_ok=True)
 env = os.environ.copy()
 for k in list(env):
-    if k.startswith(("OPENGT4_REPLAY_", "OPENGT4_LICENSE_TEST_", "OPENGT4_LICENSE_RESULT_", "OPENGT4_RACE_")):
+    if k.startswith(("MOON_REPLAY_", "MOON_LICENSE_TEST_", "MOON_LICENSE_RESULT_", "MOON_RACE_")):
         env.pop(k)
-env["OPENGT4_RACE_SPEED"] = "4"
+env["MOON_RACE_SPEED"] = "4"
 theater = a.case.startswith("theater")
 if theater:
-    env["OPENGT4_LABO_ARG"] = "ReplayTheaterRoot"
+    env["MOON_LABO_ARG"] = "ReplayTheaterRoot"
     inputs = "up,accept,right,accept" if a.case == "theater-icons" else "up,accept,right,accept,right,accept"
     args = ["labomode", "--input", inputs, "--input-interval", "0.5"]
     delay = 53 if a.case.endswith("return") else 6

@@ -1,8 +1,8 @@
 /* Car field offsets. CAR_BLOCK_* is relative to car + CAR_POSITION.
  * Unknown meanings stay neutral; suffix _U preserves an unsigned literal.
  */
-#ifndef OPENGT4_FIELDS_CAR_H
-#define OPENGT4_FIELDS_CAR_H
+#ifndef MOON_FIELDS_CAR_H
+#define MOON_FIELDS_CAR_H
 
 #define CAR_BLOCK_UNK_4 0x4 /* car+0x104 relative; ai.c: gt4_ai_model, func_00465078 */
 #define CAR_BLOCK_UNK_8 0x8 /* car+0x104 relative; chassis.c: jack_hold, func_0036A318 */

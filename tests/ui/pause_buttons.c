@@ -15,7 +15,7 @@ int main(int argc, char **argv)
     SDL_SetHint(SDL_HINT_DIRECTINPUT_ENABLED, "0");
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
     CHECK(!SDL_Init(SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS));
-    SDL_setenv("OPENGT4_WINDOW_HIDDEN", "1", 1);
+    SDL_setenv("MOON_WINDOW_HIDDEN", "1", 1);
     plat_video_desc video = {320, 240, 0, 0, 0};
     CHECK(!plat_video_init(&video));
     SDL_Joystick *joy[2];

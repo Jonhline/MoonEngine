@@ -1,5 +1,5 @@
-#ifndef OPENGT4_WHEEL_MOTION_H
-#define OPENGT4_WHEEL_MOTION_H
+#ifndef MOON_WHEEL_MOTION_H
+#define MOON_WHEEL_MOTION_H
 #include <stdint.h>
 #include <string.h>
 #include <math.h>

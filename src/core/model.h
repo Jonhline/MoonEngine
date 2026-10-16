@@ -1,5 +1,5 @@
-#ifndef OPENGT4_MODEL_H
-#define OPENGT4_MODEL_H
+#ifndef MOON_MODEL_H
+#define MOON_MODEL_H
 #include "tex1.h"
 typedef struct {
     float p[3], uv[2], rgb[3], normal[3], ambient[3], specular[3], shine, alpha;

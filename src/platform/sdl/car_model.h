@@ -1,5 +1,5 @@
-#ifndef OPENGT4_CAR_MODEL_H
-#define OPENGT4_CAR_MODEL_H
+#ifndef MOON_CAR_MODEL_H
+#define MOON_CAR_MODEL_H
 /* A car's menu model (/car/menu/<model>) with its wheels and contact
    shadow, for the showroom and the race view. */
 #include "model.h"

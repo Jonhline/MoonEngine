@@ -1,5 +1,5 @@
-#ifndef OPENGT4_LICENSE_SCENE_H
-#define OPENGT4_LICENSE_SCENE_H
+#ifndef MOON_LICENSE_SCENE_H
+#define MOON_LICENSE_SCENE_H
 #include "license_motion.h"
 #include "render3d.h"
 #include "physics/car.h"

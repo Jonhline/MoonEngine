@@ -1,7 +1,7 @@
 """Download existing public-domain Tango icons, without accessing a game disc.
 
-Default: beside the launcher's per-user launcher.ini. Override --destination
-with <directory of custom launcher.ini>/launcher_icons. PNGs stay outside Git;
+Default: beside the secondary launcher's per-user secondary_launcher.ini.
+Override --destination with <directory of custom launcher.ini>/secondary_launcher_icons. PNGs stay outside Git;
 only this reproducible downloader is tracked. The launcher never downloads.
 """
 import argparse
@@ -27,7 +27,7 @@ LICENSE = b"The icons in this repository are herefore released into the Public D
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    default = Path(os.environ.get("APPDATA", str(Path.home() / ".config"))) / "OpenGT4" / "OpenGT4" / "launcher_icons"
+    default = Path(os.environ.get("APPDATA", str(Path.home() / ".config"))) / "MoonEngine" / "MoonEngine" / "secondary_launcher_icons"
     parser.add_argument("--destination", type=Path, default=default)
     args = parser.parse_args()
     # Validate all responses before replacing any known-good cache file.

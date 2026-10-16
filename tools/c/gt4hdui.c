@@ -1,7 +1,7 @@
 /*
  * gt4hdui: builds the local HD cache of the menu images (docs/UI_HD.md).
  * Every image of the disc's UI packages (.gpb) and of /piece is decoded,
- * upscaled by Real-ESRGAN (downloaded by the user, not part of OpenGT4) and
+ * upscaled by Real-ESRGAN (downloaded by the user, not part of Moon Engine) and
  * stored in the cache directory as <content hash>.hdi. Nothing leaves the
  * user's machine; the cache is regenerated from the disc.
  *

@@ -1,6 +1,13 @@
 # Launcher em duas etapas
 
-13/10/2026. O seletor anterior à validação mostra somente OpenGT4, o pedido
+16/10/2026: este é o launcher **secundário**. O oficial do Moon Engine é
+outra contribuição, ainda fora do repositório, e fica com os nomes
+`launcher*` na pasta de dados; este usa `secondary_launcher.ini`,
+`secondary_launcher-options` e `secondary_launcher_photos` (os antigos são
+movidos uma vez), classes Windows `MoonEngineSecondary*` e título
+"Moon Engine - secondary launcher". Ver `docs/LAUNCHER.md`.
+
+13/10/2026. O seletor anterior à validação mostra somente Moon Engine, o pedido
 da ISO NTSC-U/SCUS-97328 e o botão do seletor Windows já existente.
 `launcher_validate_disc` decide a etapa; escolher uma ISO inválida remove
 o menu completo, mesmo que exista cache de outra imagem.
@@ -33,7 +40,7 @@ igualdade com GS; comparação visual integral permanece A.
 
 ## Cache
 
-`SDL_GetPrefPath("OpenGT4", "OpenGT4")/launcher-options`, no AppData.
+`moon_pref_path()/secondary_launcher-options`, no AppData.
 Nome inclui caminho da ISO, tamanho e última modificação. Pacote OGS3:
 mproject, 12 imagens RGBA, dois arquivos de fonte e CRC32. Cache truncado
 ou corrompido é descartado e reconstruído da ISO. Nenhum gráfico ou fonte
@@ -50,7 +57,7 @@ do disco é distribuído no repositório ou pacote.
   conflitos, remapeamento 1P/2P, persistência e parâmetros de Play.
 - `launcher_window_negative`: expectativa errada de resolução falha.
 - Somente `ctest -R '^launcher_'`: 8/8, incluindo config/negativos e picker.
-- Captura do original: `opengt4.exe <iso> option OptionRoot --shot
+- Captura do original: `MoonEngine.exe <iso> option OptionRoot --shot
   build/launcher-option-reference.png`. Comparação visual feita com as
   capturas do launcher; não é certificação pixel a pixel.
 - `build/launcher-simple-refined.png` registra a tela inicial refinada.
@@ -61,9 +68,9 @@ foi alterada. Só os testes do launcher foram executados, conforme pedido.
 
 ## Atualização Oracle (13/10/2026)
 
-Recurso PC, nota P. `OPENGT4_VERSION` vem do CMake e é gravada no código e
+Recurso PC, nota P. `MOON_VERSION` vem do CMake e é gravada no código e
 no VERSIONINFO do exe. `tools/configure_update.py` gera o header somente
-no build, lendo URL/token de `%APPDATA%/OpenGT4/publish.ini`, fora do repo.
+no build, lendo URL/token de `%APPDATA%/MoonEngine/publish.ini`, fora do repo.
 Sem configuração de servidor, a checagem é inativa.
 
 `launcher_update.c` executa WinHTTP HTTPS num worker com memória própria,
@@ -82,7 +89,7 @@ Falha nunca executa o setup; arquivos temporários recusados são removidos.
 O botão permanece desabilitado durante o download. A janela é fechada após
 CreateProcess do setup com /VERYSILENT /CURRENTUSER /SUPPRESSMSGBOXES
 /NORESTART /DIR=<diretório atual>. Inno usa AppId estável, mantém AppData e
-saves fora do destino, e reabre OpenGT4 mesmo em execução silenciosa.
+saves fora do destino, e reabre Moon Engine mesmo em execução silenciosa.
 O temporário de um setup executado fica para limpeza posterior pelo Windows.
 
 `tools/publish_update.py VERSION` configura e compila o release com runtime
@@ -96,7 +103,7 @@ Configuração externa:
 
 ```ini
 [update]
-url = https://<domínio>/opengt4/
+url = https://<domínio>/moonengine/
 token = <token de leitura dos binários>
 [ssh]
 host = <host>
@@ -120,7 +127,7 @@ desligar/persistir, JSON inválido, nome inseguro, tamanho/hash incorretos,
 upload atômico e config privada. `launcher_update_https` usa somente o
 publish.ini externo: sem token/token errado dá 401 para manifesto e setup;
 WinHTTP baixa o setup real e recusa o download com hash adulterado. É opt-in
-via OPENGT4_UPDATE_LIVE_TEST=ON; os testes normais não exigem rede.
+via MOON_UPDATE_LIVE_TEST=ON; os testes normais não exigem rede.
 Release 0.3.0 gerado, hash validado e publicado via SCP/SSH. FileVersion do
 exe de desenvolvimento 0.2.0 conferida no Windows. Captura update-offer.png
 inspecionada em build/launcher-window. `tests/ui/launcher_installer.py 0.3.0`
@@ -189,8 +196,8 @@ from another application. No gameplay or physics changes were made.
 
 P: the Windows player executable now defaults to the GUI subsystem,
 including local builds. Console test harnesses remain unchanged; developers
-can explicitly opt into OPENGT4_WINDOWS_GUI=OFF. Existing CMake caches need
--DOPENGT4_WINDOWS_GUI=ON (applied to build/Release/opengt4.exe here).
+can explicitly opt into MOON_WINDOWS_GUI=OFF. Existing CMake caches need
+-DMOON_WINDOWS_GUI=ON (applied to build/Release/MoonEngine.exe here).
 launcher_gui checks the actual player PE subsystem; launcher_gui_negative
 rejects the console test harness. Only launcher tests were run.
 Launching a .cmd file still starts its own command interpreter; open the

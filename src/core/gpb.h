@@ -4,8 +4,8 @@
  * {name offset, data offset, size, 0} from 0x10. Checked against the boot
  * project's packages (docs/UI_FORMAT.md).
  */
-#ifndef OPENGT4_GPB_H
-#define OPENGT4_GPB_H
+#ifndef MOON_GPB_H
+#define MOON_GPB_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -22,4 +22,4 @@ uint8_t *gpb_load(const uint8_t *pkg, size_t pkg_size, const char *name, size_t 
 int gpb_count(const uint8_t *pkg, size_t pkg_size);
 const char *gpb_name(const uint8_t *pkg, size_t pkg_size, int i);
 
-#endif /* OPENGT4_GPB_H */
+#endif /* MOON_GPB_H */

@@ -1,6 +1,6 @@
 /* Clears must not inherit read-only particle/UI state from the prior draw. */
-#ifndef OPENGT4_DEKO_CLEAR_H
-#define OPENGT4_DEKO_CLEAR_H
+#ifndef MOON_DEKO_CLEAR_H
+#define MOON_DEKO_CLEAR_H
 #include <deko3d.h>
 
 static inline void nd_clear_depth_commands(DkCmdBuf cmd)

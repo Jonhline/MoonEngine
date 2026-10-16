@@ -63,17 +63,17 @@ static void read_controls(race_game *g)
     float steer = (float)(keys[SDL_SCANCODE_LEFT] - keys[SDL_SCANCODE_RIGHT]);
     float throttle = keys[SDL_SCANCODE_UP] ? 1.f : 0.f, brake = keys[SDL_SCANCODE_DOWN] ? 1.f : 0.f;
     if (getenv(
-            "OPENGT4_RACE_TEST_DRIVE")) { /* tests: throttle on, the wheel swinging with the wall clock */
+            "MOON_RACE_TEST_DRIVE")) { /* tests: throttle on, the wheel swinging with the wall clock */
         double t = SDL_GetTicks() / 1000.0;
         throttle = 1;
         steer = (float)(sin(t * 1.7) * .5);
     }
     /* Test controller follows the same B-1 input tape as license_drive_run.
        It changes only pad input; no examination state/threshold is injected. */
-    const char *license_brake = getenv("OPENGT4_LICENSE_TEST_BRAKE_AT");
+    const char *license_brake = getenv("MOON_LICENSE_TEST_BRAKE_AT");
     if (license_brake && g->last_prepared && license_exam(g)) {
         unsigned brake_at = (unsigned)strtoul(license_brake, NULL, 10);
-        const char *license_wait = getenv("OPENGT4_LICENSE_TEST_WAIT");
+        const char *license_wait = getenv("MOON_LICENSE_TEST_WAIT");
         unsigned wait = license_wait ? (unsigned)strtoul(license_wait, NULL, 10) : 0;
         steer = 0;
         throttle = g->license_test_frame >= wait && g->license_test_frame < brake_at;

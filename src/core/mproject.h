@@ -9,8 +9,8 @@
  * Values are numbers or "strings". The parser builds a generic tree; the UI
  * code interprets it.
  */
-#ifndef OPENGT4_MPROJECT_H
-#define OPENGT4_MPROJECT_H
+#ifndef MOON_MPROJECT_H
+#define MOON_MPROJECT_H
 
 #include <stddef.h>
 
@@ -42,4 +42,4 @@ int mp_children(const mp_node *obj, const mp_node *const **out);
 /* Finds a RootWindow (or any object) by its name property, depth-first. */
 const mp_node *mp_find_named(const mp_node *root, const char *type, const char *name);
 
-#endif /* OPENGT4_MPROJECT_H */
+#endif /* MOON_MPROJECT_H */

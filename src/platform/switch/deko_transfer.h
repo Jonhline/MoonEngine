@@ -1,6 +1,6 @@
 /* Shared native transfer ordering; host tests supply a delayed SDK command sink. */
-#ifndef OPENGT4_DEKO_TRANSFER_H
-#define OPENGT4_DEKO_TRANSFER_H
+#ifndef MOON_DEKO_TRANSFER_H
+#define MOON_DEKO_TRANSFER_H
 #include <deko3d.h>
 
 static inline void nd_transfer_begin(DkCmdBuf cmd)

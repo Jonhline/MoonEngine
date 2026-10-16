@@ -6,8 +6,8 @@
  * as its class does (func_003A3B58 the rank, func_003A43A8 the times,
  * func_003AB010 the lap, ...).
  */
-#ifndef OPENGT4_RACE_HUD_H
-#define OPENGT4_RACE_HUD_H
+#ifndef MOON_RACE_HUD_H
+#define MOON_RACE_HUD_H
 
 #include <stdint.h>
 #include "vol.h"

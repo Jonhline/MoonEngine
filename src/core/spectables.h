@@ -1,5 +1,5 @@
-#ifndef OPENGT4_SPECTABLES_H
-#define OPENGT4_SPECTABLES_H
+#ifndef MOON_SPECTABLES_H
+#define MOON_SPECTABLES_H
 #include "vol.h"
 
 #include <stddef.h>

@@ -8,7 +8,7 @@ import subprocess
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("disc", type=Path)
-    parser.add_argument("--exe", type=Path, default=Path("build/Release/opengt4.exe"))
+    parser.add_argument("--exe", type=Path, default=Path("build/Release/MoonEngine.exe"))
     args = parser.parse_args()
     output = Path("build/gtmode_smoke")
     output.mkdir(parents=True, exist_ok=True)

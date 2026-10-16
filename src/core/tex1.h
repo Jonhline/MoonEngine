@@ -5,8 +5,8 @@
  * conversion reproduces that layout once, at load time; nothing about the PS2
  * graphics chip is emulated while the game runs. Format: docs/TEX1_FORMAT.md.
  */
-#ifndef OPENGT4_TEX1_H
-#define OPENGT4_TEX1_H
+#ifndef MOON_TEX1_H
+#define MOON_TEX1_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -29,4 +29,4 @@ typedef struct {
 int tex1_decode(const uint8_t *data, size_t size, tex1_image **out);
 void tex1_free(tex1_image *images, int count);
 
-#endif /* OPENGT4_TEX1_H */
+#endif /* MOON_TEX1_H */

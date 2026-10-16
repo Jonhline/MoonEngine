@@ -1,5 +1,5 @@
 /* Rewritten physics functions swapped into the recompiled original step
-   (physics_run, opengt4_drive): adapters from the MIPS registers, the bridge
+   (physics_run, moon_drive): adapters from the MIPS registers, the bridge
    back to original code, and the table of replacements. */
 #include "natives.h"
 #include "specdb.h"
@@ -417,7 +417,7 @@ static void h_vu0_random(ee_ctx *c)
     c->fpr[0].f = gt4_f32(vu0_r) - 1.0f;
 }
 
-/* Calls per original function (OPENGT4_COVERAGE=file writes them). */
+/* Calls per original function (MOON_COVERAGE=file writes them). */
 uint32_t *phys_coverage;
 
 ee_fn (*phys_extra_hook)(uint32_t addr);

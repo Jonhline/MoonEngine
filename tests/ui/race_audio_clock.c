@@ -167,12 +167,12 @@ int main(int argc, char **argv)
             GT4_U32(cond + 0xcbfc) = 0;
             if (stems) {
 #ifdef _WIN32
-                _putenv_s("OPENGT4_CAPTURE_NO_MUSIC", batch > 1 && !mute_negative ? "1" : "");
+                _putenv_s("MOON_CAPTURE_NO_MUSIC", batch > 1 && !mute_negative ? "1" : "");
 #else
                 if (batch > 1 && !mute_negative)
-                    setenv("OPENGT4_CAPTURE_NO_MUSIC", "1", 1);
+                    setenv("MOON_CAPTURE_NO_MUSIC", "1", 1);
                 else
-                    unsetenv("OPENGT4_CAPTURE_NO_MUSIC");
+                    unsetenv("MOON_CAPTURE_NO_MUSIC");
 #endif
             }
             race_game_set_audio(g, stems && batch > 1 ? 120 : 0, stems && batch > 1, 120);

@@ -1,5 +1,5 @@
-#ifndef OPENGT4_LAUNCHER_FSR_H
-#define OPENGT4_LAUNCHER_FSR_H
+#ifndef MOON_LAUNCHER_FSR_H
+#define MOON_LAUNCHER_FSR_H
 #include <stdint.h>
 typedef struct launcher_fsr launcher_fsr;
 launcher_fsr *launcher_fsr_open(void);

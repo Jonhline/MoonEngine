@@ -216,7 +216,7 @@ launcher_fsr *launcher_fsr_open(void)
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,SDL_GL_CONTEXT_PROFILE_CORE);
     launcher_fsr *f=calloc(1,sizeof *f);
     if(f) {
-        f->window=SDL_CreateWindow("OpenGT4 image filter",0,0,16,16,SDL_WINDOW_OPENGL|SDL_WINDOW_HIDDEN);
+        f->window=SDL_CreateWindow("Moon Engine image filter",0,0,16,16,SDL_WINDOW_OPENGL|SDL_WINDOW_HIDDEN);
         if(f->window) f->context=SDL_GL_CreateContext(f->window);
     }
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,major);

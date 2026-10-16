@@ -8,7 +8,7 @@ import tempfile
 
 parser = argparse.ArgumentParser()
 parser.add_argument("disc", type=Path)
-parser.add_argument("--exe", type=Path, default=Path("build/Release/opengt4.exe"))
+parser.add_argument("--exe", type=Path, default=Path("build/Release/MoonEngine.exe"))
 parser.add_argument("--full-opening", action="store_true", help="Wait for the complete opening, menu and idle return")
 args = parser.parse_args()
 exe = args.exe.resolve()

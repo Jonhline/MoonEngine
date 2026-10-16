@@ -4,12 +4,12 @@ from pathlib import Path
 p=argparse.ArgumentParser()
 p.add_argument("disc",type=Path)
 p.add_argument("--save-dir",type=Path,required=True)
-p.add_argument("--exe",type=Path,default=Path("build/Release/opengt4.exe"))
+p.add_argument("--exe",type=Path,default=Path("build/Release/MoonEngine.exe"))
 p.add_argument("--baseline",type=Path)
 a=p.parse_args()
 out=Path("build/ui-audit/menu-performance");out.mkdir(parents=True,exist_ok=True)
 # Profiling synchronizes only diagnostic runs; frame work excludes pacing/swap.
-env=dict(os.environ,OPENGT4_VIDEO_PROFILE="1")
+env=dict(os.environ,MOON_VIDEO_PROFILE="1")
 shot=out/"missions.png"
 result=subprocess.run([str(a.exe.resolve()),str(a.disc.resolve()),"gtmode","MissionRoot",
     "--save-dir",str(a.save_dir.resolve()),"--no-config","--vsync","off",

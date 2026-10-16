@@ -8,8 +8,8 @@
  *  - no PS2 memory-layout assumptions, no 32-bit pointer assumptions
  *  - no direct file, GPU, audio or input calls
  */
-#ifndef OPENGT4_PLATFORM_H
-#define OPENGT4_PLATFORM_H
+#ifndef MOON_PLATFORM_H
+#define MOON_PLATFORM_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -133,4 +133,4 @@ int plat_dialog(const char *title, const char *message, int confirm);
 }
 #endif
 
-#endif /* OPENGT4_PLATFORM_H */
+#endif /* MOON_PLATFORM_H */

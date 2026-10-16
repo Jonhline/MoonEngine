@@ -1,10 +1,10 @@
 /* Internal interface between the OpenGL video (video_gl.c) and the 3D
    renderer of the SDL backend. */
-#ifndef OPENGT4_VIDEO_GL_H
-#define OPENGT4_VIDEO_GL_H
+#ifndef MOON_VIDEO_GL_H
+#define MOON_VIDEO_GL_H
 
 #include "platform/platform.h"
-#ifdef OPENGT4_DEKO3D
+#ifdef MOON_DEKO3D
 /* Native Switch IDs, never OpenGL objects. */
 typedef unsigned GLuint;
 unsigned gl_program_count(void);

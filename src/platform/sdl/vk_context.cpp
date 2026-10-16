@@ -109,6 +109,16 @@ void Context::destroy(Buffer &b)
 }
 void Context::destroy(Image &im)
 {
+    /* Image owners defer destruction until GPU use has completed. Drop its
+       cached framebuffer before destroying the attachment view. */
+    for (auto entry = target_cache.begin(); entry != target_cache.end();) {
+        if (im.attachment &&
+            (entry->first[0] == im.attachment || entry->first[1] == im.attachment)) {
+            vkDestroyFramebuffer(device, entry->second, nullptr);
+            entry = target_cache.erase(entry);
+        } else
+            ++entry;
+    }
     if (im.view)
         vkDestroyImageView(device, im.view, nullptr);
     if (im.attachment)
@@ -202,6 +212,10 @@ void Context::flush()
     check(vkQueueSubmit(queue, 1, &submit, fence), "vkQueueSubmit");
     statistics.submissions++;
     check(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
+    reset_submission();
+}
+void Context::reset_submission()
+{
     check(vkResetFences(device, 1, &fence), "vkResetFences");
     check(vkResetCommandPool(device, pool, 0), "vkResetCommandPool");
     for (auto framebuffer : transient_targets)
@@ -216,6 +230,7 @@ void Context::flush()
     check(vkResetDescriptorPool(device, descriptor_pool, 0), "vkResetDescriptorPool");
     arena_used = 0;
     descriptor_count = 0;
+    draw_sets.clear();
     recording = false;
 }
 void Context::barrier()
@@ -449,7 +464,8 @@ void Context::present()
     Image *source = color(0);
     if (!source)
         return;
-    flush();
+    if (split_present)
+        flush();
     uint32_t index;
     VkResult result =
         vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, acquired, VK_NULL_HANDLE, &index);
@@ -461,7 +477,9 @@ void Context::present()
         check(result, "vkAcquireNextImageKHR");
     else
         rebuild_swapchain = true;
-    begin();
+    /* Retain render commands until presentation is ready. Order the screen
+       writes before the blit without a render-to-present fence round trip. */
+    barrier();
     VkImageMemoryBarrier image_barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
     image_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     image_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -512,10 +530,7 @@ void Context::present()
     /* One frame in flight until the renderer has explicit per-frame ownership.
        Queue idle also bounds the presentation semaphore's reuse. */
     check(vkQueueWaitIdle(queue), "vkQueueWaitIdle present");
-    check(vkResetFences(device, 1, &fence), "vkResetFences present");
-    check(vkResetCommandPool(device, pool, 0), "vkResetCommandPool present");
-    recording = false;
-    arena_used = 0;
+    reset_submission();
 }
 void Context::close()
 {
@@ -524,6 +539,9 @@ void Context::close()
         for (auto fb : transient_targets)
             vkDestroyFramebuffer(device, fb, nullptr);
         transient_targets.clear();
+        for (auto &target : target_cache)
+            vkDestroyFramebuffer(device, target.second, nullptr);
+        target_cache.clear();
         retired_images.clear();
         for (auto &buffer : retired_buffers)
             destroy(buffer);
@@ -592,7 +610,10 @@ extern "C" int moon_vk_render_open(SDL_Window *window, int vsync)
     active = std::make_unique<Context>();
     auto &c = *active;
     c.window = window;
-    c.stream_geometry = getenv("OPENGT4_VK_STREAM_GEOMETRY") != nullptr;
+    c.transient_framebuffers = getenv("MOON_VK_TRANSIENT_TARGETS") != nullptr;
+    c.split_present = getenv("MOON_VK_SPLIT_PRESENT") != nullptr;
+    c.uncached_descriptors = getenv("MOON_VK_UNCACHED_DESCRIPTORS") != nullptr;
+    c.stream_geometry = getenv("MOON_VK_STREAM_GEOMETRY") != nullptr;
     c.vsync = vsync != 0;
     try {
         check(volkInitialize(), "Vulkan loader");
@@ -681,8 +702,8 @@ extern "C" int moon_vk_render_open(SDL_Window *window, int vsync)
         for (unsigned i = 0; i < bindings.size(); i++) {
             bindings[i].binding = i;
             bindings[i].descriptorCount = 1;
-            bindings[i].descriptorType =
-                i ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            bindings[i].descriptorType = i ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+                                           : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
             bindings[i].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
         }
         VkDescriptorSetLayoutCreateInfo layout{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
@@ -690,7 +711,7 @@ extern "C" int moon_vk_render_open(SDL_Window *window, int vsync)
         layout.pBindings = bindings.data();
         check(vkCreateDescriptorSetLayout(c.device, &layout, nullptr, &c.descriptors),
               "vkCreateDescriptorSetLayout");
-        VkDescriptorPoolSize sizes[] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 8192},
+        VkDescriptorPoolSize sizes[] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 8192},
                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 65536}};
         VkDescriptorPoolCreateInfo descriptors{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         descriptors.maxSets = 8192;

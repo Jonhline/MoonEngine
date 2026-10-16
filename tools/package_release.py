@@ -3,11 +3,11 @@
 
 Usage:
   cmake -S . -B build-release -G "Visual Studio 17 2022" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DSDL_FORCE_STATIC_VCRT=ON
-  cmake --build build-release --config Release --target opengt4
+  cmake --build build-release --config Release --target moonengine
   python tools/package_release.py VERSION --icons PATH [--ffmpeg PATH/ffmpeg.exe]
 
 The release holds no game data: the player supplies their own disc image.
-Output: dist/OpenGT4-VERSION-win64/ and dist/OpenGT4-VERSION-win64.zip
+Output: dist/MoonEngine-VERSION-win64/ and dist/MoonEngine-VERSION-win64.zip
 """
 import argparse
 import shutil
@@ -17,7 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-README = """OpenGT4 {version}
+README = """Moon Engine {version}
 ==================
 
 An unofficial native PC port of Gran Turismo 4 (work in progress).
@@ -30,7 +30,7 @@ Entertainment.
 
 Getting started
 ---------------
-1. Run opengt4.exe.
+1. Run MoonEngine.exe.
 2. Choose "Game disc" and select your Gran Turismo 4 disc image.
 3. Adjust Video, Audio and Controls if you like, then choose "Play".
 
@@ -54,22 +54,22 @@ The game's movies are decoded with FFmpeg. {ffmpeg_note}
 
 License
 -------
-OpenGT4 is free software under the GNU General Public License, version 3
-(LICENSE.txt), with additional terms in NOTICE.txt: works based on OpenGT4
-must say "Based on OpenGT4", and modified versions must be marked as
+MoonEngine is free software under the GNU General Public License, version 3
+(LICENSE.txt), with additional terms in NOTICE.txt: works based on Moon Engine
+must say "Based on Moon Engine", and modified versions must be marked as
 different from the original. There is no warranty.
 
 Source code, issues and updates: {repo}
 """
 
 FFMPEG_BUNDLED = "ffmpeg.exe is included in this folder (see THIRD_PARTY_NOTICES.txt)."
-FFMPEG_MISSING = ("Place ffmpeg.exe next to opengt4.exe (or have it on your PATH) to see\n"
+FFMPEG_MISSING = ("Place ffmpeg.exe next to MoonEngine.exe (or have it on your PATH) to see\n"
                   "them; the game runs without it, only the movies are skipped.")
 
 NOTICES = """Third-party components
 ======================
 
-OpenGT4 itself is released under the GNU General Public License, version 3
+MoonEngine itself is released under the GNU General Public License, version 3
 (LICENSE.txt), with the additional terms in NOTICE.txt. Its source code is
 published at the project page given in README.txt.
 
@@ -82,7 +82,7 @@ volk - MIT License - VULKAN_VOLK_LICENSE.txt
 glslang - collected upstream licenses - VULKAN_GLSLANG_LICENSE.txt
 Vulkan-Headers - Apache-2.0 or MIT - VULKAN_HEADERS_LICENSE.txt
 ps2float (PCSX2) - GNU LGPL 3.0 or later - third_party/ps2float in the source code.
-  It is linked into opengt4.exe; the complete source code of OpenGT4 is
+  It is linked into MoonEngine.exe; the complete source code of Moon Engine is
   published, so the program can be rebuilt with a modified ps2float.
 {tango}
 {ffmpeg}"""
@@ -104,13 +104,13 @@ def main():
     parser.add_argument("--repo", required=True, help="the project's public page")
     args = parser.parse_args()
 
-    exe = args.build / "opengt4.exe"
+    exe = args.build / "MoonEngine.exe"
     if not exe.is_file():
         sys.exit(f"missing {exe}: build the release first")
     if args.icons and not (args.icons / "SOURCE.txt").is_file():
         sys.exit(f"missing {args.icons / 'SOURCE.txt'}")
 
-    name = f"OpenGT4-{args.version}-win64"
+    name = f"MoonEngine-{args.version}-win64"
     out = ROOT / "dist" / name
     # Validate the absolute destination before any recursive removal.
     release_root = (ROOT / "dist").resolve()
@@ -119,7 +119,7 @@ def main():
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)
-    shutil.copy2(exe, out / "opengt4.exe")
+    shutil.copy2(exe, out / "MoonEngine.exe")
     if args.icons:
         shutil.copytree(args.icons, out / "launcher_icons")
     if args.ffmpeg:

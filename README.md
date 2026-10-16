@@ -4,8 +4,8 @@
 
 **A native PC port of Gran Turismo 4. Bring your own disc.**
 
-Previously named OpenGT4. The executable (`opengt4.exe`), build targets and
-save/configuration paths retain their compatibility names during the rename.
+Previously named OpenGT4. The executable is now `MoonEngine.exe`; on first
+start, player data from the old OpenGT4 folder is copied to the new one.
 Tourist Trophy support is planned on the same base; it is not playable yet.
 
 ![Platform](https://img.shields.io/badge/platform-Windows-0078D6)
@@ -26,7 +26,7 @@ Tourist Trophy support is planned on the same base; it is not playable yet.
 
 ## Play
 
-1. Download the latest `OpenGT4-<version>-setup.exe` from the Releases page and run it, or take `OpenGT4-<version>-win64.zip` and unzip it anywhere.
+1. Download the latest `MoonEngine-<version>-setup.exe` from the Releases page and run it, or take `MoonEngine-<version>-win64.zip` and unzip it anywhere.
 2. Run Moon Engine. Choose **Game disc** and select your own Gran Turismo 4 disc image (NTSC-U, SCUS-97328).
 3. Adjust Video, Audio and Controls if you like, then choose **Play**.
 
@@ -50,10 +50,10 @@ When reporting a bug, say what you were doing, which disc version you have, and 
 
 ## What it is
 
-OpenGT4 is a native PC port of Gran Turismo 4, built through reimplementation in C. No emulation or static recompilation, with a strong focus on preserving the original experience. It reads the game's data from your own disc image.
+MoonEngine is a native PC port of Gran Turismo 4, built through reimplementation in C. No emulation or static recompilation, with a strong focus on preserving the original experience. It reads the game's data from your own disc image.
 
 > [!WARNING]
-> OpenGT4 is in **alpha**. Most of the game is playable, but some modes and features are still missing or incomplete, and some sounds and visuals still differ from the PS2. Expect bugs.
+> Moon Engine is in **alpha**. Most of the game is playable, but some modes and features are still missing or incomplete, and some sounds and visuals still differ from the PS2. Expect bugs.
 
 The plan is to reproduce the game as it was on the PS2 first, then improve it: modern rendering, new options and mods, on by default, with the original look and behaviour always one option away (see [Roadmap](#roadmap)).
 
@@ -96,13 +96,13 @@ Windows, Visual Studio 2022 Build Tools and CMake. SDL2 and miniz are fetched by
 
 ```
 cmake -S . -B build -G "Visual Studio 17 2022"
-cmake --build build --config Release --target opengt4
+cmake --build build --config Release --target moonengine
 ctest --test-dir build -C Release
 ```
 
 Unit tests use synthetic data only; the disc-based tests need your own disc image. `tools/package_release.py` builds the release package.
 
-Run without the launcher: `opengt4 <your disc image>`. `--save-dir <folder>` keeps profiles, options and replays in another folder; `--fullscreen` starts in full screen.
+Run without the launcher: `moonengine <your disc image>`. `--save-dir <folder>` keeps profiles, options and replays in another folder; `--fullscreen` starts in full screen.
 
 ## Layout
 
@@ -112,7 +112,7 @@ Run without the launcher: `opengt4 <your disc image>`. `--save-dir <folder>` kee
 | `src/core/` | platform-independent game code: disc, UI, script interpreter, menus, career, saves, replays |
 | `src/core/physics/` | car physics, AI and race session |
 | `src/platform/` | SDL2 and OpenGL backends |
-| `src/app/` | the `opengt4` program and its launcher |
+| `src/app/` | the `moonengine` program and its secondary launcher ([details](docs/LAUNCHER.md)) |
 | `tests/` | unit tests and disc-based tests |
 | `tools/`, `splat/` | analysis tools; the recompiler there only builds test oracles that compare the port with the original code, and is never part of the game |
 | `docs/` | file formats and notes |
@@ -136,9 +136,9 @@ Never post game assets, disc dumps or copyrighted binaries.
 
 ## License
 
-OpenGT4 is free software under the **GNU General Public License, version 3** ([LICENSE](LICENSE)), with additional terms under its section 7 ([NOTICE](NOTICE)):
+MoonEngine is free software under the **GNU General Public License, version 3** ([LICENSE](LICENSE)), with additional terms under its section 7 ([NOTICE](NOTICE)):
 
-- **Attribution**: any work that contains or is derived from OpenGT4 must say "Based on OpenGT4" in its documentation and, if it has a user interface, somewhere users can see it (an About, credits or launcher screen).
-- **Modified versions** must be marked as different from the original and must not be presented as the official OpenGT4.
+- **Attribution**: any work that contains or is derived from Moon Engine must say "Based on Moon Engine" in its documentation and, if it has a user interface, somewhere users can see it (an About, credits or launcher screen).
+- **Modified versions** must be marked as different from the original and must not be presented as the official MoonEngine.
 
-As the GPL requires, anyone who distributes OpenGT4 or a work based on it must also make its source code available under the same terms. The license covers the code in this repository only, not the game.
+As the GPL requires, anyone who distributes Moon Engine or a work based on it must also make its source code available under the same terms. The license covers the code in this repository only, not the game.

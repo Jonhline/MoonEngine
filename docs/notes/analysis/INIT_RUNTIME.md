@@ -11,7 +11,7 @@ Needs the local `extracted/core.bin`, splat's `splat/asm/core/text.s`, Python
 with rabbitizer (the existing `.venv`), CMake and VS 2022 Build Tools:
 
 ```powershell
-cmake -S . -B build -DOPENGT4_RECOMP_TESTS=ON
+cmake -S . -B build -DMOON_RECOMP_TESTS=ON
 cmake --build build --config Release --target init_run initsys_run ee_unit_tests ee_sif_tests ee_recomp_tests
 ctest --test-dir build -C Release --output-on-failure
 .venv/Scripts/python tests/init/run_test.py

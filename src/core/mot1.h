@@ -4,8 +4,8 @@
  * Layout and evidence: docs/SHOWROOM_SCENE.md. camera.mot uses the same
  * records (look-at and field of view).
  */
-#ifndef OPENGT4_MOT1_H
-#define OPENGT4_MOT1_H
+#ifndef MOON_MOT1_H
+#define MOON_MOT1_H
 
 #include <stddef.h>
 #include <stdint.h>

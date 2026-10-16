@@ -1,5 +1,6 @@
 /* Options artwork is decoded from the user's validated disc, never shipped.
    The local cache contains decoded pixels and the authored widget document. */
+#include "moon_pref.h"
 #include "launcher_skin.h"
 #include "gpb.h"
 #include "tex1.h"
@@ -276,14 +277,14 @@ static void store_cache(launcher_skin *s, const uint8_t *project, size_t project
 }
 static int cache_path(char *out, size_t capacity, const char *disc, const char *directory)
 {
-    char *pref = directory ? NULL : SDL_GetPrefPath("OpenGT4", "OpenGT4");
+    char *pref = directory ? NULL : moon_pref_path();
     if (!directory && (!pref || !*pref)) {
         SDL_free(pref);
         return 0;
     }
     char folder[1500];
     snprintf(folder, sizeof folder, "%s%s", directory ? directory : (pref ? pref : ""),
-             directory ? "" : "launcher-options");
+             directory ? "" : "secondary_launcher-options");
     SDL_free(pref);
     if (!*folder || !gt4_save_mkdir(folder))
         return 0;

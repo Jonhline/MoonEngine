@@ -60,7 +60,7 @@ int main(int argc, char **argv)
     plat_video_desc desc = {1280, 896, 0, 0, 0};
     CHECK(!plat_video_init(&desc));
     SDL_HideWindow(plat_sdl_window());
-    CHECK(!_putenv_s("OPENGT4_RACE_SNAPSHOT",argv[2]));
+    CHECK(!_putenv_s("MOON_RACE_SNAPSHOT",argv[2]));
     FILE *input = fopen(argv[2], "rb");
     CHECK(input);
     uint8_t *ram = malloc(0x2000000);
@@ -211,7 +211,7 @@ int main(int argc, char **argv)
     }
     free(package);
     race_game_update(g, 0);
-    CHECK(!_putenv_s("OPENGT4_RACE_SNAPSHOT",""));
+    CHECK(!_putenv_s("MOON_RACE_SNAPSHOT",""));
     {
         float look[9], fov, eye[3], rows[9], projection[3];
         if (gt4_pit_camera(g->pit_crew, look, &fov)) {

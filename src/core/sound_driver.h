@@ -1,5 +1,5 @@
-#ifndef OPENGT4_SOUND_DRIVER_H
-#define OPENGT4_SOUND_DRIVER_H
+#ifndef MOON_SOUND_DRIVER_H
+#define MOON_SOUND_DRIVER_H
 /* The game's sound driver on the EE (0055xxxx), the part the race uses:
    48 effect voices (D_00650500, 0x34 bytes) that requests hold through
    handles, 46 hardware voices (D_006518C8 +0xA8, 0xE0 bytes) given out by

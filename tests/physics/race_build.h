@@ -1,5 +1,5 @@
-#ifndef OPENGT4_RACE_BUILD_H
-#define OPENGT4_RACE_BUILD_H
+#ifndef MOON_RACE_BUILD_H
+#define MOON_RACE_BUILD_H
 #include "ee.h"
 
 #include <stddef.h>

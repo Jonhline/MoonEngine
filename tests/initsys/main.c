@@ -27,9 +27,9 @@ extern const ee_code_range recomp_code_ranges[];
 extern const int recomp_n_code_ranges;
 
 #define LOAD_ADDR 0x00100000u
-#if defined(OPENGT4_MAIN_CHUNK)
+#if defined(MOON_MAIN_CHUNK)
 #define STOP_PC 0u /* no stop: run until something is missing */
-#elif defined(OPENGT4_INIT_CHUNK)
+#elif defined(MOON_INIT_CHUNK)
 #define STOP_PC 0x00100204u
 #else
 #define STOP_PC 0x001001f0u /* jal FlushCache in crt0, right after _InitSys returns */
@@ -85,7 +85,7 @@ int main(int argc, char **argv)
     long loaded;
     FILE *f;
 
-#ifdef OPENGT4_INIT_CHUNK
+#ifdef MOON_INIT_CHUNK
     if (argc != 6) {
         fprintf(
             stderr,
@@ -118,7 +118,7 @@ int main(int argc, char **argv)
         return 2;
     }
 
-#ifdef OPENGT4_INIT_CHUNK
+#ifdef MOON_INIT_CHUNK
     /* Synthetic ROMVER fixtures, not copied from a BIOS. */
     const uint8_t *romver =
         (const uint8_t *)((argc > 4 && !strcmp(argv[4], "tool")) ? "0000T000000000"
@@ -134,7 +134,7 @@ int main(int argc, char **argv)
         "\"note\":\"synthetic test inputs; IRQ at syscall, ei, branch labels and WaitSema; threads scheduled at kernel switch points; timers not\"",
         fresh, romver, open_fail, delay);
 #endif
-#ifdef OPENGT4_MAIN_CHUNK
+#ifdef MOON_MAIN_CHUNK
     /* TEST INPUT: the arguments the bootstrap passed on PCSX2 (capture). */
     c.k.boot_argv[0] = "cdrom0:\\CORE.GT4;1";
     c.k.boot_argv[1] = "hot";
@@ -186,7 +186,7 @@ int main(int argc, char **argv)
                     "\"num\": \"0x%x\", \"handler\": \"0x%08x\"}",
                     i ? ", " : "", (unsigned)c.k.rejected[i].num, c.k.rejected[i].handler);
         fprintf(f, "]");
-#ifdef OPENGT4_INIT_CHUNK
+#ifdef MOON_INIT_CHUNK
         fprintf(
             f,
             ",\n \"sif_test_inputs\": {\"_note\":\"synthetic fixtures, not captured PS2 values\","

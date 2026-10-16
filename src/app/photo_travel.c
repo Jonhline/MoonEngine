@@ -226,7 +226,7 @@ static int save_image(photo_travel *p)
     /* P: lossless PC PNG at the captured viewport resolution, no widgets.
        Readback only when saving; live view and frozen preview stay on GPU. */
     video_flush2d();
-#ifdef OPENGT4_DEKO3D
+#ifdef MOON_DEKO3D
     if (!video_read_texture(p->image, rgba)) { free(rgba); return 0; }
 #else
     glActiveTexture(GL_TEXTURE0);
@@ -451,7 +451,7 @@ int photo_travel_draw(void *user, const ui_widget *widget, float x, float y, flo
             float depth = 0;
             video_viewport(x, y, w, h, &vx, &vy, &vw, &vh);
             video_flush2d();
-#ifdef OPENGT4_DEKO3D
+#ifdef MOON_DEKO3D
             depth = video_read_depth(vx + vw / 2, vy + vh / 2);
 #else
             glReadPixels(vx + vw / 2, vy + vh / 2, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
@@ -500,7 +500,7 @@ int photo_travel_draw(void *user, const ui_widget *widget, float x, float y, flo
                 float depth = 0;
                 video_viewport(x, y, w, h, &vx, &vy, &vw, &vh);
                 video_flush2d();
-#ifdef OPENGT4_DEKO3D
+#ifdef MOON_DEKO3D
                 depth = video_read_depth(vx + vw / 2, vy + vh / 2);
 #else
                 glReadPixels(vx + vw / 2, vy + vh / 2, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
@@ -585,7 +585,7 @@ int photo_travel_draw(void *user, const ui_widget *widget, float x, float y, flo
             p->image = video_grab(p->image, x, y, w, h);
             if (!p->image)
                 return 0;
-#ifdef OPENGT4_DEKO3D
+#ifdef MOON_DEKO3D
             video_texture_dimensions(p->image, &s->image_width, &s->image_height);
 #else
             glBindTexture(GL_TEXTURE_2D, video_texture_id(p->image));

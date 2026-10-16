@@ -1,6 +1,6 @@
 /* Lap-record gates in the race object. */
-#ifndef OPENGT4_FIELDS_LAPS_H
-#define OPENGT4_FIELDS_LAPS_H
+#ifndef MOON_FIELDS_LAPS_H
+#define MOON_FIELDS_LAPS_H
 
 #define LAPS_TIMING_RECORDS_ENABLED                                                                \
     0xe0 /* func_00358608 race+0xE0: gate for timed-point/lap recording */

@@ -111,8 +111,8 @@ An injected declaration is rejected by the same checker.
 
 Release `dumpbin /disasm` comparisons retain symbol names, instruction offsets,
 bytes, continuation bytes, instructions and relocation targets. Only the dumper
-banner and archive section-size summary are excluded. Both `opengt4_physics.lib`
-and `opengt4_core.lib` match the baseline; changing an instruction byte is rejected.
+banner and archive section-size summary are excluded. Both `moon_physics.lib`
+and `moon_core.lib` match the baseline; changing an instruction byte is rejected.
 The full car run has 535 tests, 529 passes, the same six known failures and no
 skipped cases (`-j8`, eight physical cores, timeout 600). The 13 selected physics,
 session, race-audio, transmission and owned-car tests also pass. No new compiler

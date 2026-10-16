@@ -1,5 +1,5 @@
-#ifndef OPENGT4_PREGRID_AUDIO_H
-#define OPENGT4_PREGRID_AUDIO_H
+#ifndef MOON_PREGRID_AUDIO_H
+#define MOON_PREGRID_AUDIO_H
 #include <stdint.h>
 typedef struct pregrid_audio pregrid_audio;
 pregrid_audio *pregrid_audio_create(const char *disc);

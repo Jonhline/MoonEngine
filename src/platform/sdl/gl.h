@@ -3,11 +3,11 @@
  * from the system library (opengl32 on Windows); later ones are loaded at
  * run time through SDL_GL_GetProcAddress by gl_load().
  */
-#ifndef OPENGT4_GL_H
-#define OPENGT4_GL_H
+#ifndef MOON_GL_H
+#define MOON_GL_H
 
 #include <SDL.h>
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
 unsigned gl_program_count(void);
 #endif
 #ifdef __SWITCH__
@@ -17,14 +17,14 @@ unsigned gl_program_count(void);
 #include "gl_base.h"
 #endif
 
-#define OPENGT4_GL_FUNCS(X)                                                                        \
-    X(PFNGLACTIVETEXTUREPROC, opengt4_glActiveTexture)                                             \
+#define MOON_GL_FUNCS(X)                                                                        \
+    X(PFNGLACTIVETEXTUREPROC, moon_glActiveTexture)                                             \
     X(PFNGLATTACHSHADERPROC, glAttachShader)                                                       \
     X(PFNGLBINDBUFFERPROC, glBindBuffer)                                                           \
     X(PFNGLBINDFRAMEBUFFERPROC, glBindFramebuffer)                                                 \
     X(PFNGLBINDRENDERBUFFERPROC, glBindRenderbuffer)                                               \
     X(PFNGLBINDVERTEXARRAYPROC, glBindVertexArray)                                                 \
-    X(PFNGLBLENDCOLORPROC, opengt4_glBlendColor)                                                   \
+    X(PFNGLBLENDCOLORPROC, moon_glBlendColor)                                                   \
     X(PFNGLBLITFRAMEBUFFERPROC, glBlitFramebuffer)                                                 \
     X(PFNGLBLENDEQUATIONSEPARATEPROC, glBlendEquationSeparate)                                     \
     X(PFNGLBLENDFUNCSEPARATEPROC, glBlendFuncSeparate)                                             \
@@ -74,12 +74,12 @@ unsigned gl_program_count(void);
     X(PFNGLVERTEXATTRIBPOINTERPROC, glVertexAttribPointer)
 
 #ifndef __SWITCH__
-#define OPENGT4_GL_DECLARE(type, name) extern type name;
-OPENGT4_GL_FUNCS(OPENGT4_GL_DECLARE)
-#undef OPENGT4_GL_DECLARE
+#define MOON_GL_DECLARE(type, name) extern type name;
+MOON_GL_FUNCS(MOON_GL_DECLARE)
+#undef MOON_GL_DECLARE
 /* SDL_opengl.h declares these two as functions: use our loaded pointers. */
-#define glActiveTexture opengt4_glActiveTexture
-#define glBlendColor opengt4_glBlendColor
+#define glActiveTexture moon_glActiveTexture
+#define glBlendColor moon_glBlendColor
 #endif
 
 /* Loads the entry points for the current context. 0 if any is missing. */

@@ -19,7 +19,7 @@ resolution rules still need to be specified.
 The planned importer handles assets only: cars, courses and sounds from
 files the user supplies. Executable patches and custom mechanics are not
 imported; equivalent functionality would require native features of the game.
-No existing mod assets are distributed with OpenGT4.
+No existing mod assets are distributed with MoonEngine.
 
 Different source editions can require translation to the reference
 SCUS-97328 v2.00 formats and tables. Asset compatibility does not imply

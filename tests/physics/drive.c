@@ -1,5 +1,5 @@
 /*
- * opengt4_drive: drive the car of a PCSX2 savestate with the game's own
+ * moon_drive: drive the car of a PCSX2 savestate with the game's own
  * physics (transitional; docs/analysis/PHYSICS.md).
  *
  * The RAM of the savestate (eeMemory.bin, extracted locally) holds the race
@@ -9,7 +9,7 @@
  * answers through the physics' host hooks (gt4_phys_pad): keyboard or a game controller. The car
  * is drawn on the course by the native renderer.
  *
- * Usage: opengt4_drive <disc.iso> <eeMemory.bin|-> [Scratchpad.bin]
+ * Usage: moon_drive <disc.iso> <eeMemory.bin|-> [Scratchpad.bin]
  *        [--car ka_01] [--course tsukuba] [--elf core.elf] [--original] [--flip-steering] [--manual]
  *
  * With "-" instead of a snapshot the race is built from the executable's
@@ -621,7 +621,7 @@ int main(int argc, char **argv)
             race_view_draw(s);
             snprintf(
                 title, sizeof title,
-                "OpenGT4 drive | %3.0f km/h | %5d rpm | marcha %d | setas, espaco, C/V camera, R reinicia, Esc sai",
+                "Moon Engine drive | %3.0f km/h | %5d rpm | marcha %d | setas, espaco, C/V camera, R reinicia, Esc sai",
                 fabsf(f32(car + CAR_SPEED)) * 3.6f, (int16_t)ee_r16(&ctx, car + CAR_ENGINE_RPM),
                 ee_r8(&ctx, car + CAR_GEAR));
             SDL_SetWindowTitle(SDL_GetWindowFromID(1), title);

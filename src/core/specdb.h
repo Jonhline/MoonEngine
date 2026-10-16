@@ -1,5 +1,5 @@
-#ifndef OPENGT4_SPECDB_H
-#define OPENGT4_SPECDB_H
+#ifndef MOON_SPECDB_H
+#define MOON_SPECDB_H
 #include <stddef.h>
 #include <stdint.h>
 int gt4_specdb_label(const uint8_t *idi, size_t size, const char *label, uint32_t *id);

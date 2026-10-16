@@ -507,7 +507,7 @@ void nd_pipeline(nd_program program, const nd_uniform &uniforms, nd_buffer verti
     dkCmdBufBindTextures(cmd, DkStage_Fragment, 0, handles, 4);
     dkCmdBufDraw(cmd, DkPrimitive_Triangles, count, 1, first, 0);
 }
-#ifdef OPENGT4_DEKO_DIAGNOSTICS
+#ifdef MOON_DEKO_DIAGNOSTICS
 static bool upload_burst_probe()
 {
     /* Synthetic loading burst based on log14's 592 uploads / about 60 MB.
@@ -621,7 +621,7 @@ int nd_init(unsigned width, unsigned height)
     std::fflush(stderr);
     boot_step("first acquire");
     nd_begin();
-#ifdef OPENGT4_DEKO_DIAGNOSTICS
+#ifdef MOON_DEKO_DIAGNOSTICS
     if (!upload_burst_probe())
         fail("partial submission upload burst did not preserve pixels");
 #endif

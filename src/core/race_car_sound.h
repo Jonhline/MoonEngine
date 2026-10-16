@@ -1,5 +1,5 @@
-#ifndef OPENGT4_RACE_CAR_SOUND_H
-#define OPENGT4_RACE_CAR_SOUND_H
+#ifndef MOON_RACE_CAR_SOUND_H
+#define MOON_RACE_CAR_SOUND_H
 /* One car's race sound, rewritten from func_003B5E80 (what each entry
    sounds like from the camera, a frame on the stack) and func_00392640
    (that frame into the sound driver's requests). The car state is the

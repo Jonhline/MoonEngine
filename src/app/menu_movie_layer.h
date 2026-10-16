@@ -1,7 +1,7 @@
 /* Shared menu movie layer selection. Movies are authored by the page stack,
    not by whichever decoder happened to finish most recently. */
-#ifndef OPENGT4_MENU_MOVIE_LAYER_H
-#define OPENGT4_MENU_MOVIE_LAYER_H
+#ifndef MOON_MENU_MOVIE_LAYER_H
+#define MOON_MENU_MOVIE_LAYER_H
 #include "menu.h"
 #include <string.h>
 static const ui_widget *menu_page_movie(const ui_widget *w)

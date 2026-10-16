@@ -229,7 +229,7 @@ static int finger_morph(void)
     r3d_draw(hand, &v);
     r3d_end();
     CHECK(red_pixels()==0);
-    v.grasp = getenv("OPENGT4_PROBE_MORPH_NEGATIVE") ? 0 : 1; /* deliberate negative control */
+    v.grasp = getenv("MOON_PROBE_MORPH_NEGATIVE") ? 0 : 1; /* deliberate negative control */
     clear();
     r3d_draw(hand, &v);
     r3d_end();

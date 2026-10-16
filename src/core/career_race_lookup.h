@@ -1,5 +1,5 @@
-#ifndef OPENGT4_CAREER_RACE_LOOKUP_H
-#define OPENGT4_CAREER_RACE_LOOKUP_H
+#ifndef MOON_CAREER_RACE_LOOKUP_H
+#define MOON_CAREER_RACE_LOOKUP_H
 #include <stdint.h>
 #include <stddef.h>
 typedef struct {

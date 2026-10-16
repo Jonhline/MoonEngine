@@ -564,7 +564,7 @@ static int nat_transition_method(ah_vm *vm, ah_obj *self, void *data, int argc, 
         period = .25f;
     const char *method = data;
     const char *name = ah_module_name(self);
-    if (getenv("OPENGT4_TRANSITION_TRACE"))
+    if (getenv("MOON_TRANSITION_TRACE"))
         fprintf(stderr, "transition %s/%s %s.%s period %.6f pending %.6f\n", m->project_label,
                 ui_root_name(m->ui, menu_active_root(m)), name, method, period, m->pending_fade_in);
     int kind = name && !strcmp(name, "MCrossTransition")   ? 1

@@ -1,5 +1,5 @@
-#ifndef OPENGT4_GTMODE_GAME_H
-#define OPENGT4_GTMODE_GAME_H
+#ifndef MOON_GTMODE_GAME_H
+#define MOON_GTMODE_GAME_H
 #include "career_license.h"
 #include "adhoc/adhoc_vm.h"
 #include "career_calendar.h"

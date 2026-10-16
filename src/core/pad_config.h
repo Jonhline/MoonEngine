@@ -1,6 +1,6 @@
 /* DualShock configuration at the native pad boundary. */
-#ifndef OPENGT4_PAD_CONFIG_H
-#define OPENGT4_PAD_CONFIG_H
+#ifndef MOON_PAD_CONFIG_H
+#define MOON_PAD_CONFIG_H
 #include "adhoc/adhoc_vm.h"
 #include "platform/platform.h"
 enum {

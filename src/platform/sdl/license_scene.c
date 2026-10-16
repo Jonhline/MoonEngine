@@ -87,7 +87,7 @@ static r3d_mesh *mesh(const uint8_t *data, size_t size, int index, const r3d_mes
     gt4_model *m = gt4_model_decode_skin_part(data, size, index, NULL);
     if (!m)
         return NULL;
-    if (getenv("OPENGT4_LICENSE_SCENE_LOG")) {
+    if (getenv("MOON_LICENSE_SCENE_LOG")) {
         float lo = INFINITY, hi = -INFINITY;
         for (int i = 0; i < m->count; i++)
             for (int j = 0; j < 3; j++) {

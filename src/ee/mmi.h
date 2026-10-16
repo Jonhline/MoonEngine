@@ -2,8 +2,8 @@
  * EE MMI (128-bit multimedia) instructions for recompiled code. See mmi.c.
  * Register arguments are GPR numbers.
  */
-#ifndef OPENGT4_EE_MMI_H
-#define OPENGT4_EE_MMI_H
+#ifndef MOON_EE_MMI_H
+#define MOON_EE_MMI_H
 
 #include "ee.h"
 
@@ -82,4 +82,4 @@ void ee_mmi_mtsab(ee_ctx *c, int rs, uint32_t imm);
 void ee_mmi_mtsah(ee_ctx *c, int rs, uint32_t imm);
 void ee_mmi_qfsrv(ee_ctx *c, int rd, int rs, int rt);
 
-#endif /* OPENGT4_EE_MMI_H */
+#endif /* MOON_EE_MMI_H */

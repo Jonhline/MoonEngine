@@ -37,7 +37,7 @@ def publish(setup,metadata,c,run=subprocess.run):
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("version")
-    p.add_argument("--config",type=Path,default=Path(os.environ.get("APPDATA",str(Path.home())))/"OpenGT4"/"publish.ini")
+    p.add_argument("--config",type=Path,default=Path(os.environ.get("APPDATA",str(Path.home())))/"MoonEngine"/"publish.ini")
     p.add_argument("--notes",default="")
     p.add_argument("--build",type=Path,default=ROOT/"build-release")
     p.add_argument("--no-upload",action="store_true")
@@ -46,10 +46,10 @@ def main():
     c=configparser.ConfigParser(interpolation=None); c.read(a.config,encoding="utf-8")
     if "update" not in c: raise ValueError("external [update] configuration missing")
     generate(a.version,str(a.config),str(a.build/"generated"/"launcher_release.h"))
-    subprocess.run(["cmake","-S",str(ROOT),"-B",str(a.build),"-DOPENGT4_VERSION="+a.version,
-                    "-DOPENGT4_UPDATE_CONFIG="+str(a.config),"-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded",
+    subprocess.run(["cmake","-S",str(ROOT),"-B",str(a.build),"-DMOON_VERSION="+a.version,
+                    "-DMOON_UPDATE_CONFIG="+str(a.config),"-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded",
                     "-DSDL_FORCE_STATIC_VCRT=ON"],check=True)
-    subprocess.run(["cmake","--build",str(a.build),"--config","Release","--target","opengt4"],check=True)
+    subprocess.run(["cmake","--build",str(a.build),"--config","Release","--target","moonengine"],check=True)
     command=[sys.executable,str(ROOT/"tools/package_release.py"),a.version,"--build",str(a.build/"Release"),
              "--repo",c.get("package","page",fallback=c["update"]["url"])]
     for option in ["icons","ffmpeg","ffmpeg-license"]:
@@ -57,8 +57,8 @@ def main():
         if value:command +=["--"+option,value]
     subprocess.run(command,check=True)
     iscc=c.get("package","iscc",fallback="ISCC.exe")
-    subprocess.run([iscc,"/DVersion="+a.version,str(ROOT/"tools/installer/opengt4.iss")],check=True)
-    setup=ROOT/"dist"/("OpenGT4-"+a.version+"-setup.exe")
+    subprocess.run([iscc,"/DVersion="+a.version,str(ROOT/"tools/installer/moonengine.iss")],check=True)
+    setup=ROOT/"dist"/("MoonEngine-"+a.version+"-setup.exe")
     metadata=ROOT/"dist/latest.json"
     metadata.write_text(json.dumps(manifest(setup,a.version,a.notes),ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
     if not a.no_upload:publish(setup,metadata,c)

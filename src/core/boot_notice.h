@@ -4,8 +4,8 @@
  * Presents" drawn by CORE while the boot project loads. Evidence and timing:
  * docs/MOVIES.md, "Boot notices".
  */
-#ifndef OPENGT4_BOOT_NOTICE_H
-#define OPENGT4_BOOT_NOTICE_H
+#ifndef MOON_BOOT_NOTICE_H
+#define MOON_BOOT_NOTICE_H
 
 #include "tex1.h"
 #include "vol.h"

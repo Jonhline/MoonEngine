@@ -28,7 +28,7 @@ int main(int argc, char **argv)
     SDL_SetMainReady();
     real_device = argc == 2 && !strcmp(argv[1], "--real");
     if (!real_device)
-        SDL_setenv("SDL_AUDIODRIVER", "OpenGT4_invalid_test_driver", 1);
+        SDL_setenv("SDL_AUDIODRIVER", "MoonEngine_invalid_test_driver", 1);
     CHECK(SDL_Init(SDL_INIT_TIMER|SDL_INIT_EVENTS)==0);
     plat_audio_desc d = {48000, 2};
     if (!real_device) {
@@ -79,7 +79,7 @@ int main(int argc, char **argv)
            generated_frames, elapsed);
     if (!real_device) {
         SDL_QuitSubSystem(SDL_INIT_AUDIO);
-        SDL_setenv("SDL_AUDIODRIVER", "OpenGT4_invalid_test_driver", 1);
+        SDL_setenv("SDL_AUDIODRIVER", "MoonEngine_invalid_test_driver", 1);
         CHECK(plat_audio_init(&d,NULL,NULL)==-1);
         SDL_setenv("SDL_AUDIODRIVER", "dummy", 1);
         SDL_Delay(2);

@@ -14,8 +14,8 @@
  * product and then the sum, which is what `acc + a * b` does in C without
  * contraction.
  */
-#ifndef OPENGT4_PHYS_H
-#define OPENGT4_PHYS_H
+#ifndef MOON_PHYS_H
+#define MOON_PHYS_H
 
 #include <stdint.h>
 #include <string.h>

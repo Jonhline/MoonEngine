@@ -1,6 +1,6 @@
 # Architecture
 
-OpenGT4 separates game rules and disc formats from PC presentation and host
+MoonEngine separates game rules and disc formats from PC presentation and host
 services. [How it works](HOW_IT_WORKS.md) explains execution; this document
 maps it to source directories.
 
@@ -26,8 +26,8 @@ This permits direct memory comparisons against the original. It is a data
 representation, not CPU emulation in the game. Native setup loads CORE.GT4
 tables and constructs the state consumed by the C solver.
 
-The `opengt4` target in `CMakeLists.txt` links native core, physics, vehicle,
-sound and platform libraries. It does not link `opengt4_ee`; reference test
+The `moonengine` target in `CMakeLists.txt` links native core, physics, vehicle,
+sound and platform libraries. It does not link `moon_ee`; reference test
 targets may link that library and locally generated original-code chunks.
 
 Host services belong behind platform interfaces. A new backend implements
@@ -127,7 +127,7 @@ miniz; movie support also uses FFmpeg. From the repository root:
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022"
 cmake --build build --config Release --parallel
-build/Release/opengt4.exe "D:/path/to/your/Gran Turismo 4.iso"
+build/Release/MoonEngine.exe "D:/path/to/your/Gran Turismo 4.iso"
 ```
 
 Running without arguments opens the launcher. `--save-dir <folder>` selects a separate profile
@@ -137,20 +137,20 @@ controls and current limitations.
 
 ## Tests and original-code oracles
 
-Synthetic tests need no disc. To enable disc-backed tests, configure `OPENGT4_TEST_DISC` with your
+Synthetic tests need no disc. To enable disc-backed tests, configure `MOON_TEST_DISC` with your
 own image. The number of registered tests depends on the local inputs and CMake options.
 
 ```powershell
-cmake -S . -B build -G "Visual Studio 17 2022" -DOPENGT4_TEST_DISC="D:/path/to/your/Gran Turismo 4.iso"
+cmake -S . -B build -G "Visual Studio 17 2022" -DMOON_TEST_DISC="D:/path/to/your/Gran Turismo 4.iso"
 cmake --build build --config Release --parallel
 ctest --test-dir build -C Release -j8 --timeout 600
 ctest --test-dir build -C Release -N
 ctest --test-dir build -C Release -R "^menu_navigation$" --output-on-failure
 ```
 
-Some tests compare against original-code oracles and captured fixtures. `OPENGT4_RECOMP_TESTS`
+Some tests compare against original-code oracles and captured fixtures. `MOON_RECOMP_TESTS`
 enables the optional recompiled test chunks; those need the user's local `extracted/core.bin`,
-splat output and `OPENGT4_PYTHON` with the required analysis dependencies. Generated C stays under
+splat output and `MOON_PYTHON` with the required analysis dependencies. Generated C stays under
 `build/`. `src/ee/`, `tools/recomp/` and `splat/` support these comparisons and analysis; they are
 not the gameplay runtime. Their existence does not make the port an emulator or a statically
 recompiled game.

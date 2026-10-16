@@ -1,5 +1,5 @@
-#ifndef OPENGT4_RANKING_CODE_H
-#define OPENGT4_RANKING_CODE_H
+#ifndef MOON_RANKING_CODE_H
+#define MOON_RANKING_CODE_H
 #include "vol.h"
 /* 0044B258's ten packed fields. Runtime key comes from CORE, never embedded. */
 int gt4_ranking_code_key(gt4_vol *, uint8_t key[16]);

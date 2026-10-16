@@ -38,7 +38,7 @@ static void look(race_game *g, const float eye[3], const float target[3], float 
    ShotManager (func_003747B8, table 0x0069F9C0 -> func_003FD980), before
    the race's start frame race+0xBC. A: the exact moment it hands back
    to the driving camera is not read (the selector's +0x128/+0x138
-   history); the flag's end is used. Tests: OPENGT4_RACE_TV=1 keeps the
+   history); the flag's end is used. Tests: MOON_RACE_TV=1 keeps the
    TV cameras for the whole race. */
 static int rolling_phase(race_game *g)
 {
@@ -111,7 +111,7 @@ static int dive_camera(race_game *g)
     t.speed = GT4_F32(car + CAR_ABS_SPEED);
     t.cue = g->cue;
     t.cue_passed = g->cue_passed;
-    if (g->cue_passed && getenv("OPENGT4_DIVE_LOG"))
+    if (g->cue_passed && getenv("MOON_DIVE_LOG"))
         fprintf(stderr, "dive cue: a mark went by, the next in %.2f s\n", g->cue);
     t.course_point = course_point;
     t.has_point = has_point;
@@ -140,7 +140,7 @@ static int dive_camera(race_game *g)
         if (!race_view_camera_point(g->view, v.shot, point) ||
             !gt4_race_run_camera(g->run, watched, v.shot, point, eye, rows))
             return 0;
-        if (getenv("OPENGT4_DIVE_LOG")) {
+        if (getenv("MOON_DIVE_LOG")) {
             static int last = -1;
             if (last != v.shot)
                 fprintf(

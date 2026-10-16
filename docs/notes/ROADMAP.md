@@ -1,4 +1,4 @@
-# Roadmap do OpenGT4
+# Roadmap do Moon Engine
 
 Atualizado em 29/09/2026. Este é o mapa geral: onde o projeto está, o que
 vem depois e em que ordem. Os detalhes de cada área ficam nos documentos
@@ -9,8 +9,8 @@ indicados. Quando uma etapa terminar ou a ordem mudar, atualize aqui.
 **Como a Polyphony teria feito, e mantido vivo, o GT4 no PC.** Não é só
 rodar o jogo igual ao original.
 
-Primeiro o **OpenGT4 Classic** (o GT4 do PS2 rodando nativo no PC, o mais
-fiel possível), depois o **OpenGT4 Enhanced** (a edição moderna, no espírito
+Primeiro o **Moon Engine Classic** (o GT4 do PS2 rodando nativo no PC, o mais
+fiel possível), depois o **Moon Engine Enhanced** (a edição moderna, no espírito
 do OpenTTD), e um dia o **multiplayer competitivo online** no Enhanced.
 Decisões e regras: [EDITIONS.md](../EDITIONS.md).
 
@@ -41,7 +41,7 @@ Decisões e regras: [EDITIONS.md](../EDITIONS.md).
 - Corrida montada sem savestate, com largada lançada como no jogo em 94 das
   110 pistas.
 - Todas as pistas desenhadas com o asfalto inteiro no lugar certo.
-- Demo de direção (`opengt4_drive`): Time Trial sozinho, qualquer carro e
+- Demo de direção (`moon_drive`): Time Trial sozinho, qualquer carro e
   pista, teclado ou controle, rodas que viram e giram.
 
 **Ainda não existe:** adversários, HUD e telas da corrida, som da corrida,
@@ -52,7 +52,7 @@ recompilador durante a montagem e o passo da corrida (IA, carro contra
 carro, partes do init e da sessão, utilitários). O exe final do Classic não
 pode depender do recompilador; elas precisam ser traduzidas para C.
 
-## Fase 1: OpenGT4 Classic
+## Fase 1: Moon Engine Classic
 
 Na ordem. Cada etapa termina validada (bit a bit onde é lógica do jogo,
 por comparação com o PCSX2 onde é visual ou som).
@@ -99,7 +99,7 @@ por comparação com o PCSX2 onde é visual ou som).
 - Sem recompilador e sem arquivos do PS2 além do disco do próprio usuário.
 - Instalação simples, aviso de projeto não oficial, testes automáticos.
 
-## Fase 2: OpenGT4 Enhanced
+## Fase 2: Moon Engine Enhanced
 
 Começa quando o Classic estiver jogável. Mesmo código e mesmo exe, outro modo
 ([EDITIONS.md](../EDITIONS.md)).

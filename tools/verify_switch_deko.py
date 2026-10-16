@@ -14,18 +14,18 @@ import sys
 
 def verify(build, nm, negative=False, window_negative=False, diagnostics=False,
            diagnostics_negative=False):
-    elf = (build / 'opengt4.elf').read_bytes()
+    elf = (build / 'moonengine.elf').read_bytes()
     if elf[:4] != b'\x7fELF' or struct.unpack_from('<H', elf, 18)[0] != 183:
         raise ValueError('application is not an AArch64 ELF')
     ninja = (build / 'build.ninja').read_text(encoding='utf-8')
-    units = re.findall(r'^build (CMakeFiles/opengt4_platform_sdl.dir/[^:]+):', ninja, re.M)
+    units = re.findall(r'^build (CMakeFiles/moon_platform_sdl.dir/[^:]+):', ninja, re.M)
     for name in ('deko_device', 'deko_video', 'deko_render'):
         if not any('/switch/' + name + '.o' in unit for unit in units):
             raise ValueError('missing native compilation unit: ' + name)
     for unit in units:
         if re.search(r'/sdl/(video_gl|render3d|gl|switch_render)\.o$', unit):
             raise ValueError('legacy application GL unit linked: ' + unit)
-    library = build / 'libopengt4_platform_sdl.a'
+    library = build / 'libmoon_platform_sdl.a'
     undefined = subprocess.check_output([str(nm), '-u', str(library)], text=True)
     if negative:
         undefined += '\n U SDL_GL_CreateContext\n'
@@ -35,7 +35,7 @@ def verify(build, nm, negative=False, window_negative=False, diagnostics=False,
         raise ValueError('application platform archive still calls GL/EGL')
     if re.search(r'\bSDL_(?:CreateWindow\w*|DestroyWindow)\b', undefined):
         raise ValueError('SDK SDL windows implicitly own an EGL surface')
-    symbols = subprocess.check_output([str(nm), '-g', str(build / 'opengt4.elf')], text=True)
+    symbols = subprocess.check_output([str(nm), '-g', str(build / 'moonengine.elf')], text=True)
     for symbol in ('dkQueuePresentImage', 'dkCmdBufDraw', 'nd_init'):
         if symbol not in symbols:
             raise ValueError('native command/presentation code missing: ' + symbol)
@@ -56,7 +56,7 @@ def verify(build, nm, negative=False, window_negative=False, diagnostics=False,
         _, _, control, size, _, count = struct.unpack_from('<6I', code)
         if not count or control + size > len(code):
             raise ValueError('truncated shader: ' + stage)
-    nro = (build / 'opengt4.nro').read_bytes()
+    nro = (build / 'moonengine.nro').read_bytes()
     if nro[16:20] != b'NRO0':
         raise ValueError('NRO packaging missing')
     print('Switch native backend: AArch64/NRO, 5 DKSH modules, deko draw/present; no application GL calls')

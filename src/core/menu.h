@@ -5,8 +5,8 @@
  * layer provides. Engine parts not written yet answer as stubs and are
  * reported once in the log (see docs/ADHOC.md).
  */
-#ifndef OPENGT4_MENU_H
-#define OPENGT4_MENU_H
+#ifndef MOON_MENU_H
+#define MOON_MENU_H
 
 #include <stdint.h>
 #include "career_license.h"
@@ -329,4 +329,4 @@ int menu_championship_context_set(menu *m, const uint8_t live[0x90]);
 void menu_pcm_state(menu *m, int playing);
 void menu_pcm_parameters(menu *m, int *sequence, int *repeat, unsigned *serial);
 
-#endif /* OPENGT4_MENU_H */
+#endif /* MOON_MENU_H */

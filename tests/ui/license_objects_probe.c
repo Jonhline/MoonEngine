@@ -49,12 +49,12 @@ static float scalar(const uint8_t *p)
 static void object_hide(int on)
 {
 #ifdef _WIN32
-    _putenv_s("OPENGT4_TEST_HIDE_GADGETS", on ? "1" : "");
+    _putenv_s("MOON_TEST_HIDE_GADGETS", on ? "1" : "");
 #else
     if (on)
-        setenv("OPENGT4_TEST_HIDE_GADGETS", "1", 1);
+        setenv("MOON_TEST_HIDE_GADGETS", "1", 1);
     else
-        unsetenv("OPENGT4_TEST_HIDE_GADGETS");
+        unsetenv("MOON_TEST_HIDE_GADGETS");
 #endif
 }
 int main(int argc, char **argv)

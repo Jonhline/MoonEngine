@@ -1,6 +1,6 @@
 /* CPU-visible shader ABI and readback comparator, shared with host tests. */
-#ifndef OPENGT4_DEKO_CONTRACT_H
-#define OPENGT4_DEKO_CONTRACT_H
+#ifndef MOON_DEKO_CONTRACT_H
+#define MOON_DEKO_CONTRACT_H
 #include <stddef.h>
 #include <stdint.h>
 typedef struct nd_uniform {

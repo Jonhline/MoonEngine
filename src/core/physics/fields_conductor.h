@@ -1,9 +1,9 @@
 /* Conductor field offsets in the original memory layout.
  * _U preserves unsigned literals; UNK fields have no assigned meaning.
  */
-#ifndef OPENGT4_FIELDS_CONDUCTOR_H
+#ifndef MOON_FIELDS_CONDUCTOR_H
 #define CONDUCTOR_FIELD_BSPEC_COURSE_KIND 0xCBE7 /* Original: func_00468A40 +0x14 */
-#define OPENGT4_FIELDS_CONDUCTOR_H
+#define MOON_FIELDS_CONDUCTOR_H
 
 #define CONDUCTOR_FIELD_TYRE_STATE 0x4     /* shared tyre state; init.c race_start, func_00367C90 */
 #define CONDUCTOR_FIELD_UNK_7C 0x7C        /* race.c: gt4_race_rubber_band */

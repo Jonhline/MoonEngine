@@ -1,5 +1,5 @@
-#ifndef OPENGT4_SHOWROOM_MATH_H
-#define OPENGT4_SHOWROOM_MATH_H
+#ifndef MOON_SHOWROOM_MATH_H
+#define MOON_SHOWROOM_MATH_H
 #include <math.h>
 #include <stdint.h>
 /* The model's alpha is a coefficient (128 = 1), not ordinary 8-bit opacity. */

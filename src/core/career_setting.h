@@ -1,5 +1,5 @@
-#ifndef OPENGT4_CAREER_SETTING_H
-#define OPENGT4_CAREER_SETTING_H
+#ifndef MOON_CAREER_SETTING_H
+#define MOON_CAREER_SETTING_H
 #include <stdint.h>
 enum gt4_setting_group {
     GT4_SETTING_BRAKE,

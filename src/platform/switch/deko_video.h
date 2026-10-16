@@ -1,5 +1,5 @@
-#ifndef OPENGT4_DEKO_VIDEO_H
-#define OPENGT4_DEKO_VIDEO_H
+#ifndef MOON_DEKO_VIDEO_H
+#define MOON_DEKO_VIDEO_H
 #include "deko_device.h"
 extern "C" {
 #include "platform/platform.h"

@@ -246,7 +246,7 @@ Verification:
 - `driver_skin_probe`: real GL pixel checks for endpoints, intermediate
   ratio, conservative bounds, shared mesh/actor ratios and static isolation.
   Negative controls `--finger-negative` on the scalar oracle and environment
-  `OPENGT4_PROBE_MORPH_NEGATIVE=1` on the GPU probe both fail as intended.
+  `MOON_PROBE_MORPH_NEGATIVE=1` on the GPU probe both fail as intended.
 - Release build and 21 CTests pass. Native 360-step S2000/Patent sequences
   are under `extracted/driver/grasp-final-*` and `grasp-patent-*`; the S2000
   sequence is `s2000-finger-grasp.gif`. Rendering remains **A**: OpenGL
@@ -327,7 +327,7 @@ their shared pilot through the native open-file selection.
 ## Reproduction
 
 ```powershell
-cmake --build build --config Release --target opengt4 gt4driver_survey driver_skin_probe
+cmake --build build --config Release --target moonengine gt4driver_survey driver_skin_probe
 ctest --test-dir build -C Release --output-on-failure
 build/Release/driver_skin_probe.exe
 build/Release/gt4driver_survey.exe "<user disc.iso>" > "<local audit.csv>"
@@ -335,7 +335,7 @@ build/Release/driver_skin_probe.exe "<user disc.iso>" /character/classic1.mdl "<
 ```
 
 The standalone original-code comparison also builds when the repository's
-existing `OPENGT4_RECOMP_TESTS` option is enabled:
+existing `MOON_RECOMP_TESTS` option is enabled:
 
 ```powershell
 cmake --build build --config Release --target driver_pose_oracle

@@ -9,7 +9,7 @@ and the native car catalog can be browsed; this does not start a race.
 Run the native executable with the user's own US v2.00 disc:
 
 ```
-build/Release/opengt4.exe "path/to/disc.iso" arcade TopRoot --preview-courses
+build/Release/MoonEngine.exe "path/to/disc.iso" arcade TopRoot --preview-courses
 ```
 
 `--preview-courses` explicitly exposes the disc catalog without a save. The

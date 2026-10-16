@@ -1,5 +1,5 @@
-#ifndef OPENGT4_UI_MOTION_H
-#define OPENGT4_UI_MOTION_H
+#ifndef MOON_UI_MOTION_H
+#define MOON_UI_MOTION_H
 #include <stdint.h>
 
 typedef struct {

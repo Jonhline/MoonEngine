@@ -1,5 +1,5 @@
-#ifndef OPENGT4_SOUND_SEQUENCE_H
-#define OPENGT4_SOUND_SEQUENCE_H
+#ifndef MOON_SOUND_SEQUENCE_H
+#define MOON_SOUND_SEQUENCE_H
 #include <stdint.h>
 #include <stddef.h>
 #include "vol.h"

@@ -1,5 +1,5 @@
-#ifndef OPENGT4_TEST_PROCESS_H
-#define OPENGT4_TEST_PROCESS_H
+#ifndef MOON_TEST_PROCESS_H
+#define MOON_TEST_PROCESS_H
 
 #ifdef _WIN32
 #include <process.h>

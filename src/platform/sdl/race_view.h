@@ -1,5 +1,5 @@
-#ifndef OPENGT4_RACE_VIEW_H
-#define OPENGT4_RACE_VIEW_H
+#ifndef MOON_RACE_VIEW_H
+#define MOON_RACE_VIEW_H
 /* Race view: a course and a car on it, with a chase camera, drawn by the
    GPU renderer. Separate from the menus' car showroom (showroom.c). */
 #include "course.h"

@@ -1,5 +1,5 @@
-#ifndef OPENGT4_SAVE_PS2_H
-#define OPENGT4_SAVE_PS2_H
+#ifndef MOON_SAVE_PS2_H
+#define MOON_SAVE_PS2_H
 #include "save.h"
 /* Read-only input: extracted GAMEDATA + garage, EMS .psu, or PCSX2 .ps2 card.
    Requires a complete, consistent GT4 save; builds a staging game, never writes it. */

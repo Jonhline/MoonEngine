@@ -1,5 +1,5 @@
-#ifndef OPENGT4_SAVE_UI_H
-#define OPENGT4_SAVE_UI_H
+#ifndef MOON_SAVE_UI_H
+#define MOON_SAVE_UI_H
 #include "menu.h"
 typedef struct {
     menu *owner;

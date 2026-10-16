@@ -15,8 +15,8 @@
  *
  * Registers are passed and returned as raw 32-bit patterns.
  */
-#ifndef OPENGT4_EE_FPU_H
-#define OPENGT4_EE_FPU_H
+#ifndef MOON_EE_FPU_H
+#define MOON_EE_FPU_H
 
 #include "ee.h"
 
@@ -60,4 +60,4 @@ void ee_fpu_c_eq(ee_ctx *c, uint32_t a, uint32_t b);
 void ee_fpu_c_lt(ee_ctx *c, uint32_t a, uint32_t b);
 void ee_fpu_c_le(ee_ctx *c, uint32_t a, uint32_t b);
 
-#endif /* OPENGT4_EE_FPU_H */
+#endif /* MOON_EE_FPU_H */

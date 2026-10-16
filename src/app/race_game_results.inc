@@ -11,9 +11,9 @@ static void draw_result(race_game *g, int cars, double dt)
         if (plat_input_poll(1, &p))
             confirm |= !!(p.buttons & (1u << GT4_PAD_START));
     }
-    { /* tests: OPENGT4_RACE_RESULT_CONFIRM presses the confirm on the results, on and off */
+    { /* tests: MOON_RACE_RESULT_CONFIRM presses the confirm on the results, on and off */
         static unsigned tick;
-        if (getenv("OPENGT4_RACE_RESULT_CONFIRM") && g->finished > 8)
+        if (getenv("MOON_RACE_RESULT_CONFIRM") && g->finished > 8)
             confirm = (++tick / 20) & 1;
     }
     if (!g->result) {
@@ -63,7 +63,7 @@ static void draw_result(race_game *g, int cars, double dt)
     race_result_update(g->result, &rs, dt);
     /* Test-only key stream for the authored result menu. It neither
        sets a result nor grants a medal. Seconds are presentation time. */
-    const char *result_keys = getenv("OPENGT4_LICENSE_RESULT_KEYS");
+    const char *result_keys = getenv("MOON_LICENSE_RESULT_KEYS");
     if (g->last_prepared && license_exam(g) && result_keys) {
         g->license_result_test_clock += dt;
         unsigned at = 0;

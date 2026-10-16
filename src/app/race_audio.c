@@ -438,7 +438,7 @@ race_audio *race_audio_open_replay(const char *disc, const gt4_race_run *run,
     load_sequence(a, 4, "/sound/gt4sys.ins", 2);
     load_sequence(a, 5, "/sound/gt4sys.ins", 1);
     a->last_count = -1;
-    if (getenv("OPENGT4_SOUND_TRACE"))
+    if (getenv("MOON_SOUND_TRACE"))
         for (int q = 0; q < 6; q++)
             fprintf(stderr, "race sound: sequence %d has %u notes (first %u blocks)\n", q,
                     a->sequence[q].count,
@@ -554,7 +554,7 @@ static void music_update(race_audio *a, const gt4_race_run *run)
         a->worker_sequence =
             entry < 0 ? -1 : gt4_music_playlist_sequence(a->vol, &a->playlist, (unsigned)entry);
         a->playlist_changed = 1;
-        if (getenv("OPENGT4_SOUND_TRACE"))
+        if (getenv("MOON_SOUND_TRACE"))
             fprintf(stderr, "race music: playlist entry %d, racing sequence %d\n", entry,
                     a->worker_sequence);
     }
@@ -600,7 +600,7 @@ static void listener(race_audio *a, gt4_car_listener *l, const float *eye, const
 static void sequence(race_audio *a, int q, float level)
 {
     static const char *const names[6] = {"count_d", "count_s", "chime", "ok", "cursor", "cancel"};
-    if (getenv("OPENGT4_SOUND_TRACE"))
+    if (getenv("MOON_SOUND_TRACE"))
         fprintf(stderr, "race sound: sequence %s at %u\n", names[q], a->clock240 / 4);
     for (unsigned i = 0; i < a->sequence[q].count && a->pendings < 16; i++) {
         a->pending[a->pendings].due = a->clock240 + a->sequence[q].note[i].at;
@@ -757,7 +757,7 @@ void race_audio_update(race_audio *a, const gt4_race_run *run, const float *eye,
         return;
     /* P: user-requested filming stems. Gate only the music stream, through
        its existing disabled option; engine/ambient/effect voices stay live. */
-    if (getenv("OPENGT4_CAPTURE_NO_MUSIC"))
+    if (getenv("MOON_CAPTURE_NO_MUSIC"))
         bgm = -1;
     a->bgm_option = bgm;
     music_update(a, run);
@@ -792,7 +792,7 @@ void race_audio_step(race_audio *a, const gt4_race_run *run)
     gt4_phys_fpu_enter();
     tick(a, run, a->camera_eye, a->camera_rows, a->camera_view);
     music_volume_update(a, run);
-    if (getenv("OPENGT4_SOUND_TRACE") && !(++a->frames % 120)) {
+    if (getenv("MOON_SOUND_TRACE") && !(++a->frames % 120)) {
         int on = 0, loud = 0;
         SDL_LockMutex(a->mutex);
         for (int i = 0; i < VOICES; i++) {

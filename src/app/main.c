@@ -1,12 +1,14 @@
 /*
- * OpenGT4 viewer: opens the user's GT4 disc image and shows the game's UI
+ * Moon Engine viewer: opens the user's GT4 disc image and shows the game's UI
  * screens with the native UI renderer. First step towards the menu; there is
  * no game logic yet.
  *
- *   opengt4 <disc.iso> [project] [screen] [--shot out.png]
+ *   moonengine <disc.iso> [project] [screen] [--shot out.png]
  *   arrows = focus, Enter = activate, Escape = cancel, F10 = quit.
  *   F1/F2 = debug screen browsing, PageUp/PageDown = debug project browsing.
  */
+#include "moon_pref.h"
+#include <sys/stat.h>
 #include "platform/switch_profile.h"
 #include "platform/platform.h"
 #include "plat_sdl.h"
@@ -127,7 +129,7 @@ int main(int argc, char **argv)
             player_name = argv[++i];
     }
     if (!save_directory[0] && persistent_video) {
-        char *pref = SDL_GetPrefPath("OpenGT4", "OpenGT4");
+        char *pref = moon_pref_path();
         if (pref) {
             snprintf(save_directory, sizeof save_directory, "%ssaves", pref);
             SDL_free(pref);
@@ -266,7 +268,7 @@ int main(int argc, char **argv)
         } /* the race itself, not the grid preview */
         if (!strcmp(argv[i], "--time-trial")) {
             race_time_trial = race_preview = race_drive = 1;
-            pre_race_preview = !getenv("OPENGT4_RACE_SNAPSHOT");
+            pre_race_preview = !getenv("MOON_RACE_SNAPSHOT");
             continue;
         } /* a capture: straight to its moment */
         if (!strcmp(argv[i], "--pre-race")) {
@@ -400,13 +402,20 @@ int main(int argc, char **argv)
                 "career: original calendar, price or oil constants unavailable for this disc\n");
     {
         /* The local HD cache of the menu images (docs/UI_HD.md), built by
-           gt4hdui; OPENGT4_UI_HD=0 turns it off, or names another folder. */
-        const char *hd = getenv("OPENGT4_UI_HD"), *base = getenv("LOCALAPPDATA");
+           gt4hdui; MOON_UI_HD=0 turns it off, or names another folder. */
+        const char *hd = getenv("MOON_UI_HD"), *base = getenv("LOCALAPPDATA");
         char dir[512] = "";
         if (hd && strcmp(hd, "0"))
             snprintf(dir, sizeof dir, "%s", hd);
-        else if (!hd && base)
-            snprintf(dir, sizeof dir, "%s/OpenGT4/ui_hd", base);
+        else if (!hd && base) {
+            snprintf(dir, sizeof dir, "%s/MoonEngine/ui_hd", base);
+            /* P: the cache of the project's former name, while no new one exists */
+            char old[512];
+            struct stat st;
+            snprintf(old, sizeof old, "%s/OpenGT4/ui_hd", base);
+            if (stat(dir, &st) && !stat(old, &st))
+                snprintf(dir, sizeof dir, "%s", old);
+        }
         ui_set_hd_cache(dir);
     }
     if (!vol) {
@@ -586,8 +595,8 @@ int main(int argc, char **argv)
         if (photo_project(proj)) {
             char course[32], car[96];
             int color = 0;
-            const char *test_course = getenv("OPENGT4_PHOTO_COURSE"),
-                       *test_car = getenv("OPENGT4_PHOTO_CAR");
+            const char *test_course = getenv("MOON_PHOTO_COURSE"),
+                       *test_car = getenv("MOON_PHOTO_CAR");
             if (test_course && test_car)
                 menu_photo_set_selection(mn, test_course, test_car, 0);
             if (!menu_photo_request(mn, course, car, &color) ||
@@ -601,30 +610,30 @@ int main(int argc, char **argv)
         menu_preview_courses(mn, preview_courses);
         if (preview_courses)
             printf("Catalog preview: disc catalog, save unlocks not loaded.\n");
-        if (getenv("OPENGT4_TEST_CAR"))
-            menu_test_car(mn, getenv("OPENGT4_TEST_CAR")); /* tests: a new car ridden */
-        if (getenv("OPENGT4_MENU_PUSH"))
+        if (getenv("MOON_TEST_CAR"))
+            menu_test_car(mn, getenv("MOON_TEST_CAR")); /* tests: a new car ridden */
+        if (getenv("MOON_MENU_PUSH"))
             menu_test_push(
-                mn, getenv("OPENGT4_MENU_PUSH")); /* tests: a page entered as from a dealer */
-        if (!(proj == 12 && getenv("OPENGT4_LABO_ARG")))
+                mn, getenv("MOON_MENU_PUSH")); /* tests: a page entered as from a dealer */
+        if (!(proj == 12 && getenv("MOON_LABO_ARG")))
             menu_enter(mn, root);
-        if (getenv("OPENGT4_TEST_MONEY")) {
-            menu_test_money(mn, strtoll(getenv("OPENGT4_TEST_MONEY"), NULL, 10));
+        if (getenv("MOON_TEST_MONEY")) {
+            menu_test_money(mn, strtoll(getenv("MOON_TEST_MONEY"), NULL, 10));
             menu_save_capture(mn);
         } /* tests: credits */
         if (proj == 12 &&
             getenv(
-                "OPENGT4_LABO_SAVE")) { /* tests: a saved replay offered to the Save Replay screen */
+                "MOON_LABO_SAVE")) { /* tests: a saved replay offered to the Save Replay screen */
             static gt4_replay_file offered;
-            if (gt4_replay_load(getenv("OPENGT4_LABO_SAVE"), &offered))
+            if (gt4_replay_load(getenv("MOON_LABO_SAVE"), &offered))
                 menu_set_replay_to_save(&offered);
         }
-        if (proj == 12 && getenv("OPENGT4_LABO_ARG"))
+        if (proj == 12 && getenv("MOON_LABO_ARG"))
             menu_open_labo(
-                mn, getenv("OPENGT4_LABO_ARG")); /* tests: labomode at a page or a card mode */
-        if (proj == 1 && getenv("OPENGT4_MISSION"))
+                mn, getenv("MOON_LABO_ARG")); /* tests: labomode at a page or a card mode */
+        if (proj == 1 && getenv("MOON_MISSION"))
             menu_request_mission(
-                mn, getenv("OPENGT4_MISSION")); /* tests: a mission, its licence check passed */
+                mn, getenv("MOON_MISSION")); /* tests: a mission, its licence check passed */
         menu_tick(mn);
         if (proj == 7 && player_name)
             save_ui_name(&save_screen, player_name);
@@ -718,11 +727,11 @@ int main(int argc, char **argv)
             split.tire_2p = 1;
             race_game_set_split(game, split_preview ? &split : NULL);
             const char *second[1] = {split_car_option ? split_car_option : race_car};
-            if (getenv("OPENGT4_REPLAY_PLAY")) { /* tests: a saved replay watched at once */
+            if (getenv("MOON_REPLAY_PLAY")) { /* tests: a saved replay watched at once */
                 gt4_replay_file r;
-                if (!game || !race_game_read_replay(game, getenv("OPENGT4_REPLAY_PLAY"), &r, msg,
+                if (!game || !race_game_read_replay(game, getenv("MOON_REPLAY_PLAY"), &r, msg,
                                                     sizeof msg)) {
-                    fprintf(stderr, "replay: cannot read %s\n", getenv("OPENGT4_REPLAY_PLAY"));
+                    fprintf(stderr, "replay: cannot read %s\n", getenv("MOON_REPLAY_PLAY"));
                     exit_code = 1;
                     goto done;
                 }
@@ -757,9 +766,9 @@ int main(int argc, char **argv)
                 quick_race_set(game, race_course, race_car, race_color, race_other_ptr,
                                race_other_colors, race_others_n, 0);
                 if (getenv(
-                        "OPENGT4_REPLAY_IMPORT")) { /* tests: the quick menu after a race, its replay a saved one */
+                        "MOON_REPLAY_IMPORT")) { /* tests: the quick menu after a race, its replay a saved one */
                     gt4_replay_file r;
-                    if (gt4_replay_load(getenv("OPENGT4_REPLAY_IMPORT"), &r)) {
+                    if (gt4_replay_load(getenv("MOON_REPLAY_IMPORT"), &r)) {
                         race_game_replay_import(game, &r);
                         gt4_replay_free(&r);
                     }
@@ -767,7 +776,7 @@ int main(int argc, char **argv)
                 switch_to(vol, cache, &mn, &proj, quick);
                 p = menu_ui(mn);
                 root = menu_active_root(mn);
-                if (getenv("OPENGT4_REPLAY_IMPORT")) {
+                if (getenv("MOON_REPLAY_IMPORT")) {
                     menu_set_quick_completed(mn, 1);
                     menu_enter(mn, root);
                     menu_tick(mn);
@@ -1523,11 +1532,11 @@ int main(int argc, char **argv)
             }
         }
         /* --quick-input: one input a second, including its Options round trip. */
-        { /* tests: OPENGT4_LOGGER_INPUT=<keys> pressed in the Logger, one a second and a half */
+        { /* tests: MOON_LOGGER_INPUT=<keys> pressed in the Logger, one a second and a half */
             static const char *keys;
             static uint64_t since, last;
             if (!keys)
-                keys = getenv("OPENGT4_LOGGER_INPUT");
+                keys = getenv("MOON_LOGGER_INPUT");
             if (keys && *keys && mn && (proj == 16 || (proj == 12 && logger_track >= 0))) {
                 uint64_t t = plat_time_ns();
                 if (!since)
@@ -1578,11 +1587,11 @@ int main(int argc, char **argv)
             logger_load_asked = 0;
             menu_test_quick_command(mn, "COMMAND_LOAD_GHOST");
         } /* the quick menu's own Load Ghost (0010FEE8: labomode's best laps) */
-        { /* tests: OPENGT4_ACTIVATE=<widget>[,<widget>...] chosen in turn, 4 s apart once a page is up */
+        { /* tests: MOON_ACTIVATE=<widget>[,<widget>...] chosen in turn, 4 s apart once a page is up */
             static uint64_t since;
             static const char *next;
             if (!next)
-                next = getenv("OPENGT4_ACTIVATE");
+                next = getenv("MOON_ACTIVATE");
             if (next && *next && mn && menu_active_root(mn) >= 0 && !loading_screen_active()) {
                 uint64_t t = plat_time_ns();
                 if (!since)
@@ -1603,9 +1612,9 @@ int main(int argc, char **argv)
         { /* tests: a quick menu command once the race is over and its menu back */
             static int sent;
             if (!sent && mn && race_quick_project(proj) && driving == 4 &&
-                getenv("OPENGT4_QUICK_COMMAND") && ui_fade_remaining(menu_ui(mn)) <= 0) {
+                getenv("MOON_QUICK_COMMAND") && ui_fade_remaining(menu_ui(mn)) <= 0) {
                 sent = 1;
-                menu_test_quick_command(mn, getenv("OPENGT4_QUICK_COMMAND"));
+                menu_test_quick_command(mn, getenv("MOON_QUICK_COMMAND"));
             }
         }
         /* The quick menu's command: Start races (the race loaded, or again) */
@@ -1935,7 +1944,7 @@ int main(int argc, char **argv)
                        (logger.ad exit: setReturnToLastMenuProject) */
                     menu_logger_source src;
                     char amsg[160];
-                    if (getenv("OPENGT4_LOGGER_ANALYZE") &&
+                    if (getenv("MOON_LOGGER_ANALYZE") &&
                         !race_game_logger_analyze(game, 1, amsg, sizeof amsg))
                         fprintf(stderr, "logger: %s\n", amsg); /* tests: the analysis by replay */
                     if (race_game_logger_source(game, &src)) {
@@ -2377,7 +2386,7 @@ int main(int argc, char **argv)
                Photo Travel render/preview; no replacement image or UI. */
             static uint64_t photo_film_started;
             static int photo_film_shot, photo_film_focused;
-            const char *after = getenv("OPENGT4_PHOTO_SHOOT_AFTER");
+            const char *after = getenv("MOON_PHOTO_SHOOT_AFTER");
             if (after && photo_project(proj) && !loading_screen_active() && !photo_film_shot) {
                 uint64_t now = plat_time_ns();
                 if (!photo_film_started)
@@ -2422,10 +2431,10 @@ int main(int argc, char **argv)
                 loading_shot = NULL;
             }
         }
-        if (loading_screen_revealing() && getenv("OPENGT4_LOADING_REVEAL_SHOT")) {
+        if (loading_screen_revealing() && getenv("MOON_LOADING_REVEAL_SHOT")) {
             static unsigned reveal_frames;
             if (++reveal_frames == 5)
-                screenshot(getenv("OPENGT4_LOADING_REVEAL_SHOT"));
+                screenshot(getenv("MOON_LOADING_REVEAL_SHOT"));
         }
         if (p && !race_active && driving != 2 && movie.seen &&
             movie.finish_notified != movie.generation &&
@@ -2491,7 +2500,7 @@ int main(int argc, char **argv)
                 printf("selected course=%s\n", course);
             if (p)
                 report_choices(ui_root_widget(p, root));
-            if (p && getenv("OPENGT4_UI_TREE"))
+            if (p && getenv("MOON_UI_TREE"))
                 report_tree(ui_root_widget(p, root), 0);
             screenshot(shot);
             goto done;
@@ -2564,7 +2573,7 @@ int main(int argc, char **argv)
         if (!(driving == 2 || (driving == 1 && race_start_pending)) && !race_active &&
             !race_loading && (root != last_root || proj != last_proj)) {
             char title[256];
-            snprintf(title, sizeof title, "OpenGT4%s - %s / %s (%d/%d)  drawn %d, not yet drawn %d",
+            snprintf(title, sizeof title, "Moon Engine%s - %s / %s (%d/%d)  drawn %d, not yet drawn %d",
                      !strcmp(page, "CarRoot") ? " [F5: carro na pista]"
                      : preview_courses        ? " [Catalog preview]"
                                               : "",

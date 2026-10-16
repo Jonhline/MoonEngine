@@ -1,5 +1,5 @@
-#ifndef OPENGT4_FONT_H
-#define OPENGT4_FONT_H
+#ifndef MOON_FONT_H
+#define MOON_FONT_H
 #include "tex1.h"
 
 typedef struct {

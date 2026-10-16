@@ -41,10 +41,10 @@ Nenhuma tabela ou imagem do jogo está embutida no código/repositório.
 
 ## Conferência
 
-Configurar `OPENGT4_TEST_DISC` com o caminho do próprio disco e executar:
+Configurar `MOON_TEST_DISC` com o caminho do próprio disco e executar:
 
 ```powershell
-cmake --build build --config Release --target opengt4 photo_mode_tests photo_travel_probe
+cmake --build build --config Release --target moonengine photo_mode_tests photo_travel_probe
 ctest --test-dir build -C Release -R '^photo_' --output-on-failure
 ```
 
@@ -66,9 +66,9 @@ no baseline permaneceram byte a byte intactos durante esta tarefa.
 Para abrir diretamente sem alterar a garagem, somente para diagnóstico:
 
 ```powershell
-$env:OPENGT4_PHOTO_COURSE='ss_brooklyn'
-$env:OPENGT4_PHOTO_CAR='ka_01'
-build/Release/opengt4.exe '<seu disco.iso>' photo_shoot ShootRoot
+$env:MOON_PHOTO_COURSE='ss_brooklyn'
+$env:MOON_PHOTO_CAR='ka_01'
+build/Release/MoonEngine.exe '<seu disco.iso>' photo_shoot ShootRoot
 ```
 
 ## Pendências de fidelidade

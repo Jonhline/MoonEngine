@@ -6,7 +6,7 @@ import subprocess
 parser = argparse.ArgumentParser()
 parser.add_argument("disc", type=Path)
 args = parser.parse_args()
-exe = Path("build/Release/opengt4.exe").resolve()
+exe = Path("build/Release/MoonEngine.exe").resolve()
 out = Path("build/option_smoke")
 out.mkdir(exist_ok=True)
 cases = [

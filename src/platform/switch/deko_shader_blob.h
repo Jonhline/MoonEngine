@@ -1,6 +1,6 @@
 /* Embedded DKSH controls must be writable: dkShaderInitialize patches offsets. */
-#ifndef OPENGT4_DEKO_SHADER_BLOB_H
-#define OPENGT4_DEKO_SHADER_BLOB_H
+#ifndef MOON_DEKO_SHADER_BLOB_H
+#define MOON_DEKO_SHADER_BLOB_H
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>

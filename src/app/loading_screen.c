@@ -82,7 +82,7 @@ int loading_screen_active(void)
 {
     if (active == 2 && background_period == 0 && logo_period == 0) {
         active = 0;
-        if (getenv("OPENGT4_LOADING_TRACE"))
+        if (getenv("MOON_LOADING_TRACE"))
             fprintf(stderr, "loading fade: complete\n");
     }
     return active;
@@ -143,7 +143,7 @@ void loading_screen_draw(void)
         logo_period = 1;
     gt4_loading_fade_step(&logo_period, &logo_alpha, dt);
     float alpha = background_alpha;
-    if (getenv("OPENGT4_LOADING_TRACE"))
+    if (getenv("MOON_LOADING_TRACE"))
         fprintf(stderr, "loading fade: %s %.6f\n", active == 2 ? "out" : "in", alpha);
     float view = active == 2 ? video_view_height() : 448;
     float sy = view / 448;

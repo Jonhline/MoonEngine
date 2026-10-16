@@ -1,3 +1,4 @@
+#include "moon_pref.h"
 #include "platform/switch_file.h"
 #include "video_settings.h"
 #include "platform/renderer_backend.h"
@@ -42,7 +43,7 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     if (config_file)
         snprintf(s->path, sizeof s->path, "%s", config_file);
     else {
-        char *dir = SDL_GetPrefPath("OpenGT4", "OpenGT4");
+        char *dir = moon_pref_path();
         if (!dir)
             return;
         snprintf(s->path, sizeof s->path, "%svideo.ini", dir);

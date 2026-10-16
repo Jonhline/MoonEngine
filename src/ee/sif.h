@@ -1,6 +1,6 @@
 /* Bounded SIF transport and FILEIO subset for the _init experiment. */
-#ifndef OPENGT4_SIF_H
-#define OPENGT4_SIF_H
+#ifndef MOON_SIF_H
+#define MOON_SIF_H
 #include "ee.h"
 #define EE_IOP_SIZE (2u * 1024 * 1024)
 #define EE_SIF_QUEUE 32

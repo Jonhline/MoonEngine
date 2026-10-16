@@ -1,5 +1,5 @@
-#ifndef OPENGT4_COURSE_OBJECTS_H
-#define OPENGT4_COURSE_OBJECTS_H
+#ifndef MOON_COURSE_OBJECTS_H
+#define MOON_COURSE_OBJECTS_H
 #include "course_gadget.h"
 /* 003E5040 after the world step (0033C538). Native state, no EE runtime. */
 void gt4_course_objects_init(gt4_course_gadgets *objects, uint32_t course);

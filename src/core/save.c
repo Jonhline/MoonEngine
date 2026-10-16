@@ -54,7 +54,7 @@ static FILE *openfile(const char *path, const char *mode)
     free(m);
     return f;
 }
-#ifndef OPENGT4_SWITCH_SAVE_TEST
+#ifndef MOON_SWITCH_SAVE_TEST
 static int replace(const char *src, const char *dst)
 {
     wchar_t *s = wide(src), *d = wide(dst);
@@ -67,14 +67,14 @@ static int replace(const char *src, const char *dst)
 #endif
 #else
 #define openfile fopen
-#if !defined(__SWITCH__) && !defined(OPENGT4_SWITCH_SAVE_TEST)
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_SAVE_TEST)
 static int replace(const char *src, const char *dst)
 {
     return rename(src, dst) == 0;
 }
 #endif
 #endif
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_SAVE_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_SAVE_TEST)
 static int replace(const char *src, const char *dst)
 {
     return plat_switch_replace_file(src, dst);
@@ -110,7 +110,7 @@ static int read_one(const char *path, uint8_t **data, size_t *size, uint64_t *st
 {
     *data = NULL;
     *size = 0;
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_SAVE_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_SAVE_TEST)
     if (!plat_switch_recover_file(path))
         return -1;
 #endif
@@ -160,7 +160,7 @@ int gt4_save_read(const char *path, uint8_t **data, size_t *size, uint64_t *stam
 static int atomic_file(const char *path, const uint8_t *p, size_t n)
 {
     char tmp[1200];
-#if defined(__SWITCH__) || defined(OPENGT4_SWITCH_SAVE_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_SAVE_TEST)
     if (!plat_switch_temp_path(path, tmp, sizeof tmp))
         return 0;
 #else
@@ -403,7 +403,7 @@ int gt4_save_load_slot(int slot)
     size_t size;
     int status = gt4_save_read(path, &data, &size, NULL);
     if (status <= 0) {
-        error(status == -3 ? "This save requires a newer OpenGT4 version."
+        error(status == -3 ? "This save requires a newer Moon Engine version."
                            : "The save could not be loaded.");
         return 0;
     }

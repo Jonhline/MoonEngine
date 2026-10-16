@@ -142,7 +142,7 @@ static void bspec_frame(race_game *g, double dt)
         g->bspec_ui = race_bspec_open(g->vol, &h, 0);
         if (!g->bspec_ui)
             return;
-        if (getenv("OPENGT4_RACE_BSPEC_MONITOR"))
+        if (getenv("MOON_RACE_BSPEC_MONITOR"))
             g->bspec_pressed |= RACE_BSPEC_R1; /* tests: straight into the Race Monitor */
     }
     uint32_t cond = gt4_race_run_conductor(g->run), race = GT4_U32(cond),

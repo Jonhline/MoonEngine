@@ -1,5 +1,5 @@
-#ifndef OPENGT4_CAREER_LICENSE_H
-#define OPENGT4_CAREER_LICENSE_H
+#ifndef MOON_CAREER_LICENSE_H
+#define MOON_CAREER_LICENSE_H
 #include <stdint.h>
 
 /* State passed between attempts of one exam by 00114E38. This is separate

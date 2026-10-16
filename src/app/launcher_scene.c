@@ -304,8 +304,8 @@ static int render_scene(const char *disc, const char *saves, scene_shared *share
     HANDLE parent = OpenProcess(SYNCHRONIZE, FALSE, shared->parent);
     if (!parent)
         return 1;
-    SDL_setenv("OPENGT4_WINDOW_HIDDEN", "1", 1);
-    SDL_setenv("OPENGT4_GRAPHICS_API", backend ? "vulkan" : "opengl", 1);
+    SDL_setenv("MOON_WINDOW_HIDDEN", "1", 1);
+    SDL_setenv("MOON_GRAPHICS_API", backend ? "vulkan" : "opengl", 1);
     plat_video_desc video = {LAUNCHER_WIDTH * 2, LAUNCHER_HEIGHT * 2, 0, 0, 0, backend};
     if (plat_video_init(&video)) {
         CloseHandle(parent);

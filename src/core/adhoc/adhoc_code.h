@@ -5,8 +5,8 @@
  * Opcode names, including the _OLD suffix, follow Nenkai's GTAdhocToolchain/PDTools
  * disassembler terminology; they are not names recovered from the game.
  */
-#ifndef OPENGT4_ADHOC_CODE_H
-#define OPENGT4_ADHOC_CODE_H
+#ifndef MOON_ADHOC_CODE_H
+#define MOON_ADHOC_CODE_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -111,4 +111,4 @@ ah_code *ah_load(const uint8_t *data, size_t size, char *err, size_t err_len);
 void ah_free(ah_code *c);
 const char *ah_op_name(int op);
 
-#endif /* OPENGT4_ADHOC_CODE_H */
+#endif /* MOON_ADHOC_CODE_H */

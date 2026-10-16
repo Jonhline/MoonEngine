@@ -1,4 +1,13 @@
-# PC launcher
+# PC launcher (secondary)
+
+This is Moon Engine's **secondary launcher**. The official launcher is a
+separate contribution in development and is not in this repository yet; it
+keeps the plain launcher names. To avoid clashing with it, this one stores
+`secondary_launcher.ini`, `secondary_launcher-options` and
+`secondary_launcher_photos` in the player data folder (files of the earlier
+`launcher*` names are moved once on start), registers its Windows classes as
+`MoonEngineSecondary*` and titles its window "Moon Engine - secondary
+launcher". Its source files and tests keep their names.
 
 The Windows launcher prepares the disc, display, audio, controls and active
 save before starting the native game. Its home screen is a PC presentation

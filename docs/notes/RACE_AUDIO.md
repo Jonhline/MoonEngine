@@ -218,7 +218,7 @@ e compara func_003B5E80 real: captura .05 acusa +50 original 3F800000
 versus 3F748B9C, sem alterar memoria original. Execucao normal .05/.06
 continua passando 48 pedidos, 70 volumes e 62 pitches. Nota E da formula
 ja registrada; A da integracao/cadencia e do timbre final, sem waveform
-PS2 de referencia. Build Release opengt4 atualizou o launcher normal.
+PS2 de referencia. Build Release moonengine atualizou o launcher normal.
 
 Validacao final: 16/16 CTest de audio/backend, replay e abertura/demo de
 licenca passaram; race_inspect_probe preserva troca/movimento/reset de

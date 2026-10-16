@@ -13,7 +13,7 @@ widescreen adjustments have not been fully compared.
 
 UI filtering and text clarity preview immediately. Cancel restores committed
 quality without saving. OK applies and saves PC preferences under SDL's
-OpenGT4 preference directory in video.ini, independent of game save data.
+MoonEngine preference directory in video.ini, independent of game save data.
 Custom resolutions remain available. aspect_ratio=0 means 4:3, 1 means 16:9.
 
 FSR reconstructs the MSAA-resolved scene using EASU then RCAS. Modes: native,
@@ -52,8 +52,8 @@ Remaining backend work: Picture Quality values save but race/replay colour
 postprocessing is not connected; several network, controller-feedback and
 photo operations have no native backend. Language availability currently
 reflects the supplied USA project only. Do not describe all Options as fully
-functional. Updated Release executable: build/Release/opengt4.exe. A separate
-opengt4_preview.exe is also available for isolated checks.
+functional. Updated Release executable: build/Release/MoonEngine.exe. A separate
+moon_preview.exe is also available for isolated checks.
 
 
 Miscellaneous: all four original controls commit and reload; resetMovieCount

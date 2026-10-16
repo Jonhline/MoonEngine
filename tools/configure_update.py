@@ -20,8 +20,8 @@ def generate(version, config, output):
         if not token or any(ord(x) < 32 for x in token):
             raise ValueError("invalid update token")
     text = "/* Generated locally; never commit this file. */\n"
-    text += "#define OPENGT4_VERSION_COMMAS " + version.replace(".", ",") + ",0\n"
-    for name, value in [("OPENGT4_VERSION", version), ("OPENGT4_UPDATE_URL", url), ("OPENGT4_UPDATE_TOKEN", token)]:
+    text += "#define MOON_VERSION_COMMAS " + version.replace(".", ",") + ",0\n"
+    for name, value in [("MOON_VERSION", version), ("MOON_UPDATE_URL", url), ("MOON_UPDATE_TOKEN", token)]:
         text += "#define " + name + " " + json.dumps(value, ensure_ascii=True) + "\n"
     Path(output).parent.mkdir(parents=True, exist_ok=True)
     Path(output).write_text(text, encoding="utf-8")

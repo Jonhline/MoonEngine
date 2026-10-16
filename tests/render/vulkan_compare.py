@@ -12,7 +12,7 @@ with tempfile.TemporaryDirectory(prefix="moon-vulkan-") as temporary:
     for backend in ("opengl", "vulkan"):
         output = pathlib.Path(temporary) / (backend + ".rgba")
         env = os.environ.copy()
-        env.pop("OPENGT4_GRAPHICS_API", None)
+        env.pop("MOON_GRAPHICS_API", None)
         result = subprocess.run([str(executable), backend, str(output)], env=env,
                                 capture_output=True, text=True, timeout=45)
         print(result.stderr)

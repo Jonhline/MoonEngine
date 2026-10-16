@@ -4,8 +4,8 @@
  * paints) and the opponents' choice (MCarData.PickUpEnemyCars,
  * func_001308C8). Tables come from the user's disc.
  */
-#ifndef OPENGT4_ARCADE_H
-#define OPENGT4_ARCADE_H
+#ifndef MOON_ARCADE_H
+#define MOON_ARCADE_H
 
 #include "vol.h"
 

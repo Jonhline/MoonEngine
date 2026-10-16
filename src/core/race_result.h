@@ -5,8 +5,8 @@
  * func_003DFCC8 at each finish), its scripts answered by the callbacks of
  * func_003DF3B8. Over when the movie calls cb_raceexit.
  */
-#ifndef OPENGT4_RACE_RESULT_H
-#define OPENGT4_RACE_RESULT_H
+#ifndef MOON_RACE_RESULT_H
+#define MOON_RACE_RESULT_H
 
 #include <stdint.h>
 #include "vol.h"

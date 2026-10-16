@@ -1,5 +1,5 @@
-#ifndef OPENGT4_CAREER_FLOAT_H
-#define OPENGT4_CAREER_FLOAT_H
+#ifndef MOON_CAREER_FLOAT_H
+#define MOON_CAREER_FLOAT_H
 #include <stdint.h>
 /* PS2 rounding helpers for career ports; no EE runtime dependency. */
 static inline uint32_t career_f32_from_int(int32_t value)

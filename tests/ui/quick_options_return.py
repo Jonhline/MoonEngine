@@ -11,7 +11,7 @@ exe, disc, output = sys.argv[1:4]
 negative = "--negative" in sys.argv[4:]
 folder = Path(output).resolve()
 folder.mkdir(parents=True, exist_ok=True)
-env = dict(os.environ, SDL_AUDIODRIVER="dummy", OPENGT4_MENU_TRACE="1")
+env = dict(os.environ, SDL_AUDIODRIVER="dummy", MOON_MENU_TRACE="1")
 result = subprocess.run(
     [exe, disc, "arcade", "--pre-race", "--race-course", "testcourse",
      "--race-car", "ka_01", "--quick-input", "right,right,accept,back",

@@ -42,7 +42,7 @@ struct Program {
     VkPipelineLayout layout = VK_NULL_HANDLE;
     std::vector<Uniform> uniforms;
     std::vector<uint8_t> values;
-    std::map<std::vector<uint64_t>, VkPipeline> pipelines;
+    std::map<std::array<uint64_t, 67>, VkPipeline> pipelines;
     bool linked = false;
     std::array<bool, 16> inputs = {};
 };
@@ -99,7 +99,9 @@ struct Context {
     unsigned clear_program = 0;
     moon_vk_render_stats statistics = {};
     bool recording = false, vsync = true, rebuild_swapchain = true;
-    bool stream_geometry = false;
+    bool stream_geometry = false, uncached_descriptors = false, split_present = false,
+         transient_framebuffers = false;
+    std::map<std::array<uint64_t, 17>, VkDescriptorSet> draw_sets;
     State state;
     std::map<unsigned, std::shared_ptr<Image>> textures, renderbuffers;
     std::map<unsigned, std::vector<uint8_t>> buffers;
@@ -113,12 +115,14 @@ struct Context {
     std::map<std::array<int, 6>, VkSampler> samplers;
     std::map<std::array<int, 2>, VkRenderPass> passes;
     std::vector<VkFramebuffer> transient_targets;
+    std::map<std::array<VkImageView, 2>, VkFramebuffer> target_cache;
     std::vector<std::shared_ptr<Image>> retired_images;
     VkImageView pass_color = VK_NULL_HANDLE, pass_depth = VK_NULL_HANDLE;
     std::shared_ptr<Image> white, screen;
     std::string error;
     uint32_t memory_type(uint32_t mask, VkMemoryPropertyFlags flags);
-    Buffer buffer(VkDeviceSize size, VkBufferUsageFlags usage, bool host_visible = true, bool cached = false);
+    Buffer buffer(VkDeviceSize size, VkBufferUsageFlags usage, bool host_visible = true,
+                  bool cached = false);
     void destroy(Buffer &buffer);
     void retire_vertex_buffer(unsigned id);
     const Buffer *vertex_buffer(unsigned id);
@@ -127,6 +131,7 @@ struct Context {
     void begin();
     void end_pass();
     void flush();
+    void reset_submission();
     void barrier();
     size_t reserve(size_t bytes, size_t alignment = 16);
     Image *color(unsigned framebuffer);
@@ -138,6 +143,8 @@ struct Context {
     VkRenderPass render_pass(VkFormat color, VkFormat depth);
     void blit(Image &source, Image &dest, int sx0, int sy0, int sx1, int sy1, int dx0, int dy0,
               int dx1, int dy1, bool linear, bool depth = false);
+    VkDescriptorSet draw_descriptors(const Program &program);
+    VkFramebuffer target_framebuffer(Image &color, Image *depth, VkRenderPass pass);
     void draw(GLenum topology, int first, int count);
     void present();
     bool resize_swapchain();

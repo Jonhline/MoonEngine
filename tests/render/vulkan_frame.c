@@ -82,7 +82,7 @@ static int geometry_fixture(int vulkan)
 int main(int argc, char **argv)
 {
     CHECK(argc == 3);
-    SDL_setenv("OPENGT4_WINDOW_HIDDEN", "1", 1);
+    SDL_setenv("MOON_WINDOW_HIDDEN", "1", 1);
     plat_video_desc desc = {320, 240, 0, 0, 0, !strcmp(argv[1], "vulkan")};
     CHECK(plat_video_init(&desc) == 0);
     CHECK(!SDL_GL_GetCurrentContext() == desc.backend);
@@ -141,6 +141,7 @@ int main(int argc, char **argv)
     if (desc.backend) {
         moon_vk_render_stats after = moon_vk_render_statistics();
         CHECK(after.draws - before.draws == 128);
+        CHECK(after.descriptor_updates - before.descriptor_updates <= 1);
         CHECK(after.passes - before.passes <= 1);
         CHECK(after.submissions == before.submissions);
         /* Destroy an already sampled texture before completion. The image

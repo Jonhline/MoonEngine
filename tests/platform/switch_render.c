@@ -92,24 +92,24 @@ static void cpu_environment(const float r[3], const float u[3], const float f[3]
 static void texture_cache(int uncached)
 {
 #ifdef _WIN32
-    _putenv_s("OPENGT4_SWITCH_UNCACHED", uncached ? "1" : "");
+    _putenv_s("MOON_SWITCH_UNCACHED", uncached ? "1" : "");
 #else
     if (uncached)
-        setenv("OPENGT4_SWITCH_UNCACHED", "1", 1);
+        setenv("MOON_SWITCH_UNCACHED", "1", 1);
     else
-        unsetenv("OPENGT4_SWITCH_UNCACHED");
+        unsetenv("MOON_SWITCH_UNCACHED");
 #endif
 }
 
 static void shader_reference(int enabled)
 {
 #ifdef _WIN32
-    _putenv_s("OPENGT4_SWITCH_SHADER_REFERENCE", enabled ? "1" : "");
+    _putenv_s("MOON_SWITCH_SHADER_REFERENCE", enabled ? "1" : "");
 #else
     if (enabled)
-        setenv("OPENGT4_SWITCH_SHADER_REFERENCE", "1", 1);
+        setenv("MOON_SWITCH_SHADER_REFERENCE", "1", 1);
     else
-        unsetenv("OPENGT4_SWITCH_SHADER_REFERENCE");
+        unsetenv("MOON_SWITCH_SHADER_REFERENCE");
 #endif
 }
 

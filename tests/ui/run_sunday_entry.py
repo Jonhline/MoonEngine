@@ -10,7 +10,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("disc", type=Path)
     parser.add_argument("--save-dir", required=True, type=Path)
-    parser.add_argument("--exe", type=Path, default=Path("build/Release/opengt4.exe"))
+    parser.add_argument("--exe", type=Path, default=Path("build/Release/MoonEngine.exe"))
     parser.add_argument("--negative", action="store_true")
     parser.add_argument("--start", action="store_true", help="Activate A-spec in the production executable")
     args = parser.parse_args()

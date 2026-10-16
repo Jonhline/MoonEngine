@@ -5,8 +5,8 @@
    same start (their seeds are their grid slots, func_004639E0). So a file
    holds the race's setup and the commands, not pictures or places. It is
    kept in the save's container (gt4_save_write: CRC, backup, atomic). */
-#ifndef OPENGT4_REPLAY_FILE_H
-#define OPENGT4_REPLAY_FILE_H
+#ifndef MOON_REPLAY_FILE_H
+#define MOON_REPLAY_FILE_H
 #include <stddef.h>
 #include <stdint.h>
 

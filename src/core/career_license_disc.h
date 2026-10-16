@@ -1,5 +1,5 @@
-#ifndef OPENGT4_CAREER_LICENSE_DISC_H
-#define OPENGT4_CAREER_LICENSE_DISC_H
+#ifndef MOON_CAREER_LICENSE_DISC_H
+#define MOON_CAREER_LICENSE_DISC_H
 #include "physics/race_run.h"
 #include "career_race_lookup.h"
 typedef struct {

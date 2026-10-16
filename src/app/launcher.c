@@ -1,5 +1,6 @@
 /* PC preparation: no artwork before disc validation; Options assets and
    widget measurements are loaded at runtime from the user's disc. */
+#include "moon_pref.h"
 #include "launcher.h"
 #include "launcher_scene.h"
 #include "platform/renderer_backend.h"
@@ -16,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <sys/stat.h>
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -156,9 +158,9 @@ static void gradient_h(HDC dc, RECT r, COLORREF left, COLORREF right)
 }
 static LRESULT CALLBACK control_proc(HWND win, UINT message, WPARAM w, LPARAM l)
 {
-    WNDPROC original = (WNDPROC)GetPropW(win, L"OpenGT4ControlProc");
-    launcher_window *s = (launcher_window *)GetPropW(win, L"OpenGT4Launcher");
-    int combo = GetPropW(win, L"OpenGT4Combo") != NULL;
+    WNDPROC original = (WNDPROC)GetPropW(win, L"MoonEngineSecondaryControlProc");
+    launcher_window *s = (launcher_window *)GetPropW(win, L"MoonEngineSecondaryLauncher");
+    int combo = GetPropW(win, L"MoonEngineSecondaryCombo") != NULL;
     /* P: owner-drawn controls cover their entire client area. Native BUTTON
        background erasure paints white before WM_DRAWITEM; the animated
        backdrop exposes that intermediate rectangle. */
@@ -201,9 +203,9 @@ static LRESULT CALLBACK control_proc(HWND win, UINT message, WPARAM w, LPARAM l)
     }
     LRESULT result = CallWindowProcW(original, win, message, w, l);
     if (message == WM_NCDESTROY) {
-        RemovePropW(win, L"OpenGT4ControlProc");
-        RemovePropW(win, L"OpenGT4Launcher");
-        RemovePropW(win, L"OpenGT4Combo");
+        RemovePropW(win, L"MoonEngineSecondaryControlProc");
+        RemovePropW(win, L"MoonEngineSecondaryLauncher");
+        RemovePropW(win, L"MoonEngineSecondaryCombo");
     }
     return result;
 }
@@ -214,11 +216,11 @@ static HWND control(launcher_window *s, const wchar_t *cls, const wchar_t *name,
                                w, h, s->window, (HMENU)(INT_PTR)id, GetModuleHandleW(NULL), NULL);
     SendMessageW(win, WM_SETFONT, (WPARAM)s->normal, TRUE);
     if (!wcscmp(cls, L"COMBOBOX") || !wcscmp(cls, L"BUTTON")) {
-        SetPropW(win, L"OpenGT4Launcher", s);
+        SetPropW(win, L"MoonEngineSecondaryLauncher", s);
         if (!wcscmp(cls, L"COMBOBOX"))
-            SetPropW(win, L"OpenGT4Combo", (HANDLE)1);
+            SetPropW(win, L"MoonEngineSecondaryCombo", (HANDLE)1);
         WNDPROC previous = (WNDPROC)SetWindowLongPtrW(win, GWLP_WNDPROC, (LONG_PTR)control_proc);
-        SetPropW(win, L"OpenGT4ControlProc", (HANDLE)previous);
+        SetPropW(win, L"MoonEngineSecondaryControlProc", (HANDLE)previous);
     }
     return win;
 }
@@ -746,7 +748,7 @@ static void load_photos(launcher_window *s)
         *end = 0;
     else
         strcpy(base, ".");
-    snprintf(cache, sizeof cache, "%s/launcher_photos/photos", base);
+    snprintf(cache, sizeof cache, "%s/secondary_launcher_photos/photos", base);
     snprintf(album, sizeof album, "%s/photos", s->start->preferences.saves);
     launcher_photos_open(&s->photos, cache, album, 900, 700);
 }
@@ -1197,13 +1199,13 @@ static LRESULT CALLBACK window_proc(HWND win, UINT msg, WPARAM w, LPARAM l)
                 ShowWindow(s->update_button, SW_HIDE);
             else if (!s->update_job)
                 s->update_job =
-                    launcher_update_start(OPENGT4_UPDATE_URL, OPENGT4_UPDATE_TOKEN, NULL);
+                    launcher_update_start(MOON_UPDATE_URL, MOON_UPDATE_TOKEN, NULL);
             InvalidateRect(win, NULL, FALSE);
             return 0;
         }
         if (id == UPDATE && event == BN_CLICKED && !s->update_job &&
             s->update_manifest.version[0]) {
-            s->update_job = launcher_update_start(OPENGT4_UPDATE_URL, OPENGT4_UPDATE_TOKEN,
+            s->update_job = launcher_update_start(MOON_UPDATE_URL, MOON_UPDATE_TOKEN,
                                                   &s->update_manifest);
             if (s->update_job) {
                 s->update_downloading = 1;
@@ -1392,7 +1394,7 @@ static int run_screen(launcher_startup *start, const char *shot, const char *inp
     cls.hInstance = GetModuleHandleW(NULL);
     cls.hCursor = LoadCursor(NULL, IDC_ARROW);
     cls.hIcon = LoadIconW(cls.hInstance, MAKEINTRESOURCEW(1));
-    cls.lpszClassName = L"OpenGT4Preparation";
+    cls.lpszClassName = L"MoonEngineSecondaryPreparation";
     if (!RegisterClassW(&cls) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
         s.result = -1;
         goto end;
@@ -1400,7 +1402,7 @@ static int run_screen(launcher_startup *start, const char *shot, const char *inp
     RECT r = {0, 0, LAUNCHER_WIDTH, LAUNCHER_HEIGHT};
     AdjustWindowRect(&r, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, FALSE);
     HWND win = CreateWindowExW(
-        WS_EX_COMPOSITED, cls.lpszClassName, L"Moon Engine",
+        WS_EX_COMPOSITED, cls.lpszClassName, L"Moon Engine - secondary launcher",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN, CW_USEDEFAULT,
         CW_USEDEFAULT, r.right - r.left, r.bottom - r.top, NULL, NULL, cls.hInstance, &s);
     if (!win) {
@@ -1423,7 +1425,7 @@ static int run_screen(launcher_startup *start, const char *shot, const char *inp
     MoveWindow(s.update_check, LAUNCHER_WIDTH - 230, 24, 198, 30, FALSE);
     ShowWindow(s.music_mute, s.disc_valid ? SW_SHOW : SW_HIDE);
     if (start->preferences.check_updates && !shot && !inputs)
-        s.update_job = launcher_update_start(OPENGT4_UPDATE_URL, OPENGT4_UPDATE_TOKEN, NULL);
+        s.update_job = launcher_update_start(MOON_UPDATE_URL, MOON_UPDATE_TOKEN, NULL);
     ShowWindow(win, SW_SHOW);
     UpdateWindow(win);
     s.sdl_ready = SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS) == 0;
@@ -1490,7 +1492,7 @@ static int run_screen(launcher_startup *start, const char *shot, const char *inp
                 launcher_update_manifest m;
                 int available = start->preferences.check_updates &&
                                 launcher_update_parse(json, &m) &&
-                                launcher_update_newer(m.version, OPENGT4_VERSION);
+                                launcher_update_newer(m.version, MOON_VERSION);
                 if (available)
                     s.update_manifest = m;
                 ShowWindow(s.update_button, available ? SW_SHOW : SW_HIDE);
@@ -1567,7 +1569,7 @@ static int run_screen(launcher_startup *start, const char *shot, const char *inp
            s.skin.cache_hit, visible);
     printf("LAUNCHER UPDATE %s CHECK %d VERSION %s\n",
            IsWindowVisible(s.update_button) ? s.update_manifest.version : "none",
-           start->preferences.check_updates, OPENGT4_VERSION);
+           start->preferences.check_updates, MOON_VERSION);
     printf("LAUNCHER FILTER %s\n", s.skin.filter ? "FSR1" : "none");
     printf("LAUNCHER DOCK 8 SIZE %d %d SCENE %d\n", LAUNCHER_WIDTH, LAUNCHER_HEIGHT,
            launcher_scene_frames(s.scene));
@@ -1675,11 +1677,28 @@ int launcher_bootstrap(int *argc, char ***argv, launcher_startup *start)
     }
     if (file && strlen(file) >= LAUNCHER_PATH - 32)
         return -1;
-    char *pref = SDL_GetPrefPath("OpenGT4", "OpenGT4");
+    char *pref = moon_pref_path();
     if (!pref)
         return -1;
+    /* P: this is the secondary launcher; the official Moon Engine launcher
+       (in development by another contributor) keeps the plain launcher
+       names in the player data folder. Files of the earlier names move once. */
+    static const char *const renamed[][2] = {
+        {"launcher.ini", "secondary_launcher.ini"},
+        {"launcher.ini.bak", "secondary_launcher.ini.bak"},
+        {"launcher-options", "secondary_launcher-options"},
+        {"launcher_photos", "secondary_launcher_photos"},
+        {"launcher_icons", "secondary_launcher_icons"}};
+    for (size_t i = 0; !file && i < sizeof renamed / sizeof renamed[0]; i++) {
+        char from[LAUNCHER_PATH], to[LAUNCHER_PATH];
+        snprintf(from, sizeof from, "%s%s", pref, renamed[i][0]);
+        snprintf(to, sizeof to, "%s%s", pref, renamed[i][1]);
+        struct stat st;
+        if (stat(to, &st) && !stat(from, &st))
+            rename(from, to);
+    }
     char config[LAUNCHER_PATH];
-    snprintf(config, sizeof config, "%slauncher.ini", pref);
+    snprintf(config, sizeof config, "%ssecondary_launcher.ini", pref);
     launcher_preferences_load(&start->preferences, file ? file : config);
     snprintf(start->video_file, sizeof start->video_file, file ? "%s.video.ini" : "%svideo.ini",
              file ? file : pref);

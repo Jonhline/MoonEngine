@@ -4,7 +4,7 @@
 Usage: python tests/initsys/run_test.py [path/to/initsys_run.exe]
 
 Build first (needs extracted/core.bin and the splat output):
-  cmake -S . -B build -DOPENGT4_RECOMP_TESTS=ON
+  cmake -S . -B build -DMOON_RECOMP_TESTS=ON
   cmake --build build --config Release --target initsys_run
 
 What this checks, and what it does not:

@@ -1,5 +1,5 @@
-#ifndef OPENGT4_LICENSE_CONCOURSE_H
-#define OPENGT4_LICENSE_CONCOURSE_H
+#ifndef MOON_LICENSE_CONCOURSE_H
+#define MOON_LICENSE_CONCOURSE_H
 
 /* Native LicenseConcourse director, NTSC-U v2.00 00408F90/00409138/
    00409258. Rendering and the course's placements are separate boundaries. */

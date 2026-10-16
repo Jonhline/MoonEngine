@@ -1,5 +1,5 @@
-#ifndef OPENGT4_DRIVER_POSE_H
-#define OPENGT4_DRIVER_POSE_H
+#ifndef MOON_DRIVER_POSE_H
+#define MOON_DRIVER_POSE_H
 #include "driver_model.h"
 /* Published skeleton order used by the original HumanModel. */
 enum gt4_driver_bone_id {

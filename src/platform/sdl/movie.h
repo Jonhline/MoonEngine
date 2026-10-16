@@ -1,5 +1,5 @@
-#ifndef OPENGT4_SDL_MOVIE_H
-#define OPENGT4_SDL_MOVIE_H
+#ifndef MOON_SDL_MOVIE_H
+#define MOON_SDL_MOVIE_H
 #include "ipic.h"
 #include <stddef.h>
 #include <stdint.h>

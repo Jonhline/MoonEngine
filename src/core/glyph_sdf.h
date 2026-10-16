@@ -3,8 +3,8 @@
  * be drawn with sharp edges at any window size (docs/MENU_PRESENTATION.md,
  * "Text sharpness").
  */
-#ifndef OPENGT4_GLYPH_SDF_H
-#define OPENGT4_GLYPH_SDF_H
+#ifndef MOON_GLYPH_SDF_H
+#define MOON_GLYPH_SDF_H
 
 #include <stdint.h>
 

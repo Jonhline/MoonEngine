@@ -3,8 +3,8 @@
  * user's disc image or from a copied GT4.VOL. Replaces the PS2 path
  * (fileio/CDVD over the IOP) with plain file reads. Format: docs/VOL_FORMAT.md.
  */
-#ifndef OPENGT4_VOL_H
-#define OPENGT4_VOL_H
+#ifndef MOON_VOL_H
+#define MOON_VOL_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -36,4 +36,4 @@ uint8_t *gt4_disc_read_file(const char *path, const char *name, size_t *size);
 typedef void (*gt4_vol_list_fn)(void *user, const char *name, int is_dir, uint32_t size);
 int gt4_vol_list(gt4_vol *v, const char *dir, gt4_vol_list_fn fn, void *user);
 
-#endif /* OPENGT4_VOL_H */
+#endif /* MOON_VOL_H */

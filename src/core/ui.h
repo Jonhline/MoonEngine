@@ -10,8 +10,8 @@
  * item, FT01 text, RT03 translations and platform-provided MovieFace playback.
  * Widget rules that are assumptions are listed in docs/UI_FORMAT.md.
  */
-#ifndef OPENGT4_UI_H
-#define OPENGT4_UI_H
+#ifndef MOON_UI_H
+#define MOON_UI_H
 #include "tex1.h"
 #include "ui_motion.h"
 #include "car_service.h"
@@ -237,4 +237,4 @@ void ui_draw_under(ui_project *p, int i);
    keeps the disc's images. Process-wide; set before pages load. */
 void ui_set_hd_cache(const char *dir);
 
-#endif /* OPENGT4_UI_H */
+#endif /* MOON_UI_H */

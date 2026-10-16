@@ -10,8 +10,8 @@
  *
  * The movie's 640x480 units are drawn in a 640x480 view.
  */
-#ifndef OPENGT4_STROBE_PLAYER_H
-#define OPENGT4_STROBE_PLAYER_H
+#ifndef MOON_STROBE_PLAYER_H
+#define MOON_STROBE_PLAYER_H
 
 #include <stdint.h>
 #include "rtext.h"

@@ -1,5 +1,5 @@
-#ifndef OPENGT4_PCM_MUSIC_H
-#define OPENGT4_PCM_MUSIC_H
+#ifndef MOON_PCM_MUSIC_H
+#define MOON_PCM_MUSIC_H
 #include "vol.h"
 typedef struct gt4_pcm_music gt4_pcm_music;
 /* Original 004379F0 jukebox/save object (0x810 bytes). */

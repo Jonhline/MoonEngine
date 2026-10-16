@@ -943,7 +943,7 @@ static int point_step(gt4_dive *d, const gt4_dive_target *tg, gt4_tvcam_view *o)
     o->roll = roll;
     o->fov = lens;
     o->shot = (int)((c->point - d->points) / 0x30);
-    if (getenv("OPENGT4_DIVE_LOG") && c->frames % 20 == 1)
+    if (getenv("MOON_DIVE_LOG") && c->frames % 20 == 1)
         fprintf(
             stderr,
             "dive pt %d cam %.1f %.1f %.1f car %.1f %.1f %.1f d %.1f span %.1f..%.1f along %.2f pitch %.1f head %.1f lens %.1f\n",
@@ -1220,7 +1220,7 @@ static int orbit_step(gt4_dive *d, const gt4_dive_target *tg, gt4_tvcam_view *o)
     o->fov = c->lens;
     o->shot = -1;
     gt4_pregrid_projection(c->lens, &o->sx, &o->sy);
-    if (getenv("OPENGT4_DIVE_LOG") && c->frames % 30 == 1)
+    if (getenv("MOON_DIVE_LOG") && c->frames % 30 == 1)
         fprintf(
             stderr,
             "dive orbit v%d eye %.1f %.1f %.1f car %.1f %.1f %.1f yaw %.2f a %.0f dist %.1f lens %.0f size %.2f %.2f %.2f %.2f\n",
@@ -1288,7 +1288,7 @@ static void wall_check(const gt4_dive_target *tg, float margin, const float from
     float out[3];
     if (!tg->wall)
         return;
-    if (tg->wall(tg->ctx, margin, from, eye, out, &id) && getenv("OPENGT4_DIVE_LOG"))
+    if (tg->wall(tg->ctx, margin, from, eye, out, &id) && getenv("MOON_DIVE_LOG"))
         fprintf(stderr, "dive wall: %.1f %.1f %.1f -> %.1f %.1f %.1f\n", eye[0], eye[1], eye[2],
                 out[0], out[1], out[2]);
     memcpy(eye, out, sizeof out);
@@ -1565,8 +1565,8 @@ static int direct(gt4_dive *d, const gt4_dive_target *tg)
         int kind = 0;
         while (kind < 8 && (r -= t[kind]) > 0)
             kind++;
-        if (getenv("OPENGT4_DIVE_KIND"))
-            kind = atoi(getenv("OPENGT4_DIVE_KIND")); /* tests: one kind only */
+        if (getenv("MOON_DIVE_KIND"))
+            kind = atoi(getenv("MOON_DIVE_KIND")); /* tests: one kind only */
         if (kind == 0 && car_pick(d, tg, d->timer))
             return 2;
         if (kind >= 1 && kind <= 3) {
@@ -1657,10 +1657,10 @@ static void filter_pick(gt4_dive *d)
         to = tints[i < 0 ? 0 : i > 11 ? 11 : i];
     } else
         return;
-    if (getenv("OPENGT4_DIVE_FILTER")) { /* tests: <1 tone | 2 tint>:<index> */
-        int table = atoi(getenv("OPENGT4_DIVE_FILTER")),
-            i = strchr(getenv("OPENGT4_DIVE_FILTER"), ':')
-                    ? atoi(strchr(getenv("OPENGT4_DIVE_FILTER"), ':') + 1)
+    if (getenv("MOON_DIVE_FILTER")) { /* tests: <1 tone | 2 tint>:<index> */
+        int table = atoi(getenv("MOON_DIVE_FILTER")),
+            i = strchr(getenv("MOON_DIVE_FILTER"), ':')
+                    ? atoi(strchr(getenv("MOON_DIVE_FILTER"), ':') + 1)
                     : 0;
         f->state = table;
         to = table == 1 && i >= 0 && i < 21   ? tones[i]
@@ -1722,7 +1722,7 @@ int gt4_dive_step(gt4_dive *d, const gt4_dive_target *t, gt4_tvcam_view *out)
     int camera_cut = !d->running || d->cut;
     if (camera_cut) {
         d->running = direct(d, t);
-        if (getenv("OPENGT4_DIVE_LOG"))
+        if (getenv("MOON_DIVE_LOG"))
             fprintf(stderr, "dive shot: camera %d for %.2f s\n", d->running, d->timer);
     }
     d->cut = 0;

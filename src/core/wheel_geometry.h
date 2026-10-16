@@ -1,5 +1,5 @@
-#ifndef OPENGT4_WHEEL_GEOMETRY_H
-#define OPENGT4_WHEEL_GEOMETRY_H
+#ifndef MOON_WHEEL_GEOMETRY_H
+#define MOON_WHEEL_GEOMETRY_H
 #include <math.h>
 typedef struct {
     float minimum, radial, bead, axial;

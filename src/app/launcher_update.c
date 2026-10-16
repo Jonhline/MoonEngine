@@ -120,7 +120,7 @@ static HINTERNET request(const char *url,const char *token,HINTERNET *session,HI
     u.lpszUrlPath=path;u.dwUrlPathLength=3072;u.dwUserNameLength=u.dwPasswordLength=(DWORD)-1;
     if(!WinHttpCrackUrl(full,0,0,&u) || u.nScheme!=INTERNET_SCHEME_HTTPS ||
        u.dwUserNameLength || u.dwPasswordLength) return NULL;
-    *session=WinHttpOpen(L"OpenGT4/" L"updater",WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+    *session=WinHttpOpen(L"MoonEngine/" L"updater",WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                         WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0);
     if(!*session) return NULL;
     WinHttpSetTimeouts(*session,3000,3000,5000,5000);
@@ -186,7 +186,7 @@ static int receive(launcher_update_job *j,HINTERNET r)
     if(j->download) return total==j->manifest.size && launcher_update_verify(j->setup,&j->manifest);
     json[total]=0;
     return !memchr(json,0,(size_t)total) && launcher_update_parse(json,&j->manifest) &&
-           launcher_update_newer(j->manifest.version,OPENGT4_VERSION);
+           launcher_update_newer(j->manifest.version,MOON_VERSION);
 }
 static DWORD WINAPI worker(void *context)
 {

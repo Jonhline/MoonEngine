@@ -9,12 +9,12 @@ Este mapa localiza os módulos da física, corrida e apresentação.
 - `src/core/physics/` (todo o diretório)
 - `src/core/spectables.c/.h`, `src/core/specdb.c/.h` (a parte de linhas por
   índice e strings do SpecDB que a física usa)
-- `tests/physics/` (harnesses `physics_run`, `setup_run`, `opengt4_drive`,
+- `tests/physics/` (harnesses `physics_run`, `setup_run`, `moon_drive`,
   scripts de comparação)
 - `docs/notes/analysis/PHYSICS.md`, este arquivo
 - `src/platform/sdl/race_view.c/.h` (a pista com o carro, as rodas; o
   `car_model.c/.h` é compartilhado com o showroom dos menus)
-- As linhas de física no `CMakeLists.txt` (`opengt4_physics`, alvos de
+- As linhas de física no `CMakeLists.txt` (`moon_physics`, alvos de
   `tests/physics`).
 
 
@@ -58,19 +58,19 @@ A documentação técnica completa está em
 1. ~~Tempo de volta da sessão TT~~: relógio, posições e melhor volta em C;
    eventos, ghost e recordes ficam no original (no headless são pulados) e
    serão portados junto com o modo de jogo.
-2. ~~Sair do snapshot~~: `opengt4_drive <disco> - --car X --course Y`
+2. ~~Sair do snapshot~~: `moon_drive <disco> - --car X --course Y`
    monta a corrida a partir do próprio disco (o `CORE.GT4` é descompactado
    em `tests/physics/race_build.c`; `extracted/core.elf` não é mais
    necessário), sem `a_parado.eeMemory.bin`. Toda a montagem da corrida
    Time Trial está em C (métodos 0xD0 e 0xD8 da sessão, configurações da
    IA, tabelas de direção, solver carro-contra-carro): com o controle
-   pelo host (`gt4_phys_pad`), o `opengt4_drive` não chama nenhuma função
+   pelo host (`gt4_phys_pad`), o `moon_drive` não chama nenhuma função
    original, nem na montagem nem nos passos. A sessão Time Trial ainda é
    montada à mão pelo `race_build` (os objetos que o menu criaria).
 3. ~~IA, carro contra carro, force feedback~~ (em C, ver acima).
    O controle do jogador entra pelo host: `gt4_phys_pad` (leitura,
    estado do volante, saídas de vibração e força), com SDL no
-   `opengt4_drive` (teclado como pad digital, gamepad como analógico,
+   `moon_drive` (teclado como pad digital, gamepad como analógico,
    rumble).
 4. Ainda no original: o layout de duas rodas (moto, herança do Tourist
    Trophy, nenhum carro do GT4 usa), linhas no formato antigo (não-ADLN,
@@ -81,7 +81,7 @@ A documentação técnica completa está em
 ## Passagem de bastão (30/09/2026)
 
 Para quem continuar a física. Estado: física, IA e montagem da corrida
-Time Trial em C; o `opengt4_drive` monta e dirige sem chamar o original.
+Time Trial em C; o `moon_drive` monta e dirige sem chamar o original.
 
 **Como trabalhar:**
 - Compilar: `sh tests/physics/compare.sh build` (MSBuild direto nos
@@ -123,7 +123,7 @@ Time Trial em C; o `opengt4_drive` monta e dirige sem chamar o original.
    perfis, garagem) em endereços fixos de captura. Para o jogo nativo, a
    física precisa expor "comece uma corrida com estes parâmetros" e o
    menu chamar isso pela interface da corrida.
-6. Ligar no `opengt4.exe` (`main.c`, plataforma): o controle já tem a interface (`gt4_phys_pad`); a
+6. Ligar no `MoonEngine.exe` (`main.c`, plataforma): o controle já tem a interface (`gt4_phys_pad`); a
    plataforma daria leitura, rumble e força do volante (G29 ainda não é
    lido como volante).
 7. Apresentação ainda original (fica para quando áudio/vídeo chegarem):

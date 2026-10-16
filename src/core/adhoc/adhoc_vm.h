@@ -7,8 +7,8 @@
  * GTAdhocToolchain; what was inferred from GT4's own code is marked in
  * docs/ADHOC.md.
  */
-#ifndef OPENGT4_ADHOC_VM_H
-#define OPENGT4_ADHOC_VM_H
+#ifndef MOON_ADHOC_VM_H
+#define MOON_ADHOC_VM_H
 
 #include "adhoc_code.h"
 
@@ -152,4 +152,4 @@ ah_obj *ah_as_obj(ah_val v, ah_okind kind); /* NULL if not that kind */
 /* Converts any value to text (numbers, nil...) into buf. */
 const char *ah_to_text(ah_val v, char *buf, size_t len);
 
-#endif /* OPENGT4_ADHOC_VM_H */
+#endif /* MOON_ADHOC_VM_H */

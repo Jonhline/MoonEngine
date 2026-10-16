@@ -81,16 +81,16 @@ Pendente:
   montam e a sessão tem oráculo E, mas isso não prova cada corrida inteira.
 
 Atalhos de teste:
-`OPENGT4_MISSION=l0m0001 opengt4 <iso> gtmode MissionRoot` pede a missão
-como se a checagem de licença tivesse passado. `OPENGT4_MISSION_TEST_PAD`
+`MOON_MISSION=l0m0001 moonengine <iso> gtmode MissionRoot` pede a missão
+como se a checagem de licença tivesse passado. `MOON_MISSION_TEST_PAD`
 lê uma fita de comandos de 32 bytes/frame; ausente, usa controle normal.
 Não disponibilizar esses overrides como regra de carreira.
 
 ```powershell
 ctest --test-dir build -C Release -R gtmode_mission_ --output-on-failure
-.venv/Scripts/python.exe tests/gtmode/mission_app.py build/Release/opengt4.exe <iso>
-.venv/Scripts/python.exe tests/gtmode/mission_app.py build/Release/opengt4.exe <iso> --case fail
-.venv/Scripts/python.exe tests/gtmode/mission_app.py build/Release/opengt4.exe <iso> --verify-log build/ui-audit/mission-app/win/app.log --negative
+.venv/Scripts/python.exe tests/gtmode/mission_app.py build/Release/MoonEngine.exe <iso>
+.venv/Scripts/python.exe tests/gtmode/mission_app.py build/Release/MoonEngine.exe <iso> --case fail
+.venv/Scripts/python.exe tests/gtmode/mission_app.py build/Release/MoonEngine.exe <iso> --verify-log build/ui-audit/mission-app/win/app.log --negative
 ```
 
 ## Como o jogo abre uma missão

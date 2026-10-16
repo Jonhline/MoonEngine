@@ -1,7 +1,7 @@
 # HD menu images (local cache)
 
 The menu images on the disc (logos, buttons, car thumbnails, backgrounds)
-are bitmaps for a 640x480 screen. OpenGT4 can use upscaled copies made on
+are bitmaps for a 640x480 screen. Moon Engine can use upscaled copies made on
 the user's own machine from their own disc. Nothing is shipped: no image
 and no upscaler is in the repository.
 
@@ -10,7 +10,7 @@ and no upscaler is in the repository.
 - Upscaler: Real-ESRGAN, portable ncnn/Vulkan build (BSD-3-Clause),
   official release `realesrgan-ncnn-vulkan-20220424-windows.zip` from
   github.com/xinntao/Real-ESRGAN (v0.2.5.0, about 45 MB), unpacked by the
-  user to `%LOCALAPPDATA%\OpenGT4\tools\realesrgan`. It runs on the GPU. A
+  user to `%LOCALAPPDATA%\MoonEngine\tools\realesrgan`. It runs on the GPU. A
   future launcher can download it on first use (its license allows
   redistribution with its notice).
 - `tools/c/gt4hdui.c`: walks every `.gpb` package and every `/piece` image
@@ -38,8 +38,8 @@ and no upscaler is in the repository.
 - `ui.c` (`image()`): after decoding an image it looks up its hash in the
   cache and, when found, uploads the upscaled texels; the widget keeps the
   original size, only the texture has more detail.
-- `main.c`: cache folder `%LOCALAPPDATA%\OpenGT4\ui_hd` by default;
-  `OPENGT4_UI_HD=0` turns it off, `OPENGT4_UI_HD=<folder>` uses another.
+- `main.c`: cache folder `%LOCALAPPDATA%\MoonEngine\ui_hd` by default;
+  `MOON_UI_HD=0` turns it off, `MOON_UI_HD=<folder>` uses another.
 
 ## Use
 

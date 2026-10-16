@@ -55,7 +55,7 @@ int main(int argc, char **argv)
             for (int i = 0; i < LAUNCHER_WIDTH * LAUNCHER_HEIGHT; i++)
                 pixels[i] = 0x00123456;
             if (argc > 3 && !item) {
-                WNDPROC original = (WNDPROC)GetPropW(button, L"OpenGT4ControlProc");
+                WNDPROC original = (WNDPROC)GetPropW(button, L"MoonEngineSecondaryControlProc");
                 CallWindowProcW(original, button, WM_ERASEBKGND, (WPARAM)dc, 0);
             } else
                 CHECK(SendMessageW(controls[item], WM_ERASEBKGND, (WPARAM)dc, 0) == 1);

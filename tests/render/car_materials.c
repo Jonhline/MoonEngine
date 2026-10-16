@@ -75,7 +75,7 @@ int main(int argc, char **argv)
     if (argc < 2)
         return 1;
     int negative = argc > 2 && !strcmp(argv[2], "--negative");
-    SDL_setenv("OPENGT4_WINDOW_HIDDEN", "1", 1);
+    SDL_setenv("MOON_WINDOW_HIDDEN", "1", 1);
     plat_video_desc desc = {320, 240, 0, 0, 0, !strcmp(argv[1], "vulkan")};
     if (plat_video_init(&desc) || !r3d_available())
         return 1;
