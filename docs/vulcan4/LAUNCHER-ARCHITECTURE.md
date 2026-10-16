@@ -122,28 +122,38 @@ own `SDL_GetPrefPath("MoonEngine","MoonEngine")` calls return, so nothing moved 
 
 ## 6. HOW THE EXECUTABLE IS MADE
 
-One CMake project (`CMakeLists.txt`), one game target, no runtime dependency on SDL:
+One CMake project (`CMakeLists.txt`), one game target, no runtime dependency on SDL. The names below are
+Jonhline's current ones (he renamed the build to `moon_*` and the binary to `MoonEngine`):
 
 | piece | how |
 |---|---|
-| `miniz` | `FetchContent` from `richgel999/miniz` (`CMakeLists.txt:27`); used for inflate (the disc's deflate streams, PNG upload) and the PNG encoder behind `--shot` |
-| `SDL2` | `FetchContent` (`:40`); **linked statically** — `SDL2::SDL2-static` + `SDL2::SDL2main` (`:204`, `:229`) |
-| libraries | `opengt4_core` (game logic, formats, mods), `opengt4_platform_common` (files, pref dir), `opengt4_platform_sdl` (window, GL, input, audio), `opengt4_physics`, `opengt4_race_sound`, `opengt4_career_vehicle`, `opengt4_ee` |
-| the game target | `add_executable(opengt4 …)` with **`OUTPUT_NAME moonengine`** (`:242`) — the target keeps the internal name so the ~800 references in CMake stay valid; the file on disk is `moonengine` |
-| release shape | `OPENGT4_WINDOWS_GUI=ON` builds it as a window program (no console) (`:236-238`) |
-| Windows cross-build | mingw-w64 toolchain `/mnt/ssd/mingw-sdl2/toolchain-mingw64.cmake`, build tree `/mnt/ssd/vulcan4-win`; SDL2 comes from the official mingw dev bundle and is linked statically, so **the exe imports only Windows system DLLs** — no `SDL2.dll`, no mingw runtime. **One file.** |
-| packaging | `tools/package_release.py` and the Inno Setup script `tools/installer/opengt4.iss` — **Jonhline's own commits renamed that installer to `moonengine.iss`**, so expect the rename to arrive with his next merge into this tree |
+| `miniz` | `FetchContent`; inflate (the disc's deflate streams, PNG upload) and the PNG encoder behind `--shot` |
+| `SDL2` | `FetchContent`; **linked statically** — `SDL2::SDL2-static` + `SDL2::SDL2main` |
+| libraries | `moon_core` (game logic, formats, **our mods layer**), `moon_platform_common` (files, pref dir, renderer backend), `moon_platform_sdl` (window, GL, input, audio), `moon_physics`, `moon_race_sound`, `moon_career_vehicle`, `moon_ee`; on Windows also `moon_vk_render` + `moon_vulkan` (his Vulkan path) |
+| source groups | `MOON_LAUNCHER_SOURCES` (the front door: `launcher.c`, `launcher_ui.c`, `launcher_text.c`, `launcher_config.c`, `launcher_photos.c`, `launcher_icons.c`, `launcher_gallery.c`) and `MOON_GRAPHICS_SOURCES` — the Switch build swaps both |
+| the game target | `add_executable(moonengine …)` with **`OUTPUT_NAME MoonEngine`** (`CMakeLists.txt:275-276`) → `MoonEngine` on Linux, **`MoonEngine.exe` on Windows** |
+| release shape | `MOON_WINDOWS_GUI=ON` (default) builds it as a **window program, no console** (`:255`, `:285`) |
+| Windows cross-build | mingw-w64 toolchain `/mnt/ssd/mingw-sdl2/toolchain-mingw64.cmake`; SDL2 comes from the official mingw dev bundle, linked statically, so **the exe imports only Windows system DLLs** — no `SDL2.dll`, no mingw runtime. **One file.** |
+| packaging | `tools/package_release.py` and the Inno Setup script `tools/installer/moonengine.iss` |
 
 Build (Linux, from the repo root):
 
 ```bash
-cmake -S . -B /mnt/ssd/vulcan4-build -DCMAKE_BUILD_TYPE=Release
-cmake --build /mnt/ssd/vulcan4-build -j4 --target opengt4     # → moonengine
+cmake -S . -B /mnt/ssd/moon-build -DCMAKE_BUILD_TYPE=Release
+cmake --build /mnt/ssd/moon-build -j4 --target moonengine     # → MoonEngine
 ```
 
-Windows cross-build: configure `/mnt/ssd/vulcan4-win` with the mingw toolchain file, then build the same
-target. House rules that bite: `-j4` and `nice/ionice` (the box runs a live Minecraft server), `TMPDIR` on the
-SSD, and never build in the tree (a build tree is ~176 MB).
+Windows cross-build (what ships to a Windows machine):
+
+```bash
+cmake -S . -B /mnt/ssd/moon-win -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_TOOLCHAIN_FILE=/mnt/ssd/mingw-sdl2/toolchain-mingw64.cmake
+cmake --build /mnt/ssd/moon-win -j4 --target moonengine        # → MoonEngine.exe
+```
+
+House rules that bite: `-j4` with `nice/ionice` (the box runs a live Minecraft server), `TMPDIR` on the SSD,
+never build inside the source tree (a build tree is ~176 MB), and on Windows build **only the game target** —
+the `launcher_tests` target wants `SDL_main` and fails to link there.
 
 ## 7. RULES FOR ANYTHING ADDED TO THE FRONT DOOR (the captain's own, 2026-10-16)
 
@@ -173,10 +183,53 @@ DISPLAY=:99 stdbuf -oL -eL /mnt/ssd/vulcan4-build/moonengine --launcher --launch
 
 ## 9. KNOWN GOTCHAS
 
-- `showroom_clear_rig` clears the **car offset** but not the **camera** — the leak behind the mis-aligned GT
-  Mode shop (see `docs/vulcan4/NEXT-SESSION.md`).
+- `showroom_clear_rig` now clears the camera too: a game screen can never inherit the launcher's view (this
+  was the GT Mode shop drawn off-centre — see `docs/vulcan4/NEXT-SESSION.md`).
 - The panel door and the studio are **two different front ends**; a screen added to one does not appear in the
   other. The captain uses the studio; the manager lives in the panel door for now.
 - `%APPDATA%\MoonEngine\MoonEngine\` is the only place the launcher writes, so the program folder can stay
   read-only (`docs/vulcan4/MOD-MANIFEST.md`, "where mods live").
 - Missing dock icons print `MISSING` rather than failing: the room is still usable and says so.
+
+## 10. PUTTING IT ON A WINDOWS MACHINE (how the Baki build was done)
+
+This is the whole ship: one file, one folder, no installer needed for a test.
+
+1. **Cross-build on Linux** with the mingw toolchain (section 6) → `MoonEngine.exe`. Check the one-file rule:
+
+   ```bash
+   x86_64-w64-mingw32-objdump -p MoonEngine.exe | grep 'DLL Name'
+   # every line must be a Windows system dll (KERNEL32, USER32, GDI32, OPENGL32, SHELL32, ole32, winhttp…)
+   # If SDL2.dll or libgcc/libstdc++-6.dll appears, the static link did not happen.
+   ```
+
+2. **Copy it over** — `scp`, not `rsync` (Windows' OpenSSH has no rsync):
+
+   ```bash
+   scp -o ConnectTimeout=10 MoonEngine.exe "baki:C:/MoonEngine/MoonEngine.exe"
+   ```
+
+3. **The disc is the user's own file** and is never shipped with the build: copy their ISO (or point the
+   launcher at an existing one). On Baki it lives at
+   `C:\.Emulation\ps2\roms\Gran Turismo 4 (USA) (v2.00).iso`.
+
+4. **Run it.** Double-clicking `MoonEngine.exe` with no arguments opens **the studio**; the first-run wizard
+   asks where the disc is and remembers it in `launcher.ini`. With a disc path as the argument it goes straight
+   into the game.
+
+5. **Its user folder** (created on first run): `%APPDATA%\MoonEngine\MoonEngine\` — `saves/`, `video.ini`,
+   `launcher.ini`, `mods/`, `mods.ini`, `studio-rig.txt`. Deleting that folder resets everything.
+
+6. **Driving it over ssh (headless verification on that machine)** — the dev flags work there too:
+
+   ```powershell
+   .\MoonEngine.exe "<disc>" --studio ford_gt_05 --shot shot.png --no-config --shot-delay 8
+   .\MoonEngine.exe --launcher --launcher-v2 --launcher-page mods --launcher-shot mods.png
+   ```
+
+   The `MOONSTUDIO_*` environment variables script the studio (auto-START, capture the wizard, capture the
+   fade) when no keyboard can reach the window.
+
+**Windows gotchas worth remembering:** a process started inside an ssh session dies when the session ends (use
+a scheduled task if it must outlive you); quote the Windows user name — it contains a space
+(`"Or Golan@baki"`); and the exe is unsigned, so SmartScreen will ask once.
