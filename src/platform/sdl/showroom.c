@@ -142,7 +142,7 @@ static int studio_camera(showroom *s,const gt4_mot1 *m)
     if(lr<1e-6f)return 0;
     for(int k=0;k<3;k++)r[k]/=lr;
     float u[3]={r[1]*f[2]-r[2]*f[1],r[2]*f[0]-r[0]*f[2],r[0]*f[1]-r[1]*f[0]};
-    if(s->rig)return 0;   /* the captain's rig owns the camera once it is set */
+    if(s->rig)return 1;   /* the rig owns the CAMERA; the room itself still loads -- a set rig is not an asset failure */
     memcpy(s->eye,look,3*sizeof(float));memcpy(s->cam_r,r,sizeof r);memcpy(s->cam_u,u,sizeof u);memcpy(s->cam_f,f,sizeof f);
     s->yaw=atan2f(-f[0],-f[2]);s->focal=224/tanf(fov/2);
     return 1;
