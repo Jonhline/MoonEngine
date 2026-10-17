@@ -46,8 +46,14 @@ typedef struct {
 
 struct ui_project {
     int expanded_main_menu;
+    int card_feedback_drawing;
     int main_menu_first, main_menu_focus;
-    int pointer_active;
+    int pointer_active, touch_cursor_hidden;
+    const ui_widget *touch_preview, *touch_pressed;
+    ui_widget *touch_back;
+    ui_project *touch_back_source;
+    float touch_back_base_y;
+    float touch_back_progress, touch_back_selection;
     int smooth_pointer, pointer_ready, mouse_feedback, pointer_edge_direction;
     float pointer_vx, pointer_vy, pointer_spin, pointer_affordance;
     char previous_cursor_icon[64];
@@ -212,6 +218,7 @@ void ui_project_free(ui_project *p)
         free(p->model_env);
     if (!p)
         return;
+    ui_project_free(p->touch_back_source);
     plat_texture_destroy(p->retained);
     plat_texture_destroy(p->transition_frame);
     for (int i = 0; i < p->nflashes; i++) {
@@ -1683,8 +1690,17 @@ static void draw_text_face(ui_project *p, const ui_widget *w, frame area, const 
             : 1); /* labomode: Save Replay's "Create new file" in the item's middle (PCSX2); logger: its menu buttons' labels */
     if (w->has_runtime_align)
         align = w->runtime_align;
+    /* LicenseRoot's Passed composite: its geometry-less label fills the
+       128x128 client, inherits the composite transform, and uses constructor
+       alignment 4 (00246F58 +C4). gtmode.mproject supplies rotate=-20. */
+    int license_stamp = !strcmp(p->name,"gtmode") && w->parent &&
+        !strcmp(w->parent->name,"Passed") && !w->has_geometry;
+    if (license_stamp && !mp_prop(w->src,"align") && !w->has_runtime_align)
+        align=4;
     float shadow = (float)mp_number(w->src, "shadow", 0);
     float rotation = (float)mp_number(w->src, "rotate", 0);
+    if (license_stamp)
+        rotation+=(float)mp_number(w->parent->src,"rotate",0);
     double skew[2] = {0, 0};
     mp_numbers(w->src, "skew", skew, 2);
     /* TextFace skew is an angle; keep the baseline fixed while shearing. */
@@ -2195,8 +2211,21 @@ static int vertical_select(const ui_widget *w)
     return w->nkids && !strcmp(w->type, "SelectBox") && (int)mp_number(w->src, "direction", 0) == 1;
 }
 
+static const ui_widget *feedback_hover(const ui_project *p)
+{
+    if (p->touch_cursor_hidden)
+        return p->touch_preview;
+    return p->mouse_feedback && p->pointer_active ? p->pointer_hover : NULL;
+}
+static int feedback_active(const ui_project *p)
+{
+    return p->touch_cursor_hidden ? p->touch_preview != NULL
+                                  : p->mouse_feedback && p->pointer_active;
+}
 static int pointer_prelight(const ui_project *p, const ui_widget *w)
 {
+    if (p->touch_cursor_hidden && p->touch_preview)
+        return p->touch_preview == w;
     return p->pointer_active ? p->pointer_hover == w : w->focused;
 }
 static void pointer_bounds(ui_widget *w, frame f, clip_rect clip)
@@ -2230,7 +2259,11 @@ static int authored_hover(const ui_widget *w)
    GT Mode landmarks and main-menu labels retain their existing animations. */
 static float pointer_feedback_amount(const ui_project *p,const ui_widget *w)
 {
-    if(!p->mouse_feedback) return 0;
+    if (!p->mouse_feedback && !p->touch_cursor_hidden)
+        return 0;
+    for(const ui_widget *owner=w->parent;owner;owner=owner->parent)
+        if(!strcmp(owner->type,"SliderBar") || !strcmp(owner->type,"ScaleBar"))
+            return owner->pointer_light;
     /* P: the green exit pictogram has an authored alternate face, but
        also needs the same eased mouse affordance outside OptionRoot. */
     if(w->image_path && (strstr(w->image_path,"/exit.png") ||
@@ -2291,7 +2324,7 @@ void ui_main_menu_layout(ui_project *p, int expanded)
 static void draw_paint_hover(ui_project *p,const ui_widget *w,frame f,clip_rect clip)
 {
     const ui_widget *item=w->parent;
-    if(!p->mouse_feedback || !p->pointer_active || !item || item->pointer_light<=.001f)
+    if (!feedback_active(p) || !item || item->pointer_light <= .001f)
         return;
     float strength=item->pointer_light*f.alpha;
     clip_rect bounds=clip_to(clip,f);
@@ -2312,11 +2345,57 @@ static void draw_paint_hover(ui_project *p,const ui_widget *w,frame f,clip_rect 
     set_clip(clip);
 }
 
+/* P: shared list cards enlarge as one composition, not just their swatch.
+   Horizontal car strips already own an authored blob animation. */
+static const ui_widget *feedback_card(const ui_widget *w)
+{
+    if (!w || !w->parent || !is_container(w->type) || horizontal_strip(w->parent) ||
+        (strcmp(w->parent->type,"SelectBox") && strcmp(w->parent->type,"ListBox"))) return NULL;
+    const ui_widget *bg=ui_widget_child(w,"bg");
+    return bg && !strcmp(bg->type,"ColorFace") && bg->w>0 && bg->h>0 ? bg : NULL;
+}
+typedef struct {
+    ui_widget *widget;
+    float x,y,w,h,sx,sy;
+} card_geometry;
+static int card_tree_size(const ui_widget *w)
+{
+    int n=1;for(int i=0;i<w->nkids;i++) n+=card_tree_size(w->kids[i]);return n;
+}
+static void card_scale_tree(ui_widget *w,float scale,card_geometry *saved,int *count)
+{
+    saved[(*count)++]=(card_geometry){w,w->x,w->y,w->w,w->h,w->scale_x,w->scale_y};
+    w->x*=scale;w->y*=scale;w->w*=scale;w->h*=scale;
+    w->scale_x*=scale;w->scale_y*=scale;
+    for(int i=0;i<w->nkids;i++) card_scale_tree(w->kids[i],scale,saved,count);
+}
+
 static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_rect clip, int *drawn,
                         int *skipped)
 {
     if (!w->visible)
         return;
+    const ui_widget *card_bg=feedback_card(w);
+    if (!p->card_feedback_drawing && feedback_active(p) && card_bg && w->pointer_light>.001f) {
+        card_geometry *saved=malloc(sizeof(*saved)*card_tree_size(w));
+        if (saved) {
+            float scale=1+.045f*w->pointer_light;
+            float x=w->x-(card_bg->x+card_bg->w*.5f)*(scale-1);
+            float y=w->y-(card_bg->y+card_bg->h*.5f)*(scale-1);
+            int count=0;card_scale_tree((ui_widget *)w,scale,saved,&count);
+            ((ui_widget *)w)->x=x;((ui_widget *)w)->y=y;
+            p->card_feedback_drawing=1;
+            draw_widget(p,w,parent,clip,drawn,skipped);
+            p->card_feedback_drawing=0;
+            for(int i=0;i<count;i++) {
+                ui_widget *c=saved[i].widget;
+                c->x=saved[i].x;c->y=saved[i].y;c->w=saved[i].w;c->h=saved[i].h;
+                c->scale_x=saved[i].sx;c->scale_y=saved[i].sy;
+            }
+            free(saved);return;
+        }
+    }
+
     if(p->expanded_main_menu && !strcmp(p->name,"arcade") && w->parent &&
        !strcmp(w->parent->name,"TopRoot")) {
         if(!strcmp(w->name,"GT4")) return;
@@ -2600,6 +2679,11 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
         plat_draw_quad4(im ? im->tex : NULL, f.x, f.y, f.w * fill, f.h, 0, 0, fill, 1, col);
         (*drawn)++;
     } else if (!strcmp(type, "ColorChipFace")) {
+        if (feedback_active(p) && w->parent && !p->card_feedback_drawing) {
+            float extra=.045f*w->parent->pointer_light;
+            f.x-=f.w*extra*.5f; f.y-=f.h*extra*.5f;
+            f.w*=1+extra; f.h*=1+extra;
+        }
         /* CarRoot's paint chips: the SpecDB chip colour (VARIATION +36:
            r, g, b, then 3 = metallic / 1 = solid; GS scale, 128 = full)
            fills the chip, and image_path0 (metallic) or image_path1
@@ -2725,7 +2809,18 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
                                   w->parent->rotation, col[0]);
             else {
                 double slices[4] = {0, 0, 0, 0};
-                if (im && im->tex && mp_numbers(n, "slice", slices, 4) == 4 && im->w > 0 &&
+                int mouse_pinch=0;
+                if(p->pointer_active && p->pointer_hover &&
+                   !strcmp(w->image_path,"image/common/slider/pinch.png"))
+                    for(const ui_widget *a=w->parent;a;a=a->parent)
+                        if(a==p->pointer_hover) mouse_pinch=1;
+                if(mouse_pinch && im && im->tex) {
+                    /* Keep the authored value plate at the knob; its hand
+                       is now drawn once at the actual pointer position. */
+                    float plate=25.f/im->h;
+                    plat_draw_quad4(im->tex,f.x,f.y,iw*(float)s[0],ih*(float)s[1]*plate,
+                                    0,0,1,plate,col);
+                } else if (im && im->tex && mp_numbers(n, "slice", slices, 4) == 4 && im->w > 0 &&
                     im->h > 0) {
                     float dw = iw * (float)s[0], dh = ih * (float)s[1];
                     float l = fminf(fmaxf((float)slices[0], 0), fminf(dw * .5f, im->w * .5f));
@@ -2881,7 +2976,8 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
                 pinch->x = fminf(1, fmaxf(0, ratio)) * (popup->w - pinch->w);
         }
         for (int i = 0; i < w->nkids; i++) {
-            if (w->kids[i] == popup && !w->option_open)
+            if (w->kids[i] == popup && !w->option_open &&
+                !(feedback_active(p) && feedback_hover(p) == w))
                 continue;
             draw_widget(p, w->kids[i], f, inner, drawn, skipped);
         }
@@ -3270,12 +3366,26 @@ static void layout_packed(ui_project *p, ui_widget *w)
     allocate_fbox(p, w);
 }
 
+/* P: use the actual hand in the authored slider image, without its value
+   plate. Source pixels are read from the user's disc, never bundled. */
+static void draw_adjustment_hand(ui_project *p,int root,float x,float y)
+{
+    ui_image *hand=image(p,root,"image/common/slider/pinch.png");
+    if(!hand || !hand->tex || hand->w<30 || hand->h<56) return;
+    const uint8_t white[4]={255,255,255,255};
+    /* Retail pinch.png: the hand occupies x9..29,y25..55; fingertip x17. */
+    plat_draw_quad(hand->tex,x-8,y,21,31,9.f/hand->w,25.f/hand->h,
+                   30.f/hand->w,56.f/hand->h,white);
+}
+
 void ui_draw_root(ui_project *p, int i, int *drawn, int *skipped)
 {
     frame screen = {0, 0, 640, 480, 1.0f};
     clip_rect none = {0, 0, 0, 0, 0};
     int d = 0, s = 0;
     ui_widget *w = ui_root_widget(p, i);
+    if (p->touch_preview && p->touch_preview->root != i)
+        ui_touch_preview(p, NULL);
     p->cursor_visible = 0;
     p->option_popup = NULL;
     if (!++p->draw_tick)
@@ -3404,7 +3514,8 @@ void ui_draw_root(ui_project *p, int i, int *drawn, int *skipped)
         }
         p->cursor_started = p->cursor_visible = 1;
     }
-    if ((!p->cursor_hidden || p->pointer_active) && (p->cursor_visible || cursor_in_transition)) {
+    if (!p->touch_cursor_hidden && (!p->cursor_hidden || p->pointer_active) &&
+        (p->cursor_visible || cursor_in_transition)) {
         ui_load_package(p, "/projects/cursor", "CursorRoot");
         char cursor_path[96];
         snprintf(cursor_path, sizeof cursor_path, "image/cursor/%s.png",
@@ -3418,7 +3529,11 @@ void ui_draw_root(ui_project *p, int i, int *drawn, int *skipped)
         }
         /* The arrow's tip is at (16,0) of the 32x32 sprite; it turns around it. */
         plat_texture *cursor_texture=cursor?cursor->tex:NULL;
-        if (cursor_texture) {
+        int adjustment=p->pointer_active && p->pointer_hover &&
+            (!strcmp(p->pointer_hover->type,"SliderBar") ||
+             !strcmp(p->pointer_hover->type,"ScaleBar"));
+        if(adjustment) draw_adjustment_hand(p,i,p->cursor_x,p->cursor_y);
+        else if (cursor_texture) {
             float size=32*(1+(p->pointer_active && p->smooth_pointer?.06f*p->pointer_affordance:0));
             uint8_t white[4] = {255,255,255,255};
             if(p->pointer_active && p->smooth_pointer && p->cursor_icon_blend<1) {
@@ -3559,6 +3674,10 @@ void ui_fade(ui_project *p, float from, float to, float seconds)
     p->fade_value = p->fade_period > 0 ? p->fade_from : p->fade_to;
     p->fade_done = p->fade_period <= 0 || p->fade_from == p->fade_to;
     p->fade_step = p->fade_period > 0 ? (p->fade_to - p->fade_from) / (p->fade_period * 60.0f) : 0;
+}
+float ui_fade_opacity(const ui_project *p)
+{
+    return p ? p->fade_value : 0;
 }
 float ui_fade_remaining(const ui_project *p)
 {
@@ -3718,8 +3837,7 @@ static void animate_strip(ui_project *p, ui_widget *w, float seconds)
                 /* P: pointer preview owns the blob independently of the
                    controller index, which still owns strip navigation. Reuse
                    the authored magnification and original interpolation. */
-                int selected = p->pointer_active && p->mouse_feedback
-                                   ? p->pointer_hover == item : i == w->focus_index;
+                int selected = feedback_active(p) ? feedback_hover(p) == item : i == w->focus_index;
                 float goal = selected ? (float)mp_number(w->src,"magnify_ratio",1) : 1;
                 if (item->strip_zoom <= 0) item->strip_zoom = goal;
                 else item->strip_zoom += (goal-item->strip_zoom)*ratio;
@@ -3727,6 +3845,24 @@ static void animate_strip(ui_project *p, ui_widget *w, float seconds)
         }
         float target = w->desktop_scrolled ? w->desktop_offset : !strcmp(w->type, "SelectBox") ? select_offset(w, 0) : strip_target(w),
               gap = (float)mp_number(w->src, "spacing", 0);
+        /* P: reveal the mouse blob's live width inside the authored viewport. */
+        if (feedback_active(p)) {
+            float left = !strcmp(w->type,"SelectBox") ? target : w->w*.5f-target;
+            for (int i=0; i<w->nkids; i++) {
+                ui_widget *item=w->kids[i];
+                float width=item->w*card_scale(w)*(item->strip_zoom>0 ? item->strip_zoom : 1);
+                if (feedback_hover(p) == item && width <= w->w) {
+                    float shift=left<0 ? -left : left+width>w->w ? w->w-left-width : 0;
+                    if (shift) {
+                        target+=!strcmp(w->type,"SelectBox") ? shift : -shift;
+                        w->desktop_offset=target;
+                        w->desktop_scrolled=1;
+                    }
+                    break;
+                }
+                left+=width+gap;
+            }
+        }
         if (!w->strip_ready) {
             w->strip_offset = target;
             w->strip_ready = 1;
@@ -3825,6 +3961,27 @@ static void animate_strip(ui_project *p, ui_widget *w, float seconds)
         animate_strip(p, w->kids[i], seconds);
 }
 /* Native context focus, independent of the page paint/opacity. */
+void ui_touch_mode(ui_project *p, int active)
+{
+    if (!p)
+        return;
+    p->touch_cursor_hidden = active != 0;
+    if (!active) {
+        ui_touch_preview(p, NULL);
+        ui_touch_press(p, NULL);
+    }
+}
+void ui_touch_preview(ui_project *p, const ui_widget *widget)
+{
+    if (!p || p->touch_preview == widget)
+        return;
+    p->touch_preview = widget;
+}
+void ui_touch_press(ui_project *p, const ui_widget *widget)
+{
+    if (p)
+        p->touch_pressed = widget;
+}
 void ui_cursor_show(ui_project *p, int visible)
 {
     if (p)
@@ -4010,11 +4167,86 @@ int ui_pointer_scroll(ui_project *p, int root, float x, float y, int wheel)
 
     return p && wheel ? pointer_scroll_widget(p,ui_root_widget(p,root),x,y,wheel) : 0;
 }
+/* Direct manipulation uses the same authored bounds as wheel scrolling. */
+static int touch_drag_widget(ui_project *p, ui_widget *w, float x, float y, float dx, float dy)
+{
+    if (!w || !w->visible || w->insensitive)
+        return 0;
+    for (int i = w->nkids - 1; i >= 0; i--)
+        if (touch_drag_widget(p, w->kids[i], x, y, dx, dy))
+            return 1;
+    ui_widget *clip = ui_widget_child(w, "clip");
+    ui_widget *space = clip ? ui_widget_child(clip, "space") : NULL;
+    if (space && ui_pointer_contains(p, clip, x, y) && (space->w > clip->w || space->h > clip->h)) {
+        float old_x = space->scroll_set ? space->scroll_tx : space->x;
+        float old_y = space->scroll_set ? space->scroll_ty : space->y;
+        space->scroll_tx = fminf(0, fmaxf(fminf(0, clip->w - space->w), old_x + dx));
+        space->scroll_ty = fminf(0, fmaxf(fminf(0, clip->h - space->h), old_y + dy));
+        space->scroll_set = 1;
+        return 1;
+    }
+    if (!w->nkids || !ui_pointer_contains(p, w, x, y))
+        return 0;
+    if (horizontal_strip(w)) {
+        float total = strip_length(w);
+        if (total <= w->w)
+            return 0;
+        int select = !strcmp(w->type, "SelectBox");
+        float old = w->desktop_scrolled ? w->desktop_offset
+                    : w->strip_ready    ? w->strip_offset
+                    : select            ? select_offset(w, 0)
+                                        : strip_target(w);
+        float low = select ? w->w - total : w->w * .5f, high = select ? 0 : total - w->w * .5f;
+        w->desktop_offset = fminf(high, fmaxf(low, old + dx * (select ? 1 : -1)));
+        w->desktop_scrolled = 1;
+        return 1;
+    }
+    if (vertical_select(w) ||
+        (!strcmp(w->type, "ListBox") && (int)mp_number(w->src, "direction", 0) == 1)) {
+        float pitch = w->kids[0]->h + (float)mp_number(w->src, "spacing", 0);
+        float total = pitch * w->nkids - (float)mp_number(w->src, "spacing", 0);
+        float old = w->desktop_scrolled  ? w->desktop_offset
+                    : vertical_select(w) ? (w->strip_ready ? w->strip_offset : select_offset(w, 1))
+                                         : 0;
+        if (total <= w->h)
+            return 0;
+        w->desktop_offset = fminf(0, fmaxf(w->h - total, old + dy));
+        w->desktop_scrolled = 1;
+        return 1;
+    }
+    return 0;
+}
+int ui_touch_drag(ui_project *p, int root, float x, float y, float dx, float dy)
+{
+    return p ? touch_drag_widget(p, ui_root_widget(p, root), x, y, dx, dy) : 0;
+}
+
 static int pointer_edge_widget(ui_project *p,ui_widget *w,float x,float y,float seconds)
 {
     if(!w || !w->visible || w->insensitive) return 0;
     for(int i=w->nkids-1;i>=0;i--)
         if(pointer_edge_widget(p,w->kids[i],x,y,seconds)) return 1;
+    /* P: MakerRoot/HistoryRoot use clip > space rather than a horizontal
+       list. Pan the viewport continuously, leaving authored focus alone. */
+    if(!strcmp(p->name,"arcade") && w->name && !strcmp(w->name,"clip") &&
+       (!strcmp(ui_root_name(p,w->root),"MakerRoot") ||
+        !strcmp(ui_root_name(p,w->root),"HistoryRoot"))) {
+        ui_widget *space=ui_widget_child(w,"space");
+        if(space && space->w>w->w && ui_pointer_contains(p,w,x,y)) {
+            float width=w->w,local=x-w->pointer_rect[0],edge=width*.1f;
+            float pressure=local<edge?(edge-local)/edge:
+                local>width-edge?(width-edge-local)/edge:0;
+            if(pressure!=0) {
+                float old=space->scroll_set?space->scroll_tx:space->x;
+                space->scroll_tx=fminf(0,fmaxf(width-space->w,
+                    old+pressure*width*1.5f*fminf(seconds,.1f)));
+                space->scroll_ty=space->scroll_set?space->scroll_ty:space->y;
+                space->scroll_set=1;
+                if(space->scroll_tx!=old) p->pointer_edge_direction=pressure<0?1:-1;
+                return 1;
+            }
+        }
+    }
     if(!horizontal_strip(w) || !w->nkids || !ui_pointer_contains(p,w,x,y)) return 0;
     float left=w->pointer_rect[0],width=w->w,edge=width*.1f;
     float local=x-left;
@@ -4074,6 +4306,7 @@ void ui_cursor_transfer(ui_project *destination, const ui_project *source)
     destination->cursor_icon_blend=source->cursor_icon_blend;
     memcpy(destination->previous_cursor_icon,source->previous_cursor_icon,sizeof destination->previous_cursor_icon);
     destination->input_device = source->input_device;
+    destination->touch_cursor_hidden = source->touch_cursor_hidden;
     destination->pointer_active = source->pointer_active;
     destination->pointer_hover = NULL;
     destination->pointer_x = source->pointer_x;
@@ -4129,7 +4362,9 @@ void ui_animate(ui_project *p, int root, float seconds)
         float blend=1-expf(-seconds/.060f);
         for(int i=0;i<p->nall;i++) {
             ui_widget *w=p->all[i];
-            float target=p->mouse_feedback && p->pointer_active && p->pointer_hover==w?1.f:0.f;
+            float target = feedback_active(p) && feedback_hover(p) == w ? 1.f : 0.f;
+            if (p->touch_cursor_hidden && p->touch_pressed == w)
+                target *= .4f;
             w->pointer_light+=(target-w->pointer_light)*blend;
             w->pointer_hover_time=target>0 ? w->pointer_hover_time+seconds : 0;
         }
@@ -4160,6 +4395,107 @@ void ui_animate(ui_project *p, int root, float seconds)
                               p->cursor_paused || p->cursor_held || p->cursor_frozen, 1, 1);
         }
     }
+}
+
+ui_widget *ui_touch_back_widget(ui_project *p)
+{
+    if (!p || p->touch_back) return p ? p->touch_back : NULL;
+    if (!p->touch_back_source) {
+        char error[128];
+        p->touch_back_source = ui_project_load(p->vol, "option", error, sizeof error);
+    }
+    ui_project *source = p->touch_back_source;
+    if (!source)
+        return NULL;
+    for (int i = 0; i < ui_root_count(source); i++) {
+        if (strcmp(ui_root_name(source, i), "OptionRoot"))
+            continue;
+        ui_widget *sample = ui_widget_child(ui_root_widget(source, i), "Exit");
+        if (!sample)
+            return NULL;
+        ui_widget *w = ui_widget_copy(source, sample);
+        if (!w)
+            return NULL;
+        /* Preserve the original green Exit icon, face alignment and dimensions. */
+        for (const ui_widget *a = sample->parent; a; a = a->parent) {
+            w->x += a->x;
+            w->y += a->y;
+        }
+        w->parent = NULL;
+        w->visible = 0;
+        w->insensitive = 0;
+        p->touch_back_base_y = w->y;
+        p->touch_back=w;
+        return w;
+    }
+    return NULL;
+}
+int ui_touch_active(const ui_project *p)
+{
+    return p && p->touch_cursor_hidden;
+}
+void ui_draw_touch_back(ui_project *p, int visible, int selected, float seconds)
+{
+    if (!p || (!visible && !p->touch_back))
+        return;
+    ui_widget *w=ui_touch_back_widget(p);
+    if (!w) return;
+    float dt = isfinite(seconds) ? fminf(.1f, fmaxf(0, seconds)) : 0;
+    /* P: 150 ms smoothstep reveal and an eight-unit slide; simulation untouched. */
+    p->touch_back_progress =
+        fminf(1, fmaxf(0, p->touch_back_progress + (visible ? 1 : -1) * dt / .15f));
+    float t = p->touch_back_progress, alpha = t * t * (3 - 2 * t);
+    p->touch_back_selection +=
+        ((selected ? 1.f : 0.f) - p->touch_back_selection) * (1 - expf(-dt / .045f));
+    w->visible = alpha > 0;
+    w->insensitive = !visible;
+    if (!w->visible)
+        return;
+    w->y = p->touch_back_base_y + (1 - alpha) * 8;
+    ui_touch_mode(p->touch_back_source, 1);
+    ui_touch_preview(p->touch_back_source, NULL);
+    w->pointer_light = p->touch_back_selection * (p->touch_pressed == w ? .4f : 1);
+    clip_rect none={0,0,0,0,0};
+    int drawn=0,skipped=0;
+    for (int state = 0; state < 2; state++) {
+        float weight = state ? p->touch_back_selection : 1 - p->touch_back_selection;
+        if (weight <= .001f)
+            continue;
+        w->focused = state;
+        frame screen = {0, 0, 640, 480, alpha * weight};
+        p->touch_back_source->draw_tick = p->draw_tick;
+        draw_widget(p->touch_back_source, w, screen, none, &drawn, &skipped);
+        w->drawn_tick = p->draw_tick;
+    }
+}
+
+static int has_back_control(const ui_project *p, const ui_widget *w)
+{
+    if (!w || !w->visible)
+        return 0;
+    if (w->drawn_tick == p->draw_tick && w->pointer_rect[2] > 0 && w->pointer_rect[3] > 0 &&
+        (!strcmp(w->type, "Button") || mp_number(w->src, "can_focus", 0) != 0) &&
+        (!strcmp(w->name, "Exit") || !strcmp(w->name, "Back") || !strcmp(w->name, "Cancel") ||
+         !strcmp(w->name, "Return") || !strcmp(w->name, "Close")))
+        return 1;
+    for (int i = 0; i < w->nkids; i++)
+        if (has_back_control(p, w->kids[i]))
+            return 1;
+    return 0;
+}
+void ui_hide_touch_back(ui_project *p)
+{
+    if (!p)
+        return;
+    p->touch_back_progress = p->touch_back_selection = 0;
+    if (p->touch_back) {
+        p->touch_back->visible = 0;
+        p->touch_back->insensitive = 1;
+    }
+}
+int ui_has_back_control(ui_project *p, int root)
+{
+    return p && has_back_control(p, ui_root_widget(p, root));
 }
 
 void ui_draw_caption(ui_project *p, int root, const char *text)

@@ -146,7 +146,15 @@ void pregrid_audio_update_gated(pregrid_audio *p, const char *group, int volume,
             fprintf(stderr, "music: cannot start PCM worker: %s\n", SDL_GetError());
         return;
     }
+    if (p->playing && !plat_audio_music_owned(p)) {
+        /* Something else took the music output (another stream, a movie, a menu
+           track): this stream thought it was still playing and stayed silent.
+           Publish again below. */
+        fprintf(stderr, "music: PCM/%s lost the music output; taking it back\n", p->loaded_group);
+        p->playing = 0;
+    }
     if (!publish && p->playing) {
+        printf("music: PCM/%s held while the screen loads\n", p->loaded_group);
         plat_audio_release_music(p);
         p->playing = 0;
     }

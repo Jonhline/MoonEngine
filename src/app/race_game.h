@@ -27,6 +27,8 @@ int race_game_license_active(const race_game *g);
 /* the race is a driving mission (RaceMission, desc.license 3) */
 int race_game_mission_active(const race_game *g);
 int race_game_license_result(const race_game *g, int32_t *state, uint32_t *time);
+/* a passed licence attempt kept as the ghost now (SaveGhost on the result) */
+void race_game_keep_licence_ghost(race_game *g);
 int race_game_license_retry(const race_game *g);
 /* Borrowed until the next start/close; player telemetry, no invented ghost. */
 const gt4_logger_sampler *race_game_license_log(const race_game *g);
@@ -89,6 +91,8 @@ void race_game_set_unit(race_game *g, int unit);
 void race_game_set_power_unit(race_game *g, const char *unit);
 /* a key for the pause menu (Escape holds/continues, arrows and Enter in it) */
 int race_game_pause_pointer(race_game *g,int enabled,float x,float y,int action);
+int race_game_is_paused(const race_game *g);
+void race_game_pause_back(race_game *g);
 void race_game_key(race_game *g, int key);
 /* 1 once the pause menu chose to leave the race */
 int race_game_quit(const race_game *g);

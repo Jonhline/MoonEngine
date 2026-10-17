@@ -790,6 +790,33 @@ static void load_page_data(menu *m, int root, ah_val context)
     load_widgets(m, page, context);
 }
 
+void menu_project_entry(menu *m)
+{
+    if(!m) return;
+    /* Original project onLoad fragments: logger.ad L20..25, setting.ad
+       L30..33 and the corresponding retail project scripts. Quick race
+       projects construct this transition but do not call panIn here. */
+    static const char *const reveal[]={"arcade","gtmode","boot","setting","event",
+        "labomode","photo_shoot","logger","slide","photo_save"};
+    ui_fade(m->ui,0,0,0);
+    m->pending_fade_in=0;
+    m->project_fade_prepared=1;
+    ah_val transition=ah_nil(),result;
+    if(nat_transition(m->vm,NULL,(void *)"MColorTransition",0,NULL,&transition)<0) return;
+    ah_set_member(m->vm,m->context,"transition",transition);
+    for(unsigned i=0;i<sizeof reveal/sizeof *reveal;i++)
+        if(!strcmp(m->project_label,reveal[i])) {
+            ah_val context=ah_objv(m->context);
+            /* 0022F6A0 pauses context updates while startPage prepares the
+               destination. Hold black until apply_pages commits that entry,
+               rather than consuming the reveal in asset-loading Syncs. */
+            m->initializing++;
+            ah_call_member(m->vm,transition.u.o,"panIn",1,&context,&result);
+            m->initializing--;
+            break;
+        }
+}
+
 void menu_enter(menu *m, int root)
 {
     if (root < 0 || root >= ui_root_count(m->ui))
@@ -806,6 +833,8 @@ void menu_enter(menu *m, int root)
                       ah_float((float)menu_option_number(m, "menu_bgm_volume_raw", 120) / 128.f));
     /* An explicit first screen (including the viewer's debug page argument)
        supersedes the project's queued initial startPage. */
+    if (!m->depth)
+        if(!m->project_fade_prepared) menu_project_entry(m);
     if (!m->depth)
         m->pending_kind = 0;
     if (!m->depth || menu_active_root(m) != root) {
@@ -1202,14 +1231,12 @@ static void candidates(ui_widget *w, ui_widget **items, int *n)
 /* P: settings rows hover as a unit, including their authored label. */
 static int pointer_hit(menu *m, ui_widget *w, float x, float y)
 {
-    /* P: the main menu action owns its entire horizontal row. Its
-       authored TextFace can extend beyond the narrow ScrollBox client. */
+    /* Main-menu hit bounds come from its painted row. Do not extend them
+       to a screen-wide invisible band: blank side space is not a target. */
     if(!strcmp(m->project_label,"arcade") && w->parent && w->parent->parent &&
        !strcmp(w->parent->name,"SelectBox") &&
        !strcmp(w->parent->parent->name,"StartScroll")) {
-        float cy=w->pointer_rect[1]+w->pointer_rect[3]*.5f;
-        if(x>=48 && x<592 && ui_pointer_contains(m->ui,w,
-           w->pointer_rect[0]+w->pointer_rect[2]*.5f,y) && fabsf(y-cy)<=14) return 1;
+        return ui_pointer_contains(m->ui,w,x,y);
     }
     if (ui_pointer_contains(m->ui,w,x,y)) return 1;
     if (strcmp(w->type,"OptionMenu") && strcmp(w->type,"SliderBar") &&
@@ -1326,7 +1353,10 @@ static void pointer_set_hover(menu *m, ui_widget *hit)
     m->hover_dispatch=0;
     if(hit) {
         set_tooltip(m,menu_active_root(m),hit);
-        menu_play_effect(m,"cursor");
+        if (m->pointer_sound_delay<=0) {
+            menu_play_effect(m,"cursor");
+            m->pointer_sound_delay=.1f;
+        }
     }
 }
 static void pointer_send_input(menu *m, menu_input input)
@@ -1336,13 +1366,50 @@ static void pointer_send_input(menu *m, menu_input input)
     menu_send_input(m,input);
     m->pointer_dispatch = previous;
 }
+/* P: direct manipulation maps into the authored integer range/callback. */
+static int pointer_adjust_bar(menu *m,ui_widget *bar,float x,float y)
+{
+    if(!bar || (strcmp(bar->type,"SliderBar") && strcmp(bar->type,"ScaleBar")) ||
+       (!strcmp(bar->type,"ScaleBar") && !bar->slider_range_set)) return 0;
+    double range[2]={0,100};mp_numbers(bar->src,"range",range,2);
+    if(bar->slider_range_set) {range[0]=bar->slider_min;range[1]=bar->slider_max;}
+    int axis=(int)mp_number(bar->src,"direction",0)==1;
+    float *r=bar->pointer_rect;
+    float origin=r[axis],extent=r[axis+2];
+    ui_widget *popup=ui_widget_child(bar,"popup");
+    ui_widget *pinch=popup?ui_widget_child(popup,"pinch"):NULL;
+    if(pinch) {
+        /* Same knob travel as ui.c: ratio*(popup size - pinch size). */
+        float knob=axis?pinch->h:pinch->w;
+        origin+=(axis?popup->y:popup->x)+knob*.5f;
+        extent=(axis?popup->h:popup->w)-knob;
+    }
+    float t=extent>0 ? ((axis?y:x)-origin)/extent : 0;
+    int old=bar->focus_index;
+    assign_index(bar,(int)lround(range[0]+fminf(1,fmaxf(0,t))*(range[1]-range[0])));
+    if(old!=bar->focus_index) {
+        ah_val args[]={ah_objv(m->context),ah_int(bar->focus_index)},result;
+        ah_call_member(m->vm,widget_module(m,bar),"onValueChanged",2,args,&result);
+        if(m->pointer_sound_delay<=0) {menu_play_effect(m,"param");m->pointer_sound_delay=.1f;}
+    }
+    return 1;
+}
 int menu_pointer(menu *m, int enabled, float x, float y, int action, int wheel)
 {
     if (!m) return 0;
     ui_pointer(m->ui, enabled, x, y);
-    if (!enabled) return 0;
+    if (!enabled) {m->pointer_drag=NULL;return 0;}
     int root = menu_active_root(m);
     if (root < 0) return 0;
+    if(m->pointer_drag) {
+        ui_widget *bar=m->pointer_drag;
+        if(bar->root!=root || !available(bar)) m->pointer_drag=NULL;
+        else if(action==4 || action==1) {
+            pointer_adjust_bar(m,bar,x,y);
+            if(action==1) m->pointer_drag=NULL;
+            return 1;
+        }
+    }
     ui_widget *items[512], *hit = NULL;
     int n = 0;
     candidates(ui_root_widget(m->ui, root), items, &n);
@@ -1379,6 +1446,15 @@ int menu_pointer(menu *m, int enabled, float x, float y, int action, int wheel)
     /* P: hover is presentation only. In particular, SelectBox focus must
        not follow mouse motion: its focus callback scrolls the carrousel. */
     pointer_set_hover(m,hit);
+    if(hit && (action==1 || action==3) &&
+       ((!strcmp(hit->type,"SliderBar")) ||
+        (!strcmp(hit->type,"ScaleBar") && hit->slider_range_set))) {
+        if(hit!=m->focus[root]) set_focus(m,hit);
+        if(action==3) m->pointer_drag=hit;
+        pointer_adjust_bar(m,hit,x,y);
+        return 1;
+    }
+    if(action==3 || action==4) return hit!=NULL;
     if(hit && action==1 && hit->parent && !strcmp(hit->parent->type,"ListBox")) {
         ui_widget *list=hit->parent;
         list->focus_index=sibling_index(hit);
@@ -1391,6 +1467,119 @@ int menu_pointer(menu *m, int enabled, float x, float y, int action, int wheel)
     else if (hit && action == 1) pointer_send_input(m, MENU_ACCEPT);
     ui_pointer(m->ui, 1, x, y);
     return hit != NULL || action == 2;
+}
+
+static ui_widget *touch_hit(menu *m, float x, float y)
+{
+    int root = menu_active_root(m);
+    if (root < 0)
+        return NULL;
+    ui_widget *focused = m->focus[root];
+    if (focused && !strcmp(focused->type, "OptionMenu") && focused->option_open) {
+        for (int i = 0; i < ui_option_count(focused); i++) {
+            ui_widget *item = ui_option_item(focused, i);
+            if (available(item) && ui_pointer_contains(m->ui, item, x, y))
+                return item;
+        }
+        return NULL;
+    }
+    ui_widget *items[512], *hit = NULL;
+    int n = 0;
+    candidates(ui_root_widget(m->ui, root), items, &n);
+    for (int i = 0; i < n; i++)
+        if (pointer_hit(m, items[i], x, y))
+            hit = items[i];
+    if (hit && !strcmp(hit->type, "ListBox"))
+        for (int i = 0; i < hit->nkids; i++)
+            if (available(hit->kids[i]) && ui_pointer_contains(m->ui, hit->kids[i], x, y))
+                return hit->kids[i];
+    return hit;
+}
+int menu_touch(menu *m, int enabled, int phase, long long id, float x, float y)
+{
+    if (!m)
+        return 0;
+    int root = menu_active_root(m);
+    if (!enabled || phase == 4 || root != m->touch_root) {
+        m->touch_active = 0;
+        m->touch_target = m->touch_selected = NULL;
+        ui_touch_preview(m->ui, NULL);
+        ui_touch_press(m->ui, NULL);
+        m->touch_root = root;
+        menu_pointer(m, 0, 0, 0, 0, 0);
+        if (!enabled || phase == 4 || phase != 1)
+            return 1;
+    }
+    if (phase == 1 && !m->touch_active) {
+        ui_touch_mode(m->ui,1);
+        m->touch_active = 1;
+        m->touch_id = id;
+        m->touch_root = root;
+        m->touch_start_x = m->touch_last_x = x;
+        m->touch_start_y = m->touch_last_y = y;
+        m->touch_dragging = 0;
+        m->touch_target = touch_hit(m, x, y);
+        ui_widget *w = m->touch_target;
+        ui_touch_press(m->ui, w == m->touch_selected ? w : NULL);
+        m->touch_slider = w && (!strcmp(w->type, "SliderBar") ||
+                                (!strcmp(w->type, "ScaleBar") && w->slider_range_set));
+        menu_pointer(m, 1, x, y, m->touch_slider ? 3 : 0, 0);
+    } else if (m->touch_active && m->touch_id == id) {
+        float dx = x - m->touch_start_x, dy = y - m->touch_start_y;
+        if (dx * dx + dy * dy > 64) {
+            m->touch_dragging = 1; /* P: eight logical pixels. */
+            ui_touch_press(m->ui, NULL);
+            m->touch_selected = NULL;
+        }
+        if (phase == 2) {
+            if (m->touch_slider)
+                menu_pointer(m, 1, x, y, 4, 0);
+            else if (m->touch_dragging) {
+                ui_pointer_hover(m->ui, NULL);
+                ui_touch_drag(m->ui, root, m->touch_start_x, m->touch_start_y, x - m->touch_last_x,
+                              y - m->touch_last_y);
+            }
+            m->touch_last_x = x;
+            m->touch_last_y = y;
+        } else if (phase == 3) {
+            ui_touch_press(m->ui, NULL);
+            int accept =
+                m->touch_target && m->touch_target == touch_hit(m, x, y) && !m->touch_dragging;
+            m->touch_active = 0;
+            if (m->touch_slider) {
+                m->touch_selected = NULL;
+                menu_pointer(m, 1, x, y, 1, 0);
+            } else if (accept && m->touch_selected == m->touch_target) {
+                m->touch_selected = NULL;
+                menu_pointer(m, 1, x, y, 1, 0);
+            } else if (accept) {
+                ui_widget *hit = m->touch_target;
+                m->touch_selected = hit;
+                ui_widget *focused = m->focus[root];
+                if (focused && !strcmp(focused->type, "OptionMenu") && focused->option_open) {
+                    for (int i = 0; i < ui_option_count(focused); i++)
+                        if (ui_option_item(focused, i) == hit)
+                            focused->option_pending = i;
+                } else {
+                    if (hit->parent && !strcmp(hit->parent->type, "ListBox")) {
+                        ui_widget *list = hit->parent;
+                        list->focus_index = sibling_index(hit);
+                        ah_val args[] = {ah_objv(m->context), ah_int(list->focus_index)}, result;
+                        ah_call_member(m->vm, widget_module(m, list), "onValueChanged", 2, args,
+                                       &result);
+                        hit = list;
+                    }
+                    if (hit != m->focus[root])
+                        set_focus(m, hit);
+                }
+            } else
+                m->touch_selected = NULL;
+            m->touch_target = NULL;
+            menu_pointer(m, 0, 0, 0, 0, 0);
+        }
+    }
+    ui_touch_preview(m->ui, m->touch_selected);
+    return 1;
 }
 
 static void ensure_focus(menu *m)

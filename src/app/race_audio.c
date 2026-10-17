@@ -79,7 +79,7 @@ struct race_audio {
     gt4_pcm_music *music;
     const char *disc;
     SDL_Thread *music_worker;
-    SDL_atomic_t music_ready, music_ended;
+    SDL_atomic_t music_ready, music_ended, music_paused;
     gt4_pcm_music *prepared;
     int requested_music, worker_music, active_music;
     int music_serial; /* a new stream each time one starts */
@@ -99,6 +99,16 @@ static void completed_voices(const race_audio *a, uint8_t ended[VOICES])
 {
     for (int i = 0; i < VOICES; i++)
         ended[i] = a->ended[i] && a->ended_on[i] == a->regs[i].key_on;
+}
+/* Hold the decoder cursor while paused; pause-menu SE continue mixing. */
+static void render_race_music(race_audio *a,int16_t *out,int frames)
+{
+    if(SDL_AtomicGet(&a->music_paused)) {
+        memset(out,0,(size_t)frames*2*sizeof(*out));
+        return;
+    }
+    gt4_pcm_music_render(out,frames,a->music);
+    if(gt4_pcm_music_ended(a->music)) SDL_AtomicSet(&a->music_ended,1);
 }
 static void render(int16_t *out, int frames, void *user)
 {
@@ -148,9 +158,7 @@ static void render(int16_t *out, int frames, void *user)
         for (int c = 0; c < 2; c++)
             gt4_spu_reverb_render(a->reverb + c, wet[c], dry, n);
         SDL_LockMutex(a->mutex);
-        gt4_pcm_music_render(music, n, a->music);
-        if (gt4_pcm_music_ended(a->music))
-            SDL_AtomicSet(&a->music_ended, 1);
+        render_race_music(a,music,n);
         SDL_UnlockMutex(a->mutex);
         for (int i = 0; i < n * 2; i++) {
             int64_t v = dry[i] + (int64_t)(music[i] * music_volume);
@@ -870,8 +878,9 @@ void race_audio_hold(race_audio *a, double dt)
    refueling handle; 003D3358 restores it on the next pit frame. */
 void race_audio_pause(race_audio *a, int on)
 {
-    if (!a || !a->sd)
-        return;
+    if (!a) return;
+    SDL_AtomicSet(&a->music_paused,on!=0);
+    if (!a->sd) return;
     if (on) {
         gt4_sd_stop(a->sd, &a->refueling);
         for (int i = 0; i < a->cars; i++) {

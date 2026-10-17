@@ -32,6 +32,8 @@ static uint8_t *frame(race_hud *h, const char *label, int pause, int *w, int *he
     plat_video_set_view(640, 480);
     const uint8_t bg[4] = {160, 160, 160, 255};
     plat_draw_quad(NULL, 0, 0, 640, 480, 0, 0, 1, 1, bg);
+    race_hud_start(h);
+    draw_message(h, 1.0f / 60);
     race_hud_draw_replay(h, label, 1, 0);
     if (pause)
         race_hud_draw_simple_pause(h);
@@ -81,6 +83,12 @@ int main(int argc, char **argv)
         CHECK(font(used,styles[i]));
     if (warm)
         CHECK(used->nfonts == 12); /* All twelve requests hit resident atlases. */
+    /* START must use the FC_48 atlas prepared during loading, with no new face. */
+    plat_video_begin_frame();
+    race_hud_start(used);
+    draw_message(used, 1.0f / 60);
+    CHECK(used->nfonts == 12);
+    plat_video_end_frame();
     const char *labels[] = {"ReplayModeNormal",     "ReplayModeDive",  "ReplayModeNormalDisplay",
                             "ReplayModeBGMOff",     "ReplayModeBGMOn", "ReplayModeAccelerate",
                             "ReplayModeNormalSpeed"};

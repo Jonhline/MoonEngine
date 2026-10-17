@@ -494,6 +494,7 @@ void menu_animate(menu *m, float seconds)
     context_cursor_visibility(m);
     if (!isfinite(seconds) || seconds <= 0)
         return;
+    m->pointer_sound_delay=fmaxf(0,m->pointer_sound_delay-seconds);
     int cursor_root = menu_active_root(m);
     if (cursor_root >= 0)
         ui_cursor_select(m->ui, m->focus[cursor_root]);
@@ -660,7 +661,9 @@ static int nat_transition_method(ah_vm *vm, ah_obj *self, void *data, int argc, 
             return 0;
         }
         /* MColorTransition 002874F0: period applies to each leg. */
-        ui_fade(m->ui, 0, 1, period);
+        /* arcade.ad L4301 and page_util.ad L40 may request consecutive
+           panOutIn calls. Preserve the current opacity, including black. */
+        ui_fade(m->ui, ui_fade_opacity(m->ui), 1, period);
         while (m->present_wait && ui_fade_remaining(m->ui) > 0)
             m->present_wait(m, ui_fade_remaining(m->ui), m->present_user);
         m->pending_fade_in = period;
@@ -887,6 +890,9 @@ static int nat_sound_play(ah_vm *vm, ah_obj *self, void *data, int argc, const a
 {
     (void)self;
     menu *m = data;
+    /* Hover runs the original enter/leave/preview callbacks for visuals.
+       Its one navigation sound is emitted by pointer_set_hover instead. */
+    if (m->hover_dispatch) { *ret=ah_nil(); return 0; }
     if (argc && ah_cstr(argv[0])) {
         if (!m->sound)
             m->sound = gt4_sound_open(m->vol);
@@ -1279,11 +1285,11 @@ static int nat_finish(ah_vm *vm, ah_obj *self, void *d, int argc, const ah_val *
     if (s && !strcmp(s, "load_replay")) {
         /* the Replay Theater: labomode's ReplayTheaterRoot (menu_open_labo);
            its exit goes back to major_menu_project */
-        ah_val major;
-        const char *origin = ah_get_member(vm, game_object(m), "major_menu_project", &major) &&
-                                     ah_cstr(major) && *ah_cstr(major)
-                                 ? ah_cstr(major)
-                                 : "arcade";
+        /* Native projects own separate game objects. Their initial major
+           project can still say arcade even when this action is in GT Mode.
+           The actual caller is authoritative at this sequence boundary. */
+        const char *origin = m->project_label;
+        ah_set_member(vm,game_object(m),"major_menu_project",ah_str(vm,origin));
         snprintf(memcard_origin, sizeof memcard_origin, "%s", origin);
         ah_set_member(vm, game_object(m), "next_sequence", ah_str(vm, "menu"));
         ah_set_member(vm, game_object(m), "last_sequence", ah_str(vm, "load_replay"));

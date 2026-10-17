@@ -30,6 +30,13 @@ struct menu {
     ui_widget **focus;
     ui_widget *pointer_hover;
     int hover_dispatch;
+    int project_fade_prepared;
+    float pointer_sound_delay; /* P: coalesce rapid mouse preselection sounds. */
+    ui_widget *pointer_drag;
+    ui_widget *touch_target, *touch_selected;
+    long long touch_id;
+    int touch_active, touch_root, touch_dragging, touch_slider;
+    float touch_start_x, touch_start_y, touch_last_x, touch_last_y;
     int pointer_dispatch; /* P: preserve mouse ownership through synchronous dialogs. */
     int pending_page, pending_kind;
     int page_transition_depth;

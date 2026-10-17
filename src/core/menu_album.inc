@@ -441,8 +441,10 @@ static int album_music_list(ah_vm *vm, ah_obj *self, void *d, int argc, const ah
    them, as the slide playlist above. */
 static gt4_music_playlist jukebox_playlist;
 static int jukebox_loaded;
+static menu *jukebox_menu; /* the slide project's menu: its option is bound again on refresh */
 static void jukebox_bind(menu *m)
 {
+    jukebox_menu = m;
     ah_vm *vm = m->vm;
     ah_obj *game = game_object(m);
     ah_val option, main_;

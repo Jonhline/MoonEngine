@@ -580,6 +580,11 @@ static float advance(const hud_font *f, unsigned c, const gt4_glyph *g)
     return (float)g->advance + spaced;
 }
 
+/* the timing faces' figures (and the empty time's dash) keep a fixed cell */
+static int digit_cell(unsigned c)
+{
+    return (c >= '0' && c <= '9') || c == 127;
+}
 static float text_width(const hud_font *f, const char *s)
 {
     float w = 0;
@@ -587,7 +592,9 @@ static float text_width(const hud_font *f, const char *s)
     while (*s) {
         unsigned c = gt4_text_next(&s);
         const gt4_glyph *g = gt4_font_glyph(&f->face, c);
-        if (g) {
+        if (g && (digit_cell(c) || digit_cell(previous)))
+            w += advance(f, c, g); /* figures keep the 0's pitch, no pair step */
+        else if (g) {
             float ink;
             float step = gt4_font_original_step(&f->face, previous, c, 1, &ink);
             w += advance(f, c, g) + step - g->advance;
@@ -649,6 +656,13 @@ static void text(const hud_font *f, float x, float y, int flags, const uint8_t c
                kerning before placing the glyph (notably the T/A pair). */
             float ink;
             float step = gt4_font_original_step(&f->face, previous, ch, 1, &ink);
+            if (digit_cell(ch) || digit_cell(previous)) {
+                /* A figure sits at its own bearing in the 0's cell and steps by that cell
+                   alone: the pair step adds each digit's bearing (the 1's is large), which
+                   moved every following digit as the time counted. */
+                ink = (float)g->x;
+                step = (float)g->advance;
+            }
             if (g->w && g->h) {
                 float u0 = (float)g->u / a->width, v0 = (float)g->v / a->height;
                 float u1 = (float)(g->u + g->w) / a->width, v1 = (float)(g->v + g->h) / a->height;

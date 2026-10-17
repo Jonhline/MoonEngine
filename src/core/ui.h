@@ -182,6 +182,7 @@ void ui_input_hints(ui_project *p, int device); /* 0 original, 1 keyboard/mouse 
 int ui_pointer_scroll(ui_project *p, int root, float x, float y, int wheel);
 void ui_pointer_edge_scroll(ui_project *p, int root, float seconds);
 void ui_pointer_scroll_clear(ui_project *p);
+int ui_touch_drag(ui_project *p, int root, float x, float y, float dx, float dy);
 void ui_pointer_hover(ui_project *p, const ui_widget *widget);
 int ui_pointer_contains(const ui_project *p, const ui_widget *w, float x, float y);
 void ui_cursor_speed(ui_project *p, float ratio);
@@ -192,6 +193,17 @@ int ui_cursor_pause(ui_project *p, int paused);
 void ui_cursor_hold(ui_project *p, int held);
 /* Per render-context visibility; position persists while hidden. */
 void ui_cursor_show(ui_project *p, int visible);
+/* Direct touch hides only cursor artwork; controller input restores it. */
+void ui_touch_mode(ui_project *p, int active);
+/* Retain the PC hover presentation between the select and confirm taps. */
+void ui_touch_preview(ui_project *p, const ui_widget *widget);
+void ui_touch_press(ui_project *p, const ui_widget *widget);
+/* Optional touch overlay: the original green Exit icon, without resizing. */
+ui_widget *ui_touch_back_widget(ui_project *p);
+int ui_touch_active(const ui_project *p);
+int ui_has_back_control(ui_project *p, int root);
+void ui_hide_touch_back(ui_project *p);
+void ui_draw_touch_back(ui_project *p, int visible, int selected, float seconds);
 void ui_cursor_icon(ui_project *p, const char *name);
 /* Common dialogs use the same original render context cursor. */
 void ui_cursor_transfer(ui_project *destination, const ui_project *source);
@@ -231,6 +243,7 @@ float ui_string_height(ui_project *p, const char *face, float scale);
 /* Presentation fade covers 2D and ModelFace content alike. */
 void ui_fade(ui_project *p, float from, float to, float seconds);
 float ui_fade_remaining(const ui_project *p);
+float ui_fade_opacity(const ui_project *p);
 /* Retained render-context surface; capture occurs at the platform boundary. */
 void ui_set_capture_renderer(ui_project *p,
                              plat_texture *(*capture)(plat_texture *, float, float, float, float));

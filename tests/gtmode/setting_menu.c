@@ -211,6 +211,8 @@ int main(int argc, char **argv)
     ah_set_log(m->vm, log_script, NULL);
     menu_set_origin(m, "gtmode");
     CHECK(menu_setting_begin(m));
+    if(getenv("GT4_SETTING_FLOW_NEGATIVE")) ui_fade(menu_ui(m),0,0,0);
+    CHECK(ui_fade_remaining(menu_ui(m))>.24f);
     apply_pages(m);
     ticks(m);
     CHECK(!errors);

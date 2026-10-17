@@ -3,6 +3,9 @@
 #define MOON_PLAT_SDL_H
 
 typedef struct {
+    int touch; /* 1 down, 2 move, 3 up, 4 cancel; normalized display coordinates. */
+    long long touch_id;
+    float touch_x, touch_y;
     int key;
     char text[32]; /* SDL keycode */
     int pad_type; /* P: 2 Xbox glyph labels, 0 original PlayStation labels. */
@@ -11,7 +14,7 @@ typedef struct {
        D_006192E4 keysyms: L1 0xFFC8, L2 0xFFC9, R1 0xFFD2, R2 0xFFD3,
        Square 0xFF63, Select 0xFFFF), pressed or released; key 0 then */
     int ps2key, release;
-    int mouse_absolute, mouse_button; /* P: desktop menu coordinates and release action. */
+    int mouse_absolute, mouse_button; /* P: 1/2 releases, 3 left press, 4 left-held motion. */
     int mouse, mouse_x, mouse_y, wheel; /* PC camera events, never PS2 pad keys */
 } plat_key_event;
 

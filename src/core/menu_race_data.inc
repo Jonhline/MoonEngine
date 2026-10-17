@@ -216,6 +216,11 @@ void menu_save_refresh(menu *m)
     }
     if (m->album_music_ready)
         album_music_bind(m);
+    /* The restore above replaced game.option with the save's: the Jukebox's
+       bgm_playlist and replay_bgm_volume went with it (musiccontrol.h then
+       found no play_data and nothing played). */
+    if (m == jukebox_menu)
+        jukebox_bind(m);
     {
         ah_val option;
         if (ah_get_member(m->vm, game, "option", &option))

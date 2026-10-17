@@ -4,6 +4,7 @@
 #include "ui.h"
 #include "menu.h"
 #include "options_store.h"
+#include "desktop_input.h"
 
 typedef struct {
     plat_video_desc video;
@@ -13,7 +14,7 @@ typedef struct {
     int compact_cars;
     int spatial_visibility, resident_reflections;
 #ifdef __SWITCH__
-    int scene_resolution;
+    int scene_resolution, touch_menu;
 #endif
 } pc_video_options;
 typedef struct {
@@ -21,6 +22,8 @@ typedef struct {
     moon_options store;
     int preset_draft;
     int persist, root, option_root;
+    touch_back_state touch_back;
+    uint64_t touch_back_clock;
     menu *owner;
     ui_widget *page, *choices[17];
 #ifndef __SWITCH__

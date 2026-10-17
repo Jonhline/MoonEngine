@@ -14,6 +14,23 @@ static void draw_license_trophy(void *user, const race_result_trophy_pose *pose)
                 continue;
             gt4_model *m = gt4_model_decode_part(bytes, size, 0, 0);
             if (m) {
+                /* trophy.mdl draws three layers: kind 1 its base colour, kind 2 the
+                   reflection, kind 4 the specular. Kind 2 is VU1's sphere-mapped
+                   layer (0x215), here over the model's own texture (a lit dome and
+                   its floor) rather than the scene's environment: drawn with fixed
+                   UVs (0, 0) it showed one black texel and the trophy came out flat
+                   brown. Draw it as a reflection with that texture as the map. */
+                if (m->ntextures > 0 && m->textures[0].rgba) {
+                    tex1_image *e = &g->trophy_env[i];
+                    *e = m->textures[0];
+                    e->native_alpha = NULL;
+                    e->rgba = malloc((size_t)e->width * e->height * 4);
+                    if (e->rgba)
+                        memcpy(e->rgba, m->textures[0].rgba, (size_t)e->width * e->height * 4);
+                    for (int t = 0; e->rgba && t < m->count; t++)
+                        if (m->triangles[t].kind == 2 && m->triangles[t].texture >= 0)
+                            m->triangles[t].texture = -2;
+                }
                 g->trophy[i] = r3d_mesh_create(m);
                 fprintf(stderr, "licence trophy: model=%d triangles=%d unsupported=%d\n", i,
                         m->count, m->unsupported);
@@ -49,7 +66,8 @@ static void draw_license_trophy(void *user, const race_result_trophy_pose *pose)
         light.ambient[i] = .299999982f;
         light.diffuse[i] = light.specular[i] = .5f;
     }
-    r3d_begin_ui(0, 0, 640, 480);
+    r3d_begin_ui_environment(0, 0, 640, 480,
+                             g->trophy_env[pose->model].rgba ? &g->trophy_env[pose->model] : NULL);
     v.ghost = 1;
     r3d_draw_ui(g->trophy[pose->model], &v, &light);
     v.ghost = 2;

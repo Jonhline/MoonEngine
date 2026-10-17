@@ -1679,3 +1679,18 @@ capture confirms the line is gone: at y=500, columns 1278/1279 now read pavement
 The safe bucket-coalescing trial gained only about 0.28 FPS in the slow window
 and was removed as inconclusive. The accepted indexed geometry remains;
 constant 60 FPS is still unproved.
+
+### Desktop setup isolation (2026-10-17)
+
+The desktop first-run wizard and its renderer API selection are excluded from
+Switch compilation. Switch continues reading its SD configuration directly;
+this does not introduce the desktop launcher on the console. Native Release
+and Windows Release builds verify the platform guards. This build correction
+is separate from the texture-allocation crash investigation during race entry.
+
+### Main menu exit entry (2026-10-17)
+
+The Switch build omits the host-added Exit Game entry from the Arcade main
+menu. New Career remains present and desktop builds retain Exit Game. This is
+an explicit console UI adaptation requested by the user; system HOME remains
+available. Native Release compilation checks the console branch.

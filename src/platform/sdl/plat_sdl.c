@@ -9,8 +9,58 @@
 #include <SDL.h>
 #include <stdlib.h>
 #include <stdio.h>
+#if defined(__SWITCH__) && defined(MOON_DEKO3D)
+#include <switch.h>
+#include "../switch/touch_contact.h"
+/* The native renderer owns NWindow, so contacts cannot depend on SDL focus. */
+static int native_touch(plat_key_event *ev)
+{
+    static int initialized;
+    static moon_touch_contact contact;
+    if (!initialized) {
+        hidInitializeTouchScreen();
+        contact.mode = appletGetOperationMode() == AppletOperationMode_Handheld;
+        initialized = 1;
+    }
+    HidTouchScreenState state = {0};
+    if (!hidGetTouchScreenStates(&state, 1))
+        return 0;
+    moon_touch_point points[16];
+    int count = state.count < 0 ? 0 : state.count > 16 ? 16 : state.count;
+    for (int i = 0; i < count; i++) {
+        const HidTouchState *p = &state.touches[i];
+        points[i] =
+            (moon_touch_point){p->finger_id, p->x, p->y, !!(p->attributes & HidTouchAttribute_End)};
+    }
+    return moon_touch_sample(&contact, points, count,
+                             appletGetOperationMode() == AppletOperationMode_Handheld,
+                             appletGetFocusState() == AppletFocusState_InFocus, ev);
+}
+#endif
 
 static int quit;
+static int confine_mouse;
+int plat_sdl_mouse_should_confine(int enabled, unsigned flags)
+{
+    return enabled && (flags & SDL_WINDOW_FULLSCREEN) && (flags & SDL_WINDOW_INPUT_FOCUS) &&
+           !(flags & SDL_WINDOW_MINIMIZED);
+}
+void plat_sdl_confine_mouse(int enabled)
+{
+#ifndef __SWITCH__
+    confine_mouse = enabled != 0;
+    SDL_Window *window = plat_sdl_window();
+    if (!window)
+        return;
+    SDL_bool grab = plat_sdl_mouse_should_confine(confine_mouse, SDL_GetWindowFlags(window))
+                        ? SDL_TRUE
+                        : SDL_FALSE;
+    if (SDL_GetWindowMouseGrab(window) != grab)
+        SDL_SetWindowMouseGrab(window, grab);
+#else
+    (void)enabled;
+#endif
+}
 static unsigned music_fade_left, music_fade_total;
 /* Playback must not repeatedly reopen a failed endpoint on the UI thread.
    A device-added event or explicit initialization can retry it. */
@@ -55,36 +105,66 @@ int plat_should_quit(void)
 
 int plat_sdl_poll(plat_key_event *ev)
 {
+    plat_sdl_confine_mouse(confine_mouse);
     SDL_Event e;
     memset(ev, 0, sizeof *ev);
     plat_sdl_pad(0);
+#if defined(__SWITCH__) && defined(MOON_DEKO3D)
+    if (native_touch(ev))
+        return 1;
+#endif
     while (SDL_PollEvent(&e)) {
         if (e.type == SDL_QUIT) {
             quit = 1;
         } else if (e.type == SDL_AUDIODEVICEADDED && !e.adevice.iscapture) {
             if (audio_unavailable && (Sint32)(e.common.timestamp - audio_failed_at) > 0)
                 audio_unavailable = 0;
+        } else if (e.type == SDL_FINGERDOWN || e.type == SDL_FINGERMOTION ||
+                   e.type == SDL_FINGERUP) {
+#if defined(__SWITCH__) && defined(MOON_DEKO3D)
+            continue; /* libnx supplies the single authoritative contact stream. */
+#endif
+            ev->touch = e.type == SDL_FINGERDOWN ? 1 : e.type == SDL_FINGERMOTION ? 2 : 3;
+            ev->touch_id = e.tfinger.fingerId;
+            ev->touch_x = e.tfinger.x;
+            ev->touch_y = e.tfinger.y;
+            return 1;
+        } else if ((e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) ||
+                   e.type == SDL_APP_WILLENTERBACKGROUND || e.type == SDL_DISPLAYEVENT) {
+            ev->touch = 4;
+            return 1;
+        } else if ((e.type == SDL_MOUSEMOTION && e.motion.which == SDL_TOUCH_MOUSEID) ||
+                   ((e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) &&
+                    e.button.which == SDL_TOUCH_MOUSEID)) {
+            continue; /* A contact is routed once, never again as a synthetic mouse click. */
         } else if (e.type == SDL_MOUSEMOTION && SDL_GetRelativeMouseMode()) {
             ev->mouse = 1;
             ev->mouse_x = e.motion.xrel;
             ev->mouse_y = e.motion.yrel;
             return 1;
-        } else if (e.type == SDL_MOUSEMOTION || e.type == SDL_MOUSEBUTTONUP) {
+        } else if (e.type == SDL_MOUSEMOTION || e.type == SDL_MOUSEBUTTONUP ||
+                   e.type == SDL_MOUSEBUTTONDOWN) {
             ev->mouse = ev->mouse_absolute = 1;
             if (e.type == SDL_MOUSEMOTION) {
                 ev->mouse_x = e.motion.x;
                 ev->mouse_y = e.motion.y;
+                if (e.motion.state & SDL_BUTTON_LMASK)
+                    ev->mouse_button = 4;
             } else {
                 ev->mouse_x = e.button.x;
                 ev->mouse_y = e.button.y;
-                ev->mouse_button = e.button.button == SDL_BUTTON_LEFT ? 1 :
-                                   e.button.button == SDL_BUTTON_RIGHT ? 2 : 0;
+                ev->mouse_button = e.button.button == SDL_BUTTON_LEFT    ? 1
+                                   : e.button.button == SDL_BUTTON_RIGHT ? 2
+                                                                         : 0;
+                if (e.type == SDL_MOUSEBUTTONDOWN)
+                    ev->mouse_button = e.button.button == SDL_BUTTON_LEFT ? 3 : 0;
             }
             return 1;
         } else if (e.type == SDL_MOUSEWHEEL) {
             ev->mouse = 1;
             ev->mouse_absolute = !SDL_GetRelativeMouseMode();
-            if (ev->mouse_absolute) SDL_GetMouseState(&ev->mouse_x, &ev->mouse_y);
+            if (ev->mouse_absolute)
+                SDL_GetMouseState(&ev->mouse_x, &ev->mouse_y);
             ev->wheel = e.wheel.y * (e.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1 : 1);
             return 1;
         } else if (e.type == SDL_TEXTINPUT) {
@@ -108,10 +188,14 @@ int plat_sdl_poll(plat_key_event *ev)
             if (ev->key || ev->ps2key) {
                 ev->pad = 1;
 #ifndef __SWITCH__
-                SDL_JoystickID id=e.type==SDL_CONTROLLERAXISMOTION ? e.caxis.which : e.cbutton.which;
-                SDL_GameController *controller=SDL_GameControllerFromInstanceID(id);
-                SDL_GameControllerType type=controller ? SDL_GameControllerGetType(controller) : SDL_CONTROLLER_TYPE_UNKNOWN;
-                ev->pad_type=type==SDL_CONTROLLER_TYPE_XBOX360 || type==SDL_CONTROLLER_TYPE_XBOXONE ? 2 : 0;
+                SDL_JoystickID id =
+                    e.type == SDL_CONTROLLERAXISMOTION ? e.caxis.which : e.cbutton.which;
+                SDL_GameController *controller = SDL_GameControllerFromInstanceID(id);
+                SDL_GameControllerType type = controller ? SDL_GameControllerGetType(controller)
+                                                         : SDL_CONTROLLER_TYPE_UNKNOWN;
+                ev->pad_type =
+                    type == SDL_CONTROLLER_TYPE_XBOX360 || type == SDL_CONTROLLER_TYPE_XBOXONE ? 2
+                                                                                               : 0;
 #endif
                 return 1;
             }
@@ -314,6 +398,10 @@ int plat_audio_set_music(plat_audio_cb cb, void *user)
     }
     SDL_UnlockAudioDevice(audio_device);
     return result;
+}
+int plat_audio_music_owned(void *user)
+{
+    return audio_device && audio_callback && audio_user == user;
 }
 void plat_audio_release_music(void *user)
 {

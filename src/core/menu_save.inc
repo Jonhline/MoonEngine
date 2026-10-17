@@ -174,8 +174,12 @@ static void pc_menu_entries(menu *m, ui_widget *root)
         ui_widget *sample = ui_widget_child(ui_widget_child(root, "hidden"), "GTmode");
         if (!list || !sample || ui_widget_child(list, "NewCareer"))
             return;
+#ifdef __SWITCH__
+        const char *names[] = {"NewCareer"}, *labels[] = {"New Career"};
+#else
         const char *names[] = {"NewCareer", "QuitGame"}, *labels[] = {"New Career", "Exit Game"};
-        for (int i = 0; i < 2; i++) {
+#endif
+        for (unsigned i = 0; i < sizeof names / sizeof *names; i++) {
             ui_widget *item = ui_widget_copy(m->ui, sample);
             item->name = names[i];
             copy_script(m, sample, item);
