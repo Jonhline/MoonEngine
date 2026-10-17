@@ -15,6 +15,7 @@ static void probe_glyph(const plat_texture *t, float x, float y, float w, float 
     if (!omit_glyphs)
         plat_draw_glyph(t, x, y, w, h, baseline, blur, u0, v0, u1, v1, c);
 }
+#define MOON_HUD_RESIDENT_TEXTURE_TEST
 #define plat_draw_glyph probe_glyph
 #include "../../src/core/race_hud.c"
 #undef plat_draw_glyph
@@ -60,6 +61,17 @@ int main(int argc, char **argv)
     CHECK(v);
     race_hud *used = race_hud_open(v);
     CHECK(used);
+    int warm = argc > 2 && !strncmp(argv[2], "--warm", 6);
+    if (warm) {
+        if (strcmp(argv[2], "--warm-negative")) {
+            CHECK(!race_hud_prepare_next_font(used) && used->nfonts == 1);
+            CHECK(!race_hud_prepare_next_font(used) && used->nfonts == 2);
+            CHECK(used->fonts->borrowed_textures);
+            CHECK(used->fonts->ink == used->fonts->next->ink);
+            race_hud_prepare_fonts(used);
+        }
+        CHECK(used->nfonts == 12);
+    }
     /* These are the distinct styles requested by race panels, start/finish,
        opening and track captions. Twelve filled the old fixed cache. */
     const char *styles[] = {"FC_26",   "FC_26*80,80",     "hn_20R",        "GT4meter#1",
@@ -67,6 +79,8 @@ int main(int argc, char **argv)
                             "hm_16#1", "Gaiji#1",         "hm_16#1*90,90", "hc_20#1*70,70"};
     for (unsigned i = 0; i < sizeof styles / sizeof *styles; i++)
         CHECK(font(used,styles[i]));
+    if (warm)
+        CHECK(used->nfonts == 12); /* All twelve requests hit resident atlases. */
     const char *labels[] = {"ReplayModeNormal",     "ReplayModeDive",  "ReplayModeNormalDisplay",
                             "ReplayModeBGMOff",     "ReplayModeBGMOn", "ReplayModeAccelerate",
                             "ReplayModeNormalSpeed"};

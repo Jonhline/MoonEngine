@@ -1925,7 +1925,7 @@ static void press(strb_player *p, inst *k)
 typedef struct {
     inst *k;
     int place;
-    float x, y;
+    float x, y, sx, sy;
     int is_default;
 } button_at;
 static void collect_buttons(strb_player *p, inst *k, float ox, float oy, float sx, float sy,
@@ -1955,12 +1955,58 @@ static void collect_buttons(strb_player *p, inst *k, float ox, float oy, float s
             out[*n].place = (int)i;
             out[*n].x = x;
             out[*n].y = y;
+            out[*n].sx = ax;out[*n].sy = ay;
             out[*n].is_default = in_default;
             (*n)++;
         } else if (s16(p, pl) == 2 && k->kids[i])
             collect_buttons(p, k->kids[i], x, y, ax, ay,
                             in_default || same_name(place_name(p, pl), "DEFAULT"), out, n);
     }
+}
+
+/* P: desktop hit bounds reuse the active STRB placements and their shape /
+   edit-text bounds, the same records consumed by draw_inst/draw_shape. */
+static void pointer_inst_bounds(strb_player *p, inst *k, float ox,float oy,float sx,float sy,float r[4],int depth)
+{
+    if(!k || !k->visible || depth>32) return;
+    for(unsigned i=0;i<sprite_places(p,k->sprite);i++) {
+        size_t pl=place_at(p,k->sprite,i);
+        if(!place_live(p,pl,k->frame)) continue;
+        float x=ox,y=oy,ax=sx,ay=sy;
+        unsigned count=u32(p,pl+0x1c),at=(unsigned)(k->frame-s16(p,pl+2));
+        if(count) {
+            if(at>=count) at=count-1;
+            size_t q=u32(p,pl+0x18)+(size_t)at*0x24;
+            x+=sx*f32(p,q+16);y+=sy*f32(p,q+20);ax*=f32(p,q+8);ay*=f32(p,q+12);
+        }
+        int type=s16(p,pl),id=s16(p,pl+6);
+        if(type==0 || type==5) {
+            size_t rec=type==0 ? u32(p,0x38)+(size_t)id*24 : u32(p,0x60)+(size_t)id*0x34;
+            float a=x+ax*f32(p,rec),b=x+ax*f32(p,rec+8),c=y+ay*f32(p,rec+4),d=y+ay*f32(p,rec+12);
+            r[0]=fminf(r[0],fminf(a,b));r[1]=fminf(r[1],fminf(c,d));
+            r[2]=fmaxf(r[2],fmaxf(a,b));r[3]=fmaxf(r[3],fmaxf(c,d));
+        }
+        if(k->kids[i]) pointer_inst_bounds(p,k->kids[i],x,y,ax,ay,r,depth+1);
+    }
+}
+int strb_pointer(strb_player *p,float x,float y,int activate)
+{
+    if(!p || !p->root || !p->buttons_on) return 0;
+    button_at b[32];int n=0,hit=-1;
+    collect_buttons(p,p->root,0,0,1,1,0,b,&n);
+    for(int i=0;i<n;i++) {
+        float r[4]={1e30f,1e30f,-1e30f,-1e30f};
+        pointer_inst_bounds(p,b[i].k->kids[b[i].place],b[i].x,b[i].y,b[i].sx,b[i].sy,r,0);
+        if(x>=r[0] && x<r[2] && y>=r[1] && y<r[3]) hit=i;
+    }
+    if(hit<0) return 0;
+    if(p->focus!=b[hit].k || p->focus_place!=b[hit].place) {
+        p->focus=b[hit].k;p->focus_place=b[hit].place;
+        button_run(p,p->focus,(unsigned)p->focus_place,1);
+    }
+    focus_buttons(p,0);
+    if(activate) strb_key(p,13);
+    return 1;
 }
 
 /* the focused button over (record +2), the others up (+0) */

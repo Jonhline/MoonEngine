@@ -3,7 +3,11 @@
 #include "car_service.h"
 #include "video_gl.h"
 #include "fsr.h"
+#ifdef MOON_PC_VULKAN
+#include "vk_render.h"
+#endif
 #include "render3d_frustum.h"
+#include "render3d_visibility.h"
 #include "wheel_motion.h"
 #if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
 #include "switch_quality.h"
@@ -29,6 +33,7 @@ typedef struct {
     float lo[3], hi[3];
     unsigned source_model;
     unsigned bone_mask;
+    int batch_end;
     float weight_lo, weight_hi;
 } r3d_group;
 
@@ -46,6 +51,7 @@ struct r3d_mesh {
     GLuint vao, vbo;
     r3d_group *groups;
     int ngroups;
+    r3d_visibility visibility;
     unsigned source_models;
     int *model_ranges;
     r3d_texture *textures;
@@ -62,7 +68,7 @@ struct r3d_mesh {
 static GLuint program, dest_tex, dest_fbo, env_tex;
 static int dest_w, dest_h, env_w, env_h, env_dirty, failed, vp[4];
 static const tex1_image *env_source;
-#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST) || defined(MOON_PC_VULKAN)
+#ifndef MOON_DEKO3D
 static GLuint gpu_environment;
 static int gpu_environment_w, gpu_environment_h;
 #endif
@@ -71,7 +77,44 @@ static GLuint wheel_program, wheel_vao;
 static struct {
     GLint points, extent, source, scanmask, copy;
 } WU;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)
+/* Diagnostic choices are sampled at the view boundary, not for every mesh. */
+static struct {
+    int cache_materials, batch_opaque, spatial;
+} pc_submission;
+static int scene_spatial = 1, scene_resident_reflections = 1;
+void r3d_scene_options(int spatial, int resident_reflections)
+{
+    scene_spatial = spatial != 0;
+    scene_resident_reflections = resident_reflections != 0;
+}
+int r3d_resident_reflections(void)
+{
+    return scene_resident_reflections && getenv("MOON_REFLECTION_CPU") == NULL;
+}
+#endif
 static r3d_stats frame_stats;
+static r3d_totals completed_work;
+static void accumulate_work(r3d_totals *total, const r3d_stats *view)
+{
+    total->draws += view->draws;
+    total->triangles += view->triangles;
+    total->merged_groups += view->merged_groups;
+    total->culled_groups += view->culled_groups;
+    total->texture_updates += view->texture_updates;
+    total->texture_hits += view->texture_cache_hits;
+    total->state_updates += view->state_updates;
+    total->state_hits += view->state_cache_hits;
+    total->visibility_tests += view->visibility_tests;
+    total->spatial_rejected += view->spatial_rejected;
+    total->readbacks += view->readbacks;
+}
+r3d_totals r3d_work_totals(void)
+{
+    r3d_totals total = completed_work;
+    accumulate_work(&total, &frame_stats);
+    return total;
+}
 r3d_stats r3d_frame_stats(void)
 {
     return frame_stats;
@@ -293,8 +336,7 @@ int r3d_available(void)
     fprintf(
         stderr,
         "Switch renderer: adapted-gl state_cache=%d shader_fast=%d draw_state_cache=1 generated_mips=0 anisotropy=1\n",
-        getenv("MOON_SWITCH_UNCACHED") == NULL,
-        getenv("MOON_SWITCH_SHADER_REFERENCE") == NULL);
+        getenv("MOON_SWITCH_UNCACHED") == NULL, getenv("MOON_SWITCH_SHADER_REFERENCE") == NULL);
 #endif
     if (!program) {
         failed = 1;
@@ -396,7 +438,6 @@ static int same_group(const r3d_group *g, const gt4_triangle *t)
            g->lamp == t->lamp && !memcmp(&g->state, &t->state, sizeof g->state);
 }
 
-#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
 /* P: preserve 00455708 draw state while omitting redundant GL applications.
    Textures have a separate cache; no state survives a mesh submission or a
    second alpha/ghost pass. */
@@ -414,7 +455,6 @@ static int same_opaque_group(const r3d_group *a, const r3d_group *b)
            a->wheel_blur_texture == b->wheel_blur_texture && a->lamp == b->lamp &&
            !memcmp(&a->state, &b->state, sizeof a->state);
 }
-#endif
 
 r3d_mesh *r3d_mesh_create_shared(const gt4_model *m, const r3d_mesh *shared)
 {
@@ -707,6 +747,24 @@ r3d_mesh *r3d_mesh_create_shared(const gt4_model *m, const r3d_mesh *shared)
             range[0] = i;
         range[1] = i + 1;
     }
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)
+    /* Material descriptions are immutable after creation. Precompute compatible
+       ranges once; visibility and model-list boundaries are still checked per view. */
+    for (int i = mesh->ngroups - 1; i >= 0; i--) {
+        r3d_group *g = mesh->groups + i;
+        g->batch_end = i + 1;
+        if (i + 1 < mesh->ngroups) {
+            const r3d_group *next = g + 1;
+            if (next->first == g->first + g->count && same_opaque_group(g, next))
+                g->batch_end = next->batch_end;
+        }
+    }
+#endif
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)
+    if (!mesh->skinned && !mesh->morph && mesh->ngroups >= 64)
+        r3d_visibility_build(&mesh->visibility, mesh->groups[0].lo, sizeof *mesh->groups,
+                             (unsigned)mesh->ngroups);
+#endif
     mesh->ntextures = m->ntextures;
     mesh->vertices = m->count * 3;
 #ifdef __SWITCH__
@@ -742,6 +800,7 @@ void r3d_mesh_destroy(r3d_mesh *mesh)
         glDeleteBuffers(1, &mesh->vbo);
     if (mesh->vao)
         glDeleteVertexArrays(1, &mesh->vao);
+    r3d_visibility_free(&mesh->visibility);
     free(mesh->groups);
     free(mesh->model_ranges);
     free(mesh);
@@ -749,8 +808,20 @@ void r3d_mesh_destroy(r3d_mesh *mesh)
 
 void r3d_begin(float x, float y, float w, float h, const tex1_image *environment)
 {
+    accumulate_work(&completed_work, &frame_stats);
     memset(&frame_stats, 0, sizeof frame_stats);
-#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST) || defined(MOON_PC_VULKAN)
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)
+    int reference = getenv("MOON_RENDER_REFERENCE") != NULL;
+    pc_submission.cache_materials = !reference;
+#ifdef MOON_PC_VULKAN
+    if (moon_vk_render_active() && getenv("MOON_VK_REPEAT_COMMANDS"))
+        pc_submission.cache_materials = 0;
+#endif
+    pc_submission.batch_opaque = !reference && getenv("MOON_RENDER_NO_BATCH") == NULL;
+    pc_submission.spatial = scene_spatial && getenv("MOON_FLAT_VISIBILITY") == NULL;
+#endif
+
+#ifndef MOON_DEKO3D
     gpu_environment = 0;
 #endif
     video_flush2d();
@@ -1058,7 +1129,7 @@ int r3d_begin_target(int size)
     return 1;
 }
 
-#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST) || defined(MOON_PC_VULKAN)
+#ifndef MOON_DEKO3D
 void r3d_gpu_environment(unsigned texture, int width, int height)
 {
     gpu_environment = texture;
@@ -1081,6 +1152,7 @@ void r3d_end_target(uint8_t *rgba)
         return;
     r3d_end();
     if (rgba) {
+        frame_stats.readbacks++;
         glPixelStorei(GL_PACK_ALIGNMENT, 1);
         glReadPixels(0, 0, target_size, target_size, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
         for (int y = 0; y < target_size / 2; y++) { /* GL rows go up; the image's go down */
@@ -1471,7 +1543,7 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, dest_tex);
     glActiveTexture(GL_TEXTURE2);
-#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST) || defined(MOON_PC_VULKAN)
+#ifndef MOON_DEKO3D
     glBindTexture(GL_TEXTURE_2D, gpu_environment ? gpu_environment : env_tex);
     glUniform2i(U.envsize, gpu_environment ? gpu_environment_w : env_w,
                 gpu_environment ? gpu_environment_h : env_h);
@@ -1487,18 +1559,29 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
        Distinct detailed/coarse meshes may occupy the same surface. */
     unsigned count =
         view->model_list ? (unsigned)view->model_list[0] | (unsigned)view->model_list[1] << 8 : 1;
-#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     /* P: reuse texture bindings/uniforms only inside this mesh submission.
        DATE snapshots and draw order (00396F00 +34..78) are unchanged. */
     const r3d_texture *last_texture = NULL;
     GLuint last_texture_id = 0;
     int texture_valid = 0;
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     int cache_textures = getenv("MOON_SWITCH_UNCACHED") == NULL;
+    int batch_opaque = cache_textures;
+#else
+    int cache_textures = pc_submission.cache_materials;
+    int batch_opaque = pc_submission.batch_opaque;
+#endif
     const r3d_group *last_draw_state = NULL;
     GLint date_read_fb = 0, date_draw_fb = 0;
     int date_framebuffer_known = 0;
     int no_reflect = getenv("MOON_NO_REFLECT") != NULL;
     int only_reflect = getenv("MOON_ONLY_REFLECT") != NULL;
+    int spatial = 0;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)
+    /* Authored course lists already restrict model ranges. A global spatial
+       query is useful for unrestricted meshes, especially reflection scenery. */
+    spatial =
+        cull && pc_submission.spatial && mesh->visibility.count && !skinned && !view->model_list;
 #endif
     for (unsigned entry = 0; entry < count; entry++) {
         int first = 0, end = mesh->ngroups;
@@ -1510,11 +1593,22 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
             first = mesh->model_ranges[model * 2];
             end = mesh->model_ranges[model * 2 + 1];
         }
+        if (spatial) {
+            r3d_visibility_select(&mesh->visibility, planes, mesh->groups[0].lo,
+                                  sizeof *mesh->groups, (unsigned)first, (unsigned)end);
+            frame_stats.visibility_tests += mesh->visibility.tests;
+            frame_stats.spatial_rejected += mesh->visibility.rejected;
+        }
         for (int i = first; i < end; i++) {
             const r3d_group *g = &mesh->groups[i];
             if (g->lamp && (g->lamp == 2) != (view->brake != 0))
                 continue; /* the brake lamps' branch */
-            if (cull) {
+            if (spatial && !mesh->visibility.visible[i]) {
+                frame_stats.culled_groups++;
+                continue;
+            }
+            if (cull && !spatial) {
+                frame_stats.visibility_tests++;
                 float lo[3], hi[3];
                 const float *bound_lo = g->lo, *bound_hi = g->hi;
                 if (skinned) {
@@ -1530,40 +1624,48 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
             }
             const gt4_draw_state *s = &g->state;
             int vertices = g->count;
-#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
             /* P: combine consecutive visible opaque slices of the same
                resident VBO. Keep primitive order and model-list boundaries.
-               Alpha-fail, DATE, blending, skin and ghost passes stay separate. */
-            if (cache_textures && !skinned && !view->ghost && !g->blend_enabled && !s->alpha_test &&
+               Multipass alpha-fail, DATE, blending, skin and ghost stay separate. */
+            int single_pass = !s->alpha_test;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)
+            /* KEEP discards failing fragments without a second pass. Joining
+               adjacent ranges preserves both primitive and fragment order. */
+            single_pass |= s->alpha_fail == 0;
+#endif
+            if (batch_opaque && !skinned && !view->ghost && !g->blend_enabled && single_pass &&
                 !s->destination_test)
                 while (i + 1 < end) {
-                    const r3d_group *next = mesh->groups + i + 1;
-                    if (next->first != g->first + vertices || !same_opaque_group(g, next) ||
-                        (cull && !r3d_bounds_visible(planes, next->lo, next->hi)))
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)
+                    if (i + 1 >= g->batch_end)
                         break;
+#endif
+                    const r3d_group *next = mesh->groups + i + 1;
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
+                    if (next->first != g->first + vertices || !same_opaque_group(g, next))
+                        break;
+#endif
+                    if (cull) {
+                        if (!spatial)
+                            frame_stats.visibility_tests++;
+                        if (spatial ? !mesh->visibility.visible[i + 1]
+                                    : !r3d_bounds_visible(planes, next->lo, next->hi))
+                            break;
+                    }
                     vertices += next->count;
                     frame_stats.merged_groups++;
                     i++;
                 }
-#endif
-#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
             if (g->reflection && no_reflect)
                 continue;
             if (!g->reflection && only_reflect)
                 continue;
-#else
-            if (g->reflection && getenv("MOON_NO_REFLECT"))
-                continue;
-            if (!g->reflection && getenv("MOON_ONLY_REFLECT"))
-                continue;
-#endif
+
             int texture = view->wheel_blur == 1 && g->wheel_blur_texture ? g->wheel_blur_texture - 1
                                                                          : g->texture;
             const r3d_texture *t =
                 texture >= 0 && texture < mesh->ntextures ? &mesh->textures[texture] : NULL;
-#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
             const r3d_texture *source_texture = t;
-#endif
             r3d_texture accumulated;
             if (t && g->wheel_blur_texture && view->wheel_blur > 1 &&
                 t->wheel_samples == view->wheel_blur && t->wheel_angle == wheel_angle) {
@@ -1578,7 +1680,6 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
                 t = &accumulated;
             }
             int state_changed = 1;
-#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
             state_changed = !cache_textures || view->ghost || !last_draw_state ||
                             !same_draw_state(last_draw_state, g);
             if (state_changed) {
@@ -1586,7 +1687,6 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
                 frame_stats.state_updates++;
             } else
                 frame_stats.state_cache_hits++;
-#endif
             if (state_changed) {
                 /* the draw's own fog colour (a GS colour, doubled with the course's) or the scene's */
                 if (s->fog_override)
@@ -1603,7 +1703,6 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
                 glUniform1i(U.reflect, g->reflection);
             }
             int texture_changed = 1;
-#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
             GLuint texture_id = t ? t->id : 0;
             texture_changed = !cache_textures || !texture_valid || source_texture != last_texture ||
                               texture_id != last_texture_id;
@@ -1614,7 +1713,6 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
                 frame_stats.texture_updates++;
             } else
                 frame_stats.texture_cache_hits++;
-#endif
             if (texture_changed) {
                 glUniform1i(U.has_tex, t != NULL);
                 glActiveTexture(GL_TEXTURE0);
@@ -1654,7 +1752,6 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
                leaving stale masks (squares above the Ka's rear lamps).
                Blit to the resident single-sample mask; no CPU readback. */
                 GLint read_fb, draw_fb;
-#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
                 /* DATE temporarily changes these bindings and restores them
                    below. Query the actual nested target once per submission,
                    not twice for every destination-tested material. */
@@ -1665,10 +1762,7 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
                 }
                 read_fb = date_read_fb;
                 draw_fb = date_draw_fb;
-#else
-                glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read_fb);
-                glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw_fb);
-#endif
+
                 if (!dest_fbo)
                     glGenFramebuffers(1, &dest_fbo);
                 glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dest_fbo);
@@ -1718,10 +1812,8 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
                 glDrawArrays(GL_TRIANGLES, g->first, vertices);
                 frame_stats.draws++;
                 frame_stats.triangles += vertices / 3;
-#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
                 /* Fail actions changed pass, depth and channel masks. */
                 last_draw_state = NULL;
-#endif
             }
         }
     }
@@ -2129,7 +2221,7 @@ void r3d_draw_sprites(const r3d_sprite_texture *t, const r3d_view *view, const f
     glUseProgram(program);
 }
 
-#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
+#ifndef MOON_DEKO3D
 int r3d_warmup(void)
 {
     static int ready;

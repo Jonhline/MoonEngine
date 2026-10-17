@@ -16,7 +16,7 @@ typedef struct {
 } movie_view;
 static void movie_preload_ipic(movie_view *v)
 {
-#ifndef __SWITCH__
+#if !defined(__SWITCH__) || defined(MOON_SWITCH_MOVIES)
     /* Original: func_001FD528 +0x3C..0x68 loads the named .ipic archive.
        arcade.ad loadIpic("course") L30 preloads the menu movie pictures. */
     size_t size = 0;
@@ -64,15 +64,19 @@ static int movie_worker(void *arg)
         if (gen == handled)
             continue;
         sdl_movie *next = NULL;
-#ifndef __SWITCH__
+#if !defined(__SWITCH__) || defined(MOON_SWITCH_MOVIES)
         if (*name && v->volume) {
             char path[160];
             size_t size = 0;
             snprintf(path, sizeof path, "/mpeg/main/%s.pss", name);
             uint8_t *data = gt4_vol_read(v->volume, path, &size);
             if (data) {
+#ifdef MOON_SWITCH_MOVIES
+                next = sdl_movie_open_owned(data, size, interlace, repeat, audio_track);
+#else
                 next = sdl_movie_open(data, size, interlace, repeat, audio_track);
                 free(data);
+#endif
             }
         }
 #endif

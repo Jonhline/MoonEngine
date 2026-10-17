@@ -8,6 +8,22 @@ static void hud_icon(void *user, int car, float x, float y, float w, float h)
     race_view_draw_icon_front(g->view, car, x, y, w, h);
 }
 
+#ifdef __SWITCH__
+static int prepare_switch_hud(race_game *g)
+{
+    if (g->split)
+        return 1;
+    if (!g->hud)
+        g->hud = race_hud_open(g->vol);
+    race_hud_set_icon(g->hud, hud_icon, g);
+    if (g->hud_course[0]) {
+        race_hud_set_course(g->hud, g->hud_course);
+        g->hud_course[0] = 0;
+    }
+    return race_hud_prepare_next_font(g->hud);
+}
+#endif
+
 static void draw_icon(void *user, int car, float x, float y, float w, float h,
                       const uint8_t color[4])
 {

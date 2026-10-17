@@ -1265,3 +1265,417 @@ probe reads back; it runs before disc data loading. Its `upload-burst=PASS`
 marker and successful Nürburgring race entry are pending hardware execution.
 The full scene/race stability remains A until that reproduction. SDK and game
 data are not vendored. The existing full-image composition repair is retained.
+
+
+
+## EE physics cross build (2026-10-16)
+
+The current native deko3d Release package builds in `build-switch/ee-release`,
+including the EE arithmetic and replay corrections from f7322bb. A fresh build
+folder avoids stale toolchain paths left by the repository rename. The delivery
+copy retains the requested filename `opengt4.nro`; only the NRO is packaged,
+without configuration, saves or disc data.
+
+Build repairs select the OpenGL composition source only with the OpenGL backend,
+expose the environment-copy declarations shared by both renderers, and use the
+showroom's current raster width for its Switch studio layers. The native backend
+also implements the existing fill-window and presentation-options interfaces used
+by the first-run wizard, and links its font rasterizer without the desktop launcher.
+Windows source selection and implementations remain unchanged.
+
+The ARM64 ELF and NRO build successfully. NRO magic and ELF machine checks pass.
+Of 40 focused deko/render host tests, 39 pass; `deko_materials` fails again in an
+isolated repeat (vertex mode 0, two lights, kind 3: PC byte 86 versus native 0).
+No shader was changed in this build; that comparison remains unresolved and this
+package is not a claim of verified console materials or performance. Hardware
+execution of this EE build and physics step timing on Switch remain pending.
+
+
+## Restored movies and live diagnostics (2026-10-16)
+
+The first EE package accidentally selected the generic non-Windows movie stub.
+The frontend also excluded movie requests under `__SWITCH__`. Restored the native
+FFmpeg adapter and required SDK packages from the hardware-tested Switch tree;
+`MOON_SWITCH_MOVIES` now reaches the frontend, which transfers PSS ownership to
+the decoder worker instead of copying a complete opening movie. Desktop movie
+selection is unchanged. IPU still-picture archives remain unsupported on Switch.
+
+Eight host checks pass against independent FFmpeg CLI RGBA fixtures (one byte per
+channel tolerance): opening, start-game/category clips, audio, progressive and
+interlaced loops, and deliberate pixel/field-order failures. Native ARM64 links
+FFmpeg successfully; the frontend integration and playback still need console
+confirmation. These fixtures do not establish equality with the PS2 IPU.
+
+For wireless diagnosis, enable Nxlink in Sphaira's Network settings, keep PC and
+console on the same LAN, then send with the SDK tool:
+
+```sh
+nxlink -a SWITCH_IP -p opengt4/opengt4.nro -s --args "--nxlink-host PC_LAN_IP" opengt4.nro
+```
+
+The optional host argument handles PCs with VPN/network adapters. Network launches
+send stderr directly to the receiving PC; normal launches keep the SD log. Startup
+preserves additional fixture arguments (for example `--drive --race-course tsukuba`)
+instead of dropping them. Launching from application-mode homebrew still requires
+holding R over a game. Logs received from the console confirm that wireless upload,
+boot and live performance reporting work. This is not yet an unattended full-console
+test runner: the user must return to Sphaira between uploads, especially after a crash.
+
+
+## Arcade still pictures and scoped LTO (2026-10-16)
+
+The Switch frontend now preloads the disc's 56 `course.ipic` pictures through
+FFmpeg's IPU demuxer/decoder on the existing movie worker. IPU streams retain one
+output per source picture (no movie FPS filter); the common archive reader restores
+448/512-height groups to the original name order. The rendering-thread poster path
+is the same as desktop: a card remains ready while its PSS decoder is pending.
+
+Twelve focused checks pass, including all 56 batch/single-picture comparisons,
+112 forward/back card changes without a PSS decoder, a missing-poster negative,
+eight PSS cases and both arithmetic-fast-path checks. Hardware live output confirms
+`preloaded 56 original menu pictures`; perceived transition smoothness is pending.
+The host FFmpeg fixture must include IPU decoder, parser and demuxer (its original
+minimal PSS-only build did not). RGBA comparisons are not proof against PS2 IPU.
+
+Wireless race measurements before scoped LTO show Laguna/Ka with five opponents
+settling near 20 FPS, 49-51 ms/frame and 14-16 ms/frame in physics (about 5 ms/step).
+The initial loading windows have much larger peaks. These CPU spans do not sum to
+complete GPU execution time. A global IPO experiment was not accepted: hardware
+feedback reported audio loss during course changes. The current build restricts IPO
+to physics, its legacy recording implementation, vehicle summaries and ps2float;
+audio, renderer and general game/UI sources retain ordinary Release compilation.
+No fast-math flags, timing, steps or arithmetic results are intentionally changed.
+The global experiment did not provide a controlled same-race performance comparison;
+no gain is asserted for scoped IPO until the next hardware sample.
+
+
+## Arcade navigation diagnostics (2026-10-16)
+
+Live hardware traces isolate a 305-427 ms pause inside `swp_ready`, after scene
+and page drawing and before presentation. The corresponding presentation spans
+are 0.26-0.35 ms. Authored stills are already ready in approximately 2-13 ms;
+loading a 26-36 MB PSS takes 306-435 ms on this SD card. Scripted startup changes
+keep presenting at about 60 FPS, while ordinary main-loop changes encounter the
+synchronous readiness diagnostic. This isolates a diagnostic-output stall; it
+does not establish that all SD, decoder or renderer bottlenecks are solved.
+
+Switch profiler output now enters a bounded 32-record queue. A libnx worker on
+core 2 writes the records outside the queue mutex. A full queue or failed worker
+initialization drops diagnostics rather than waiting for output on the render
+thread. Desktop profiling fixtures retain their synchronous deterministic sink.
+Host checks cover FIFO order, wraparound, saturation without overwriting queued
+records, empty reads, oversized-record rejection and the existing deliberate
+negative. The Switch NRO builds; console confirmation of the fix is pending.
+
+All experimental LTO has been removed from the current diagnostic build. Earlier
+scoped-LTO notes above describe an experiment, not an accepted performance gain.
+The diagnostic NRO replaces `switch/diagnostics/moon_movie_timing.nro`; it does
+not replace the player's primary `switch/opengt4/opengt4.nro` or save files.
+
+
+## Native specular-only lighting (2026-10-16)
+
+The existing host material comparator reproduced a native vertex failure:
+mode 0, two lights, specular-only material, PC 86 versus native 0. The native
+shader merged and cleared specular before selecting the specular-only output.
+Match `0049EB90 +0x84..0x94` as already implemented in the desktop shader:
+select specular alone before vertex saturation; select the separate specular
+output only when vertex saturation is disabled. No alpha, transform or shader
+compiler workaround is changed.
+
+`deko_materials` now passes 3,072 fragment and 2,160 vertex cases against the
+existing desktop GLSL with zero byte/channel difference. Six deliberate material,
+address, DATE, vertex and fractional-alpha negatives pass. These are host GPU
+comparisons, not a claim that every Switch material matches a PS2 capture.
+The native NRO compiles; a fresh console capture is being collected.
+
+
+## Race GPU waits, state reuse and direct captures (2026-10-16)
+
+Native profiling now separates CPU submission from frame-fence and swap-image
+acquisition waits. In portable Laguna with Ka and five fixed opponents, initial
+post-loading windows show 39.20 FPS / 25.512 ms and 50.98 FPS / 19.614 ms.
+Fence waits consume 13.722 / 10.141 ms; physics consumes 6.784 / 5.238 ms.
+A later crowded view falls to approximately 20 FPS with 27 ms in fence waits.
+These are CPU wait spans, not GPU timestamp queries or a universal track result.
+
+Cache only shader-program pairs and immutable mesh/UI vertex layouts, resetting
+at each frame. Clear, texture/uniform, blend, depth and draw order remain intact.
+An 8,000-draw host fixture checks all bindings and attributes across repeated
+programs, material changes and four frame resets: 80 shader and 40 layout binds
+replace 8,000 of each. Three deliberate shader/layout/reset negatives fail as
+expected; 18 focused pipeline, clear, transfer, submission and profiler checks pass.
+The comparable early race window changes submission from 1.770 to 1.540 ms,
+but FPS stays 39.20. This change reduces CPU work; it does not solve GPU pressure.
+Temporary per-frame stall prints have been removed after isolating the menu issue.
+
+Five extra NROs were moved outside `/switch` with `.disabled` suffixes, retaining
+recoverable backups. Only `/switch/opengt4/opengt4.nro` remains visible; its FTP
+installation was verified by SHA-256. Saves, ISO and configuration were untouched.
+Direct native PNG capture and an equivalent desktop capture are local diagnostics;
+images/game assets are not committed. Current captures still show missing rank
+text and material differences; full graphical parity and 60 FPS are not claimed.
+
+
+## Clean exit after native captures (2026-10-16)
+
+The first direct race PNG was saved successfully, then shutdown reported
+`dkDeviceDestroy: unfreed memory blocks`. Renderer-owned environment, UI depth,
+DATE destination, photo target/depth and composition layer/depth targets had no
+shutdown path. The native renderer now retires those seven owned targets before
+device teardown, without releasing borrowed environment or saved caller targets.
+A repeated ten-second Laguna/Ka capture saved its PNG without the prior SDK
+failure. The user still observed an operating-system error dialog after exit.
+The subsequent reports resolve the faulting program to Sphaira, not MoonEngine;
+the handoff cause is still under investigation. A clean return is not established.
+
+
+## Widescreen HUD rank clipping (2026-10-16)
+
+Direct 1280x720 console capture shows the position box with an absent digit;
+the matched desktop capture has the digit. `RaceRankDisplay` (003A3B58) clips
+across virtual width 640, while 003AFD18 moves its rank element 96 units left
+in widescreen. Desktop extends a full-width clip into both side margins; the
+native backend clipped it back to the central virtual area, hiding the rank.
+Native horizontal clipping now uses the same full-content rule and integer
+rounding, retaining local clip widths and UI-panel boundaries. Host tests check
+rank visibility at three scales, local/panel clips, and a negative restoring
+the central-only clip. Both pass; fresh console confirmation remains pending.
+
+
+## Native dynamic course reflections (2026-10-16)
+
+The native race path skipped `course_reflection` and its GPU environment API was
+stubbed, so cars sampled a static course texture instead of the sky/scenery
+sphere map used by the PC port. Restore that existing boundary on deko3d:
+six reusable 128-square face renders, a resident 768x128 atlas, and a 128-square
+sphere-map fragment pass. Capture/remap uses GPU commands and barriers only;
+there is no ordinary CPU image readback, per-frame image allocation or CPU wait.
+Target captures temporarily use projection 1 and restore the prior projection.
+The atlas is released with its owning course environment; the new shader is
+compiled at boot and freed at shutdown. Desktop execution paths are unchanged.
+
+The formulas match the retained PC six-face adaptation around original
+0044E528/0044EEA8, rather than introducing a new reflection style. The new
+production shader is checked against the independent CPU sphere-map formula:
+three asymmetric six-face camera orientations, <=1 byte/channel; a reversed
+camera-basis negative must fail. All 21 focused environment/material/transfer/
+pipeline/clip/profiler checks pass. On the console, Laguna/Ka runs, saves its
+PNG; its log ends normally, but the user reports an error dialog on return to
+Sphaira. Exit remains under investigation. The image shows sky/scenery and the restored
+rank digit. Full matched-tick PS2 image equality is not established.
+
+This restoration adds graphics work. With the default five-opponent diagnostic
+grid, early post-loading windows are 34.54 FPS / 28.952 ms and 44.66 FPS /
+22.393 ms, with 15.092 / 11.142 ms in frame-fence waits. The previous fixed-grid
+capture differs in opponents, so those runs do not give a controlled speed delta.
+There is no 60 FPS claim. Next performance work must preserve this reflection
+producer rather than silently returning to a static probe.
+
+
+## GPU-copy experiments and retained baseline (2026-10-16)
+
+The repeatable portable Laguna/Ka ten-second capture now counts GPU snapshot
+submissions separately (`gpu_copy`, `gpu_date`). These spans measure CPU command
+encoding, not GPU execution. The early steady window contains 3,224 DATE copies
+in 70 frames (46.1 full-target copies/frame), with 15.205 ms in frame-fence waits.
+
+With the production deko3d SDK, the comparable windows remain 34.61 / 44.71 FPS;
+disabling SDK diagnostics alone does not solve the bottleneck. Reusing an alpha
+snapshot until an alpha write occurs produced 34.63 / 44.68 FPS and did not
+reduce copies in this scene, so that experiment was removed. Replacing equal-size
+filtered blits with direct image copies regressed these windows to 25.56 / 36.15
+FPS (fence waits 22.789 / 15.059 ms); that experiment was also removed. The
+retained renderer uses the original filtered transfers and full ordering barriers.
+No quality reduction, physics change, or claim of constant 60 FPS follows from
+these experiments. Console artifacts and exact executables remain local.
+
+Two post-capture error reports resolve the faulting PC/stack to Sphaira (module
+79B02E3E2733E18E8219D53717321F68AF5C7971), after the MoonEngine log ends. This
+narrows the exit failure to the loader handoff/re-entry; its root cause remains
+unproven and must not be described as a fixed exit.
+
+
+## Bounded DATE snapshots (2026-10-16)
+
+DATE still samples the prior framebuffer for every authored group, in order.
+The native backend copies only the conservative projected horizontal span of
+an unskinned, non-transient group's model-space box, at identical source and
+destination coordinates. Height, allocation size, fragment addressing and full
+GPU ordering barriers are unchanged. Positive-depth perspective extrema come
+from the eight affine box corners, expanded for float operation error and
+outward pixel rounding. Boxes crossing the near plane, invalid projections,
+skinned/transient geometry keep the full-copy path. This removes redundant
+transfer pixels, not geometry, effects or original rendering behavior.
+
+The host fixture retains 100,000 independently projected float positions across
+1,000 translated/rotated/mirrored boxes with jitter and offset viewports, plus
+near-plane/skin fallbacks; a deliberate empty-span negative fails. All 23 focused
+snapshot/material/environment/pipeline/transfer/clip/profiler checks pass.
+Portable Laguna/Ka with the same ten-second fixture changes early steady
+windows from 34.61 / 44.71 to 60.36 / 59.56 FPS, and fence waits from 15.205 /
+11.291 to 4.677 / 0.762 ms. A later window is 44.97 FPS versus 39.11; constant
+60 FPS is not established. Direct console captures have zero differing RGB
+channels in the compared 1280x340 scene region and 540x275 car region. A separate
+19x14 HUD region differs; full-frame equality is not claimed. All captures,
+exact executables and logs remain local. Desktop paths and physics are unchanged.
+
+
+## Two-axis snapshot bounds (2026-10-16)
+
+Apply the same conservative interval projection vertically, using the SDK's
+UpperLeft/YAxisPointsUp viewport sign (`gpu_3d_base.cpp`, `viewportFlipY`).
+The saved rectangle retains framebuffer X/Y on both images. Skin/transient/near
+fallbacks are unchanged. The delayed transfer fixture now also checks 60 cropped
+snapshots: source writes and prior readers are ordered, outside pixels retain
+their previous values, and a translated-destination negative fails. Projection
+coverage includes both axes, rotation, mirror, jitter and offset viewports.
+Seven focused snapshot/transfer tests pass, including four transfer negatives.
+
+Portable Laguna/Ka windows are 60.00 / 59.98 FPS, with fence waits 0.108 / 0.251
+ms; the later window improves to 47.26 FPS, so constant 60 remains unproved.
+The newly retrieved native capture again has zero differing RGB channels in the
+compared 1280x340 scene region against full-target snapshots. The same 19x14 HUD
+region differs independently. A longer portable Tsukuba/Ka run ranges around
+46.57–60.55 FPS in ordinary windows, with 28.80 / 43.25 FPS windows containing
+803 / 211 ms outliers. Loading windows are excluded. Other tracks, docked mode,
+long-race stability and the exit error remain pending.
+
+
+## Fragment-engine DATE snapshots (2026-10-16)
+
+A resident snapshot shader copies exact RGBA8 texels at gl_FragCoord into the
+bounded destination rectangle, with blending/depth writes disabled. This keeps
+producer, snapshot and consumer on the 3D fragment engine. Fragment completion
+and texture-cache barriers surround the target changes; unrelated 2D/upload/
+copy-engine transfers retain their full ordering barriers. The shader is built
+at boot and released with the other programs. No image-quality setting changes.
+
+Host GPU full/cropped framebuffer comparisons preserve every byte, including all
+256 alpha values and outside-crop pixels; the wrong-scissor negative fails.
+The console boot fixture additionally passes 40 dependent ping-pong copies plus
+a cropped copy, checked byte-for-byte after completion. No intermediate CPU wait
+is used in that dependent sequence; boot readbacks are diagnostic-only.
+A portable twenty-second Tsukuba/Ka run improves ordinary windows from roughly
+46.57–60.55 to 52.69–60.73 FPS. A captured racing frame is visually intact; the
+two runs end at different simulation ticks, so full-scene pixel equality is not
+claimed here. START/font-related 800 ms outliers still appear in that isolated
+renderer run and are handled separately. Constant 60 FPS is still pending.
+The lossless depth-compression experiment changed the figures only slightly and
+was removed; the retained depth format/layout policy is unchanged.
+
+
+## START and HUD preparation before reveal (2026-10-16)
+
+Console timing traced the large START outlier to lazy HUD atlas creation:
+FC_48 costs 787.604 ms when first drawn. Opening styles hb_24#1 and its scaled
+variant cost 497.778 / 491.814 ms after readiness, causing additional wall-time
+catch-up in the following physics update. Font preparation is presentation work;
+no solver arithmetic or physical step interval is changed.
+
+On Switch only, race_game_poll now retains the loading state until twelve
+existing opening/countdown/START/meter/music styles are prepared. One font style
+is prepared per loading frame; the consumed race-view worker is not polled twice.
+The final readiness boundary resets the existing presentation clock as before.
+Equal base-face styles share their immutable SDF/GPU atlas pair, while retaining
+separate decoded metrics, palette and scale. Stable cache nodes own shared images
+once, and close releases them once. Windows keeps its previous lazy path.
+The first all-at-once experiment failed in dkMemBlockCreate during a glyph upload;
+the retained staged/shared implementation completes loading, racing and capture.
+
+The positive warmup fixture checks incremental progress, resident styles and
+shared atlas identity, then compares replay labels/pause frames with fresh HUDs
+in both aspects byte-for-byte. Missing-preparation and missing-glyph negatives
+fail as intended. All 30 focused HUD/material/snapshot/environment/transfer/
+pipeline/profiler tests pass. Console logs put FC_48's 772.562 ms before the final
+ready event and show no HUD-font loads afterward. The twenty-second Tsukuba/Ka
+repeat has 59.95 / 60.03 / 59.96 FPS early steady windows, max 17.010 / 16.969 /
+18.792 ms. The previous 800 ms START and roughly 460 ms catch-up spikes disappear
+in this run. Later ordinary windows range 51.61–60.38 FPS, with an independent
+85.813 ms outlier. The first 261.976 ms report includes the final loading handoff,
+not a steady race frame. Loading takes the preparation work instead; its font
+bakes are still synchronous, so fully smooth loading animation remains pending.
+Split-screen warmup, other-track/docked coverage, constant 60 FPS and the separate
+Sphaira exit error are not claimed fixed.
+
+
+## Scalar DATE masks (2026-10-16)
+
+The native DATE snapshot now keeps the destination alpha in one R8_UNORM
+channel rather than four RGBA8 channels. The snapshot shader copies the same
+8-bit alpha into red, and the material shader tests red with the existing
+threshold. No resolution, draw order, material precision or physics changes.
+Other render targets remain RGBA8; scalar masks are never uploaded through
+the RGBA upload interface or sent through the general 2D engine.
+
+The host full/crop GPU fixture checks all 256 values and untouched pixels; its
+wrong-scissor negative fails. Material comparisons retain the PC reference
+shader and pass 3,072 fragment/2,160 vertex cases using the scalar mask; the
+wrong-channel negative fails. All 34 focused tests pass. The console full/crop
+alpha256 fixture passes as well; a racing capture is visually intact.
+
+Portable Tsukuba/Ka's matched later windows improve from 54.71 / 51.61 /
+54.09 / 57.23 to 56.48 / 53.33 / 55.84 / 58.84 FPS. The early steady windows
+remain approximately 60 FPS. An 83 ms isolated outlier remains. These are
+short, same-route measurements, not constant-60 or all-track proof. Removing
+a duplicate fragment barrier gave no measurable additional gain and was
+discarded, as was skipping unused snapshot uniforms.
+
+
+## Lossless indexed geometry (2026-10-16)
+
+Static native meshes now upload a unique table of complete 108-byte vertex
+records plus a uint32 index stream in one allocation. Keys include all bytes:
+positions, normals, UVs, colors, alpha, specular and skin weights. Triangle
+order, group boundaries and material operations are unchanged. Transient meshes
+keep their streamed array path; a position update restores the expanded array
+and clears its index address. The vertex shader does not use vertex IDs.
+
+The host fixture reconstructs 6,000 vertices byte-for-byte, including distinct
+signed-zero/NaN payloads and attribute seams; a wrong index fails. A native
+boot comparison renders six references to three shared vertices and matches
+the original triangle's complete RGBA8 and depth buffers exactly. A racing
+capture remains visually intact. Portable Tsukuba/Ka later windows improve
+from scalar masks' 56.48 / 53.33 / 55.84 / 58.84 to 59.95 / 57.71 / 60.38 /
+60.44 FPS. Constant 60, long races and other tracks/docked mode remain pending.
+
+
+## Clamped scene scaling (2026-10-16)
+
+Scene enlargement now samples the existing UI shader through a clamp-to-edge
+sampler with blending disabled, instead of the general 2D filtered blit. It
+keeps the 960x540/1280x720 internal sizes and full-resolution HUD. The prior
+capture has a bright rightmost column; the new path prevents sampling tile
+padding beyond the last source texel. A fresh racing capture still needs to be
+retrieved to confirm the reported line visually. No edge is cropped or hidden.
+
+The GPU host comparator checks every pixel for 7x5, 1280x720 and 1920x1080
+against clamped bilinear math, with two 8-bit levels allowed for filter rounding
+and exact corner bytes. Repeat wrapping is the failing negative. The native
+3x2-to-7x5 probe passes with a one-level tolerance. All 40 focused render/HUD
+tests pass. With indexing enabled, portable Tsukuba later windows are 59.52 /
+56.76 / 59.44 / 60.75 FPS versus 59.95 / 57.71 / 60.38 / 60.44 using the 2D
+scaler. The correction costs about one FPS in the slowest measured window;
+constant 60 remains unresolved. Exit-error investigation is deferred.
+
+
+## Full-screen viewport rounding (2026-10-16)
+
+The retrieved capture disproved the scaler hypothesis above: the last column
+was identical with both scalers. The actual discrepancy was earlier: native
+video_viewport truncated fitted full-screen bounds, while video_gl.c rounds
+content_x/content_width by adding 0.5. A fitted width just below the integral
+framebuffer size therefore left the last 3D column outside the viewport. The
+background remained visible there and enlargement blended it into the edge.
+
+The native full-screen viewport now uses the PC rounding boundary. The direct
+2D scene scaler is restored; the ineffective fragment-scaler implementation,
+boot probe and host fixture are removed. No edge is cropped, and no resolution
+or image-quality option changes. Tests cover the preceding representable width
+for 960/1280/1920 pixels, with a truncation negative, plus the existing HUD/local/
+panel clip cases. All 39 focused render/HUD tests pass. The native racing
+capture confirms the line is gone: at y=500, columns 1278/1279 now read pavement
+(50,49,49), rather than the former background-contaminated (77,84,92)/(122,143,165).
+The safe bucket-coalescing trial gained only about 0.28 FPS in the slow window
+and was removed as inconclusive. The accepted indexed geometry remains;
+constant 60 FPS is still unproved.

@@ -1,5 +1,9 @@
 # Disc replay setup verification
 
+Current shared arithmetic and recording-version changes are documented in
+[the 16 October update](DISC_REPLAY_ARITHMETIC.md). The setup proof below remains
+separate from complete replay/session fidelity.
+
 The PC importer now preserves each GT4M entry's grid, driver options and
 wear, the serialized RaceInfo options, and the RACE settings row even when
 the stored world is Arcade. These initialization fixes do not certify the
@@ -35,7 +39,12 @@ fails. Grade C covers this integration, not original trajectory parity.
 Eleven focused replay tests pass, including command/checkpoint oracles,
 deliberate negatives, and native replay round trips.
 
-## Unresolved A-Spec trajectory
+## Historical A-Spec trajectory investigation
+
+Superseded on 16 October by [shared EE arithmetic](DISC_REPLAY_ARITHMETIC.md).
+The paragraphs below record the earlier host-float diagnosis, not the current
+solver. Constructor/full-console limitations remain separate from step parity.
+
 
 Rdemo0, Bentley Speed 8 on paris_rally, still reaches the inside wall and
 becomes stuck. The initialization fixes do not resolve that defect.

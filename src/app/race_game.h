@@ -88,6 +88,7 @@ void race_game_set_unit(race_game *g, int unit);
 /* the power's unit on the replay's opening: the unit_power option's text */
 void race_game_set_power_unit(race_game *g, const char *unit);
 /* a key for the pause menu (Escape holds/continues, arrows and Enter in it) */
+int race_game_pause_pointer(race_game *g,int enabled,float x,float y,int action);
 void race_game_key(race_game *g, int key);
 /* 1 once the pause menu chose to leave the race */
 int race_game_quit(const race_game *g);

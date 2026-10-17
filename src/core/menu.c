@@ -1119,7 +1119,7 @@ static void set_focus(menu *m, ui_widget *w)
     /* arcade.ad SplitRoot.onInitialize calls setFocus(RaceStart) before
        assigning RaceStart.visible = decided1p && decided2p. Retain the
        authored focus during initialization; ensure_focus validates it after. */
-    if (root < 0 || (w && (w->root != root || (!m->initializing && !available(w)))))
+    if (m->hover_dispatch || root < 0 || (w && (w->root != root || (!m->initializing && !available(w)))))
         return;
     ui_cursor_select(m->ui, w);
     ui_widget *old = m->focus[root];
@@ -1197,6 +1197,200 @@ static void candidates(ui_widget *w, ui_widget **items, int *n)
     }
     for (int i = 0; i < w->nkids; i++)
         candidates(w->kids[i], items, n);
+}
+
+/* P: settings rows hover as a unit, including their authored label. */
+static int pointer_hit(menu *m, ui_widget *w, float x, float y)
+{
+    /* P: the main menu action owns its entire horizontal row. Its
+       authored TextFace can extend beyond the narrow ScrollBox client. */
+    if(!strcmp(m->project_label,"arcade") && w->parent && w->parent->parent &&
+       !strcmp(w->parent->name,"SelectBox") &&
+       !strcmp(w->parent->parent->name,"StartScroll")) {
+        float cy=w->pointer_rect[1]+w->pointer_rect[3]*.5f;
+        if(x>=48 && x<592 && ui_pointer_contains(m->ui,w,
+           w->pointer_rect[0]+w->pointer_rect[2]*.5f,y) && fabsf(y-cy)<=14) return 1;
+    }
+    if (ui_pointer_contains(m->ui,w,x,y)) return 1;
+    if (strcmp(w->type,"OptionMenu") && strcmp(w->type,"SliderBar") &&
+        strcmp(w->type,"ScaleBar")) return 0;
+    ui_widget *label = w->parent ? ui_widget_child(w->parent,"label") : NULL;
+    return label && ui_pointer_contains(m->ui,label,x,y);
+}
+static void pointer_wheel(menu *m, ui_widget *hit, float x, float y, int wheel)
+{
+    int root=menu_active_root(m);
+    ui_widget *w=m->focus[root];
+    int popup=w && !strcmp(w->type,"OptionMenu") && w->option_open;
+    int bar=hit && (!strcmp(hit->type,"SliderBar") || !strcmp(hit->type,"ScaleBar"));
+    ui_widget *page = ui_root_widget(m->ui, root);
+    ui_widget *pane = ui_widget_child(page, "Pane");
+    ui_widget *box = pane ? ui_widget_child(pane, "VBox") : NULL;
+    ui_widget *regulation = box ? ui_widget_child(box, "Regulation") : NULL;
+    int authored_scroll = !strcmp(ui_root_name(m->ui, root), "EventInfoDialog") &&
+                          regulation && ui_pointer_contains(m->ui, regulation, x, y);
+    if(!popup && !bar && !authored_scroll) {
+        ui_pointer_scroll(m->ui,root,x,y,wheel);
+        return;
+    }
+    /* Original: EventInfoDialog.onKeyPress instructions 27..116: move the
+       authored actor by 40 units and clamp to the regulation viewport. */
+    if(bar) set_focus(m,hit);
+    int steps=wheel>0 ? wheel : -wheel;
+    if(steps>32) steps=32;
+    for(int i=0;i<steps && menu_active_root(m)==root;i++)
+        menu_send_input(m,bar ? (wheel>0 ? MENU_RIGHT : MENU_LEFT) :
+                               (wheel>0 ? MENU_UP : MENU_DOWN));
+}
+
+void menu_edge_pan(menu *m, int enabled, float seconds)
+{
+    float x,y;
+    if(!m || !enabled || seconds<=0 || !ui_pointer_position(m->ui,&x,&y) ||
+       strcmp(m->project_label,"gtmode")) return;
+    int root=menu_active_root(m);
+    if(root<0 || strcmp(ui_root_name(m->ui,root),"TopRoot")) return;
+    ui_widget *items[512], *space=NULL;
+    int n=0;
+    candidates(ui_root_widget(m->ui,root),items,&n);
+    for(int i=0;i<n && !space;i++) {
+        ui_widget *model=ui_widget_child(items[i],"bg");
+        if(!model || strcmp(model->type,"ModelFace")) continue;
+        for(ui_widget *a=items[i]->parent;a && a->parent;a=a->parent)
+            if(!strcmp(a->name,"space") && !strcmp(a->parent->name,"clip")) {space=a;break;}
+    }
+    if(!space) return;
+    ui_widget *clip=space->parent;
+    /* P: edge panning accepts the whole screen, including authored
+       tooltip/footer bands. Icon hit testing retains its map clipping. */
+    if(!ui_pointer_contains(m->ui,ui_root_widget(m->ui,root),x,y)) return;
+    float *r=clip->pointer_rect;
+    float values[2]={space->scroll_set?space->scroll_tx:space->x,
+                     space->scroll_set?space->scroll_ty:space->y};
+    float position[2]={fminf(clip->w,fmaxf(0,x-r[0])),fminf(clip->h,fmaxf(0,y-r[1]))},
+          sizes[2]={clip->w,clip->h}, total[2]={space->w,space->h};
+    for(int axis=0;axis<2;axis++) {
+        /* P: edge zone is 10% of the viewport; full pressure pans 1.5
+           viewports per second. Bounds come from the authored clip/space. */
+        float edge=sizes[axis]*.1f, v=position[axis]<edge ? (edge-position[axis])/edge :
+            position[axis]>sizes[axis]-edge ? (sizes[axis]-edge-position[axis])/edge : 0;
+        values[axis]=fminf(0,fmaxf(fminf(0,sizes[axis]-total[axis]),values[axis]+v*sizes[axis]*1.5f*fminf(seconds,.1f)));
+    }
+    space->scroll_tx=values[0];space->scroll_ty=values[1];space->scroll_set=1;
+}
+static void pointer_set_hover(menu *m, ui_widget *hit)
+{
+    ui_pointer_hover(m->ui,hit);
+    if(m->pointer_hover==hit) return;
+    ui_widget *old=m->pointer_hover;
+    m->pointer_hover=hit;
+    ah_val result;
+    m->hover_dispatch=1;
+    /* P: reuse authored prelight animations (including rotating map icons)
+       without setFocus, focus_index updates or scroll_to. */
+    if(old && !event_call(m,old,old,"onFocusLeave",0,2,&result))
+        event_call(m,old,old,"onLeave",0,1,&result);
+    if(hit && !event_call(m,hit,hit,"onFocusEnter",0,2,&result))
+        event_call(m,hit,hit,"onEnter",0,1,&result);
+    if(hit && hit->parent && (!strcmp(hit->parent->type,"SelectBox") || !strcmp(hit->parent->type,"ListBox"))) {
+        ui_widget *list=hit->parent;
+        int index=sibling_index(hit), previous=list->focus_index;
+        ah_val callback;
+        if(index!=previous) {
+            /* P: preview reads the hovered row during its authored callbacks,
+               then restore selection so motion alone never scrolls the strip. */
+            list->focus_index=index;
+            if(ah_get_member(m->vm,widget_module(m,list),"focus_callback",&callback) && callback.t!=AV_NIL) {
+                ah_val args[]={ah_objv(m->context),ah_int(index),ah_int(previous)};
+                ah_call(m->vm,callback,3,args,&result);
+            }
+            ah_val args[]={ah_objv(m->context),ah_int(index)};
+            ah_call_member(m->vm,widget_module(m,list),"onValueChanged",2,args,&result);
+            ui_widget *chip = ui_widget_child(hit,"chip");
+            int paint = chip && !strcmp(chip->type,"ColorChipFace");
+            int dealer = paint || (!strcmp(m->project_label, "gtmode") &&
+                         !strcmp(ui_root_name(m->ui, hit->root), "BuyCarRoot") &&
+                         list->parent && (!strcmp(list->parent->name, "CarScroll") ||
+                                          !strcmp(list->parent->name, "ColScroll")));
+            if (dealer) {
+                /* P: keep the authored preselection for highlighting/activation,
+                   while pointer edge navigation owns the viewport position. */
+                if (!list->desktop_scrolled) {
+                    list->desktop_offset = list->strip_offset;
+                    list->desktop_scrolled = 1;
+                }
+            } else
+                list->focus_index=previous;
+        }
+    }
+    m->hover_dispatch=0;
+    if(hit) {
+        set_tooltip(m,menu_active_root(m),hit);
+        menu_play_effect(m,"cursor");
+    }
+}
+static void pointer_send_input(menu *m, menu_input input)
+{
+    int previous = m->pointer_dispatch;
+    m->pointer_dispatch = 1;
+    menu_send_input(m,input);
+    m->pointer_dispatch = previous;
+}
+int menu_pointer(menu *m, int enabled, float x, float y, int action, int wheel)
+{
+    if (!m) return 0;
+    ui_pointer(m->ui, enabled, x, y);
+    if (!enabled) return 0;
+    int root = menu_active_root(m);
+    if (root < 0) return 0;
+    ui_widget *items[512], *hit = NULL;
+    int n = 0;
+    candidates(ui_root_widget(m->ui, root), items, &n);
+    for (int i = 0; i < n; i++)
+        if (pointer_hit(m, items[i], x, y)) hit = items[i];
+    /* P: a ListBox owns controller focus, but each painted card is a
+       separate mouse target. Its original value callback drives previews. */
+    if(hit && !strcmp(hit->type,"ListBox")) {
+        ui_widget *list=hit;
+        for(int i=0;i<list->nkids;i++)
+            if(available(list->kids[i]) && ui_pointer_contains(m->ui,list->kids[i],x,y)) hit=list->kids[i];
+    }
+    /* Wheel owns navigation before hover. A stationary mouse must not reset
+       focus/pending selection before every detent, including popup rows. */
+    if (wheel) { pointer_wheel(m,hit,x,y,wheel); return 1; }
+    ui_widget *focused = m->focus[root];
+    if (focused && !strcmp(focused->type, "OptionMenu") && focused->option_open) {
+        for (int i = 0; i < ui_option_count(focused); i++) {
+            ui_widget *item = ui_option_item(focused, i);
+            if (available(item) && ui_pointer_contains(m->ui, item, x, y)) {
+                ui_pointer_hover(m->ui,item);
+                if (action == 1) {
+                    focused->option_pending = i;
+                    pointer_send_input(m, MENU_ACCEPT);
+                    ui_pointer(m->ui, 1, x, y);
+                }
+                return 1;
+            }
+        }
+        if (action == 1 || action == 2) pointer_send_input(m, MENU_BACK);
+        ui_pointer(m->ui, 1, x, y);
+        return 1;
+    }
+    /* P: hover is presentation only. In particular, SelectBox focus must
+       not follow mouse motion: its focus callback scrolls the carrousel. */
+    pointer_set_hover(m,hit);
+    if(hit && action==1 && hit->parent && !strcmp(hit->parent->type,"ListBox")) {
+        ui_widget *list=hit->parent;
+        list->focus_index=sibling_index(hit);
+        ah_val args[]={ah_objv(m->context),ah_int(list->focus_index)},result;
+        ah_call_member(m->vm,widget_module(m,list),"onValueChanged",2,args,&result);
+        hit=list;
+    }
+    if (hit && action == 1 && hit != m->focus[root]) set_focus(m,hit);
+    if (action == 2) pointer_send_input(m, MENU_BACK);
+    else if (hit && action == 1) pointer_send_input(m, MENU_ACCEPT);
+    ui_pointer(m->ui, 1, x, y);
+    return hit != NULL || action == 2;
 }
 
 static void ensure_focus(menu *m)
@@ -1390,6 +1584,8 @@ static int nat_prelight(ah_vm *vm, ah_obj *self, void *d, int argc, const ah_val
     (void)argv;
     int root = menu_active_root(m);
     ui_widget *w = root >= 0 ? m->focus[root] : NULL;
+    float x,y;
+    if(m->pointer_hover && ui_pointer_position(m->ui,&x,&y)) w=m->pointer_hover;
     *ret = w ? maybe_module(m, w) : ah_nil();
     return 0;
 }
@@ -1525,6 +1721,11 @@ void menu_send_input(menu *m, menu_input input)
     if (!m || menu_active_root(m) < 0)
         return;
     /* Circle/Square keep their own PS2 script keys before the default action. */
+    if (!m->pointer_dispatch) {
+        if(m->pointer_hover) pointer_set_hover(m,NULL);
+        ui_pointer(m->ui, 0, 0, 0);
+        ui_pointer_scroll_clear(m->ui);
+    }
     menu_input physical = input;
     if (input == MENU_CIRCLE)
         input = MENU_ACCEPT;

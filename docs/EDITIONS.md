@@ -12,13 +12,31 @@ reproduces the original; improvements (modern rendering, keyboard and mouse,
 new interface items, mods) are then added to the same game and are enabled
 by default, each with its own option. The PS2 appearance (image filters,
 hard-edged shadows and similar) and the original behaviour of every improved
-system remain available as options. An "Original" preset switches all of
-them back to the PS2 game at once.
+system remain available as options. A "Classic" preset (called "Original" in
+earlier notes) switches all of them back to the PS2 game at once.
+
+## Everything is an option, with presets (agreed 16 October 2026)
+
+Agreed between Jonhline and Mr. Dante: one single application with
+everything together (GT4 and, later, Tourist Trophy), not separate versions.
+Every non-original change is an individual setting the player can turn on or
+off. Presets only fill in those settings:
+
+- **Classic**: every setting at the PS2 behaviour. Fidelity is measured here.
+- **Enhanced**: the project's recommended set of improvements.
+- **Player presets**: the player saves and names their own combinations.
+
+Changing any setting after choosing a preset keeps the change and shows the
+set as modified (for example, Enhanced graphics with Classic gameplay). The
+settings are grouped so a player can take, say, the gameplay improvements
+without the new graphics. The in-game Options menu exposes them first; the
+official launcher (Mr. Dante) will expose the same settings later. The rules,
+categories and the registry of every setting are in [Options](OPTIONS.md).
 
 The core stays shared: physics, career rules, disc reading and Adhoc scripts.
 Options are consulted only at presentation, input, mod loading and
 configuration boundaries, never scattered through game logic. Fidelity is
-assessed with the Original preset and no mods.
+assessed with the Classic preset and no mods.
 
 ## PC integration
 
@@ -34,7 +52,7 @@ not as changes to the base game.
 
 ## Presentation
 
-The Original preset deliberately targets the PS2 appearance. The plan uses
+The Classic preset deliberately targets the PS2 appearance. The plan uses
 optional filters over a shared renderer: a 640x448 internal image, dithering and
 simulated interlacing. Filter parameters require evidence from the original
 video setup; visual similarity alone is insufficient. Such filters can earn
@@ -43,10 +61,10 @@ delays and frame-rate drops are not intended to be reproduced.
 
 The improvements are planned to add modern lighting, shadows and
 reflections, higher resolutions and ultrawide displays, enabled by default.
-For example, softer car shadows could be the default while the Original
+For example, softer car shadows could be the default while the Classic
 preset retains the hard-edged appearance. These are plans, not renderer guarantees.
 
-The original 16:9 mode belongs to the Original preset too. Its HUD alignment path uses
+The original 16:9 mode belongs to the Classic preset too. Its HUD alignment path uses
 D_006184F0 and func_003AFD18 (96-unit offsets for alignment bits 4 and 8).
 It should follow the original projection and placement logic. Additional
 aspect ratios, such as 21:9, are planned improvements.
@@ -56,7 +74,7 @@ aspect ratios, such as 21:9, are planned improvements.
 Vehicle physics and race rules remain shared and checked against the original.
 Visual changes must not silently change lap times or simulation results.
 If a system such as rival driving gains an improved version, the validated
-original should remain available in a separate module. The Original preset
+original should remain available in a separate module. The Classic preset
 uses it; an option exposes the version choice. Replays, ghosts
 and records would need to identify the selected version because they are
 re-simulated. The vehicle physics is not intended to fork this way.

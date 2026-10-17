@@ -205,8 +205,13 @@ static void actor_free(ah_obj *self)
 static const ah_host actor_host = {"actor", actor_get, actor_set, actor_mark, actor_free};
 void menu_native_method(menu *m, ui_widget *w, const char *method, ah_native_fn fn, void *user)
 {
-    if (m && w)
-        ah_set_member(m->vm, widget_module(m, w), method, ah_native(m->vm, method, fn, user));
+    if (m && w) {
+        ah_obj *receiver = widget_module(m, w);
+        /* P: native PC callbacks need the same receiver as authored methods.
+           AO_NATIVE is intentionally not automatically bound by the VM. */
+        ah_set_member(m->vm, receiver, method,
+                      ah_bind(m->vm, receiver, ah_native(m->vm, method, fn, user)));
+    }
 }
 static int nat_page(ah_vm *vm, ah_obj *self, void *d, int argc, const ah_val *argv, ah_val *ret);
 void menu_native_page(menu *m, int root)

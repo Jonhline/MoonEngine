@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <map>
+#include <set>
 #include <memory>
 #include <string>
 #include <vector>
@@ -43,7 +44,8 @@ struct Program {
     std::vector<Uniform> uniforms;
     std::vector<uint8_t> values;
     std::map<std::array<uint64_t, 67>, VkPipeline> pipelines;
-    bool linked = false;
+    uint64_t fingerprint = 0;
+    bool linked = false, vertex_id = false;
     std::array<bool, 16> inputs = {};
 };
 struct Attribute {
@@ -74,6 +76,32 @@ struct State {
     GLenum eq_rgb = GL_FUNC_ADD, eq_a = GL_FUNC_ADD;
     int pack_alignment = 4, unpack_alignment = 4;
 };
+struct FrameResources {
+    VkCommandPool pool = VK_NULL_HANDLE;
+    VkCommandBuffer command = VK_NULL_HANDLE;
+    VkFence fence = VK_NULL_HANDLE;
+    VkSemaphore acquired = VK_NULL_HANDLE;
+    VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
+    VkQueryPool queries = VK_NULL_HANDLE;
+    Buffer arena;
+    std::vector<VkFramebuffer> transient_targets;
+    std::vector<std::shared_ptr<Image>> retired_images;
+    std::vector<Buffer> retired_buffers;
+    std::map<std::array<uint64_t, 17>, VkDescriptorSet> draw_sets;
+    bool pending = false, timing_written = false;
+};
+using PipelineRecipe = std::array<uint64_t, 117>;
+uint64_t shader_fingerprint(const Program &program);
+struct DrawCommands {
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    VkViewport viewport{};
+    VkRect2D scissor{};
+    std::array<float, 4> blend{};
+    std::array<VkBuffer, 16> vertices{};
+    std::array<VkDeviceSize, 16> offsets{};
+    unsigned bindings = 0;
+    bool dynamic_valid = false;
+};
 struct Context {
     SDL_Window *window = nullptr;
     VkInstance instance = VK_NULL_HANDLE;
@@ -86,7 +114,12 @@ struct Context {
     VkExtent2D extent = {};
     VkFormat surface_format = VK_FORMAT_B8G8R8A8_UNORM;
     std::vector<VkImage> swap_images;
-    VkSemaphore acquired = VK_NULL_HANDLE, presented = VK_NULL_HANDLE;
+    VkSemaphore acquired = VK_NULL_HANDLE;
+    std::vector<VkSemaphore> present_ready;
+    VkQueryPool queries = VK_NULL_HANDLE;
+    unsigned timestamp_bits = 0;
+    bool pending = false, timing_written = false, low_latency = false;
+    FrameResources spare;
     VkCommandPool pool = VK_NULL_HANDLE;
     VkCommandBuffer command = VK_NULL_HANDLE;
     VkFence fence = VK_NULL_HANDLE;
@@ -94,7 +127,7 @@ struct Context {
     VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
     VkPhysicalDeviceProperties properties = {};
     Buffer arena, readback;
-    size_t arena_used = 0;
+    size_t arena_used = 0, default_vertex_offset = SIZE_MAX;
     unsigned descriptor_count = 0, next_id = 1;
     unsigned clear_program = 0;
     moon_vk_render_stats statistics = {};
@@ -102,6 +135,8 @@ struct Context {
     bool stream_geometry = false, uncached_descriptors = false, split_present = false,
          transient_framebuffers = false;
     std::map<std::array<uint64_t, 17>, VkDescriptorSet> draw_sets;
+    bool repeat_commands = false, profile_draws = false;
+    DrawCommands emitted;
     State state;
     std::map<unsigned, std::shared_ptr<Image>> textures, renderbuffers;
     std::map<unsigned, std::vector<uint8_t>> buffers;
@@ -119,7 +154,16 @@ struct Context {
     std::vector<std::shared_ptr<Image>> retired_images;
     VkImageView pass_color = VK_NULL_HANDLE, pass_depth = VK_NULL_HANDLE;
     std::shared_ptr<Image> white, screen;
-    std::string error;
+    std::string error, pipeline_cache_path;
+    VkPipelineCache pipeline_cache = VK_NULL_HANDLE;
+    std::set<PipelineRecipe> pipeline_recipes;
+    bool warming_recipes = false;
+    void read_pipeline_recipes();
+    void save_pipeline_recipes();
+    void remember_pipeline(const Program &program, VkRenderPass pass, GLenum topology);
+    void warm_pipeline_recipes(Program &program);
+    void open_pipeline_cache();
+    void save_pipeline_cache();
     uint32_t memory_type(uint32_t mask, VkMemoryPropertyFlags flags);
     Buffer buffer(VkDeviceSize size, VkBufferUsageFlags usage, bool host_visible = true,
                   bool cached = false);
@@ -132,6 +176,11 @@ struct Context {
     void end_pass();
     void flush();
     void reset_submission();
+    void open_submission();
+    void swap_submission();
+    void drain();
+    void write_timestamp_end();
+    void close_submission();
     void barrier();
     size_t reserve(size_t bytes, size_t alignment = 16);
     Image *color(unsigned framebuffer);
@@ -145,6 +194,9 @@ struct Context {
               int dx1, int dy1, bool linear, bool depth = false);
     VkDescriptorSet draw_descriptors(const Program &program);
     VkFramebuffer target_framebuffer(Image &color, Image *depth, VkRenderPass pass);
+    void bind_draw_state(VkPipeline pipeline, const VkViewport &viewport, const VkRect2D &clip,
+                         unsigned bindings, const std::array<VkBuffer, 16> &vertices,
+                         const std::array<VkDeviceSize, 16> &offsets);
     void draw(GLenum topology, int first, int count);
     void present();
     bool resize_swapchain();

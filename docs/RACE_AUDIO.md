@@ -34,3 +34,35 @@ The [development record](notes/RACE_AUDIO.md) retains source addresses,
 experiments, positive and negative cases, and historical limitations.
 Consult [Fidelity](FIDELITY.md) for each comparison's grade and scope.
 Earlier entries may be superseded by later results.
+
+## Menu MIDI continuity
+
+The Arcade and GT Mode MIDI transport is now shared between the outer UI
+update and the presentation pump used by script `Sync`/`panIn`. Previously,
+only PCM streams were serviced during those waits: a requested MIDI group
+could remain silent until the entire animation returned. `keepMusic` calls
+start the original sound service synchronously (`0023E3D8 +0xAC` through
+`004616E8`), and the same-group check in `004616E8 +0x30..+0x58` retains an
+already-playing sequence. Native waits must preserve that distinction.
+
+The app owns the transport state; both paths use it, so repeated requests
+and internal loading overlays retain the source and its sample position.
+An authored fade still retains its producer until the device consumes the
+last fade sample. Fresh music remains gated behind the loading overlay;
+this change adds no arbitrary fade or universal crossfade.
+
+The decoder's readiness threshold now matches the SDL transport's existing
+8,192-frame preroll. Publishing after only 4,096 frames could immediately
+queue another 4,096 frames of silence when the source was attached. This
+buffer is PC transport headroom, not a PS2 timing constant.
+
+`menu_music_transport` exercises the actual app transport with disc MIDI
+and deterministic menu/loader/device boundaries. It checks publication
+inside waits without an outer update, unchanged-source/sample continuity,
+loading gates, completed fades and readiness for single-track and playlist
+sources. The two negative cases deliberately restore deferred publication
+and the insufficient prefix. Native synthesis/prefix and SDL fade tests
+remain separate. Real executable checks reached GT Mode Home and Garage
+with isolated profiles; idle Arcade/GT Mode captures were also inspected
+for digital silence. These regressions do not identify every possible
+intermittent cut or certify timing/waveform against a PS2 recording.

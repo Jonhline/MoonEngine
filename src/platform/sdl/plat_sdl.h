@@ -5,11 +5,13 @@
 typedef struct {
     int key;
     char text[32]; /* SDL keycode */
+    int pad_type; /* P: 2 Xbox glyph labels, 0 original PlayStation labels. */
     int pad;       /* controller event; race owns its edges */
     /* a PS2 button the menus' scripts take as its own key (the engine's
        D_006192E4 keysyms: L1 0xFFC8, L2 0xFFC9, R1 0xFFD2, R2 0xFFD3,
        Square 0xFF63, Select 0xFFFF), pressed or released; key 0 then */
     int ps2key, release;
+    int mouse_absolute, mouse_button; /* P: desktop menu coordinates and release action. */
     int mouse, mouse_x, mouse_y, wheel; /* PC camera events, never PS2 pad keys */
 } plat_key_event;
 
@@ -19,6 +21,8 @@ int plat_sdl_poll(plat_key_event *ev);
 /* Deterministic command-line UI tests only; -1 restores interactive dialogs. */
 void plat_sdl_dialog_answer(int answer);
 int plat_sdl_get_dialog_answer(void);
+/* PC transport preroll: publish at least the frames consumed on attachment. */
+enum { PLAT_SDL_MUSIC_PREROLL = 8192 };
 unsigned plat_sdl_audio_underruns(void);
 /* True until the device has consumed the authored fade duration. */
 int plat_sdl_music_fading(void);

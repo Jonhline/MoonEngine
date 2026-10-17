@@ -197,7 +197,7 @@ int main(int argc, char **argv)
         uint32_t player = gt4_race_run_car(run, 0), a, b;
         uint8_t wear[32], after[0x4b8];
         memcpy(wear, gt4_ptr(player + CAR_ENGINE_WEAR), 32);
-        a = gt4_career_distance_integer(GT4_F32(player + 0x6d4) - GT4_F32(player + 0x7b0));
+        a = gt4_career_distance_aspec(GT4_F32(player + 0x6d4), GT4_F32(player + 0x7b0));
         b = gt4_career_distance_integer(GT4_F32(player + 0x7b0));
         CHECK(a+b>0);
         /* Actual result grid, in stable signed rank order (003B6FD0),

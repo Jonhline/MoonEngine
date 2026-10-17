@@ -16,7 +16,7 @@
    zeros): how many steps repeat it, then which of the next one's 32 bytes
    changed and those bytes, counts and masks as 7-bit groups. A newer
    version is refused, not guessed. */
-#define VERSION 1
+#define VERSION 2
 #define LIMIT_STEPS (60u * 60u * 60u * 25u) /* 25 hours of 60 Hz steps (the 24 Hours) */
 
 typedef struct {
@@ -135,7 +135,7 @@ int gt4_replay_pack(const gt4_replay_file *r, uint8_t **out, size_t *size)
     if (!r || r->disc_info || !r->tape || !r->steps || r->steps > LIMIT_STEPS)
         return 0;
     put(&o, "GT4R", 4);
-    put32(&o, VERSION);
+    put32(&o, r->legacy_math ? 1u : VERSION);
     put32(&o, (uint32_t)r->kind);
     puts_(&o, r->course);
     puts_(&o, r->car);
@@ -263,8 +263,10 @@ int gt4_replay_unpack(const uint8_t *data, size_t size, gt4_replay_file *r)
     uint32_t steps;
     memset(r, 0, sizeof *r);
     get(&i, magic, 4);
-    if (i.bad || memcmp(magic, "GT4R", 4) || get32(&i) != VERSION)
+    uint32_t version = get32(&i);
+    if (i.bad || memcmp(magic, "GT4R", 4) || version < 1 || version > VERSION)
         return 0;
+    r->legacy_math = version == 1;
     r->kind = geti(&i);
     gets_(&i, r->course, sizeof r->course);
     gets_(&i, r->car, sizeof r->car);

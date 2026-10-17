@@ -191,6 +191,12 @@ static PS2F_INLINE ps2f_addres_t ps2f_add3(ps2f_u32 a, ps2f_u32 b, ps2f_u32 c)
 static ps2f_u64 ps2f_mul_mantissa(ps2f_u32 a, ps2f_u32 b)
 {
 	ps2f_u64 full = (ps2f_u64)a * (ps2f_u64)b;
+#ifndef PS2F_DISABLE_FAST_PATHS
+	/* For b's low sixteen bits zero, every Booth group used below is
+	 * zero and full's bit 15 is zero. The correction is exactly zero. */
+	if (!(b & 0xffffu))
+		return full;
+#endif
 	ps2f_booth_t b0 = ps2f_booth(a, b, 0);
 	ps2f_booth_t b1 = ps2f_booth(a, b, 1);
 	ps2f_booth_t b2 = ps2f_booth(a, b, 2);
@@ -490,6 +496,22 @@ ps2f_u64 ps2f_div(ps2f_u32 a, ps2f_u32 b)
 		return (ps2f_u64)float_result | PS2F_IV;
 	}
 
+#ifndef PS2F_DISABLE_FAST_PATHS
+	/* A power-of-two divisor, or equal normalized significands, leaves
+	 * no discarded quotient bits. Scale the exponent without the SRT
+	 * recurrence. Zero/denormal cases above retain their flags. */
+	if (!ps2f_frac(b) || ps2f_frac(a) == ps2f_frac(b))
+	{
+		ps2f_s32 exponent = (ps2f_s32)ps2f_exponent(a) - (ps2f_s32)ps2f_exponent(b) + 127;
+		ps2f_u32 result_sign = (a ^ b) & PS2F_SIGNMASK;
+		ps2f_u32 fraction = ps2f_frac(b) ? 0 : ps2f_frac(a);
+		if (exponent > 255)
+			return (ps2f_u64)(result_sign | PS2F_MAX_FLOATING_POINT_VALUE) | PS2F_OF;
+		if (exponent < 1)
+			return (ps2f_u64)result_sign | PS2F_UF;
+		return result_sign | ((ps2f_u32)exponent << 23) | fraction;
+	}
+#endif
 	am = ps2f_mantissa(a) << 2;
 	bm = ps2f_mantissa(b) << 2;
 	current.sum = am;

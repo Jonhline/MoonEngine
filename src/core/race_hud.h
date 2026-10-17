@@ -61,6 +61,8 @@ typedef struct {
 } race_hud_state;
 
 race_hud *race_hud_open(gt4_vol *vol);
+int race_hud_prepare_next_font(race_hud *hud);
+void race_hud_prepare_fonts(race_hud *hud); /* Resident before Switch loading ends. */
 /* The course's map (its file's GTCM block, header +0x84) for the mini map */
 void race_hud_set_course(race_hud *h, const char *course);
 void race_hud_close(race_hud *h);

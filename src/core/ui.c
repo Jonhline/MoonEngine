@@ -45,6 +45,16 @@ typedef struct {
 } ui_flash;
 
 struct ui_project {
+    int expanded_main_menu;
+    int main_menu_first, main_menu_focus;
+    int pointer_active;
+    int smooth_pointer, pointer_ready, mouse_feedback, pointer_edge_direction;
+    float pointer_vx, pointer_vy, pointer_spin, pointer_affordance;
+    char previous_cursor_icon[64];
+    float cursor_icon_blend;
+    int input_device;
+    const ui_widget *pointer_hover;
+    float pointer_x, pointer_y;
     gt4_vol *vol;
     char name[64];
     mp_node *tree;
@@ -140,6 +150,7 @@ struct ui_project {
     const ui_widget *option_popup;
     const ui_widget *option_value;
     float option_x, option_y, option_alpha;
+    int compact_cars;
 };
 
 typedef struct {
@@ -270,6 +281,8 @@ void ui_project_free(ui_project *p)
         free(p->all[i]->graph_points);
         free(p->all[i]->car_models);
         free(p->all[i]->car_motions);
+        free(p->all[i]->hint_text);
+        free(p->all[i]->hint_source);
         free(p->all[i]->wrapped_text);
         free(p->all[i]->wrapped_source);
         free(p->all[i]);
@@ -1017,6 +1030,12 @@ ui_widget *ui_widget_copy(ui_project *p, const ui_widget *src)
     w->car_wing = src->car_wing ? strdup(src->car_wing) : NULL;
     w->text = src->text ? strdup(src->text) : NULL;
     w->text_key = src->text_key ? strdup(src->text_key) : NULL;
+    w->drawn_tick=0;
+    memset(w->pointer_rect,0,sizeof w->pointer_rect);
+    w->pointer_light=0;
+    w->desktop_scrolled=0;
+    w->hint_text = w->hint_source = NULL;
+    w->hint_mode = 0;
     w->wrapped_text = NULL;
     w->wrapped_source = NULL;
     for (int i = 0; i < src->nkids; i++)
@@ -1313,12 +1332,52 @@ const char *ui_widget_source_text(ui_project *p, const ui_widget *w)
     return text ? ui_storage_text(text) : "";
 }
 
+static const char *desktop_hint(char code, int device)
+{
+    /* P: keyboard bindings from plat_sdl_ps2_key; original Gaiji codes
+       c..f are documented at func_004940E8. %Ba is Start (StatusRoot). */
+    if(device==2) {
+        switch(code) {
+        case 'a': return "[Menu]";
+        case 'b': return "[Back]";
+        case 'c': return "[Y]";
+        case 'd': return "[B]";
+        case 'e': return "[A]";
+        case 'f': return "[X]";
+        default: return NULL;
+        }
+    }
+    switch(code) {
+    case 'a': return "[Pause]";
+    case 'b': return "[Delete]";
+    case 'c': return "[F4]";
+    case 'd': return "[Esc]";
+    case 'e': return "[Enter]";
+    case 'f': return "[Insert]";
+    default: return NULL;
+    }
+}
 const char *ui_widget_text(ui_project *p, const ui_widget *w)
 {
     const char *source = ui_widget_source_text(p, w);
-    return w->wrapped_text && w->wrapped_source && !strcmp(source, w->wrapped_source)
-               ? w->wrapped_text
-               : source;
+    const char *text = w->wrapped_text && w->wrapped_source && !strcmp(source,w->wrapped_source)
+                         ? w->wrapped_text : source;
+    if (!p->input_device || !strstr(text,"%B")) return text;
+    ui_widget *cache=(ui_widget *)w;
+    if(cache->hint_text && cache->hint_source && cache->hint_mode==p->input_device && !strcmp(cache->hint_source,text)) return cache->hint_text;
+    size_t capacity=strlen(text)*3+1;
+    char *out=malloc(capacity), *snapshot=strdup(text);
+    if(!out || !snapshot) {free(out);free(snapshot);return text;}
+    size_t n=0;
+    for(const char *s=text;*s;) {
+        const char *label=s[0]=='%' && s[1]=='B' && s[2] ? desktop_hint(s[2],p->input_device) : NULL;
+        if(label) {size_t len=strlen(label);memcpy(out+n,label,len);n+=len;s+=3;}
+        else out[n++]=*s++;
+    }
+    out[n]=0;
+    free(cache->hint_text);free(cache->hint_source);
+    cache->hint_text=out;cache->hint_source=snapshot;cache->hint_mode=p->input_device;
+    return out;
 }
 
 static const char *text_font(const ui_widget *w)
@@ -1891,11 +1950,13 @@ static void draw_tooltip(ui_project *p, ui_widget *w, frame area, clip_rect clip
     /* The controller has already positioned/centered the line. Applying
        TextFace alignment a second time would shift it horizontally. */
     ui_widget label = *w;
+    label.hint_text=label.hint_source=NULL;
     label.runtime_align = 0;
     label.has_runtime_align = 1;
     clip_rect c = clip_to(clip, area);
     set_clip(c);
     draw_text_face(p, &label, line, face);
+    free(label.hint_text);free(label.hint_source);
     set_clip(clip);
 }
 
@@ -1913,6 +1974,14 @@ static int color_list(const mp_node *w, const char *key, uint8_t out[4][4])
     }
     for (int i = k; k && i < 4; i++)
         memcpy(out[i], out[k - 1], 4); /* one colour -> all corners */
+    /* Original: func_002854F8 +0xE0..0x118 copies colors 0,1,3,2
+       into the TL,TR,BL,BR strip. Source lists are clockwise. */
+    if (k == 4) {
+        uint8_t bottom[4];
+        memcpy(bottom, out[2], 4);
+        memcpy(out[2], out[3], 4);
+        memcpy(out[3], bottom, 4);
+    }
     return k;
 }
 
@@ -1970,7 +2039,19 @@ static void set_clip(clip_rect c)
 /* Where the cursor points on the focused widget, from the game's code
    (func_00230CF8): the widget rectangle inset by 2, a point chosen by its
    cursor_align (0-8, default 8 = centre) and the arrow's tilt in degrees. */
+static float card_scale(const ui_widget *w)
+{
+    return w->strip_card_scale > 0 ? w->strip_card_scale : 1;
+}
 static float strip_target(const ui_widget *w);
+static float strip_length(const ui_widget *w)
+{
+    float gap=(float)mp_number(w->src,"spacing",0),total=-gap;
+    for(int i=0;i<w->nkids;i++) total+=w->kids[i]->w*card_scale(w)+gap;
+    if(w->nkids && !strcmp(w->type,"SelectBox"))
+        total+=w->kids[0]->w*card_scale(w)*((float)mp_number(w->src,"magnify_ratio",1)-1);
+    return total;
+}
 static float select_offset(const ui_widget *w, int vertical);
 static int horizontal_strip(const ui_widget *w);
 static int vertical_select(const ui_widget *w);
@@ -2056,7 +2137,7 @@ static float strip_target(const ui_widget *w)
     int k = w->focus_index < 0 ? 0 : w->focus_index >= w->nkids ? w->nkids - 1 : w->focus_index;
     float gap = (float)mp_number(w->src, "spacing", 0), total = -gap, target = w->kids[k]->w * 0.5f;
     for (int i = 0; i < w->nkids; i++) {
-        total += w->kids[i]->w + gap;
+        total += w->kids[i]->w * card_scale(w) + gap;
         if (i < k)
             target += w->kids[i]->w + gap;
     }
@@ -2069,7 +2150,7 @@ static float strip_target(const ui_widget *w)
 static float select_offset(const ui_widget *w, int vertical)
 {
     int n = w->nkids, k = w->focus_index < 0 ? 0 : w->focus_index >= n ? n - 1 : w->focus_index;
-    float cell = vertical ? w->kids[0]->h : w->kids[0]->w,
+    float cell = (vertical ? w->kids[0]->h : w->kids[0]->w) * card_scale(w),
           gap = (float)mp_number(w->src, "spacing", 0);
     float pitch = cell + gap, box = vertical ? w->h : w->w;
     float magnify = (float)mp_number(w->src, "magnify_ratio", 1);
@@ -2096,11 +2177,129 @@ static int vertical_select(const ui_widget *w)
     return w->nkids && !strcmp(w->type, "SelectBox") && (int)mp_number(w->src, "direction", 0) == 1;
 }
 
+static int pointer_prelight(const ui_project *p, const ui_widget *w)
+{
+    return p->pointer_active ? p->pointer_hover == w : w->focused;
+}
+static void pointer_bounds(ui_widget *w, frame f, clip_rect clip)
+{
+    float l=clip.on ? fmaxf(f.x,clip.x) : f.x;
+    float t=clip.on ? fmaxf(f.y,clip.y) : f.y;
+    float r=clip.on ? fminf(f.x+f.w,clip.x+clip.w) : f.x+f.w;
+    float b=clip.on ? fminf(f.y+f.h,clip.y+clip.h) : f.y+f.h;
+    w->pointer_rect[0]=l; w->pointer_rect[1]=t;
+    w->pointer_rect[2]=f.alpha>0 ? fmaxf(0,r-l) : 0;
+    w->pointer_rect[3]=f.alpha>0 ? fmaxf(0,b-t) : 0;
+}
+static void pointer_include(ui_widget *w, const ui_widget *child)
+{
+    const float *c=child->pointer_rect;
+    float *r=w->pointer_rect;
+    if(c[2]<=0 || c[3]<=0) return;
+    if(r[2]<=0 || r[3]<=0) {memcpy(r,c,sizeof w->pointer_rect);return;}
+    float right=fmaxf(r[0]+r[2],c[0]+c[2]), bottom=fmaxf(r[1]+r[3],c[1]+c[3]);
+    r[0]=fminf(r[0],c[0]); r[1]=fminf(r[1],c[1]);
+    r[2]=right-r[0]; r[3]=bottom-r[1];
+}
+/* Prefer authored prelight faces and model animations over PC feedback. */
+static int authored_hover(const ui_widget *w)
+{
+    if(!strcmp(w->type,"ModelFace") || ((int)mp_number(w->src,"visible_compare",0)&6)) return 1;
+    for(int i=0;i<w->nkids;i++) if(authored_hover(w->kids[i])) return 1;
+    return 0;
+}
+/* P: only otherwise-static Options tiles/Exit receive a small enlargement.
+   GT Mode landmarks and main-menu labels retain their existing animations. */
+static float pointer_feedback_amount(const ui_project *p,const ui_widget *w)
+{
+    if(!p->mouse_feedback || strcmp(p->name,"option")) return 0;
+    for(const ui_widget *owner=w->parent;owner;owner=owner->parent)
+        if(owner->pointer_light>.005f && !strcmp(ui_root_name(p,owner->root),"OptionRoot") &&
+           !authored_hover(owner)) return owner->pointer_light;
+    return 0;
+}
+/* P: optional PC overview. Original arcade TopRoot actions/labels remain
+   script-owned; only their painted placement and prelight are replaced. */
+static void draw_main_overview(ui_project *p, const ui_widget *scroll,
+                               frame parent, clip_rect clip, int *drawn)
+{
+    ui_widget *list=ui_widget_child(scroll,"SelectBox");
+    if(!list) return;
+    int maximum=list->nkids>5?list->nkids-5:0;
+    if(p->main_menu_focus!=list->focus_index) {
+        p->main_menu_focus=list->focus_index;
+        p->main_menu_first=list->focus_index-2;
+    }
+    if(p->main_menu_first<0) p->main_menu_first=0;
+    if(p->main_menu_first>maximum) p->main_menu_first=maximum;
+    const char *arrows[]={"dec_arrow","inc_arrow"};
+    for(int i=0;i<2;i++) {
+        if(i==0 ? p->main_menu_first<=0 : p->main_menu_first>=maximum) continue;
+        ui_widget *arrow=ui_widget_child(scroll,arrows[i]);
+        ui_widget *face=arrow?ui_widget_child(arrow,"bg"):NULL;
+        if(face && face->image_path)
+            ui_image_draw(p,face->image_path,305,i?424.f:283.f,30,12,parent.alpha);
+    }
+    for(int row=0;row<5 && row+p->main_menu_first<list->nkids;row++) {
+        int index=row+p->main_menu_first;
+        ui_widget *item=list->kids[index];
+        ui_widget *label=ui_widget_child(item,"label");
+        if(!item->visible || !label) continue;
+        int hot=p->pointer_active ? p->pointer_hover==item : list->focus_index==index;
+        frame cell={160,300+row*25.f,320,24,parent.alpha*(hot?1.f:.45f)};
+        item->drawn_tick=p->draw_tick;
+        pointer_bounds(item,cell,clip);
+        ui_widget text=*label;
+        text.hint_text=text.hint_source=NULL;
+        draw_text(p,&text,cell);
+        free(text.hint_text);free(text.hint_source);
+        if(hot && !p->pointer_active) cursor_target(p,item,cell.x,cell.y,cell.w,cell.h);
+        (*drawn)++;
+    }
+}
+void ui_main_menu_layout(ui_project *p, int expanded)
+{
+    if(p) p->expanded_main_menu=expanded!=0;
+}
+/* P: subtle clearcoat and moving reflection for desktop paint swatches.
+   The original chip RGB, asset, geometry and selection remain untouched. */
+static void draw_paint_hover(ui_project *p,const ui_widget *w,frame f,clip_rect clip)
+{
+    const ui_widget *item=w->parent;
+    if(!p->mouse_feedback || !p->pointer_active || !item || item->pointer_light<=.001f)
+        return;
+    float strength=item->pointer_light*f.alpha;
+    clip_rect bounds=clip_to(clip,f);
+    set_clip(bounds);
+    uint8_t varnish[4]={255,255,255,(uint8_t)(12*strength)};
+    plat_draw_quad(NULL,f.x,f.y,f.w,f.h,0,0,1,1,varnish);
+    float phase=fmodf(item->pointer_hover_time,1.4f)/1.4f;
+    float middle=f.y+f.h*(-.3f+phase*1.6f),half=f.h*.18f;
+    uint8_t reflection[4][4]={{255,255,255,0},{255,255,255,0},
+                            {255,255,255,(uint8_t)(44*strength)},
+                            {255,255,255,(uint8_t)(44*strength)}};
+    plat_draw_quad4(NULL,f.x,middle-half,f.w,half,0,0,1,1,reflection);
+    for(int i=0;i<2;i++) {
+        memcpy(reflection[i],reflection[i+2],4);
+        reflection[i+2][3]=0;
+    }
+    plat_draw_quad4(NULL,f.x,middle,f.w,half,0,0,1,1,reflection);
+    set_clip(clip);
+}
+
 static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_rect clip, int *drawn,
                         int *skipped)
 {
     if (!w->visible)
         return;
+    if(p->expanded_main_menu && !strcmp(p->name,"arcade") && w->parent &&
+       !strcmp(w->parent->name,"TopRoot")) {
+        if(!strcmp(w->name,"GT4")) return;
+        if(!strcmp(w->name,"StartScroll")) {
+            draw_main_overview(p,w,parent,clip,drawn);
+            return;
+        }
+    }
     /* Console card-slot status has no device counterpart in the PC UI. */
     if (w->name && !strcmp(w->name, "Memorycard"))
         return;
@@ -2112,6 +2311,7 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
         int mask = (int)mp_number(n, "visible_compare", 0), selected = 0;
         if (list->focus_index >= 0 && list->focus_index < list->nkids)
             selected = list->kids[list->focus_index] == w->parent;
+        if (p->pointer_active) selected = p->pointer_hover == w->parent;
         int state = !strcmp(list->type, "SelectBox") ? (selected ? 2 : 0) : selected;
         if (mask && (state & mask) != (int)mp_number(n, "visible_condition", 0))
             return;
@@ -2150,7 +2350,7 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
        GameRoot's authored faces use 4 for the focus highlight (bg/bgf, the
        latter blinking via the script) and 8 to hide a disabled icon (bg0). */
     if (w->parent && !strcmp(w->parent->type, "Button")) {
-        int state = (w->parent->focused ? 6 : 0) | (w->parent->insensitive ? 8 : 0);
+        int state = (pointer_prelight(p,w->parent) ? 6 : 0) | (w->parent->insensitive ? 8 : 0);
         int mask = (int)mp_number(n, "visible_compare", 0);
         if (mask && (state & mask) != (int)mp_number(n, "visible_condition", 0))
             return;
@@ -2171,7 +2371,7 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
             in_popup = 0;
         /* the closed value lit by the owner's focus only while the popup
            is shut: open, the hover belongs to the popup's row */
-        int state = owner->focused && !(p->option_value == owner && owner->option_open) ? 2 : 0;
+        int state = pointer_prelight(p,owner) && !(p->option_value == owner && owner->option_open) ? 2 : 0;
         if (in_popup) {
             state = 0;
             for (int k = 0; k < ui_option_count(owner); k++) {
@@ -2184,7 +2384,7 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
                     }
                 if (belongs) {
                     state = (owner->option_open && k == owner->focus_index ? 1 : 0) |
-                            (owner->option_open && k == owner->option_pending ? 2 : 0) |
+                            (owner->option_open && (p->pointer_active ? p->pointer_hover==item : k==owner->option_pending) ? 2 : 0) |
                             (item->insensitive ? 8 : 0);
                     break;
                 }
@@ -2218,7 +2418,7 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
                 state |= 1;
             if (a->insensitive)
                 state |= 8;
-            if (a != w && a->focused)
+            if (a != w && pointer_prelight(p,a))
                 state |= 6;
         }
         if ((state & (int)mp_number(n, "visible_compare", 0)) !=
@@ -2228,6 +2428,9 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
     ((ui_widget *)w)->drawn_tick = p->draw_tick;
     int root = w->resource_root;
     frame f = {parent.x + w->x, parent.y + w->y, w->w, w->h, parent.alpha * w->opacity};
+
+    /* P: initial client bounds, then include actual painted face extents. */
+    pointer_bounds((ui_widget *)w,f,clip);
 
     uint8_t col[4][4] = {
         {255, 255, 255, 255}, {255, 255, 255, 255}, {255, 255, 255, 255}, {255, 255, 255, 255}};
@@ -2317,7 +2520,14 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
         /* 00247448 +0xD8..+0x114 installs the face's authored scissor. */
         if (!strncmp(p->name, "quick-", 6))
             set_clip(clip_to(clip, f));
-        draw_text(p, w, f);
+        float feedback=pointer_feedback_amount(p,w);
+        if(feedback>0) {
+            ui_widget text=*w;
+            text.hint_text=text.hint_source=NULL;
+            text.scale_x*=1+.025f*feedback;text.scale_y*=1+.025f*feedback;
+            draw_text(p,&text,f);
+            free(text.hint_text);free(text.hint_source);
+        } else draw_text(p, w, f);
         set_clip(clip);
         (*drawn)++;
     } else if (!strcmp(type, "InputTextFace")) {
@@ -2414,6 +2624,7 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
             (*drawn)++;
         } else
             (*skipped)++;
+        if(w->chip_kind) draw_paint_hover(p,w,f,clip);
     } else if (!strcmp(type, "ColorFace")) {
         if (color_list(n, "color", col) || w->has_runtime_color) {
             if (w->has_runtime_color)
@@ -2438,7 +2649,7 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
                Quick-menu icons inherit their authored 72x68 button rectangle.
                Other menus retain their existing layout until their area is checked. */
             int client_size =
-                w->has_geometry || !strncmp(p->name, "quick-", 6) ||
+                (w->parent && !strcmp(w->parent->name, "CarItem")) || w->has_geometry || !strncmp(p->name, "quick-", 6) ||
                 !strcmp(p->name, "labomode"); /* labomode's folder_bg (107x10) fills its 107x480 */
             /* 002A2608 uses inherited client dimensions as well. Authored
                GT Mode card backgrounds must not draw at PNG source size. */
@@ -2465,6 +2676,12 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
                 w->parent->name && !strcmp(w->parent->name, "Nation") && w->parent->parent &&
                 w->parent->parent->name && !strcmp(w->parent->parent->name, "MakerRoot"))
                 ih = f.h;
+            float feedback=pointer_feedback_amount(p,w);
+            if(feedback>0) {
+                float extra=.045f*feedback;
+                f.x-=iw*extra*.5f;f.y-=ih*extra*.5f;
+                iw*=1+extra;ih*=1+extra;
+            }
             if (w->magnify > 0 && w->magnify != 1) {
                 f.x -= iw * (w->magnify - 1) * 0.5f;
                 f.y -= ih * (w->magnify - 1) * 0.5f;
@@ -2475,6 +2692,8 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
                logo stays centred in its 400x240 frame on the PS2. */
             f.x += iw * (1 - (float)s[0]) * 0.5f;
             f.y += ih * (1 - (float)s[1]) * 0.5f;
+            frame painted = {f.x,f.y,iw * (float)s[0],ih * (float)s[1],f.alpha};
+            pointer_bounds((ui_widget *)w,painted,clip);
             if (im && im->tex && w->parent && w->parent->rotation != 0)
                 plat_draw_rotated(im->tex, f.x, f.y, iw * (float)s[0], ih * (float)s[1],
                                   parent.x + w->parent->w * .5f, parent.y + w->parent->h * .5f,
@@ -2555,10 +2774,31 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
         return;
     }
 
-    /* Use authored clipping: MakerRoot intentionally previews the next
+    /* Tall vertical lists own a viewport. Short selectors retain their
+       authored neighbour overhang (the original main menu).
+       Use authored clipping: MakerRoot intentionally previews the next
        country flag beneath the current country's column. */
-    int clips = mp_number(n, "clip", 0) != 0;
+    int clips = mp_number(n, "clip", 0) != 0 ||
+                (!strcmp(type,"ListBox") && (int)mp_number(n,"direction",0)==1) ||
+                (vertical_select(w) && w->h>=2*(w->kids[0]->h+(float)mp_number(n,"spacing",0)));
     clip_rect inner = clips ? clip_to(clip, f) : clip;
+    /* Slot 2 retail capture: per-row GS scissors at 640x224 fields.
+       002311D0 intersects bounds, 00215FE0 scales, 004A2DF8 truncates.
+       Preserve this console coverage on the host without cutting geometry. */
+    if (!strcmp(type, "FBox") && w->parent && !strcmp(w->parent->type, "MBox") &&
+        w->name && (!strcmp(w->name, "RegHeader") || !strcmp(w->name, "RegDesc") ||
+                    !strcmp(w->name, "RegDescLicense"))) {
+        clip_rect area = clip_to(clip, f);
+        float rect[4] = {area.x, area.y, area.w, area.h};
+        int scissor[4];
+        gt4_ui_scissor(rect, 640, 448, 1, scissor);
+        const float field_scale = 224.f / 480.f;
+        frame field = {(float)scissor[0], scissor[1] / field_scale,
+                       (float)scissor[2], scissor[3] / field_scale, f.alpha};
+        inner = clip_to(clip, field);
+        clips = 1;
+    }
+
     if (clips)
         set_clip(inner);
     if (!strcmp(type, "GraphFace")) {
@@ -2665,11 +2905,22 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
                     frame c = f;
                     c.x = x - it->x;
                     c.y += (f.h - it->h) * 0.5f - it->y;
-                    float magnify = (float)mp_number(n, "magnify_ratio", 1);
-                    if (i == k && magnify > 1 && it->nkids) {
+                    float magnify = (it->strip_zoom > 0 ? it->strip_zoom :
+                        i == k ? (float)mp_number(n, "magnify_ratio", 1) : 1) * card_scale(w);
+                    if (magnify != 1 && it->nkids) {
+                        ui_widget *hit_item=(ui_widget *)it;
+                        hit_item->drawn_tick=p->draw_tick;
+                        frame item_frame={x,c.y+it->y,it->w,it->h,f.alpha*it->opacity};
+                        pointer_bounds(hit_item,item_frame,strip);
                         /* Miniature car templates are flat image composites. */
                         for (int j = 0; j < it->nkids; j++) {
                             ui_widget child = *it->kids[j];
+                            child.hint_text=child.hint_source=NULL;
+                            if (!child.has_geometry && !strcmp(it->name, "CarItem")) {
+                                child.w = it->w;
+                                child.h = it->h;
+                                child.has_geometry = 1;
+                            }
                             if (!child.has_geometry && child.image_path) {
                                 ui_image *im = image(p, root, child.image_path);
                                 if (im) {
@@ -2678,8 +2929,10 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
                                     child.has_geometry = 1;
                                 }
                             }
-                            child.x = child.x * magnify - it->w * (magnify - 1) * .5f;
-                            child.y = child.y * magnify - it->h * (magnify - 1);
+                            /* Original: func_002D6B40 +0x88..0xA0 centres
+                               the current client height, including magnification. */
+                            child.x *= magnify;
+                            child.y = child.y * magnify - it->h * (magnify - 1) * .5f;
                             child.w *= magnify;
                             child.h *= magnify;
                             frame base = c;
@@ -2687,13 +2940,17 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
                             base.y += it->y;
                             base.alpha *= it->opacity;
                             draw_widget(p, &child, base, strip, drawn, skipped);
+                            pointer_include(hit_item,&child);
+                            free(child.hint_text);free(child.hint_source);
                         }
                     } else
                         draw_widget(p, it, c, strip, drawn, skipped);
                     if (i == k && f.alpha > 0 && (w->focused || it->focused))
                         cursor_target(p, it, x, c.y + it->y, it->w, it->h);
                 }
-                x += it->w + gap;
+                float zoom = it->strip_zoom > 0 ? it->strip_zoom :
+                    i == k ? (float)mp_number(n, "magnify_ratio", 1) : 1;
+                x += it->w * zoom * card_scale(w) + gap;
             }
             set_clip(inner);
         } else if (vertical_select(w)) {
@@ -2708,8 +2965,13 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
             float offset = w->strip_ready ? w->strip_offset : select_offset(w, 1);
             int reach = pitch > 0 ? (int)(f.h / pitch) : 0;
             float x = f.x + (float)mp_number(n, "border_width", 0);
+            int first=k-reach,last=k+reach;
+            if(w->desktop_scrolled && pitch>0) {
+                first=(int)fmaxf(0,floorf(-offset/pitch));
+                last=(int)fminf(w->nkids-1,ceilf((f.h-offset)/pitch));
+            }
             for (int pass = 0; pass < 2; pass++)
-                for (int i = k - reach; i <= k + reach; i++) {
+                for (int i = first; i <= last; i++) {
                     if (i < 0 || i >= w->nkids || (i == k) != (pass == 1))
                         continue;
                     const ui_widget *it = w->kids[i];
@@ -2731,6 +2993,7 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
             float pitch = w->kids[0]->h + (float)mp_number(n, "spacing", 0), top = 0;
             if (pitch > 0 && (k + 1) * pitch > f.h)
                 top = (k + 1) * pitch - f.h;
+            if (w->desktop_scrolled) top = -w->desktop_offset;
             for (int i = 0; i < w->nkids; i++) {
                 const ui_widget *it = w->kids[i];
                 float y = f.y + i * pitch - top;
@@ -2757,6 +3020,12 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
         for (int i = 0; i < w->nkids; i++)
             draw_widget(p, w->kids[i], f, inner, drawn, skipped);
     }
+    /* P: a button's full visible frame/label is clickable, not only its
+       smaller authored client rectangle. Descendant bounds are clipped. */
+    if (is_container(type))
+        for (int i=0;i<w->nkids;i++)
+            if (w->kids[i]->drawn_tick == p->draw_tick)
+                pointer_include((ui_widget *)w,w->kids[i]);
     if (f.alpha > 0 && w->focused && strcmp(type, "RootWindow") && strcmp(type, "ListBox") &&
         strcmp(type, "SelectBox") && (!w->parent || strcmp(w->parent->type, "SelectBox"))) {
         cursor_target(p, w, f.x, f.y, f.w, f.h);
@@ -2987,6 +3256,7 @@ void ui_draw_root(ui_project *p, int i, int *drawn, int *skipped)
     if (!++p->draw_tick)
         p->draw_tick = 1;
     if (w) {
+        ui_menu_readability(p,p->compact_cars);
         layout_packed(p, w);
         draw_widget(p, w, screen, none, &d, &s);
     }
@@ -3005,8 +3275,12 @@ void ui_draw_root(ui_project *p, int i, int *drawn, int *skipped)
         }
         /* the whole list, as the PS2's DUALSHOCK 2 page opens its 14
            choices (PCSX2 print); only the screen bounds it */
-        int visible = count > 19 ? 19 : count;
-        float row = fmaxf(24, option->h), height = row * visible;
+        float row = fmaxf(24, option->h);
+        int capacity=(int)(462/row);
+        if(capacity<1) capacity=1;
+        if(capacity>19) capacity=19;
+        int visible = count > capacity ? capacity : count;
+        float height = row * visible;
         float x = fminf(fmaxf(0, p->option_x), fmaxf(0, 640 - option->w));
         /* func_002C9098 negates the selected child's y (002C9254):
            the committed row starts at the closed control, not below it. */
@@ -3096,7 +3370,16 @@ void ui_draw_root(ui_project *p, int i, int *drawn, int *skipped)
         p->cursor_ta = p->cursor_angle;
         p->cursor_focus = NULL;
     }
-    if (!p->cursor_hidden && (p->cursor_visible || cursor_in_transition)) {
+    if (p->pointer_active) {
+        /* P: the mouse tip follows the OS position without controller easing.
+           Original: func_0022FFD0; retain its animated angle for hover feedback. */
+        if(!p->smooth_pointer) {
+            p->cursor_x = p->pointer_x;
+            p->cursor_y = p->pointer_y;
+        }
+        p->cursor_started = p->cursor_visible = 1;
+    }
+    if ((!p->cursor_hidden || p->pointer_active) && (p->cursor_visible || cursor_in_transition)) {
         ui_load_package(p, "/projects/cursor", "CursorRoot");
         char cursor_path[96];
         snprintf(cursor_path, sizeof cursor_path, "image/cursor/%s.png",
@@ -3109,9 +3392,23 @@ void ui_draw_root(ui_project *p, int i, int *drawn, int *skipped)
             p->cursor_started = 1;
         }
         /* The arrow's tip is at (16,0) of the 32x32 sprite; it turns around it. */
-        if (cursor && cursor->tex) {
-            const uint8_t white[4] = {255, 255, 255, 255};
-            plat_draw_rotated(cursor->tex, p->cursor_x - 16, p->cursor_y, 32, 32, p->cursor_x,
+        plat_texture *cursor_texture=cursor?cursor->tex:NULL;
+        if (cursor_texture) {
+            float size=32*(1+(p->pointer_active && p->smooth_pointer?.06f*p->pointer_affordance:0));
+            uint8_t white[4] = {255,255,255,255};
+            if(p->pointer_active && p->smooth_pointer && p->cursor_icon_blend<1) {
+                char previous_path[128];
+                snprintf(previous_path,sizeof previous_path,"image/cursor/%s.png",
+                         *p->previous_cursor_icon?p->previous_cursor_icon:"cursor");
+                ui_image *previous=image(p,i,previous_path);
+                if(previous && previous->tex) {
+                    white[3]=(uint8_t)(255*(1-p->cursor_icon_blend));
+                    plat_draw_rotated(previous->tex,p->cursor_x-size*.5f,p->cursor_y,size,size,
+                                      p->cursor_x,p->cursor_y,p->cursor_angle,white);
+                }
+                white[3]=(uint8_t)(255*p->cursor_icon_blend);
+            }
+            plat_draw_rotated(cursor_texture, p->cursor_x - size*.5f, p->cursor_y, size, size, p->cursor_x,
                               p->cursor_y, p->cursor_angle, white);
         }
     }
@@ -3315,7 +3612,7 @@ static void animate_strip(ui_widget *w, float seconds)
     /* CarModel motion 2 also runs without Mot1 controllers: PresentRoot
        move_car (gtmode.ad L14653..14679), original update 00153BB8. */
     if (w->visible && isfinite(seconds) && seconds > 0 &&
-        (w->car_motion == 2 || w->car_motion_count || w->car_camera || w->car_crew_motion)) {
+        (w->car_code || w->car_motion == 2 || w->car_motion_count || w->car_camera || w->car_crew_motion)) {
         /* 00153BB8 +0x1cc..0x234 advances controllers at the US frame
            interval, bits 3C888888. Host delivery does not change the step. */
         w->car_service_ticks += (double)seconds * 60;
@@ -3381,13 +3678,39 @@ static void animate_strip(ui_widget *w, float seconds)
         }
     }
     if (horizontal_strip(w)) {
-        float target = !strcmp(w->type, "SelectBox") ? select_offset(w, 0) : strip_target(w),
+        /* Original: func_002D5660 +0x20..0x64 sets interpolation 0x3E4CCCCC;
+           func_002D6868 +0x68..0xBC eases each item's client dimensions. */
+        uint32_t ratio_bits = 0x3e4ccccc;
+        float ratio;
+        memcpy(&ratio, &ratio_bits, 4);
+        int strip_steps = 0;
+        w->strip_ticks += (double)seconds * 60;
+        while (w->strip_ticks >= 1. - 1e-6) {
+            w->strip_ticks -= 1;
+            strip_steps++;
+            for (int i = 0; i < w->nkids; i++) {
+                ui_widget *item = w->kids[i];
+                float goal = i == w->focus_index ? (float)mp_number(w->src,"magnify_ratio",1) : 1;
+                if (item->strip_zoom <= 0) item->strip_zoom = goal;
+                else item->strip_zoom += (goal-item->strip_zoom)*ratio;
+            }
+        }
+        float target = w->desktop_scrolled ? w->desktop_offset : !strcmp(w->type, "SelectBox") ? select_offset(w, 0) : strip_target(w),
               gap = (float)mp_number(w->src, "spacing", 0);
         if (!w->strip_ready) {
             w->strip_offset = target;
             w->strip_ready = 1;
-        } else
-            w->strip_offset += (target - w->strip_offset) * (1 - expf(-18 * seconds));
+        } else {
+            /* Original: func_002D6868 +0xDC..0x12C, same per-field ratio;
+               snap when the movement is within +/-0x3DCCCCCC. */
+            uint32_t snap_bits = 0x3dcccccc;
+            float snap;
+            memcpy(&snap,&snap_bits,4);
+            for (int tick=0;tick<strip_steps;tick++) {
+                float step=(target-w->strip_offset)*ratio;
+                w->strip_offset=fabsf(step)<=snap ? target : w->strip_offset+step;
+            }
+        }
         if (fabsf(target - w->strip_offset) < 0.05f)
             w->strip_offset = target;
         /* The authored track/thumb bar shares the card list's parent. Its
@@ -3395,11 +3718,13 @@ static void animate_strip(ui_widget *w, float seconds)
         ui_widget *bar = w->parent ? ui_widget_child(w->parent, "bg") : NULL;
         ui_widget *thumb = w->parent ? ui_widget_child(w->parent, "pinch") : NULL;
         if (bar && thumb && bar->w > 0) {
-            float total = -gap;
-            for (int i = 0; i < w->nkids; i++)
-                total += w->kids[i]->w + gap;
+            float total = strip_length(w);
             float first = w->kids[0]->w * .5f, last = total - w->kids[w->nkids - 1]->w * .5f;
-            float fraction = last > first ? (w->strip_offset - first) / (last - first) : 0;
+            /* SelectBox offsets run from zero toward negative content X;
+               ListBox offsets measure a positive distance from its centre. */
+            float fraction = !strcmp(w->type,"SelectBox") ?
+                (total>w->w ? -w->strip_offset/(total-w->w) : 0) :
+                last>first ? (w->strip_offset-first)/(last-first) : 0;
             fraction = fminf(1, fmaxf(0, fraction));
             thumb->w = bar->w * fminf(1, w->w / fmaxf(total, 1));
             thumb->x = bar->x + (bar->w - thumb->w) * fraction;
@@ -3408,7 +3733,7 @@ static void animate_strip(ui_widget *w, float seconds)
     if (vertical_select(w)) {
         /* Eased like the card strips; the original's per-frame ratio is
            not traced yet. */
-        float target = select_offset(w, 1);
+        float target = w->desktop_scrolled ? w->desktop_offset : select_offset(w, 1);
         if (!w->strip_ready) {
             w->strip_offset = target;
             w->strip_ready = 1;
@@ -3519,6 +3844,10 @@ void ui_cursor_icon(ui_project *p, const char *name)
             p->cursor_icon_reset = 1;
             return;
         }
+        if(p->smooth_pointer && p->pointer_active && *p->cursor_icon) {
+            memcpy(p->previous_cursor_icon,p->cursor_icon,sizeof p->previous_cursor_icon);
+            p->cursor_icon_blend=0;
+        }
         p->cursor_icon[0] = 0;
         p->cursor_icon_reset = 0;
         return;
@@ -3526,8 +3855,171 @@ void ui_cursor_icon(ui_project *p, const char *name)
     if (strchr(name, '/') || strchr(name, '\\') || strstr(name, "..") ||
         strlen(name) >= sizeof p->cursor_icon)
         return;
+    if(p->smooth_pointer && p->pointer_active && strcmp(p->cursor_icon,name)) {
+        memcpy(p->previous_cursor_icon,p->cursor_icon,sizeof p->previous_cursor_icon);
+        p->cursor_icon_blend=0;
+    }
     snprintf(p->cursor_icon, sizeof p->cursor_icon, "%s", name);
     p->cursor_icon_reset = 0;
+}
+void ui_pointer_feedback(ui_project *p, int enabled)
+{
+    if(p) p->mouse_feedback=enabled!=0;
+}
+void ui_pointer_smoothing(ui_project *p, int enabled)
+{
+    if(!p) return;
+    if(p->smooth_pointer!=(enabled!=0)) p->pointer_vx=p->pointer_vy=p->pointer_spin=0;
+    p->smooth_pointer=enabled!=0;
+    if(!enabled) {p->cursor_icon_blend=1;p->pointer_affordance=0;}
+}
+/* P: exact critically damped presentation spring for a fixed frame target.
+   Host UI units only: this never enters vehicle physics or input hit testing. */
+static void pointer_spring(float *value,float *velocity,float target,float rate,float dt)
+{
+    float error=*value-target,j=*velocity+rate*error,e=expf(-rate*dt);
+    *value=target+(error+j*dt)*e;
+    *velocity=(*velocity-rate*j*dt)*e;
+    if(fabsf(*value-target)<.01f && fabsf(*velocity)<.1f) {*value=target;*velocity=0;}
+}
+/* P: restrained inertial lean from motion/acceleration, not button regions. */
+static void animate_pointer(ui_project *p, float seconds)
+{
+    if(!p->pointer_active || !p->smooth_pointer || !isfinite(seconds) || seconds<=0) return;
+    float previous_vx=p->pointer_vx;
+    pointer_spring(&p->cursor_x,&p->pointer_vx,p->pointer_x,70,seconds);
+    pointer_spring(&p->cursor_y,&p->pointer_vy,p->pointer_y,70,seconds);
+    float dx=p->pointer_x-p->cursor_x,dy=p->pointer_y-p->cursor_y;
+    float distance=sqrtf(dx*dx+dy*dy);
+    if(distance>24) {p->cursor_x=p->pointer_x-dx*24/distance;p->cursor_y=p->pointer_y-dy*24/distance;}
+    static const float angles[]={45,22.5f,0,-22.5f,-45,45,45,45,-22.5f};
+    int align=p->pointer_hover?(int)mp_number(p->pointer_hover->src,"cursor_align",8):8;
+    float base=angles[align>=0 && align<9?align:3];
+    if(p->pointer_hover && align==8) {
+        const float *r=p->pointer_hover->pointer_rect;
+        float side=r[2]>0 ? fminf(1,fmaxf(-1,2*(p->pointer_x-r[0])/r[2]-1)) : 0;
+        /* P: continuous, small target-facing lean; never discrete button zones. */
+        base=-8-8*side;
+    }
+    if(p->pointer_edge_direction) base=p->pointer_edge_direction*90.f;
+    p->pointer_affordance+=((p->pointer_hover?1.f:0.f)-p->pointer_affordance)*(1-expf(-seconds/.060f));
+    float acceleration=(p->pointer_vx-previous_vx)/seconds;
+    float lean=fminf(12,fmaxf(-12,-p->pointer_vx*.018f-acceleration*.000025f));
+    float target=p->cursor_angle+remainderf(base+lean-p->cursor_angle,360.f);
+    pointer_spring(&p->cursor_angle,&p->pointer_spin,target,45,seconds);
+    p->cursor_icon_blend=fminf(1,p->cursor_icon_blend+seconds/.090f);
+}
+void ui_pointer(ui_project *p, int enabled, float x, float y)
+{
+    if (!p) return;
+    if(enabled && (!p->pointer_active || !p->pointer_ready)) {
+        p->cursor_x=x;p->cursor_y=y;p->pointer_ready=1;
+        p->pointer_vx=p->pointer_vy=p->pointer_spin=0;
+    }
+    if(!enabled) {p->pointer_ready=0;p->pointer_edge_direction=0;}
+    p->pointer_active = enabled;
+    p->pointer_x = x;
+    p->pointer_y = y;
+}
+int ui_pointer_position(const ui_project *p, float *x, float *y)
+{
+    if (!p || !p->pointer_active) return 0;
+    *x=p->pointer_x; *y=p->pointer_y;
+    return 1;
+}
+void ui_input_hints(ui_project *p, int device)
+{
+    if(p) p->input_device=device;
+}
+static int pointer_scroll_widget(ui_project *p, ui_widget *w, float x, float y, int wheel)
+{
+    if(!w || !w->visible || w->insensitive) return 0;
+    for(int i=w->nkids-1;i>=0;i--)
+        if(pointer_scroll_widget(p,w->kids[i],x,y,wheel)) return 1;
+    ui_widget *clip=ui_widget_child(w,"clip");
+    ui_widget *space=clip ? ui_widget_child(clip,"space") : NULL;
+    if(space && space->h>clip->h && ui_pointer_contains(p,clip,x,y)) {
+        float old=space->scroll_set ? space->scroll_ty : space->y;
+        /* P: wheel scrolls a viewport fraction, never a focus/item index. */
+        space->scroll_ty=fminf(0,fmaxf(clip->h-space->h,old+wheel*clip->h*.12f));
+        if(!space->scroll_set) space->scroll_tx=space->x;
+        space->scroll_set=1;
+        return 1;
+    }
+    if(horizontal_strip(w) && w->nkids && ui_pointer_contains(p,w,x,y)) {
+        float total=strip_length(w);
+        if(total<=w->w) return 0;
+        int select=!strcmp(w->type,"SelectBox");
+        float old=w->desktop_scrolled ? w->desktop_offset : w->strip_ready ? w->strip_offset :
+                  select ? select_offset(w,0) : strip_target(w);
+        float low=select ? w->w-total : w->w*.5f, high=select ? 0 : total-w->w*.5f;
+        w->desktop_offset=fminf(high,fmaxf(low,old+wheel*w->w*.12f*(select?1:-1)));
+        w->desktop_scrolled=1;
+        return 1;
+    }
+    int vertical=vertical_select(w) || (!strcmp(w->type,"ListBox") &&
+                 (int)mp_number(w->src,"direction",0)==1);
+    if(vertical && w->nkids && ui_pointer_contains(p,w,x,y)) {
+        float pitch=w->kids[0]->h+(float)mp_number(w->src,"spacing",0);
+        float total=pitch*w->nkids-(float)mp_number(w->src,"spacing",0);
+        float old=w->desktop_scrolled ? w->desktop_offset :
+            vertical_select(w) ? (w->strip_ready ? w->strip_offset : select_offset(w,1)) : 0;
+        w->desktop_offset=fminf(0,fmaxf(fminf(0,w->h-total),old+wheel*w->h*.12f));
+        w->desktop_scrolled=1;
+        return total>w->h;
+    }
+    return 0;
+}
+int ui_pointer_scroll(ui_project *p, int root, float x, float y, int wheel)
+{
+    if(p && p->expanded_main_menu && !strcmp(p->name,"arcade") && root>=0 &&
+       !strcmp(ui_root_name(p,root),"TopRoot") && x>=150 && x<=490 && y>=290 && y<=430) {
+        p->main_menu_first-=wheel;
+        return 1;
+    }
+
+    return p && wheel ? pointer_scroll_widget(p,ui_root_widget(p,root),x,y,wheel) : 0;
+}
+static int pointer_edge_widget(ui_project *p,ui_widget *w,float x,float y,float seconds)
+{
+    if(!w || !w->visible || w->insensitive) return 0;
+    for(int i=w->nkids-1;i>=0;i--)
+        if(pointer_edge_widget(p,w->kids[i],x,y,seconds)) return 1;
+    if(!horizontal_strip(w) || !w->nkids || !ui_pointer_contains(p,w,x,y)) return 0;
+    float left=w->pointer_rect[0],width=w->w,edge=width*.1f;
+    float local=x-left;
+    float pressure=local<edge ? (edge-local)/edge : local>width-edge ? (width-edge-local)/edge : 0;
+    if(pressure==0) return 0;
+    float total=strip_length(w);
+    if(total<=width) return 0;
+    int select=!strcmp(w->type,"SelectBox");
+    float old=w->desktop_scrolled?w->desktop_offset:w->strip_ready?w->strip_offset:
+              select?select_offset(w,0):strip_target(w);
+    float low=select?width-total:width*.5f,high=select?0:total-width*.5f;
+    w->desktop_offset=fminf(high,fmaxf(low,old+pressure*width*1.5f*fminf(seconds,.1f)*(select?1:-1)));
+    w->desktop_scrolled=1;
+    if(w->desktop_offset!=old) p->pointer_edge_direction=pressure<0?1:-1;
+    return 1;
+}
+void ui_pointer_edge_scroll(ui_project *p,int root,float seconds)
+{
+    if(p) p->pointer_edge_direction=0;
+    if(p && p->pointer_active && seconds>0)
+        pointer_edge_widget(p,ui_root_widget(p,root),p->pointer_x,p->pointer_y,seconds);
+}
+void ui_pointer_scroll_clear(ui_project *p)
+{
+    if(p) for(int i=0;i<p->nall;i++) p->all[i]->desktop_scrolled=0;
+}
+void ui_pointer_hover(ui_project *p, const ui_widget *widget)
+{
+    if (p) p->pointer_hover = widget;
+}
+int ui_pointer_contains(const ui_project *p, const ui_widget *w, float x, float y)
+{
+    if (!p || !w || w->drawn_tick != p->draw_tick) return 0;
+    const float *r = w->pointer_rect;
+    return x >= r[0] && y >= r[1] && x < r[0] + r[2] && y < r[1] + r[3];
 }
 void ui_cursor_speed(ui_project *p, float ratio)
 {
@@ -3540,6 +4032,22 @@ void ui_cursor_transfer(ui_project *destination, const ui_project *source)
 {
     if (!destination || !source)
         return;
+    /* P: mouse ownership survives page/project/modal context changes.
+       Do not tween a stationary pointer to a popup's initial selection. */
+    destination->mouse_feedback=source->mouse_feedback;
+    destination->pointer_vx=source->pointer_vx;
+    destination->pointer_vy=source->pointer_vy;
+    destination->pointer_spin=source->pointer_spin;
+    destination->pointer_affordance=source->pointer_affordance;
+    destination->smooth_pointer=source->smooth_pointer;
+    destination->pointer_ready=source->pointer_ready;
+    destination->cursor_icon_blend=source->cursor_icon_blend;
+    memcpy(destination->previous_cursor_icon,source->previous_cursor_icon,sizeof destination->previous_cursor_icon);
+    destination->input_device = source->input_device;
+    destination->pointer_active = source->pointer_active;
+    destination->pointer_hover = NULL;
+    destination->pointer_x = source->pointer_x;
+    destination->pointer_y = source->pointer_y;
     memcpy(destination->cursor_icon, source->cursor_icon, sizeof destination->cursor_icon);
     destination->cursor_icon_reset = source->cursor_icon_reset;
     destination->cursor_frozen = source->cursor_frozen;
@@ -3564,6 +4072,17 @@ void ui_cursor_transfer(ui_project *destination, const ui_project *source)
     destination->cursor_selection_set = 0;
 }
 
+void ui_menu_readability(ui_project *p, int compact_cars)
+{
+    if (!p) return;
+    p->compact_cars = compact_cars;
+    for (int i=0;i<p->nall;i++) {
+        ui_widget *w=p->all[i];
+        if (horizontal_strip(w) && !strcmp(w->kids[0]->name,"CarItem"))
+            w->strip_card_scale=compact_cars ? .8f : 1;
+    }
+}
+
 void ui_animate(ui_project *p, int root, float seconds)
 {
     if (isfinite(seconds) && seconds > 0) {
@@ -3576,6 +4095,16 @@ void ui_animate(ui_project *p, int root, float seconds)
                 p->fade_done = gt4_color_step(&p->fade_value, p->fade_to, p->fade_step);
         }
     }
+    if(isfinite(seconds) && seconds>0) {
+        float blend=1-expf(-seconds/.060f);
+        for(int i=0;i<p->nall;i++) {
+            ui_widget *w=p->all[i];
+            float target=p->mouse_feedback && p->pointer_active && p->pointer_hover==w?1.f:0.f;
+            w->pointer_light+=(target-w->pointer_light)*blend;
+            w->pointer_hover_time=target>0 ? w->pointer_hover_time+seconds : 0;
+        }
+    }
+    animate_pointer(p,seconds);
     animate_strip(ui_root_widget(p, root), seconds);
     if (p->cursor_started && isfinite(seconds) && seconds > 0) {
         /* The original focus rectangle is taken after its actors update.
@@ -3596,7 +4125,7 @@ void ui_animate(ui_project *p, int root, float seconds)
         p->cursor_ticks += (double)seconds * 60.0;
         while (p->cursor_ticks >= 1.0 - 1e-6) {
             p->cursor_ticks -= 1;
-            gt4_cursor_update(&p->cursor_x, &p->cursor_y, &p->cursor_angle, p->cursor_tx,
+            if (!p->pointer_active) gt4_cursor_update(&p->cursor_x, &p->cursor_y, &p->cursor_angle, p->cursor_tx,
                               p->cursor_ty, p->cursor_ta, ratio,
                               p->cursor_paused || p->cursor_held || p->cursor_frozen, 1, 1);
         }
@@ -3610,11 +4139,13 @@ void ui_draw_caption(ui_project *p, int root, const char *text)
     if (!name)
         return;
     ui_widget label = *name;
+    label.hint_text=label.hint_source=NULL;
     label.text = (char *)text;
     label.text_key = NULL;
     label.scale_x = label.scale_y = .62f;
     frame f = {34, 295, 572, 22, 1};
     draw_text(p, &label, f);
+    free(label.hint_text);free(label.hint_source);
 }
 
 /* Asset preparation never draws or advances focus/motion. Modal variants

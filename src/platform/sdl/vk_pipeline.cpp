@@ -75,6 +75,8 @@ static std::string interface_locations(Program &p, std::string source, bool vert
 }
 bool compile(Program &p)
 {
+    p.fingerprint = shader_fingerprint(p);
+    p.vertex_id = p.vertex.find("gl_VertexID") != std::string::npos;
     /* Both stages share one explicitly laid-out block. Uniform setters and
        shaders therefore use the same offsets, including vec3/matrix arrays. */
     try {
@@ -169,6 +171,7 @@ bool compile(Program &p)
         check(vkCreatePipelineLayout(context().device, &layout, nullptr, &p.layout),
               "vkCreatePipelineLayout");
         p.linked = true;
+        context().warm_pipeline_recipes(p);
         return true;
     } catch (const std::exception &e) {
         p.error = e.what();
@@ -409,9 +412,14 @@ VkPipeline pipeline(Context &c, Program &p, VkRenderPass pass, GLenum topology)
     info.layout = p.layout;
     info.renderPass = pass;
     VkPipeline result;
-    check(vkCreateGraphicsPipelines(c.device, VK_NULL_HANDLE, 1, &info, nullptr, &result),
+    uint64_t started = SDL_GetPerformanceCounter();
+    check(vkCreateGraphicsPipelines(c.device, c.pipeline_cache, 1, &info, nullptr, &result),
           "vkCreateGraphicsPipelines");
+    c.statistics.pipeline_ns += (SDL_GetPerformanceCounter() - started) * 1000000000ull /
+                                SDL_GetPerformanceFrequency();
+    c.statistics.pipeline_creations++;
     p.pipelines[key] = result;
+    c.remember_pipeline(p, pass, topology);
     return result;
 }
 VkDescriptorSet Context::draw_descriptors(const Program &p)
@@ -496,6 +504,7 @@ void Context::draw(GLenum topology, int first, int count)
 {
     if (count < 1)
         return;
+    uint64_t prepare_start = profile_draws ? SDL_GetPerformanceCounter() : 0;
     auto &p = programs[state.program];
     if (!p.linked)
         return;
@@ -518,6 +527,12 @@ void Context::draw(GLenum topology, int first, int count)
                 }
             resident[i] = shared < 0 ? vertex_buffer(vao.attributes[i].buffer) : resident[shared];
         }
+    /* Resident bindings can retain their base offsets across material groups.
+       Streaming buffers still contain only this draw's selected subrange. */
+    bool base_vertices = !repeat_commands && !p.vertex_id;
+    for (int i = 0; i < 16; i++)
+        if (p.inputs[i] && vao.attributes[i].enabled && !resident[i])
+            base_vertices = false;
     size_t bytes = p.values.size() + 512;
     std::array<size_t, 16> strides{};
     std::array<int, 16> shared;
@@ -560,7 +575,7 @@ void Context::draw(GLenum topology, int first, int count)
                     throw std::runtime_error("Vulkan vertex attribute bounds");
                 if (resident[i]) {
                     vertex_handles[i] = resident[i]->handle;
-                    offsets[i] = start + a.offset;
+                    offsets[i] = (base_vertices ? 0 : start) + a.offset;
                     continue;
                 }
                 if (shared[i] >= 0) {
@@ -577,12 +592,20 @@ void Context::draw(GLenum topology, int first, int count)
                     vertex_offset += aligned((int)size, 16);
                 }
             } else {
-                float value[4] = {0, 0, 0, 1};
-                memcpy((uint8_t *)arena.mapped + vertex_offset, value, 16);
-                vertex_offset += 16;
+                // Disabled inputs share the same immutable default in this
+                // command arena. A pool reset invalidates the cached offset.
+                if (repeat_commands || default_vertex_offset == SIZE_MAX) {
+                    float value[4] = {0, 0, 0, 1};
+                    memcpy((uint8_t *)arena.mapped + vertex_offset, value, sizeof value);
+                    default_vertex_offset = vertex_offset;
+                    vertex_offset += sizeof value;
+                }
+                offsets[i] = default_vertex_offset;
             }
         }
+    uint64_t descriptors_start = profile_draws ? SDL_GetPerformanceCounter() : 0;
     VkDescriptorSet set = draw_descriptors(p);
+    uint64_t pipeline_start = profile_draws ? SDL_GetPerformanceCounter() : 0;
     VkRenderPass pass = render_pass(target->format, z ? z->format : VK_FORMAT_UNDEFINED);
     VkImageView views[] = {target->attachment, z ? z->attachment : VK_NULL_HANDLE};
     /* Attachment ordering and blending are already ordered within a subpass.
@@ -600,14 +623,14 @@ void Context::draw(GLenum topology, int first, int count)
         pass_color = views[0];
         pass_depth = views[1];
     }
-    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline(*this, p, pass, topology));
+    VkPipeline selected_pipeline = pipeline(*this, p, pass, topology);
+    uint64_t commands_start = profile_draws ? SDL_GetPerformanceCounter() : 0;
     VkViewport viewport{(float)state.viewport[0],
                         (float)state.viewport[1],
                         (float)state.viewport[2],
                         (float)state.viewport[3],
                         0,
                         1};
-    vkCmdSetViewport(command, 0, 1, &viewport);
     VkRect2D clip{{0, 0}, {(uint32_t)target->width, (uint32_t)target->height}};
     if (state.clip) {
         int x0 = std::max(0, state.scissor[0]), y0 = std::max(0, state.scissor[1]);
@@ -615,8 +638,6 @@ void Context::draw(GLenum topology, int first, int count)
             y1 = std::min(target->height, state.scissor[1] + state.scissor[3]);
         clip = {{x0, y0}, {(uint32_t)std::max(0, x1 - x0), (uint32_t)std::max(0, y1 - y0)}};
     }
-    vkCmdSetScissor(command, 0, 1, &clip);
-    vkCmdSetBlendConstants(command, state.blend_color);
     uint32_t dynamic_offset = (uint32_t)offset;
     vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, p.layout, 0, 1, &set, 1,
                             &dynamic_offset);
@@ -624,9 +645,15 @@ void Context::draw(GLenum topology, int first, int count)
     for (unsigned i = 0; i < 16; i++)
         if (p.inputs[i])
             binding_count = i + 1;
-    if (binding_count)
-        vkCmdBindVertexBuffers(command, 0, binding_count, vertex_handles.data(), offsets.data());
-    vkCmdDraw(command, count, 1, 0, 0);
+    bind_draw_state(selected_pipeline, viewport, clip, binding_count, vertex_handles, offsets);
+    vkCmdDraw(command, count, 1, base_vertices ? first : 0, 0);
+    if (profile_draws) {
+        uint64_t end = SDL_GetPerformanceCounter(), frequency = SDL_GetPerformanceFrequency();
+        statistics.cpu_prepare_ns += (descriptors_start - prepare_start) * 1000000000ull / frequency;
+        statistics.cpu_descriptors_ns += (pipeline_start - descriptors_start) * 1000000000ull / frequency;
+        statistics.cpu_pipeline_ns += (commands_start - pipeline_start) * 1000000000ull / frequency;
+        statistics.cpu_commands_ns += (end - commands_start) * 1000000000ull / frequency;
+    }
     statistics.draws++;
 }
 void uniform(int location, int count, int components, const void *values, bool matrix)

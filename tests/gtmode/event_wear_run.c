@@ -80,7 +80,7 @@ int main(int argc, char **argv)
         uint32_t expected_a, expected_b;
         memcpy(&expected_a, c.ram + 0x1854000, 4);
         memcpy(&expected_b, c.ram + 0x1854004, 4);
-        CHECK(gt4_career_distance_integer(total-bdistance)==expected_a);
+        CHECK(gt4_career_distance_aspec(total,bdistance)==expected_a);
         CHECK(gt4_career_distance_integer(bdistance)==expected_b);
         CHECK(gt4_game_apply_car_wear(vm,game,wear));
         CHECK(gt4_game_car_body(vm,car,actual));

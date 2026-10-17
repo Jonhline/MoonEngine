@@ -1,6 +1,13 @@
 # GT Mode: fechamento pendente
 
-Atualização de 08/10/2026. Esta lista não declara o modo completo.
+Reconciliado em13/10: estado atual em
+[CLASSIC_RESOURCE_AUDIT.md](CLASSIC_RESOURCE_AUDIT.md) e FIDELITY.md.
+B-Spec/missões, ghost/Logger, álbum/slideshow/Photo Drive e as144séries
+estão implementados com provas delimitadas; apresentação integral A e
+experiência B-Spec F. As ausências abaixo são **snapshot histórico**, não
+lista atual de recursos a implementar.
+
+Atualização histórica de 08/10/2026. Esta lista não declara o modo completo.
 Não alterar dinâmica/fórmulas/parâmetros físicos: escopo desta validação.
 
 | Área solicitada | Estado desta tarefa |

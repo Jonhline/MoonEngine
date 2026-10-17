@@ -199,23 +199,46 @@ void Context::begin()
     info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     check(vkBeginCommandBuffer(command, &info), "vkBeginCommandBuffer");
     recording = true;
+    emitted = {};
+    if (queries) {
+        vkCmdResetQueryPool(command, queries, 0, 2);
+        vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, queries, 0);
+    }
 }
 void Context::flush()
 {
     if (!recording)
         return;
     end_pass();
+    write_timestamp_end();
     check(vkEndCommandBuffer(command), "vkEndCommandBuffer");
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &command;
     check(vkQueueSubmit(queue, 1, &submit, fence), "vkQueueSubmit");
     statistics.submissions++;
-    check(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
+    pending = true;
     reset_submission();
 }
 void Context::reset_submission()
 {
+    if (pending) {
+        uint64_t start = SDL_GetPerformanceCounter();
+        check(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX), "frame fence");
+        statistics.fence_wait_ns += (SDL_GetPerformanceCounter() - start) *
+                                   1000000000ull / SDL_GetPerformanceFrequency();
+    }
+    if (pending && timing_written && queries) {
+        uint64_t values[2];
+        if (vkGetQueryPoolResults(device, queries, 0, 2, sizeof values, values,
+                                  sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
+            uint64_t mask = timestamp_bits == 64 ? UINT64_MAX : ((1ull << timestamp_bits) - 1);
+            statistics.gpu_ns += (uint64_t)(((values[1] - values[0]) & mask) *
+                                            (double)properties.limits.timestampPeriod);
+            statistics.gpu_samples++;
+        }
+    }
+    pending = timing_written = false;
     check(vkResetFences(device, 1, &fence), "vkResetFences");
     check(vkResetCommandPool(device, pool, 0), "vkResetCommandPool");
     for (auto framebuffer : transient_targets)
@@ -229,6 +252,7 @@ void Context::reset_submission()
     retired_buffers.clear();
     check(vkResetDescriptorPool(device, descriptor_pool, 0), "vkResetDescriptorPool");
     arena_used = 0;
+    default_vertex_offset = SIZE_MAX;
     descriptor_count = 0;
     draw_sets.clear();
     recording = false;
@@ -271,7 +295,7 @@ Image *Context::color(unsigned fb)
         if (w < 1 || h < 1)
             return nullptr;
         if (!screen || screen->width != w || screen->height != h) {
-            flush();
+            drain();
             screen = image(w, h, VK_FORMAT_R8G8B8A8_UNORM);
         }
         return screen.get();
@@ -384,7 +408,7 @@ bool Context::resize_swapchain()
         return false;
     if (!rebuild_swapchain && extent.width == (unsigned)w && extent.height == (unsigned)h)
         return true;
-    flush();
+    drain();
     check(vkDeviceWaitIdle(device), "vkDeviceWaitIdle resize");
     VkSurfaceCapabilitiesKHR caps;
     check(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical, surface, &caps),
@@ -449,9 +473,16 @@ bool Context::resize_swapchain()
         vkDestroySwapchainKHR(device, swapchain, nullptr);
     swapchain = replacement;
     check(vkGetSwapchainImagesKHR(device, swapchain, &count, nullptr), "swapchain image count");
+    for (auto semaphore : present_ready)
+        vkDestroySemaphore(device, semaphore, nullptr);
+    present_ready.clear();
     swap_images.resize(count);
     check(vkGetSwapchainImagesKHR(device, swapchain, &count, swap_images.data()),
           "swapchain images");
+    present_ready.resize(count, VK_NULL_HANDLE);
+    VkSemaphoreCreateInfo semaphore_info{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+    for (auto &semaphore : present_ready)
+        check(vkCreateSemaphore(device, &semaphore_info, nullptr, &semaphore), "present semaphore");
     rebuild_swapchain = false;
     return true;
 }
@@ -504,6 +535,7 @@ void Context::present()
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
                          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1,
                          &image_barrier);
+    write_timestamp_end();
     check(vkEndCommandBuffer(command), "vkEndCommandBuffer present");
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
@@ -513,12 +545,14 @@ void Context::present()
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &command;
     submit.signalSemaphoreCount = 1;
-    submit.pSignalSemaphores = &presented;
+    submit.pSignalSemaphores = &present_ready[index];
     check(vkQueueSubmit(queue, 1, &submit, fence), "vkQueueSubmit present");
     statistics.submissions++;
+    pending = true;
+    recording = false;
     VkPresentInfoKHR info{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     info.waitSemaphoreCount = 1;
-    info.pWaitSemaphores = &presented;
+    info.pWaitSemaphores = &present_ready[index];
     info.swapchainCount = 1;
     info.pSwapchains = &swapchain;
     info.pImageIndices = &index;
@@ -527,15 +561,19 @@ void Context::present()
         rebuild_swapchain = true;
     else
         check(result, "vkQueuePresentKHR");
-    /* One frame in flight until the renderer has explicit per-frame ownership.
-       Queue idle also bounds the presentation semaphore's reuse. */
-    check(vkQueueWaitIdle(queue), "vkQueueWaitIdle present");
-    reset_submission();
+    if (low_latency)
+        reset_submission();
+    else {
+        statistics.frame_rotations++;
+        swap_submission();
+        reset_submission();
+    }
 }
 void Context::close()
 {
     if (device) {
         vkDeviceWaitIdle(device);
+        save_pipeline_cache();
         for (auto fb : transient_targets)
             vkDestroyFramebuffer(device, fb, nullptr);
         transient_targets.clear();
@@ -561,6 +599,8 @@ void Context::close()
                 vkDestroyPipelineLayout(device, p.layout, nullptr);
         }
         programs.clear();
+        if (pipeline_cache)
+            vkDestroyPipelineCache(device, pipeline_cache, nullptr);
         textures.clear();
         renderbuffers.clear();
         white.reset();
@@ -570,19 +610,14 @@ void Context::close()
         for (auto &pass : passes)
             vkDestroyRenderPass(device, pass.second, nullptr);
         destroy(readback);
-        destroy(arena);
-        if (descriptor_pool)
-            vkDestroyDescriptorPool(device, descriptor_pool, nullptr);
+        close_submission();
+        swap_submission();
+        close_submission();
         if (descriptors)
             vkDestroyDescriptorSetLayout(device, descriptors, nullptr);
-        if (fence)
-            vkDestroyFence(device, fence, nullptr);
-        if (pool)
-            vkDestroyCommandPool(device, pool, nullptr);
-        if (acquired)
-            vkDestroySemaphore(device, acquired, nullptr);
-        if (presented)
-            vkDestroySemaphore(device, presented, nullptr);
+        for (auto semaphore : present_ready)
+            vkDestroySemaphore(device, semaphore, nullptr);
+        present_ready.clear();
         if (swapchain)
             vkDestroySwapchainKHR(device, swapchain, nullptr);
         vkDestroyDevice(device, nullptr);
@@ -613,6 +648,9 @@ extern "C" int moon_vk_render_open(SDL_Window *window, int vsync)
     c.transient_framebuffers = getenv("MOON_VK_TRANSIENT_TARGETS") != nullptr;
     c.split_present = getenv("MOON_VK_SPLIT_PRESENT") != nullptr;
     c.uncached_descriptors = getenv("MOON_VK_UNCACHED_DESCRIPTORS") != nullptr;
+    c.low_latency = getenv("MOON_VK_LOW_LATENCY") != nullptr;
+    c.repeat_commands = getenv("MOON_VK_REPEAT_COMMANDS") != nullptr;
+    c.profile_draws = getenv("MOON_VK_PROFILE_DRAWS") != nullptr;
     c.stream_geometry = getenv("MOON_VK_STREAM_GEOMETRY") != nullptr;
     c.vsync = vsync != 0;
     try {
@@ -652,6 +690,7 @@ extern "C" int moon_vk_render_open(SDL_Window *window, int vsync)
                 if ((queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && present) {
                     c.physical = physical;
                     c.family = i;
+                    c.timestamp_bits = queues[i].timestampValidBits;
                     break;
                 }
             }
@@ -682,22 +721,6 @@ extern "C" int moon_vk_render_open(SDL_Window *window, int vsync)
         check(vkCreateDevice(c.physical, &device, nullptr, &c.device), "vkCreateDevice");
         volkLoadDevice(c.device);
         vkGetDeviceQueue(c.device, c.family, 0, &c.queue);
-        VkCommandPoolCreateInfo pool{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
-        pool.queueFamilyIndex = c.family;
-        check(vkCreateCommandPool(c.device, &pool, nullptr, &c.pool), "vkCreateCommandPool");
-        VkCommandBufferAllocateInfo commands{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-        commands.commandPool = c.pool;
-        commands.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        commands.commandBufferCount = 1;
-        check(vkAllocateCommandBuffers(c.device, &commands, &c.command),
-              "vkAllocateCommandBuffers");
-        VkFenceCreateInfo fence{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-        check(vkCreateFence(c.device, &fence, nullptr, &c.fence), "vkCreateFence");
-        VkSemaphoreCreateInfo semaphore{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-        check(vkCreateSemaphore(c.device, &semaphore, nullptr, &c.acquired),
-              "vkCreateSemaphore acquire");
-        check(vkCreateSemaphore(c.device, &semaphore, nullptr, &c.presented),
-              "vkCreateSemaphore present");
         std::array<VkDescriptorSetLayoutBinding, 9> bindings{};
         for (unsigned i = 0; i < bindings.size(); i++) {
             bindings[i].binding = i;
@@ -711,17 +734,10 @@ extern "C" int moon_vk_render_open(SDL_Window *window, int vsync)
         layout.pBindings = bindings.data();
         check(vkCreateDescriptorSetLayout(c.device, &layout, nullptr, &c.descriptors),
               "vkCreateDescriptorSetLayout");
-        VkDescriptorPoolSize sizes[] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 8192},
-                                        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 65536}};
-        VkDescriptorPoolCreateInfo descriptors{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-        descriptors.maxSets = 8192;
-        descriptors.poolSizeCount = 2;
-        descriptors.pPoolSizes = sizes;
-        check(vkCreateDescriptorPool(c.device, &descriptors, nullptr, &c.descriptor_pool),
-              "vkCreateDescriptorPool");
-        c.arena = c.buffer(128ull * 1024 * 1024,
-                           VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
-                               VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        c.open_pipeline_cache();
+        c.open_submission();
+        c.swap_submission();
+        c.open_submission();
         c.white = c.image(1, 1, VK_FORMAT_R8G8B8A8_UNORM);
         uint8_t white[4] = {255, 255, 255, 255};
         c.upload(*c.white, 0, 0, 0, 1, 1, GL_RGBA, white);

@@ -79,9 +79,14 @@ carro no mapa, modelo completo do menu, luz/material e relógio de apresentaçã
 Ainda falta comparação visual com PCSX2. Retrato/aspectos, visibilidade do
 carro em can_shoot e pan da inspeção também precisam de conferência.
 
-**F:** música/ambiente específico de Photo Travel. Exposição temporal do
-Photo Drive ligada em 12/10, amostrando histórico de render sem executar
-novos passos físicos.
+**E (ambiente CRSS delimitado):** photo_ambient executa 00457F60 em
+todos os 15 destinos/120 blocos: volume0/pitch1, negativo injeta ganho e
+falha. Não é um ambiente ausente nem prova de todos os caminhos de música.
+Exposição temporal Photo Drive ligada em 12/10 sem novos passos físicos.
+**F:** seleção/clipping dos polígonos/oclusão e can_shoot completo, câmera
+PhotoPause com rejeição/zoom mínimo e histórico de partículas/objetos/box.
+Banco PhotoPause de até64 câmeras já existe; comparação integral A.
+Inventário atualizado: [CLASSIC_RESOURCE_AUDIT.md](CLASSIC_RESOURCE_AUDIT.md).
 
 12/10: efeitos escalares de Photo Develop ligados: exposição, white balance,
 contraste e mature/monochrome. `photo_optics` executa 003EFC10/003EFD80:
@@ -159,8 +164,8 @@ preview congelado, exportação e fonte intacta. Negativos suprimem dispatch
 ou diferença de pixels e falham. Fixtures autorais, sem assets no git.
 
 **A integral:** sem filme real e comparação PCSX2. Body/LOD CDTL,
-planos de recorte SMOK, partículas entre snapshots, GDGT, develop ambiental,
-far clip, retrato e tiles GS pendentes. PNG no viewport/acumulação GL P.
+planos de recorte SMOK, partículas entre snapshots, GDGT e far clip originais pendentes. ENVP já restaurado e aspecto/retrato
+aplicado; rotação/composição integral A, tiles/acumulação GL são P. PNG no viewport/acumulação GL P.
 
 
 ### 12/10: detalhes de filmes e classes de replay

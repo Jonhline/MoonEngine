@@ -42,6 +42,7 @@ int main(void)
     snprintf(r.title, sizeof r.title, "Tsukuba run");
     CHECK(gt4_replay_pack(&r, &data, &size));
     CHECK(gt4_replay_unpack(data, size, &back));
+    CHECK(!back.legacy_math && data[4] == 2);
     CHECK(back.steps == 600 && !memcmp(back.tape, tape, sizeof tape));
     CHECK(back.thumb && !memcmp(back.thumb, thumb, sizeof thumb));
     CHECK(!strcmp(back.title, "Tsukuba run"));
@@ -52,6 +53,16 @@ int main(void)
     free(data);
 
     /* without one (as files saved before names): no title read */
+    sample(&r, tape, 600, thumb);
+    r.legacy_math = 1;
+    CHECK(gt4_replay_pack(&r, &data, &size) && data[4] == 1);
+    CHECK(gt4_replay_unpack(data, size, &back) && back.legacy_math);
+    gt4_replay_free(&back);
+    data[4] = 3; /* A future arithmetic version must not be guessed. */
+    CHECK(!gt4_replay_unpack(data, size, &back));
+    free(data);
+
+    /* Current recording without a title. */
     sample(&r, tape, 600, thumb);
     CHECK(gt4_replay_pack(&r, &data, &size));
     CHECK(gt4_replay_unpack(data, size, &back));

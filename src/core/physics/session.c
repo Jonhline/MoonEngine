@@ -392,11 +392,18 @@ static void best_lap(uint32_t car, uint32_t lap)
     if (lap < GT4_U32(car + CAR_POSITION + 0x618))
         GT4_U32(car + CAR_POSITION + 0x618) = lap;
 }
-static void tt_lap(uint32_t cond, uint32_t idx, uint32_t time, uint32_t lap)
+static void tt_lap(uint32_t cond, uint32_t idx, uint32_t number, uint32_t time, uint32_t lap)
 {
     uint32_t car = car_at(cond, idx), world = GT4_U32(GT4_U32(cond) + 0x84);
     uint32_t b = car + CAR_POSITION;
     best_lap(car, lap);
+#ifndef MOON_LEGACY_RECORDING
+    /* 003F5B80 +0x64..0x80 -> 0035E550: a replay still posts lap/time
+       messages. Keep the complete queue update, even in the headless solver. */
+    gt4_race_lap_event(cond, idx, number, lap, GT4_U8(car + CAR_FIELD_UNK_5B7));
+#else
+    (void)number;
+#endif
     /* func_003F5B80 +0x8C..+0x28C: the ghost and the recording */
     if (!idx && gt4_tt_ghost)
         gt4_tt_ghost(gt4_tt_ghost_ctx, cond,
@@ -697,7 +704,7 @@ static int time_trial(uint32_t cond, uint32_t off, uint32_t a1, uint32_t a2, uin
     case 0xa8:
         if (!gt4_phys_headless)
             return 0;
-        tt_lap(cond, a1, t0, t1);
+        tt_lap(cond, a1, a2, t0, t1);
         return 1;
     case 0xb8:
         if (!gt4_phys_headless)
@@ -1619,8 +1626,15 @@ static int license(uint32_t c, uint32_t off, uint32_t a1, uint32_t a2, uint32_t 
     case 0xa0:
     case 0xb0: /* 003F64D0/003F6760 */
         car = car_at(c, a1);
-        if (off == 0xb0)
+        if (off == 0xb0) {
             GT4_U8(car + 0x75f) = 0;
+#ifndef MOON_LEGACY_RECORDING
+            /* 003F6760 +0x48..0x64 calls virtual +0xA0, including the
+               RaceMission override (003F6E50), not its licence base. */
+            gt4_session_x(c, 0xa0, a1, a2, a3, t0, t1, t2, 0, NULL);
+            return 1;
+#endif
+        }
         if (!GT4_U8(car + 0x75f) && GT4_U8(c + CONDUCTOR_FIELD_UNK_F866)) {
             GT4_U32(car + CAR_FIELD_UNK_718) = a2;
             gt4_car_pit_leave(car);
@@ -2279,10 +2293,9 @@ static void times_clear(uint32_t cond)
     }
 }
 
-/* func_003F1790 (func_003F1BD8 with 1): the gearbox choices (D_006220A8
-   bytes, D_006220B0/C8/E0) from D_00622088..A0. Its div.s round to the
-   nearest: the B-Spec savestates hold 1.1 as 0x3F8CCCCD, 0.8 0x3F4CCCCD and
-   1.2 0x3F99999A, one above what the race's toward-zero mode gives. */
+/* 003F1790 +0xB8..0xE4: divide D_00622090/98/A0 by 100 for pace ratios.
+   EE SRT gives 1.1 as 0x3F8CCCCC. The older emulator capture used host
+   nearest arithmetic; retain that only for native GT4R v1 compatibility. */
 static void gearbox_choices(void)
 {
     int mode = fegetround();

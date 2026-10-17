@@ -8,6 +8,7 @@
 #ifndef MOON_RENDER3D_H
 #define MOON_RENDER3D_H
 
+#include <stdint.h>
 #include "model.h"
 #include "tex1.h"
 
@@ -61,7 +62,7 @@ typedef struct {
 } r3d_view;
 
 int r3d_available(void);
-#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
+#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST) || defined(MOON_PC_VULKAN)
 /* P: initialize and exercise lazy GPU passes before interactive screens. */
 int r3d_warmup(void);
 #endif
@@ -70,8 +71,19 @@ typedef struct {
     unsigned texture_updates, texture_cache_hits;
     unsigned state_updates, state_cache_hits;
     unsigned merged_groups;
+    uint64_t visibility_tests, spatial_rejected, readbacks;
 } r3d_stats;
 r3d_stats r3d_frame_stats(void);
+/* Lifetime counters include nested views; snapshots can span complete frames. */
+typedef struct {
+    uint64_t draws, triangles, merged_groups, culled_groups;
+    uint64_t texture_updates, texture_hits, state_updates, state_hits;
+    uint64_t visibility_tests, spatial_rejected, readbacks;
+} r3d_totals;
+r3d_totals r3d_work_totals(void);
+/* PC presentation choices; Classic retains flat visibility and CPU remapping. */
+void r3d_scene_options(int spatial, int resident_reflections);
+int r3d_resident_reflections(void);
 /* Upload (main thread, GL context current). The model is not kept. */
 r3d_mesh *r3d_mesh_create(const gt4_model *m);
 /* Body/brake subsets using the same texture table; references survive either
@@ -159,9 +171,7 @@ void r3d_sprite_texture_destroy(r3d_sprite_texture *t);
 void r3d_draw_sprites(const r3d_sprite_texture *t, const r3d_view *view, const float *corners,
                       int squares, int mode);
 
-#if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
 /* Borrow the GPU-produced environment for this submission; owner retains it. */
 void r3d_gpu_environment(unsigned texture, int width, int height);
 void r3d_copy_target(unsigned destination_fbo, int destination_x);
-#endif
 #endif

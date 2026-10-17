@@ -22,6 +22,10 @@ static void h_curve(ee_ctx *c)
 {
     c->fpr[0].f = gt4_curve_eval(gp(A(0)), F(0));
 }
+static void h_curve_linear(ee_ctx *c)
+{
+    c->fpr[0].f = gt4_curve_eval_linear(gp(A(0)), F(0));
+}
 static void h_torque(ee_ctx *c)
 {
     c->fpr[0].f = gt4_engine_torque(gp(A(0)), F(0), gp(A(1)));
@@ -371,7 +375,7 @@ static struct {
     {0x003575e0u, h_wheel_dir},
     {0x003f3090u, h_aero},
     {0x00357418u, h_grip},
-    {0x00359830u, h_curve},
+    {0x00359830u, h_curve_linear},
     {0x003535b0u, h_drivetrain},
     {0x00344530u, h_chassis},
     {0x0057d1f0u, h_sin},

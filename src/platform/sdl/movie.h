@@ -7,6 +7,11 @@ typedef struct sdl_movie sdl_movie;
 /* Silent menu MPEG-2 video. Decoding runs off the render/audio threads. */
 sdl_movie *sdl_movie_open(const uint8_t *data, size_t size, int interlace, int repeat,
                           int audio_track);
+#ifdef MOON_SWITCH_MOVIES
+/* Transfers the complete disc buffer to the native decoder, including failure. */
+sdl_movie *sdl_movie_open_owned(uint8_t *data, size_t size, int interlace, int repeat,
+                                int audio_track);
+#endif
 /* Worker-only: decode count IPU pictures into caller-owned 640x448 RGBA frames.
    No renderer calls or playback clock; NULL unless all pictures decode. */
 uint8_t *sdl_movie_ipic_decode(const uint8_t *stream, size_t size, unsigned count);

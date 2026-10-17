@@ -2032,6 +2032,9 @@ static int widget_set(ah_vm *vm, ah_obj *self, const char *s, ah_val v)
         const char *code = ah_cstr(v), *name = car_name(m, code);
         free(w->car_code);
         w->car_code = code && *code ? strdup(code) : NULL;
+        /* Original: func_00153B50 resets opacity before 00153BB8 advances it. */
+        w->car_model_opacity = 0;
+        w->car_service_ticks = 0;
         w->car_crew_data = NULL;
         w->car_crew_size = 0;
         w->car_crew_motion = NULL;

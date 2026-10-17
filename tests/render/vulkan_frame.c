@@ -79,6 +79,41 @@ static int geometry_fixture(int vulkan)
     CHECK(glGetError() == GL_NO_ERROR);
     return 0;
 }
+static int frame_queue_fixture(int vulkan)
+{
+    moon_vk_render_stats before = moon_vk_render_statistics();
+    for (int i = 0; i < 16; i++) {
+        if (vulkan && (i == 0 || i == 8))
+            moon_vk_render_low_latency(i >= 8);
+        if (i == 4 || i == 6) {
+            SDL_Window *window = SDL_GetWindowFromID(1);
+            CHECK(window);
+            SDL_SetWindowSize(window, i == 4 ? 480 : 320, i == 4 ? 360 : 240);
+            SDL_PumpEvents();
+        }
+        uint8_t color[4] = {(uint8_t)(i * 13), 55, 80, 255};
+        plat_texture *texture = plat_texture_create(1, 1, color);
+        CHECK(texture);
+        plat_video_begin_frame();
+        const uint8_t white[4] = {255, 255, 255, 255};
+        plat_draw_quad(texture, 0, 0, 320, 240, 0, 0, 1, 1, white);
+        video_flush2d();
+        plat_texture_destroy(texture); /* Queued work must retain the image. */
+        plat_video_end_frame();
+    }
+    moon_vk_render_drain();
+    int width, height;
+    uint8_t *pixels = plat_sdl_read_pixels(&width, &height);
+    CHECK(pixels && width == 320 && height == 240);
+    size_t center = ((size_t)height / 2 * width + width / 2) * 4;
+    CHECK(pixels[center] == 195 && pixels[center + 1] == 55 && pixels[center + 2] == 80);
+    free(pixels);
+    if (vulkan) {
+        CHECK(moon_vk_render_statistics().frame_rotations - before.frame_rotations == 8);
+        moon_vk_render_low_latency(getenv("MOON_VK_LOW_LATENCY") != NULL);
+    }
+    return 0;
+}
 int main(int argc, char **argv)
 {
     CHECK(argc == 3);
@@ -90,6 +125,7 @@ int main(int argc, char **argv)
     plat_video_set_view(320, 240);
     video_set_menu_pacing(0);
     video_ui_quality(2, 0);
+    CHECK(!frame_queue_fixture(desc.backend));
     plat_video_begin_frame();
     const uint8_t red[4] = {220, 20, 30, 255}, green[4] = {20, 230, 40, 255};
     const uint8_t blue[4] = {20, 40, 240, 128}, white[4] = {255, 255, 255, 255};

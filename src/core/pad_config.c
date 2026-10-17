@@ -38,6 +38,11 @@ void gt4_pad_defaults(gt4_pad_config *out, int port)
     for (int k = 0; k < 6; k++)
         out->analog[k] = -1;
     out->analog[GT4_PAD_LX] = -2;
+    /* The native defaults include pedals absent from the menu's choice list. */
+    /* Original: func_0043B808 +0x28 */
+    out->analog[GT4_PAD_RYF] = GT4_PAD_ACCEL;
+    /* Original: func_0043B808 +0x30 */
+    out->analog[GT4_PAD_RYL] = GT4_PAD_BRAKE;
     out->button[GT4_PAD_LEFT] = GT4_PAD_LSTEER;
     out->button[GT4_PAD_RIGHT] = GT4_PAD_RSTEER;
     out->button[GT4_PAD_CROSS] = GT4_PAD_ACCEL;
@@ -165,13 +170,23 @@ void gt4_pad_evaluate(const gt4_pad_config *c, const plat_pad_state *p, gt4_pad_
                            fmaxf(0, p->axes[1]), fmaxf(0, -p->axes[3]), fmaxf(0, p->axes[3])};
     for (int k = 0; k < 6; k++) {
         int f = c->analog[k];
+        /* P: repair older PC profiles that omitted both native right-stick
+           defaults. Preserve any explicitly assigned right-stick action. */
+        if (c->analog[GT4_PAD_RYF] == -1 && c->analog[GT4_PAD_RYL] == -1) {
+            if (k == GT4_PAD_RYF)
+                f = GT4_PAD_ACCEL;
+            else if (k == GT4_PAD_RYL)
+                f = GT4_PAD_BRAKE;
+        }
         float v = axes_value[k];
         if (f == -2) {
             out->steer = v;
             out->analog |= 1u << GT4_PAD_LSTEER;
         } else if (f >= 0 && f < GT4_PAD_ACTIONS) {
             out->action[f] = fmaxf(out->action[f], v);
-            out->analog |= 1u << f;
+            /* An idle stick must not reinterpret a digital pedal as pressure. */
+            if (v > 0)
+                out->analog |= 1u << f;
         }
     }
     if (out->action[GT4_PAD_LSTEER] || out->action[GT4_PAD_RSTEER]) {

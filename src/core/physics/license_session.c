@@ -97,7 +97,13 @@ static void best(uint32_t c, uint32_t i, uint32_t elapsed)
     if (i || GT4_U32(r + 0xdc) || GT4_U8(c + CONDUCTOR_FIELD_DRIVING_MODE) || GT4_U32(r + 0xe0) ||
         elapsed == NONE || !(elapsed < GT4_U32(r + 0x968)))
         return;
-    if (!GT4_U8(c + CONDUCTOR_FIELD_UNK_F85E))
+    if (!GT4_U8(c + CONDUCTOR_FIELD_UNK_F85E)
+#ifndef MOON_LEGACY_RECORDING
+        /* 00358000 +0x78..0xB8: only a session with virtual +0x30 true
+           can flag a new timing record. RaceMission returns false. */
+        && gt4_session(c, 0x30, 0, 0, 0, 0, 0, NULL)
+#endif
+    )
         GT4_U32(r + 0x98) = 1;
     if (GT4_U32(r + 0x88))
         gt4_race_event(r, 0x16, i, 0);

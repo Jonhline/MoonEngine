@@ -40,10 +40,10 @@ static struct feel feel_term(uint32_t flags, uint32_t curves, int cls, float a, 
 {
     uint32_t e = curves + cls * 0x84 + 0x4c; /* the second curve of the pair */
     float x = GT4_U8(flags) ? a : b;
-    float c1 = gt4_curve_eval(gt4_ptr(curves + cls * 0x84), x), c2, r;
+    float c1 = gt4_curve_eval_linear(gt4_ptr(curves + cls * 0x84), x), c2, r;
     struct feel f;
     float y = GT4_U8(flags + 0x1f) ? c : d;
-    c2 = gt4_curve_eval(gt4_ptr(e), y);
+    c2 = gt4_curve_eval_linear(gt4_ptr(e), y);
     f.above = w40 - GT4_F32(e + 0x10);
     r = ps2_sqrt(c2 * c2 + c1 * c1);
     f.value = r;

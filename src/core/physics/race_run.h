@@ -21,8 +21,9 @@ typedef struct {
     const uint8_t *owned_car[6];
     /* Original GT4M entry records (003DDAD8), borrowed through open. */
     const uint8_t *disc_entry[6];
-    const uint8_t *disc_settings; /* Decoded RACE row, independent of world class. */
+    const uint8_t *disc_settings;     /* Decoded RACE row, independent of world class. */
     const uint8_t *disc_race_options; /* GT4M +0x50, 0x60 bytes */
+    int legacy_recording;             /* Playback compatibility for native GT4R version 1 only. */
     /* Decoded 151-byte RACE row; NULL uses the Arcade path. A career
        caller must supply the original grid and owned player entry. */
     const uint8_t *event_row;

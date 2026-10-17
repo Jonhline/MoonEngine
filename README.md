@@ -42,7 +42,7 @@ Moon Engine is in alpha. Before reporting a problem, check this list and the ope
 
 - LAN play is not available (the menu shows "Coming soon").
 - Some sounds and visual details still differ from the PS2.
-- The attract-mode demo may not play correctly.
+- Original PS2 recordings still need real-memory-card and regional validation; some licence demonstration timing differs. See the [recording validation limits](docs/notes/DISC_REPLAY_ARITHMETIC.md).
 
 When reporting a bug, say what you were doing, which disc version you have, and attach a screenshot if you can.
 
@@ -112,7 +112,7 @@ Run without the launcher: `moonengine <your disc image>`. `--save-dir <folder>` 
 | `src/core/` | platform-independent game code: disc, UI, script interpreter, menus, career, saves, replays |
 | `src/core/physics/` | car physics, AI and race session |
 | `src/platform/` | SDL2 and OpenGL backends |
-| `src/app/` | the `moonengine` program and its secondary launcher ([details](docs/LAUNCHER.md)) |
+| `src/app/` | the `moonengine` program and its launcher ([details](docs/LAUNCHER.md)) |
 | `tests/` | unit tests and disc-based tests |
 | `tools/`, `splat/` | analysis tools; the recompiler there only builds test oracles that compare the port with the original code, and is never part of the game |
 | `docs/` | file formats and notes |

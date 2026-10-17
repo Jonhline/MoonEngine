@@ -1,5 +1,5 @@
 file(WRITE "${ROOT}/deko_shaders.h" "/* Generated from this project's native shaders. */\n")
-foreach(STAGE ui.vert ui.frag mesh.vert mesh.frag mix.frag probe_first_mesh.vert probe_first_mesh.frag probe_broken_mesh.vert)
+foreach(STAGE ui.vert ui.frag mesh.vert mesh.frag mix.frag env.frag snapshot.frag mask.frag probe_first_mesh.vert probe_first_mesh.frag probe_broken_mesh.vert)
   file(READ "${ROOT}/${STAGE}.dksh" BYTES HEX)
   string(REGEX REPLACE "(..)" "0x\\1," BYTES "${BYTES}")
   string(REPLACE "." "_" SYMBOL "${STAGE}")

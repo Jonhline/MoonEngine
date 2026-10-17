@@ -45,6 +45,8 @@ typedef struct {
     /* P: the world's mode when not the path's own (GT Mode's Free Run 11,
        Practice 12: gt4_race_desc.world_mode); 0 in older files */
     int world_mode;
+    /* Native GT4R v1 used host float arithmetic. Never set for PS2 files. */
+    int legacy_math;
     /* the list's picture (labomode's Icon): RGB, GT4_REPLAY_THUMB_W x _H,
        NULL when none; after the commands, so older files read as before */
     uint8_t *thumb;

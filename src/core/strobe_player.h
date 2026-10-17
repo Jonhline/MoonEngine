@@ -65,6 +65,7 @@ void strb_press(strb_player *p);
    the keyDown clip events run with Key.getCode() answering it; with the
    buttons active the arrows move the focus between them and enter presses
    the focused one. */
+int strb_pointer(strb_player *p, float x, float y, int activate);
 void strb_key(strb_player *p, int code);
 /* The buttons' navigation (the host's NavigateVertical / NavigateAll):
    up/down only, or every arrow; either makes the buttons active again */

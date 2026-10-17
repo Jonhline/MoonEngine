@@ -200,7 +200,9 @@ static int tv_target(race_game *g, int watched, gt4_tvcam_target *target)
     float yaw;
     if (!car || !gt4_race_run_place(g->run, watched, target->pos, &yaw))
         return 0;
-    target->distance = GT4_F32(car + CAR_FIELD_COURSE_DISTANCE);
+    /* 00343BC0: car+0x5B0 and the race's byte +0xCBE5 (car+4) */
+    int lap = (int16_t)GT4_U16(car + CAR_FIELD_LAP_COUNT) + (int8_t)GT4_U8(GT4_U32(car + 4) + 0xcbe5);
+    target->distance = gt4_tvcam_distance(g->tvcam, GT4_F32(car + CAR_FIELD_COURSE_DISTANCE), lap);
     return 1;
 }
 

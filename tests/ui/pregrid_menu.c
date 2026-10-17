@@ -150,6 +150,40 @@ static void advance(menu *m)
         menu_animate(m, 1.f / 60);
     }
 }
+/* Exercise the authored onInitialize abbreviate calls on both sides of
+   a race. A short name must survive unchanged; a long one must end with
+   three actual period characters and fit its own authored column. */
+static void grid_names(menu *m, ui_widget *root)
+{
+    ui_widget *short_name = child(child(root, "Grid1"), "CarName");
+    ui_widget *long_name = child(child(root, "Grid3"), "CarName");
+    CHECK(!strcmp(ui_widget_text(m->ui, short_name), "Ford Ka `01"));
+    const char *text = ui_widget_text(m->ui, long_name);
+    size_t length = strlen(text);
+    CHECK(length > 3 && !strcmp(text + length - 3, "..."));
+    float size[2];
+    ui_text_size(m->ui, long_name, size);
+    CHECK(size[0] < long_name->w);
+    for (int i = 0; i < 6; i++) {
+        char label[16];
+        snprintf(label, sizeof label, "Grid%d", i + 1);
+        ui_widget *name = child(child(root, label), "CarName");
+        const char *full = car_name(m, quick_race.grid[i].car);
+        CHECK(full);
+        ui_widget original = *name;
+        original.text = (char *)full;
+        ui_text_size(m->ui, &original, size);
+        text = ui_widget_text(m->ui, name);
+        if (size[0] < name->w)
+            CHECK(!strcmp(text, full));
+        else {
+            length = strlen(text);
+            CHECK(length > 3 && !strcmp(text + length - 3, "..."));
+            ui_text_size(m->ui, name, size);
+            CHECK(size[0] < name->w);
+        }
+    }
+}
 static int trophy_draws;
 static tex1_image *trophy_reference;
 static int trophy_reference_count;
@@ -242,6 +276,11 @@ static void page_selectors(gt4_vol *vol, int negative)
             work.grid[j].power = 61;
             work.grid[j].weight = 965;
         }
+        strcpy(work.grid[2].car, "lancer_evo6_tommi_gsr_00");
+        strcpy(work.grid[1].car, "_1100_standard_type11_49");
+        strcpy(work.grid[3].car, "beetle_20_00");
+        strcpy(work.grid[4].car, "beetle_cup_00");
+        strcpy(work.grid[5].car, "beetle_rsi_00");
         menu_set_quick_race(&work);
         menu *m = menu_open(vol, projects[i], msg, sizeof msg);
         CHECK(m);
@@ -335,6 +374,7 @@ static void page_selectors(gt4_vol *vol, int negative)
                 CHECK(menu_enter_quick_start(m));
                 advance(m);
                 CHECK(!strcmp(ui_root_name(m->ui,menu_active_root(m)),expected));
+                grid_names(m, ui_root_widget(m->ui, menu_active_root(m)));
                 for (int j = 0; j < 10; j++) {
                     menu_send_input(m, MENU_LEFT);
                     advance(m);
@@ -593,6 +633,9 @@ int main(int argc, char **argv)
     }
     strcpy(q.grid[2].car, "celica_2000gt_four_86");
     strcpy(q.grid[4].car, "karmann_ghia_type1_1500_68");
+    strcpy(q.grid[1].car, "_1100_standard_type11_49");
+    strcpy(q.grid[3].car, "beetle_20_00");
+    strcpy(q.grid[5].car, "beetle_cup_00");
     strcpy(q.race, "de_audi_tt_0301");
     q.laps = 5;
     q.course_length = 1234;
@@ -648,6 +691,7 @@ int main(int argc, char **argv)
     ui_widget *long_name = child(child(root, "Grid3"), "CarName");
     CHECK(long_name->scale_x==.875f && long_name->letter_spacing==0);
     CHECK(strstr(ui_widget_text(m->ui,long_name),"...")!=NULL);
+    grid_names(m, root);
     ui_set_scene_renderer(m->ui, scene, NULL);
     ui_draw_root(m->ui, 0, NULL, NULL);
     CHECK(scenes==1 && quads>0 && icon_quads==4);
@@ -684,6 +728,7 @@ int main(int argc, char **argv)
     menu_enter(m, 0);
     advance(m);
     buttons = child(ui_root_widget(m->ui, 0), "Buttons");
+    grid_names(m, ui_root_widget(m->ui, 0));
     const char *after[] = {"Start", "Replay", "SaveReplay", "QuickTune", "Option", "Exit"};
     for (int i = 0; i < 6; i++) {
         ui_widget *w = child(buttons, after[i]);

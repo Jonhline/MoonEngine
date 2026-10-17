@@ -3,6 +3,8 @@
 #include "deko_transfer.h"
 #include "deko_blend.h"
 #include "deko_clear.h"
+#include "deko_snapshot.h"
+#include "deko_index.h"
 extern "C" {
 #include "render3d.h"
 #include "render3d_frustum.h"
@@ -49,7 +51,7 @@ struct Context {
     nd_image *environment{}, *borrowed_environment{}, *ui_depth{}, *destination{};
     const tex1_image *environment_source{};
     bool environment_dirty{};
-    float projection{1};
+    float projection{1}, target_projection{1};
     nv_state target_saved{}, layer_saved{};
     nd_image *target{}, *target_depth{}, *layer{}, *layer_depth{};
     bool in_target{}, in_layer{};
@@ -101,6 +103,8 @@ void blend_state(const Group &g, DkColorState &color, DkBlendState &blend)
 } // namespace
 struct r3d_mesh {
     nd_buffer vertices{};
+    DkGpuAddr index_address{};
+    unsigned index_count{};
     std::vector<Vertex> cpu;
     std::vector<Group> groups;
     std::shared_ptr<Textures> textures;
@@ -113,6 +117,8 @@ struct r3d_sprite_texture {
 struct switch_gpu_image {
     plat_texture texture{};
     nd_image *layers[4]{};
+    nd_image *atlas{};
+    int face_size{};
 };
 extern "C" {
 int r3d_available(void)
@@ -156,6 +162,28 @@ int r3d_warmup(void)
     const uint8_t expected[4]{128, 128, 128, 255};
     ok = nd_rgba_equal(expected, pixels + (8 * 16 + 8) * 4, 4, 1) && ok;
     ok = depths[8 * 16 + 8] > .89f && depths[8 * 16 + 8] < .91f && ok;
+    /* The same opaque triangle twice shares all three vertex records. Compare
+       the actual indexed draw, including depth, against the first draw above. */
+    gt4_triangle repeated[2]{triangle, triangle};
+    gt4_model indexed_model{};
+    indexed_model.triangles = repeated;
+    indexed_model.count = 2;
+    auto *indexed_mesh = r3d_mesh_create(&indexed_model);
+    uint8_t indexed_pixels[sizeof pixels];
+    float indexed_depths[16 * 16];
+    nd_clear(0, 0, 0, 1, true, true);
+    if (indexed_mesh)
+        r3d_draw(indexed_mesh, &view);
+    bool indexed_ok = indexed_mesh && indexed_mesh->index_count == 6 &&
+                      indexed_mesh->vertices.size == 3 * sizeof(Vertex) &&
+                      nd_image_read(state.target, indexed_pixels) &&
+                      nd_image_read(state.target_depth, indexed_depths) &&
+                      !std::memcmp(pixels, indexed_pixels, sizeof pixels) &&
+                      !std::memcmp(depths, indexed_depths, sizeof depths);
+    std::fprintf(stderr, "Switch deko3d selftest: indexed-mesh=%s duplicate=6 unique=3\n",
+                 indexed_ok ? "PASS" : "FAIL");
+    r3d_mesh_destroy(indexed_mesh);
+    ok = indexed_ok && ok;
     /* Exercise real deko transfer/mask reuse, not just the GLSL formula.
        Red writes alpha .5, DATM=0 green then DATM=1 blue each snapshot the
        preceding pass. No readback separates these dependent draws. */
@@ -407,9 +435,19 @@ static r3d_mesh *create_mesh(const gt4_model *model, const r3d_mesh *shared, boo
     }
     mesh->vertices.size = mesh->cpu.size() * sizeof(Vertex);
     if (!transient) {
-        mesh->vertices = nd_alloc(mesh->cpu.size() * sizeof(Vertex),
+        std::vector<Vertex> unique;
+        std::vector<uint32_t> indices;
+        nd_index_vertices(mesh->cpu, unique, indices);
+        size_t vertex_bytes = unique.size() * sizeof(Vertex);
+        size_t index_bytes = indices.size() * sizeof(uint32_t);
+        mesh->vertices = nd_alloc(vertex_bytes + index_bytes,
                                   DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached);
-        std::memcpy(nd_cpu(mesh->vertices), mesh->cpu.data(), mesh->cpu.size() * sizeof(Vertex));
+        std::memcpy(nd_cpu(mesh->vertices), unique.data(), vertex_bytes);
+        std::memcpy(static_cast<uint8_t *>(nd_cpu(mesh->vertices)) + vertex_bytes, indices.data(),
+                    index_bytes);
+        mesh->vertices.size = vertex_bytes;
+        mesh->index_address = nd_gpu(mesh->vertices) + vertex_bytes;
+        mesh->index_count = indices.size();
     }
     return mesh;
 }
@@ -449,6 +487,8 @@ int r3d_mesh_update_positions(r3d_mesh *mesh, const float (*positions)[3], unsig
             }
     }
     nd_release(mesh->vertices);
+    mesh->index_address = 0;
+    mesh->index_count = 0;
     mesh->vertices =
         nd_alloc(count * sizeof(Vertex), DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached);
     std::memcpy(nd_cpu(mesh->vertices), mesh->cpu.data(), count * sizeof(Vertex));
@@ -638,11 +678,18 @@ void r3d_draw_lit(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *lights
             if (!state.destination || state.destination->width != target.color->width ||
                 state.destination->height != target.color->height) {
                 nd_image_destroy(state.destination);
-                state.destination = nd_image_create(target.color->width, target.color->height);
+                state.destination =
+                    nd_image_create(target.color->width, target.color->height, false, false, true);
             }
-            nd_copy(target.color, state.destination, 0, 0, target.color->width,
-                    target.color->height);
+            SWP_PUSH(SWP_GPU_DATE);
+            nd_snapshot_rect rect = {0, 0, target.color->width, target.color->height};
+            if (!mesh->transient && !mesh->skinned)
+                rect = nd_snapshot_bounds(uniform.v, bound_lo, bound_hi, target.viewport,
+                                          target.color->width, target.color->height);
+            nv_snapshot(target.color, state.destination, rect.x, rect.y, rect.width, rect.height);
+            SWP_POP();
             images[2] = state.destination->slot;
+            uniform.v[46][3] = 1; /* Scalar snapshot stores the original alpha in R. */
         }
         if (g.state.fog_override)
             for (unsigned k = 0; k < 3; k++)
@@ -683,11 +730,11 @@ void r3d_draw_lit(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *lights
             if (((g.state.color_mask >> (i * 8)) & 255) != 255)
                 channels |= 1u << i;
         dkColorWriteStateSetMask(&mask, 0, view->ghost == 1 ? 0 : channels);
-        nd_pipeline(ND_MESH, uniform, mesh->vertices, g.first, g.count, images, raster, depth,
-                    color, mask, blend,
-                    view->ghost == 2 ? view->ghost_alpha
-                                     : std::min(1.f, g.state.fixed_alpha / 128.f),
-                    texture ? texture->sampler : 0, streamed);
+        nd_pipeline(
+            ND_MESH, uniform, mesh->vertices, g.first, g.count, images, raster, depth, color, mask,
+            blend,
+            view->ghost == 2 ? view->ghost_alpha : std::min(1.f, g.state.fixed_alpha / 128.f),
+            texture ? texture->sampler : 0, streamed, 0, mesh->index_address, mesh->index_count);
         state.stats.draws++;
         state.stats.triangles += g.count / 3;
         if (!view->ghost && g.state.alpha_test && g.state.alpha_fail) {
@@ -699,7 +746,8 @@ void r3d_draw_lit(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *lights
             uniform.v[46][2] = 2;
             nd_pipeline(ND_MESH, uniform, mesh->vertices, g.first, g.count, images, raster, depth,
                         color, mask, blend, std::min(1.f, g.state.fixed_alpha / 128.f),
-                        texture ? texture->sampler : 0, streamed);
+                        texture ? texture->sampler : 0, streamed, 0, mesh->index_address,
+                        mesh->index_count);
             state.stats.draws++;
             state.stats.triangles += g.count / 3;
         }
@@ -708,6 +756,16 @@ void r3d_draw_lit(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *lights
     }
     SWP_POP();
 }
+/* Renderer-owned targets outlive individual scenes, but must be retired before
+   dkDeviceDestroy. borrowed_environment and saved targets belong to callers. */
+void nd_render_shutdown()
+{
+    for (auto *image : {state.environment, state.ui_depth, state.destination, state.target,
+                        state.target_depth, state.layer, state.layer_depth})
+        nd_image_destroy(image);
+    state = Context{};
+}
+
 void r3d_draw(r3d_mesh *mesh, const r3d_view *view)
 {
     r3d_draw_lit(mesh, view, nullptr);
@@ -727,6 +785,8 @@ int r3d_begin_target(int size)
     if (size <= 0 || state.in_target)
         return 0;
     state.target_saved = nv_get();
+    state.target_projection = state.projection;
+    state.projection = 1;
     if (!state.target || state.target->width != (unsigned)size) {
         nd_image_destroy(state.target);
         nd_image_destroy(state.target_depth);
@@ -749,6 +809,7 @@ void r3d_end_target(uint8_t *rgba)
     if (rgba)
         nd_image_read(state.target, rgba);
     nv_set(state.target_saved);
+    state.projection = state.target_projection;
     state.in_target = false;
 }
 int r3d_begin_layer(int copy)
@@ -923,6 +984,7 @@ void switch_gpu_image_destroy(switch_gpu_image *image)
 {
     if (image) {
         nd_image_destroy(image->texture.image);
+        nd_image_destroy(image->atlas);
         for (auto layer : image->layers)
             nd_image_destroy(layer);
         delete image;
@@ -933,15 +995,26 @@ void switch_gpu_mix(switch_gpu_image *image, const float weights[4])
     if (image)
         nv_draw_mix(image->texture.image, image->layers, weights);
 }
-/* Dynamic cube production is intentionally disabled in the Switch forward path. */
-switch_gpu_image *switch_gpu_env_create(int, int)
+/* Same six-view/sphere-map boundary as the PC backend, entirely GPU-resident. */
+switch_gpu_image *switch_gpu_env_create(int face_size, int map_size)
 {
-    return nullptr;
+    if (face_size <= 0 || map_size <= 0)
+        return nullptr;
+    auto *image = new switch_gpu_image;
+    image->texture = {nd_image_create(map_size, map_size), false, false};
+    image->atlas = nd_image_create(face_size * 6, face_size);
+    image->face_size = face_size;
+    return image;
 }
-void switch_gpu_env_capture(switch_gpu_image *, int)
+void switch_gpu_env_capture(switch_gpu_image *image, int face)
 {
+    if (image && face >= 0 && face < 6)
+        r3d_copy_target(image->atlas->slot, face * image->face_size);
 }
-void switch_gpu_env_remap(switch_gpu_image *, const float[3], const float[3], const float[3])
+void switch_gpu_env_remap(switch_gpu_image *image, const float r[3], const float u[3],
+                          const float f[3])
 {
+    if (image)
+        nv_draw_environment(image->texture.image, image->atlas, image->face_size, r, u, f);
 }
 }

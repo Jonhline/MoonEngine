@@ -30,6 +30,12 @@ static inline void nd_copy_commands(DkCmdBuf cmd, const DkImageView *src, const 
     dkCmdBufCopyImage(cmd, src, from, dst, to, 0);
     nd_transfer_end(cmd);
 }
+/* DATE samples framebuffer coordinates; crop without translating/scaling. */
+static inline void nd_snapshot_commands(DkCmdBuf cmd, const DkImageView *src,
+                                        const DkImageView *dst, const DkImageRect *rect)
+{
+    nd_blit_commands(cmd, src, rect, dst, rect);
+}
 static inline void nd_upload_commands(DkCmdBuf cmd, const DkCopyBuf *src, const DkImageView *dst,
                                       const DkImageRect *rect)
 {

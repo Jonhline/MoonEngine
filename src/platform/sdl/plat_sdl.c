@@ -69,8 +69,22 @@ int plat_sdl_poll(plat_key_event *ev)
             ev->mouse_x = e.motion.xrel;
             ev->mouse_y = e.motion.yrel;
             return 1;
+        } else if (e.type == SDL_MOUSEMOTION || e.type == SDL_MOUSEBUTTONUP) {
+            ev->mouse = ev->mouse_absolute = 1;
+            if (e.type == SDL_MOUSEMOTION) {
+                ev->mouse_x = e.motion.x;
+                ev->mouse_y = e.motion.y;
+            } else {
+                ev->mouse_x = e.button.x;
+                ev->mouse_y = e.button.y;
+                ev->mouse_button = e.button.button == SDL_BUTTON_LEFT ? 1 :
+                                   e.button.button == SDL_BUTTON_RIGHT ? 2 : 0;
+            }
+            return 1;
         } else if (e.type == SDL_MOUSEWHEEL) {
             ev->mouse = 1;
+            ev->mouse_absolute = !SDL_GetRelativeMouseMode();
+            if (ev->mouse_absolute) SDL_GetMouseState(&ev->mouse_x, &ev->mouse_y);
             ev->wheel = e.wheel.y * (e.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1 : 1);
             return 1;
         } else if (e.type == SDL_TEXTINPUT) {
@@ -93,6 +107,12 @@ int plat_sdl_poll(plat_key_event *ev)
             ev->key = e.type == SDL_CONTROLLERBUTTONUP ? 0 : plat_sdl_controller_key(&e);
             if (ev->key || ev->ps2key) {
                 ev->pad = 1;
+#ifndef __SWITCH__
+                SDL_JoystickID id=e.type==SDL_CONTROLLERAXISMOTION ? e.caxis.which : e.cbutton.which;
+                SDL_GameController *controller=SDL_GameControllerFromInstanceID(id);
+                SDL_GameControllerType type=controller ? SDL_GameControllerGetType(controller) : SDL_CONTROLLER_TYPE_UNKNOWN;
+                ev->pad_type=type==SDL_CONTROLLER_TYPE_XBOX360 || type==SDL_CONTROLLER_TYPE_XBOXONE ? 2 : 0;
+#endif
                 return 1;
             }
         }
@@ -115,7 +135,7 @@ static plat_audio_cb audio_callback;
 static void *audio_user;
 /* Single producer / single consumer. Music synthesis never runs in the
    device callback; 170 ms of headroom absorbs scheduler/driver stalls. */
-enum { MUSIC_RING = 16384, MUSIC_AHEAD = 8192, MUSIC_BLOCK = 512 };
+enum { MUSIC_RING = 16384, MUSIC_AHEAD = PLAT_SDL_MUSIC_PREROLL, MUSIC_BLOCK = 512 };
 static int16_t music_ring[MUSIC_RING * 2];
 static SDL_atomic_t music_read, music_write, music_stop, music_underruns, music_played;
 /* The last block the device took, under the device lock. */
