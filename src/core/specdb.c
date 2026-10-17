@@ -35,6 +35,30 @@ const char *gt4_specdb_label_for_id(const uint8_t *b, size_t n, uint32_t id)
         }
     return NULL;
 }
+size_t gt4_specdb_idi_count(const uint8_t *b, size_t n)
+{
+    if (!b || n < 16 || memcmp(b, "GTID", 4))
+        return 0;
+    size_t count = r32(b + 4);
+    return count > (n - 16) / 8 ? 0 : count;
+}
+int gt4_specdb_idi_at(const uint8_t *b, size_t n, size_t index, const char **label, uint32_t *id)
+{
+    size_t count;
+    if (!label || !id || (count = gt4_specdb_idi_count(b, n)) == 0 || index >= count)
+        return 0;
+    size_t base = 16 + count * 8;
+    size_t off = base + (size_t)r32(b + 16 + index * 8);
+    if (!span(n, off, 2))
+        return 0;
+    unsigned length = r16(b + off);
+    if (!length || !span(n, off + 2, length) || b[off + 1 + length] != 0 ||
+        memchr(b + off + 2, 0, length - 1))
+        return 0;
+    *label = (const char *)b + off + 2;
+    *id = r32(b + 20 + index * 8);
+    return 1;
+}
 int gt4_specdb_label(const uint8_t *b, size_t n, const char *label, uint32_t *id)
 {
     if (!b || !label || !id || n < 16 || memcmp(b, "GTID", 4))

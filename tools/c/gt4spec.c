@@ -5,6 +5,7 @@
  *   gt4spec <disc.iso> <car label> <TABLE> <at>     that table's row whose id is the u32 at
  *                                                   DEFAULT_PARTS+<at> (e.g. CHASSIS 0x28)
  *   ... [--find N]                                  offsets where the row holds N (u8/u16/u32)
+ *   gt4spec <disc.iso> --names                      every car: label<TAB>id<TAB>name<TAB>short
  */
 #include "specdb.h"
 #include "vol.h"
@@ -50,6 +51,7 @@ int main(int argc, char **argv)
     int n;
     if (argc < 3) {
         fprintf(stderr, "usage: %s <disc.iso> <car label> [TABLE at] [--find N]\n", argv[0]);
+        fprintf(stderr, "       %s <disc.iso> --names | --carname [--rows] | --parts <car> | --grep TABLE hex\n", argv[0]);
         return 2;
     }
     for (int i = 3; i + 1 < argc; i++) if (!strcmp(argv[i], "--find")) find = strtol(argv[i + 1], NULL, 0);
@@ -81,6 +83,38 @@ int main(int argc, char **argv)
             if (w <= 0) break;
             for (int k = 0; k + (int)len <= w; k++)
                 if (!memcmp(r + k, pat, len)) { printf("row %u at 0x%x (id 0x%x)\n", i, k, u32(t + 16 + (size_t)i * 8)); dump("row", r, w, -1); break; }
+        }
+        return 0;
+    }
+    if (!strcmp(argv[2], "--names")) {
+        /* gt4spec <disc> --names: every car label on the disc joined to its
+           CAR_NAME_american row, one machine-readable line per car:
+               label <TAB> id <TAB> name <TAB> short_name
+           A car with no CAR_NAME row keeps its label and empty name fields --
+           the label list comes from GENERIC_CAR.idi, so nothing is dropped and
+           no name is ever invented. */
+        size_t nl2 = 0, nn = 0, ns2 = 0, nlab = 0;
+        uint8_t *lab = table(v, "GENERIC_CAR.idi", &nl2), *names = table(v, "CAR_NAME_american.dbt", &nn),
+                *strings = table(v, "american_StrDB.sdb", &ns2);
+        uint8_t r[64];
+        if (!lab) { fprintf(stderr, "GENERIC_CAR.idi missing\n"); return 1; }
+        nlab = gt4_specdb_idi_count(lab, nl2);
+        for (size_t i = 0; i < nlab; i++) {
+            const char *label = NULL;
+            uint32_t id = 0;
+            const char *name = "", *shortn = "";
+            if (!gt4_specdb_idi_at(lab, nl2, i, &label, &id))
+                continue;
+            if (names && strings) {
+                int w = gt4_specdb_row(names, nn, id, r, sizeof r);
+                if (w == 16) {
+                    const char *s = gt4_specdb_string(strings, ns2, u32(r));
+                    const char *t = gt4_specdb_string(strings, ns2, u32(r + 8));
+                    if (s) name = s;
+                    if (t) shortn = t;
+                }
+            }
+            printf("%s\t%u\t%s\t%s\n", label, (unsigned)id, name, shortn);
         }
         return 0;
     }
