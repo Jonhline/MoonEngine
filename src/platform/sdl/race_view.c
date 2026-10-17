@@ -176,6 +176,8 @@ struct race_view {
     int flame_on[OPPONENTS + 1]; /* race_view_set_afterfire */
 };
 
+static void prepare_afterfire(race_view *v);
+
 static void free_asset(race_asset *a)
 {
     if (a) {
@@ -1022,6 +1024,9 @@ int race_view_poll(race_view *v, int cancel)
         free_asset(a);
     else {
         install(v, a);
+#ifdef __SWITCH__
+        prepare_afterfire(v);
+#endif
 #ifdef MOON_PC_VULKAN
         if (!moon_vk_render_prepare_geometry())
             return -1;
@@ -1179,11 +1184,12 @@ void race_view_set_afterfire(race_view *v, unsigned entry, const float flames[4]
    AfterFireCallback (00452F28) picks frame (int)(time x 6). A: the
    frames' tween (00456850, the fraction) and 004A60E0's colour not done */
 static r3d_view body_place(const car_model *a, const r3d_view *car);
-static void draw_afterfire(race_view *v, const car_model *a, const r3d_view *car,
-                           const float flames[4][3])
+/* Same six immutable branches as the lazy draw path. Switch prepares them
+   before readiness, so the first gear-change flame cannot decode mid-frame. */
+static void prepare_afterfire(race_view *v)
 {
-    if (!a || !a->exhaust_points)
-        return;
+    if (v->afterfire_tried) return;
+    SWP_LOAD_BEGIN("after-fire");
     if (!v->afterfire_tried) {
         v->afterfire_tried = 1;
         const char *err = NULL;
@@ -1203,6 +1209,14 @@ static void draw_afterfire(race_view *v, const car_model *a, const r3d_view *car
         if (!v->afterfire[0])
             fprintf(stderr, "race: no after fire model\n");
     }
+    SWP_LOAD_END();
+}
+static void draw_afterfire(race_view *v, const car_model *a, const r3d_view *car,
+                           const float flames[4][3])
+{
+    if (!a || !a->exhaust_points)
+        return;
+    prepare_afterfire(v);
     r3d_view body = body_place(a, car);
     for (unsigned k = 0; k < a->exhaust_points; k++) {
         const float *q = flames[k & 3], *e = a->exhaust[k];

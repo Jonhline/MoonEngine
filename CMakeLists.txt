@@ -175,7 +175,7 @@ else()
 endif()
 
 # Vehicle physics rewritten from the original (docs/analysis/PHYSICS.md).
-add_library(moon_physics STATIC src/core/physics/curve.c src/core/physics/mathf.c src/core/physics/setup.c src/core/physics/record.c src/core/physics/garage.c src/core/physics/runway.c src/core/physics/lines.c src/core/physics/init.c src/core/physics/session.c src/core/physics/laps.c
+add_library(moon_physics STATIC src/core/physics/fpu_env.c src/core/physics/curve.c src/core/physics/mathf.c src/core/physics/setup.c src/core/physics/record.c src/core/physics/garage.c src/core/physics/runway.c src/core/physics/lines.c src/core/physics/init.c src/core/physics/session.c src/core/physics/laps.c
   src/core/physics/course_objects.c
   src/core/physics/license_session.c
   src/core/physics/engine.c src/core/physics/car.c src/core/physics/aero.c
@@ -694,6 +694,8 @@ add_test(NAME controller_input_negative COMMAND controller_input --negative)
 set_tests_properties(controller_input_negative PROPERTIES WILL_FAIL TRUE)
 add_test(NAME controller_start_key_negative COMMAND controller_input)
 set_tests_properties(controller_start_key_negative PROPERTIES WILL_FAIL TRUE ENVIRONMENT "GT4_START_KEY_NEGATIVE=1")
+add_test(NAME controller_right_stick_negative COMMAND controller_input)
+set_tests_properties(controller_right_stick_negative PROPERTIES WILL_FAIL TRUE ENVIRONMENT "GT4_RIGHT_STICK_NEGATIVE=1")
 if(MOON_TEST_DISC)
   add_test(NAME controller_menu COMMAND controller_menu "${MOON_TEST_DISC}" "${CMAKE_BINARY_DIR}/controller-options-test.ini")
   add_test(NAME controller_menu_negative COMMAND controller_menu "${MOON_TEST_DISC}" "${CMAKE_BINARY_DIR}/controller-options-negative.ini" --negative)
@@ -1337,6 +1339,15 @@ if(MOON_RECOMP_TESTS)
   add_test(NAME favorites_oracle COMMAND favorites_oracle ${CMAKE_SOURCE_DIR}/extracted/core.bin)
   add_test(NAME favorites_oracle_negative COMMAND favorites_oracle ${CMAKE_SOURCE_DIR}/extracted/core.bin --negative)
   set_tests_properties(favorites_oracle_negative PROPERTIES WILL_FAIL TRUE)
+  add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/controller_defaults_orig.c
+    COMMAND ${MOON_PYTHON} ${CMAKE_SOURCE_DIR}/tools/recomp/ee_recomp.py
+      --root 0x0043B808 --out ${CMAKE_BINARY_DIR}/controller_defaults_orig.c
+    DEPENDS tools/recomp/ee_recomp.py extracted/core.bin splat/asm/core/text.s VERBATIM)
+  add_executable(controller_defaults_oracle tests/ui/controller_defaults_oracle.c ${CMAKE_BINARY_DIR}/controller_defaults_orig.c)
+  target_link_libraries(controller_defaults_oracle PRIVATE moon_core moon_ee moon_platform_common)
+  add_test(NAME controller_defaults_oracle COMMAND controller_defaults_oracle ${CMAKE_SOURCE_DIR}/extracted/core.bin)
+  add_test(NAME controller_defaults_oracle_negative COMMAND controller_defaults_oracle ${CMAKE_SOURCE_DIR}/extracted/core.bin --negative)
+  set_tests_properties(controller_defaults_oracle_negative PROPERTIES WILL_FAIL TRUE)
   add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/disc_replay_orig.c
     COMMAND ${MOON_PYTHON} ${CMAKE_SOURCE_DIR}/tools/recomp/ee_recomp.py
       --root 0x00345D70 --extra-roots 0x00345BE0,0x001D3B20,0x001D3D70 --out ${CMAKE_BINARY_DIR}/disc_replay_orig.c
@@ -2504,6 +2515,35 @@ if(MOON_RECOMP_TESTS)
     set_tests_properties(physics_surface_waves_negative PROPERTIES WILL_FAIL TRUE)
   endif()
 
+  add_executable(gtmode_license_trajectory_oracle tests/gtmode/license_trajectory_run.c)
+  target_link_libraries(gtmode_license_trajectory_oracle PRIVATE moon_recomp_physics)
+  add_executable(gtmode_license_constructor_oracle tests/gtmode/license_constructor_run.c)
+  target_link_libraries(gtmode_license_constructor_oracle PRIVATE moon_recomp_physics)
+  add_executable(gtmode_mission_search tests/gtmode/mission_search_run.c)
+  target_link_libraries(gtmode_mission_search PRIVATE moon_physics moon_core moon_platform_common)
+  if(MOON_TEST_DISC)
+    add_test(NAME gtmode_license_trajectory_b1 COMMAND gtmode_license_trajectory_oracle "${MOON_TEST_DISC}" l0b0001)
+    add_test(NAME gtmode_license_trajectory_negative COMMAND gtmode_license_trajectory_oracle "${MOON_TEST_DISC}" l0b0001)
+    set_tests_properties(gtmode_license_trajectory_negative PROPERTIES WILL_FAIL TRUE ENVIRONMENT "GT4_LICENSE_TRAJECTORY_NEGATIVE=1")
+    add_test(NAME gtmode_license_trajectory_catalog COMMAND gtmode_license_trajectory_oracle "${MOON_TEST_DISC}" --all)
+    set_tests_properties(gtmode_license_trajectory_catalog PROPERTIES TIMEOUT 3600)
+    add_test(NAME gtmode_mission_search_cycle_02 COMMAND ${MOON_PYTHON}
+      ${CMAKE_SOURCE_DIR}/tests/gtmode/mission_search_cycle.py "${MOON_TEST_DISC}"
+      $<TARGET_FILE:gtmode_mission_search> $<TARGET_FILE:gtmode_mission_cycle> l0m0002)
+    add_test(NAME gtmode_mission_search_negative COMMAND ${MOON_PYTHON}
+      ${CMAKE_SOURCE_DIR}/tests/gtmode/mission_search_cycle.py "${MOON_TEST_DISC}"
+      $<TARGET_FILE:gtmode_mission_search> $<TARGET_FILE:gtmode_mission_cycle> l0m0002 --negative)
+    set_tests_properties(gtmode_mission_search_cycle_02 gtmode_mission_search_negative PROPERTIES
+      WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} TIMEOUT 2400)
+    add_test(NAME gtmode_mission_search_cycle_06 COMMAND ${MOON_PYTHON}
+      ${CMAKE_SOURCE_DIR}/tests/gtmode/mission_search_cycle.py "${MOON_TEST_DISC}"
+      $<TARGET_FILE:gtmode_mission_search> $<TARGET_FILE:gtmode_mission_cycle> l0m0006)
+    add_test(NAME gtmode_mission_search_negative_06 COMMAND ${MOON_PYTHON}
+      ${CMAKE_SOURCE_DIR}/tests/gtmode/mission_search_cycle.py "${MOON_TEST_DISC}"
+      $<TARGET_FILE:gtmode_mission_search> $<TARGET_FILE:gtmode_mission_cycle> l0m0006 --negative)
+    set_tests_properties(gtmode_mission_search_cycle_06 gtmode_mission_search_negative_06 PROPERTIES
+      WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} TIMEOUT 2400)
+  endif()
   add_executable(physics_controller_event tests/physics/controller_event.c tests/physics/race_setup.c tests/physics/race_build.c)
   target_link_libraries(physics_controller_event PRIVATE moon_recomp_physics)
   if(WIN32)
@@ -3276,8 +3316,23 @@ if(MOON_TEST_DISC AND EXISTS "${CMAKE_SOURCE_DIR}/extracted/core.bin")
 endif()
 
 # PC desktop menu input and shared preferences only; no physics suite.
+add_test(NAME switch_profile_slow_negative COMMAND switch_profile_test --slow-negative)
+set_tests_properties(switch_profile_slow_negative PROPERTIES WILL_FAIL TRUE)
+if(MOON_TEST_DISC)
+  add_executable(race_afterfire_warmup tests/platform/race_afterfire_warmup.c)
+  target_link_libraries(race_afterfire_warmup PRIVATE ${MOON_SDL_STACK} SDL2::SDL2main)
+  add_test(NAME race_afterfire_warmup COMMAND race_afterfire_warmup "${MOON_TEST_DISC}")
+  add_test(NAME race_afterfire_warmup_negative COMMAND race_afterfire_warmup "${MOON_TEST_DISC}" --negative)
+  set_tests_properties(race_afterfire_warmup_negative PROPERTIES WILL_FAIL TRUE)
+endif()
+add_executable(switch_scene_options tests/ui/switch_scene_options.c src/app/options_store.c)
+target_include_directories(switch_scene_options PRIVATE src/app include)
+target_compile_definitions(switch_scene_options PRIVATE MOON_SWITCH_OPTIONS_TEST=1)
+add_test(NAME switch_scene_options COMMAND switch_scene_options "${CMAKE_BINARY_DIR}/switch-scene-options")
+add_test(NAME switch_scene_options_negative COMMAND switch_scene_options "${CMAKE_BINARY_DIR}/switch-scene-options-negative" --negative)
+set_tests_properties(switch_scene_options_negative PROPERTIES WILL_FAIL TRUE)
 add_executable(desktop_options_store tests/ui/options_store.c src/app/options_store.c)
-target_include_directories(desktop_options_store PRIVATE src/app)
+target_include_directories(desktop_options_store PRIVATE src/app include)
 add_test(NAME desktop_options_store COMMAND desktop_options_store "${CMAKE_BINARY_DIR}/desktop-options-test.ini")
 add_test(NAME desktop_options_store_negative COMMAND desktop_options_store "${CMAKE_BINARY_DIR}/desktop-options-negative.ini" --negative)
 set_tests_properties(desktop_options_store_negative PROPERTIES WILL_FAIL TRUE)
@@ -3455,6 +3510,7 @@ if(TARGET disc_arithmetic_oracle)
     set_tests_properties(physics_mission_${mission}_original_negative PROPERTIES TIMEOUT 600 WILL_FAIL TRUE ENVIRONMENT "${mission_input};MOON_REPLAY_ARITHMETIC_NEGATIVE=1")
   endforeach()
 endif()
+
 # Source-derived regulation background geometry; never commit generated EE code.
 if(EXISTS "${CMAKE_SOURCE_DIR}/extracted/core.bin" AND MOON_TEST_DISC)
   set(gen_regulation_geometry "${CMAKE_BINARY_DIR}/gen/regulation_geometry.c")
@@ -3472,3 +3528,4 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/extracted/core.bin" AND MOON_TEST_DISC)
   add_test(NAME regulation_scissor_original_negative COMMAND regulation_geometry_oracle "${CMAKE_SOURCE_DIR}/extracted/core.bin" "${MOON_TEST_DISC}")
   set_tests_properties(regulation_scissor_original_negative PROPERTIES WILL_FAIL TRUE ENVIRONMENT "GT4_REGULATION_SCISSOR_NEGATIVE=1")
 endif()
+

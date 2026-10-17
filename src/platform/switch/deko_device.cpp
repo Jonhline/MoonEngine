@@ -61,6 +61,10 @@ struct Context {
     nd_image *images[Images]{};
     unsigned width{}, height{}, frame{}, next_image{1};
     int acquired{-1};
+#ifdef MOON_DEKO_DIAGNOSTICS
+    unsigned allocation_calls{}, allocation_size{}, allocation_flags{};
+    uint64_t allocation_bytes{};
+#endif
     bool active{};
 } gpu;
 uint32_t align_up(uint32_t n, uint32_t align)
@@ -71,6 +75,17 @@ void fault_context()
 {
     std::fprintf(stderr, "Switch GPU fault context: serial=%llu slot=%u acquired=%d active=%d\n",
                  (unsigned long long)gpu.serial, gpu.frame, gpu.acquired, gpu.active);
+#ifdef MOON_DEKO_DIAGNOSTICS
+    uint64_t used = 0, available = 0;
+    svcGetInfo(&used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0);
+    svcGetInfo(&available, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0);
+    std::fprintf(
+        stderr,
+        "Switch GPU allocation: calls=%u last_size=%u flags=%x requested_bytes=%llu process_used=%llu process_total=%llu\n",
+        gpu.allocation_calls, gpu.allocation_size, gpu.allocation_flags,
+        (unsigned long long)gpu.allocation_bytes, (unsigned long long)used,
+        (unsigned long long)available);
+#endif
     for (unsigned i = 0; i < Frames; i++) {
         const auto &f = gpu.frames[i];
         std::fprintf(stderr,
@@ -174,6 +189,12 @@ extern "C" Result __wrap_nvGpuChannelKickoff(NvGpuChannel *channel)
 }
 nd_buffer nd_alloc(uint32_t size, uint32_t flags)
 {
+#ifdef MOON_DEKO_DIAGNOSTICS
+    gpu.allocation_calls++;
+    gpu.allocation_size = size;
+    gpu.allocation_flags = flags;
+    gpu.allocation_bytes += align_up(size, DK_MEMBLOCK_ALIGNMENT);
+#endif
     DkMemBlockMaker maker;
     dkMemBlockMakerDefaults(&maker, gpu.device, align_up(size, DK_MEMBLOCK_ALIGNMENT));
     maker.flags = flags;
@@ -684,3 +705,30 @@ void nd_shutdown()
     dkDeviceDestroy(gpu.device);
     gpu = Context{};
 }
+
+#ifdef MOON_DEKO_DIAGNOSTICS
+extern "C" Result __real_nvMapCreate(NvMap *, void *, u32, u32, NvKind, bool);
+extern "C" Result __wrap_nvMapCreate(NvMap *map, void *address, u32 size, u32 alignment,
+                                     NvKind kind, bool cached)
+{
+    Result result = __real_nvMapCreate(map, address, size, alignment, kind, cached);
+    if (R_FAILED(result))
+        std::fprintf(
+            stderr,
+            "Switch GPU nvMapCreate failed: result=%08x module=%u description=%u size=%u align=%u cpu=%p\n",
+            result, R_MODULE(result), R_DESCRIPTION(result), size, alignment, address);
+    return result;
+}
+extern "C" Result __real_nvAddressSpaceMap(NvAddressSpace *, u32, bool, NvKind, iova_t *);
+extern "C" Result __wrap_nvAddressSpaceMap(NvAddressSpace *space, u32 handle, bool cached,
+                                           NvKind kind, iova_t *address)
+{
+    Result result = __real_nvAddressSpaceMap(space, handle, cached, kind, address);
+    if (R_FAILED(result))
+        std::fprintf(
+            stderr,
+            "Switch GPU nvAddressSpaceMap failed: result=%08x module=%u description=%u handle=%u kind=%u\n",
+            result, R_MODULE(result), R_DESCRIPTION(result), handle, (unsigned)kind);
+    return result;
+}
+#endif

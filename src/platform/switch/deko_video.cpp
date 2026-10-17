@@ -3,6 +3,7 @@
 #include "deko_events.h"
 #include "deko_composition.h"
 #include "deko_ui_clip.h"
+#include "platform/switch_scene.h"
 extern "C" {
 #include "platform/switch_profile.h"
 }
@@ -31,6 +32,7 @@ bool panel_on;
 int panel[4];
 uint64_t previous;
 int frame_limit;
+int scene_resolution = MOON_SWITCH_BALANCED;
 bool fill_window;
 void layout_view()
 {
@@ -494,6 +496,12 @@ float video_projection_x(void)
 {
     return fill_window ? 640.f / view_w : view_w / (view_h * (16.f / 9));
 }
+void video_switch_scene_resolution(int choice)
+{
+    scene_resolution = choice >= MOON_SWITCH_CLASSIC && choice <= MOON_SWITCH_PERFORMANCE
+                           ? choice
+                           : MOON_SWITCH_BALANCED;
+}
 int video_set_upscale(int)
 {
     return 0;
@@ -514,10 +522,15 @@ void video_begin_scene(void)
     if (scene_active)
         return;
     scene_saved = nv_get();
-    unsigned w = display_width >= 1920 ? 1280 : 960, h = display_height >= 1080 ? 720 : 540;
-    if (!scene) {
+    unsigned w, h;
+    moon_switch_scene_size(scene_resolution, display_width >= 1920, &w, &h);
+    if (!scene || scene->width != w || scene->height != h) {
+        nd_image_destroy(scene);
+        nd_image_destroy(scene_depth);
         scene = nd_image_create(w, h);
         scene_depth = nd_image_create(w, h, true);
+        std::fprintf(stderr, "Switch 3D target: mode=%d size=%ux%u output=%ux%u\n",
+                     scene_resolution, w, h, display_width, display_height);
     }
     nv_target(scene, scene_depth);
     nd_clear(0, 0, 0, 1, true, true);

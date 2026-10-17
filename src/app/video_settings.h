@@ -12,6 +12,9 @@ typedef struct {
     int desktop, edge_pan, input_hints, main_menu, smooth_cursor, hover_feedback;
     int compact_cars;
     int spatial_visibility, resident_reflections;
+#ifdef __SWITCH__
+    int scene_resolution;
+#endif
 } pc_video_options;
 typedef struct {
     pc_video_options current, draft;

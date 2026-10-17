@@ -10,6 +10,15 @@
 #include <arpa/inet.h>
 #include <sys/stat.h>
 
+/* Flush network stdio before libnx removes the socket device during exit. */
+static void remote_log_shutdown(void)
+{
+    fflush(stderr);
+    fclose(stdout);
+    fclose(stderr);
+    socketExit();
+}
+
 int launcher_bootstrap(int *argc, char ***argv, launcher_startup *start)
 {
     /* P: the folder of the project's former name (disc, saves, settings)
@@ -35,11 +44,11 @@ int launcher_bootstrap(int *argc, char ***argv, launcher_startup *start)
     int remote_log = -1;
     /* nxlink supplies its host address only for a netloader launch. */
     if (__nxlink_host.s_addr && R_SUCCEEDED(socketInitializeDefault())) {
-        remote_log = nxlinkStdioForDebug();
+        remote_log = nxlinkStdio();
         if (remote_log < 0)
             socketExit();
         else
-            atexit(socketExit);
+            atexit(remote_log_shutdown);
     }
     if (remote_log < 0) {
         FILE *log = freopen(file, "w", stderr);
@@ -48,6 +57,8 @@ int launcher_bootstrap(int *argc, char ***argv, launcher_startup *start)
 
     /* Keep complete diagnostic records available after HOME -> Close. */
     setvbuf(stderr, NULL, _IOLBF, 8192);
+    if (remote_log >= 0)
+        setvbuf(stdout, NULL, _IOLBF, 4096);
     gt4_phys_fpu_enter();
     if (!moon_switch_fpu_check())
         return -1;
@@ -83,9 +94,10 @@ int launcher_bootstrap(int *argc, char ***argv, launcher_startup *start)
     *argv = arguments; /* The startup arguments remain alive for the application lifetime. */
     /* SDL normalizes Nintendo face buttons to their physical positions. */
     SDL_SetHint(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, "0");
-    /* Reuse the existing five-second pose trace for disc/attract replays.
-       This is diagnostic output, not a simulation tick or renderer setting. */
+#ifdef MOON_SWITCH_RACE_DIAGNOSTICS
+    /* Position traces use synchronous stdio: keep them out of production races. */
     SDL_setenv("MOON_RACE_REPLAY_LOG", "1", 0);
+#endif
     return 1;
 }
 

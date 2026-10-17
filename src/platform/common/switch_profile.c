@@ -141,6 +141,7 @@ static TLS struct {
     enum swp_stage stack[32];
     unsigned depth, overflow;
     uint64_t changed;
+    uint64_t frame_busy[SWP_STAGE_COUNT];
     char load[8][128];
     uint64_t load_start[8];
     unsigned load_depth, load_overflow;
@@ -161,8 +162,12 @@ static struct {
    their parent scene/loading counters. Separate threads can overlap in wall time. */
 static void charge(uint64_t now)
 {
-    if (thread.depth)
-        ADD(busy + thread.stack[thread.depth - 1], now - thread.changed);
+    if (thread.depth) {
+        unsigned stage = thread.stack[thread.depth - 1];
+        uint64_t elapsed = now - thread.changed;
+        ADD(busy + stage, elapsed);
+        thread.frame_busy[stage] += elapsed;
+    }
     thread.changed = now;
 }
 
@@ -214,6 +219,20 @@ static void report(uint64_t now, int w, int h)
     window = now;
 }
 
+/* Main-thread attribution for isolated stalls; the existing worker writes it. */
+static void report_slow_frame(uint64_t elapsed)
+{
+    if (milliseconds(elapsed) > 25 && strstr(context, "driving=2")) {
+        char line[2048];
+        size_t used = (size_t)snprintf(line, sizeof line, "Switch slow-frame: frame_ms=%.3f",
+                                       milliseconds(elapsed));
+        for (unsigned i = 0; i < SWP_STAGE_COUNT; i++)
+            used += (size_t)snprintf(line + used, sizeof line - used, " %s_ms=%.3f", names[i],
+                                     milliseconds(thread.frame_busy[i]));
+        OUTPUT("%s\n", line);
+    }
+    memset(thread.frame_busy, 0, sizeof thread.frame_busy);
+}
 void swp_frame(int width, int height)
 {
     last_width = width;
@@ -221,6 +240,7 @@ void swp_frame(int width, int height)
     uint64_t now = ticks();
     charge(now);
     if (!window) {
+        memset(thread.frame_busy, 0, sizeof thread.frame_busy);
         window = previous = now;
         for (unsigned i = 0; i < SWP_STAGE_COUNT; i++) {
             TAKE(busy + i);
@@ -229,6 +249,7 @@ void swp_frame(int width, int height)
         return;
     }
     uint64_t elapsed = now - previous;
+    report_slow_frame(elapsed);
     previous = now;
     frame_total += elapsed;
     if (elapsed > frame_max)

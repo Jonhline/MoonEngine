@@ -32,7 +32,7 @@ def inputs(record, runs, overrides):
         for name in ("controller_kind", "pace", "pit_band", "round_controllers"):
             if name in strategy:
                 env["GT4_SERIES_" + name.upper()] = str(strategy[name])
-        for name in ("aids", "overtake"):
+        for name in ("aids", "overtake", "max_aero"):
             if strategy.get(name):
                 env["GT4_SERIES_" + name.upper()] = "1"
         if strategy.get("fuel_only_pits"):
@@ -137,7 +137,7 @@ def main():
     parser.add_argument("--late-series", action="append", default=[], help="Test-player event order only")
     args = parser.parse_args()
     args.overrides = json.loads(args.input_overrides.read_text(encoding="utf-8")) if args.input_overrides else {}
-    allowed = {"controller_kind", "pace", "pit_band", "round_controllers", "aids", "overtake",
+    allowed = {"controller_kind", "pace", "pit_band", "round_controllers", "aids", "overtake", "max_aero",
                "fuel_only_pits", "parts", "round_fixtures", "round_fixtures_sha256"}
     assert isinstance(args.overrides, dict), "driver overrides must be a series mapping"
     for strategy in args.overrides.values():

@@ -9,7 +9,7 @@
 | MachineTest | world mode15 | adaptador C, sessão integral A |
 | SplitBattle | dois recorders/checkpoints independentes | adaptador C, trajetória A |
 | Melhor volta PS2 | FileReplayLicense (001CFE20/001D0360) | F: importar como ghost não implementado; formato PC não prova PS2 |
-| LAN/NetBattle/NetRally/NetSinglePlayer | produtores 00338548/003D5F30 | F: conductor de rede ausente; não converter para Arcade |
+| LAN/NetBattle/NetRally/NetSinglePlayer | produtores 00338548/003D5F30 | N no escopo vigente: conductor de rede ausente; inventário13/10 inclui LAN para escolha, não converter para Arcade |
 | RaceBasic/SinglePlayer/Solitaire/TrainingBase | classes internas/base | produtor de save público não confirmado |
 | PhotoMode/PhotoDevelop | mundo de foto | FILM/RHDR/SFRM suportado; não prova GT4M universal |
 
@@ -28,7 +28,8 @@ pools sem simular. film_develop retira cada detalhe separadamente e confirma
 mudança de pixels em Tsukuba/Brooklyn: integração C, imagem A.
 
 Pendências: body/LOD CDTL, recorte por plano SMOK, partículas entre snapshots,
-GDGT, develop ambiental, far clip, retrato e tiles GS. Não há filmes pessoais
+GDGT e far clip original no develop. ENVP já restaurado; aspecto/retrato
+já aplicado, rotação/composição integral A e tiles/acumulação GL P. Não há filmes pessoais
 ou captura PS2 de referência. Fontes preservadas, classes recusadas skipped.
 Logs locais build/photo-pause-audit/*final* e film-isolated.log. Nenhum asset,
 captura ou desmonte entra no Git.

@@ -77,6 +77,7 @@ player presets): lowercase, dotted by category, for example
 | interface.input_hints | Interface | Adapt button legends to the latest keyboard/mouse or controller input | Off; original PS2 symbols | On; automatic keyboard/Xbox/PS labels | After OK, input/presentation boundary | No | Options > Screen Settings > Input Hints | nÃ£o | This change |
 | graphics.ui_filter | Graphics | Existing optional UI sampling; migrated from ui_filter | Original (2) | Smooth (0) | Presentation, after OK (draft preview) | No | Options > Screen Settings > UI Filter | nÃ£o | Migrated in this change |
 | graphics.text_sharpness | Presentation and HUD | Existing text sharpening; migrated from text_sharpness | 0 | 0 | Presentation, after OK (draft preview) | No | Options > Screen Settings > Text Clarity | nÃ£o | Migrated in this change |
+| graphics.switch_scene_resolution | Graphics | Switch-only internal 3D size; output/HUD remain full resolution. Classic 640x448, Balanced 960x540 portable / 1280x720 docked, Performance 640x360 | Classic (0), PS2-sized render target | Performance (2) | After OK at the presentation boundary; targets rebuild on next 3D scene | No; presentation only, physics and race results unchanged | Options > Screen Settings > 3D Resolution; Classic/Enhanced preset | não | This change |
 | graphics.upscaling | Graphics | Existing optional FSR scene scaling; migrated from upscaling | Native (0) | Native (0); player may select FSR | After OK | No | Options > Screen Settings > Upscaling | nÃ£o | Migrated in this change |
 | graphics.spatial_visibility | Graphics | Reject conservative spatial blocks before individual group tests; retain authored course visibility lists, primitive order and flat fallback | Off; retained flat group traversal | On | After OK, renderer boundary | No; presentation only | Options > Screen Settings > Spatial Visibility | Not yet | Scene pipeline |
 | graphics.resident_reflections | Graphics | Keep the six reflection views and their sphere-map remap on the GPU in OpenGL and Vulkan | Off; retained CPU remap | On | After OK, renderer boundary | No; presentation only | Options > Screen Settings > GPU Reflections | Not yet | Scene pipeline |
@@ -232,3 +233,13 @@ This is baseline presentation, including Classic; row allocation and
 scroll are unchanged. The current adapter covers retail NTSC interlaced
 640x448 presentation; other console display modes are not certified.
 Older configuration files remain readable.
+
+## Switch presentation store
+
+Switch uses the same `moon_options` store in `sdmc:/switch/opengt4/options.ini`.
+On first use, existing video preferences are migrated from `config.ini`; ISO
+and save bootstrap paths there remain unchanged. Unknown keys are preserved.
+Migration retains Balanced 3D resolution rather than lowering existing quality.
+Classic sets PS2-sized 640x448; Enhanced recommends Performance 640x360. The
+player can select any resolution independently; changes mark the preset modified.
+The original 16:9 output and full-resolution HUD remain active on Switch.

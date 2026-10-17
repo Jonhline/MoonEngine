@@ -152,6 +152,22 @@ int main(int argc, char **argv)
     CHECK(strstr(output, "Switch load: root total_ms=2.000"));
     CHECK(strstr(output, "Switch load: project total_ms=10.000"));
     CHECK(thread.depth == 0);
+    swp_context("arcade", "TopRoot", "tsukuba", "ka_01", 2);
+    swp_frame(1280, 720);
+    output[0] = 0;
+    used = 0;
+    swp_push(SWP_PHYSICS);
+    now += 1000000;
+    swp_pop();
+    swp_push(SWP_SCENE);
+    now += 30000000;
+    swp_pop();
+    if (argc > 1 && !strcmp(argv[1], "--slow-negative"))
+        thread.frame_busy[SWP_SCENE] += 1000000;
+    swp_frame(1280, 720);
+    CHECK(strstr(output,"Switch slow-frame: frame_ms=31.000"));
+    CHECK(strstr(output,"physics_ms=1.000") && strstr(output,"scene_ms=30.000"));
+    CHECK(thread.frame_busy[SWP_PHYSICS]==0 && thread.frame_busy[SWP_SCENE]==0);
 #ifdef _WIN32
     for (unsigned i = 0; i < SWP_STAGE_COUNT; i++) {
         TAKE(busy + i);

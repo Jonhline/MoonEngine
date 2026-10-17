@@ -1,10 +1,34 @@
 # Menu navigation
 
-Implementation: `src/core/menu.c and src/platform/sdl/pad_sdl.c`.
+Implementation: `src/core/menu.c`, `src/core/pad_config.c` and
+`src/platform/sdl/pad_sdl.c`.
 
 Original Adhoc scripts choose destinations and handle key events. The native bridge maintains pages, focus, widget state and deferred callbacks. Input bubbles through widgets and page handlers; project changes occur after script callbacks. Host input is translated to the key symbols expected by the scripts.
 
-## Evidence and limitations
+## Driving controls
+
+The native DualShock defaults also bind right-stick up (`RYF`) to acceleration
+and right-stick down (`RYL`) to braking. These bindings come from
+`func_0043B808 +0x28/+0x30`, rather than the pedal choices exposed by
+`option.ad`: the menu's editable pedal axis list contains only `LYF` and `LYL`.
+The port keeps the right-stick pedals alongside the face buttons. An idle pedal
+axis does not change a digital button command into an analog pressure command.
+
+`controller_defaults_oracle` executes the original default initializer and
+compares all six exposed axis bindings for both players, with zero tolerance.
+Its negative test removes upward acceleration and must fail (grade E, bindings
+only). `controller_input` exercises neutral, half and full travel through a
+virtual SDL controller and the race input boundary; a separate negative test
+deliberately rejects acceleration. The existing menu tests cover remapping,
+cancel/apply and saved preferences.
+
+Older PC profiles with both right-stick bindings unassigned receive the native
+defaults at the input boundary. Any assigned right-stick action takes precedence;
+this compatibility rule is a PC adaptation (grade P). SDL stick normalization
+and the existing dead zone have not been compared against the original raw
+DualShock response curve; these tests do not certify that curve.
+
+## Development evidence
 
 The [development record](notes/MENU_NAVIGATION.md) retains addresses, experiments,
 test results and outstanding limitations. Older entries describe the state

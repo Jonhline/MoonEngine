@@ -6,6 +6,7 @@
 #include "render3d.h"
 #ifdef __SWITCH__
 #include "launcher.h"
+#include "platform/switch_scene.h"
 #endif
 #include "plat_sdl.h"
 #include "race_hud.h"
@@ -33,6 +34,8 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     s->current.video = (plat_video_desc){1280, 720, 1, 1, 0};
     /* P: Switch always starts in 16:9, including older SD configurations. */
     s->current.aspect = 1;
+    s->current.scene_resolution = MOON_SWITCH_PERFORMANCE;
+    moon_options_load(&s->store,NULL,NULL);
 #else
     s->current.video = (plat_video_desc){1280, 960, 0, 1, 0};
 #endif
@@ -74,6 +77,13 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     s->current.compact_cars = moon_options_int(&s->store,"interface.compact_car_strip",enhanced,0,1);
     s->current.spatial_visibility = moon_options_int(&s->store, "graphics.spatial_visibility", enhanced, 0, 1);
     s->current.resident_reflections = moon_options_int(&s->store, "graphics.resident_reflections", enhanced, 0, 1);
+#endif
+#ifdef __SWITCH__
+    char legacy_path[1024];
+    snprintf(legacy_path,sizeof legacy_path,"%s",s->path);
+    if (!moon_options_switch_load(&s->store,legacy_path)) return;
+    snprintf(s->path,sizeof s->path,"%s",s->store.path);
+    s->current.scene_resolution=moon_options_int(&s->store,MOON_SWITCH_SCENE_KEY,1,0,2);
 #endif
     FILE *f = fopen(s->path, "r");
     if (!f)
@@ -120,7 +130,6 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
 
 static void save(video_settings *s)
 {
-#ifndef __SWITCH__
     const pc_video_options *v = &s->current;
     const char *keys[] = {"graphics.width", "graphics.height", "graphics.fullscreen", "graphics.vsync", "graphics.upscaling", "graphics.ui_filter",
                          "graphics.text_sharpness", "graphics.aspect_ratio", "graphics.low_latency", "graphics.fps_limit", "controls.desktop_menu", "controls.gtmode_edge_pan", "interface.input_hints", "interface.main_menu_overview", "graphics.spatial_visibility", "graphics.resident_reflections", "interface.smooth_mouse_cursor", "interface.mouse_hover_feedback", "interface.compact_car_strip"};
@@ -132,62 +141,17 @@ static void save(video_settings *s)
         moon_options_set(&s->store, keys[i], value);
     }
     moon_options_set(&s->store, "graphics.renderer", moon_renderer_name(v->renderer));
+#ifdef __SWITCH__
+    char scene_value[8];
+    snprintf(scene_value,sizeof scene_value,"%d",v->scene_resolution);
+    moon_options_set(&s->store,MOON_SWITCH_SCENE_KEY,scene_value);
+#endif
     if (s->preset_draft >= 0) {
         snprintf(s->store.preset, sizeof s->store.preset, "%s", s->preset_draft ? "Enhanced" : "Classic");
         s->store.modified = 0;
     }
     if (s->persist && !moon_options_save(&s->store))
         snprintf(s->message, sizeof s->message, "Preferences applied; could not save settings.");
-#else
-
-    if (!s->persist || !s->path[0])
-        return;
-    char tmp[1040];
-    snprintf(tmp, sizeof tmp, "%s.tmp", s->path);
-#ifdef __SWITCH__
-    launcher_preferences paths;
-    if (!launcher_preferences_load(&paths, s->path))
-        return;
-#endif
-    FILE *f = fopen(tmp, "w");
-    if (!f) {
-        snprintf(s->message, sizeof s->message, "Nao foi possivel salvar as preferencias.");
-        return;
-    }
-    const pc_video_options *v = &s->current;
-    int ok =
-        fprintf(
-            f,
-            "width=%d\nheight=%d\nfullscreen=%d\nvsync=%d\nupscaling=%d\nui_filter=%d\ntext_sharpness=%d\naspect_ratio=%d\n",
-            v->video.width, v->video.height, v->video.fullscreen, v->video.vsync, v->video.upscale,
-            v->filter, v->text, v->aspect) > 0;
-#ifndef __SWITCH__
-    if (fprintf(f, "renderer=%s\nlow_latency=%d\nfps_limit=%d\n",
-                moon_renderer_name(v->renderer), v->low_latency, v->fps_limit) < 0)
-        ok = 0;
-#endif
-#ifdef __SWITCH__
-    if (fprintf(f, "disc=%s\nsaves=%s\nshow=0\n", paths.disc, paths.saves) < 0)
-        ok = 0;
-#endif
-    if (fclose(f) != 0)
-        ok = 0;
-#ifdef _WIN32
-    /* Replace the preference file only after its complete replacement exists. */
-    if (ok) {
-        if (!MoveFileExA(tmp, s->path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-            ok = 0;
-    }
-#elif defined(__SWITCH__)
-    if (ok && !plat_switch_replace_file(tmp, s->path))
-        ok = 0;
-#else
-    if (ok && rename(tmp, s->path) != 0)
-        ok = 0;
-#endif
-    if (!ok)
-        snprintf(s->message, sizeof s->message, "Preferencias aplicadas; falha ao salvar.");
-#endif
 }
 
 static void text(ui_widget *w, const char *value)
@@ -248,6 +212,9 @@ static void read_draft(video_settings *s)
     v->text = s->choices[4]->focus_index * 25;
     v->video.vsync = s->choices[5]->focus_index;
     v->video.upscale = s->choices[6]->focus_index;
+#ifdef __SWITCH__
+    v->scene_resolution = s->choices[7]->focus_index;
+#endif
 #ifndef __SWITCH__
     v->desktop = s->choices[7]->focus_index;
     v->edge_pan = s->choices[9]->focus_index;
@@ -302,6 +269,21 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
         ui_set_tooltips(s->page, "Custom settings (modified preset). Apply with OK.");
     }
 #endif
+#ifdef __SWITCH__
+    ui_widget *sender = ah_host_data(self);
+    if (sender == s->choices[8] && s->choices[8]->focus_index < 2) {
+        int enhanced = s->choices[8]->focus_index;
+        s->preset_draft=enhanced;
+        s->choices[3]->focus_index=enhanced?0:2;
+        s->choices[4]->focus_index=0;
+        s->choices[6]->focus_index=0;
+        s->choices[7]->focus_index=enhanced?MOON_SWITCH_PERFORMANCE:MOON_SWITCH_CLASSIC;
+        read_draft(s);
+    } else {
+        s->preset_draft=-1;
+        s->choices[8]->focus_index=2;
+    }
+#endif
     quality(&s->draft);
     *ret = ah_int(2);
     return 0;
@@ -333,6 +315,16 @@ static int focus(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     (void)argv;
     video_settings *s = data;
     ui_widget *w = ah_host_data(self);
+#ifdef __SWITCH__
+    if (w == s->choices[7]) {
+        ui_set_tooltips(s->page,"Classic: PS2 render size. Balanced: sharper 3D. Performance: lower 3D resolution for 60 FPS; HUD stays sharp.");
+        *ret=ah_int(2);return 0;
+    }
+    if (w == s->choices[8]) {
+        ui_set_tooltips(s->page,"Classic selects PS2-sized 3D; Enhanced selects Performance. Individual edits mark the preset modified.");
+        *ret=ah_int(2);return 0;
+    }
+#endif
     for (int i = 0; i < 17; i++)
         if (s->choices[i] == w)
             ui_set_tooltips(s->page, hints[i]);
@@ -438,6 +430,10 @@ static int enter(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     s->choices[12]->focus_index = s->current.resident_reflections;
     s->choices[8]->focus_index = s->store.modified ? 2 : strcmp(s->store.preset, "Classic") != 0;
 #endif
+#ifdef __SWITCH__
+    s->choices[7]->focus_index=s->current.scene_resolution;
+    s->choices[8]->focus_index=s->store.modified?2:strcmp(s->store.preset,"Classic")!=0;
+#endif
     quality(&s->current);
 #ifndef __SWITCH__
     select_tab(s, 0);
@@ -504,6 +500,9 @@ static int apply(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
         s->draft.video.vsync = s->current.video.vsync;
     if (!video_set_upscale(s->draft.video.upscale))
         s->draft.video.upscale = 0;
+#ifdef __SWITCH__
+    video_switch_scene_resolution(s->draft.scene_resolution);
+#endif
     video_set_aspect(s->draft.aspect);
     race_hud_set_widescreen(s->draft.aspect); /* D_006184F0 */
     s->current = s->draft;
@@ -543,7 +542,7 @@ void video_settings_attach(video_settings *s, menu *m)
        Cancel/OK buttons. Keep its authored centre clear of the tooltip bar. */
     float pane_center = pane->y + pane->h * .5f;
 #ifdef __SWITCH__
-    const int rows = 7;
+    const int rows = 9;
 #else
     const int rows = 17;
 #endif
@@ -595,6 +594,11 @@ void video_settings_attach(video_settings *s, menu *m)
     const char *presets[] = {"Classic", "Enhanced", "Modified"};
     const char *const *lists[] = {ratios, modes, resolutions, filters, clarity, toggle, upscalers, toggle, presets, toggle, toggle, toggle, toggle, toggle, toggle, toggle, toggle};
     int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2};
+#ifdef __SWITCH__
+    const char *scene_sizes[]={"Classic","Balanced","Performance"};
+    names[7]="SceneResolution"; titles[7]="3D Resolution"; titles[8]="Preset";
+    lists[7]=scene_sizes;counts[7]=3;
+#endif
     for (int i = 0; i < rows; i++) {
         ui_widget *w = ui_widget_copy(ui, sample);
         w->name = names[i];

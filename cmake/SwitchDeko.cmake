@@ -23,6 +23,7 @@ target_compile_definitions(moon_platform_sdl PUBLIC MOON_DEKO3D=1)
 target_link_options(moon_platform_sdl INTERFACE "-Wl,--wrap=nvGpuChannelKickoff")
 option(MOON_DEKO_DIAGNOSTICS "Log native SDK GPU faults and validate command inputs" OFF)
 if(MOON_DEKO_DIAGNOSTICS)
+  target_link_options(moonengine PRIVATE "-Wl,--wrap=nvMapCreate" "-Wl,--wrap=nvAddressSpaceMap")
   target_compile_definitions(moon_platform_sdl PRIVATE MOON_DEKO_DIAGNOSTICS=1)
   # The release SDK erases DK_WARNING/error messages, including GPU fault info.
   # Keep game Release optimization; only select the SDK archive with diagnostics.

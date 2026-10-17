@@ -39,6 +39,9 @@
 #endif
 #include "vol.h"
 #include "video_settings.h"
+#ifdef __SWITCH__
+#include "platform/switch_scene.h"
+#endif
 #include "desktop_input.h"
 #include "launcher.h"
 #ifndef __SWITCH__
@@ -1167,6 +1170,9 @@ int main(int argc, char **argv)
     int split_preview = 0;
     const char *split_car_option = NULL;
     const char *race_course_option = NULL, *race_car_option = NULL;
+#ifdef MOON_SWITCH_RACE_DIAGNOSTICS
+    const char *race_grid[5] = {0};
+#endif
     char race_car[96] = {0}, race_course[96] = {0};
     const char *input_sequence = NULL;
     int selection_steps = 0, positional = 1;
@@ -1250,6 +1256,17 @@ int main(int argc, char **argv)
             intro_override = 0;
             continue;
         }
+#ifdef MOON_SWITCH_RACE_DIAGNOSTICS
+        /* Internal hardware fixture: reproduce the five opponents from a crash log. */
+        if (!strcmp(argv[i], "--race-grid")) {
+            for (unsigned j = 0; j < 5; j++) {
+                if (++i == argc || !*argv[i] || strlen(argv[i]) > 80)
+                    return 2;
+                race_grid[j] = argv[i];
+            }
+            continue;
+        }
+#endif
         if (!strcmp(argv[i], "--race-preview")) {
             race_preview = 1;
             continue;
@@ -1439,6 +1456,9 @@ int main(int argc, char **argv)
         fprintf(stderr, "cannot open a window: %s\n", SDL_GetError());
         return 1;
     }
+#ifdef __SWITCH__
+    video_switch_scene_resolution(settings.current.scene_resolution);
+#endif
     video_set_aspect(settings.current.aspect);
     race_hud_set_widescreen(settings.current.aspect); /* D_006184F0 */
     plat_video_set_view(640, 480);
@@ -1556,7 +1576,10 @@ int main(int argc, char **argv)
            (the resolution and ratio from the video options), so nothing is zoomed or cropped. */
         video_set_fill_window(0);
         plat_video_set_view(640, 480);
-        video_set_aspect(settings.current.aspect);
+    #ifdef __SWITCH__
+    video_switch_scene_resolution(settings.current.scene_resolution);
+#endif
+    video_set_aspect(settings.current.aspect);
         {
             const char *ls = getenv("MOONSTUDIO_LAUNCH_SHOT");
             if (ls) {
@@ -1832,7 +1855,11 @@ int main(int argc, char **argv)
                     goto done;
                 }
             } else if (!game || !race_game_start(game, race_course, race_car, color_preview,
+#ifdef MOON_SWITCH_RACE_DIAGNOSTICS
+                                                 split_preview ? second : race_grid[0] ? race_grid : others, NULL,
+#else
                                                  split_preview ? second : others, NULL,
+#endif
                                                  split_preview     ? 1
                                                  : race_time_trial ? 0
                                                                    : 5,
