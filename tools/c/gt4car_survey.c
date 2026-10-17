@@ -1,6 +1,8 @@
 /* Read-only real-disc assembly audit. Unlike gt4model_survey, this checks
    the showroom/race loader after factory dimensions and wheels are applied.
    usage: gt4car_survey disc.iso [--race=1..6] [--labels LABEL ...]
+          gt4car_survey disc.iso --cameras LABEL   the CAR4 camera table
+          gt4car_survey disc.iso --wheels  LABEL   the computed hub positions
    Original implementation; prints counts and names, no extracted assets. */
 #include "car_model.h"
 #include "specdb.h"
@@ -29,6 +31,34 @@ int main(int argc,char **argv)
     if(argc>2 && !strncmp(argv[2],"--race=",7)) {
         race_cars=atoi(argv[2]+7);if(race_cars<1 || race_cars>6)return 2;
         for(int i=2;i+1<argc;i++)argv[i]=argv[i+1];argc--;
+    }
+    if(argc>=4 && (!strcmp(argv[2],"--cameras") || !strcmp(argv[2],"--wheels"))) {
+        /* The reader side of the SDK's two model tools: the CAR4 camera table
+           and the loader's own computed hub positions, dumped for one car.
+           Same numbers car_model_load/car_model_race use; nothing re-derived. */
+        const char *err=NULL;
+        gt4_vol *v=gt4_vol_open(argv[1],&err);
+        if(!v){fprintf(stderr,"volume: %s\n",err?err:"failed");return 1;}
+        car_model_tables *tables=car_model_tables_open(v);
+        car_model *a=tables?car_model_load(v,tables,argv[3],0):NULL;
+        if(!a){fprintf(stderr,"cannot load car %s\n",argv[3]);
+               if(tables)car_model_tables_close(tables);gt4_vol_close(v);return 1;}
+        if(!strcmp(argv[2],"--cameras")) {
+            printf("cameras %s model=%s count=%d\n",argv[3],a->model,a->cam_points);
+            for(int i=0;i<a->cam_points;i++) {
+                printf("%d",i);
+                for(int k=0;k<8;k++)printf(" %.9g",(double)a->cam_point[i][k]);
+                printf("\n");
+            }
+        } else {
+            printf("wheels %s model=%s\n",argv[3],a->model);
+            for(int i=0;i<4;i++)
+                printf("hub %d %.9g %.9g %.9g\n",i,(double)a->hub[i][0],(double)a->hub[i][1],(double)a->hub[i][2]);
+            for(int i=0;i<4;i++)
+                printf("tire %d %.9g %.9g %.9g\n",i,(double)a->tire_size[i][0],(double)a->tire_size[i][1],(double)a->tire_size[i][2]);
+        }
+        car_model_free(a);car_model_tables_close(tables);gt4_vol_close(v);
+        return 0;
     }
     if(argc<2 || (argc>2 && (strcmp(argv[2],"--labels") || argc<4))){fprintf(stderr,"usage: gt4car_survey disc.iso [--race=1..6] [--labels LABEL ...]\n");return 2;}
     const char *err=NULL;gt4_vol *v=gt4_vol_open(argv[1],&err);if(!v){fprintf(stderr,"volume: %s\n",err?err:"failed");return 1;}
