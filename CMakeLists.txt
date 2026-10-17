@@ -457,6 +457,10 @@ target_link_libraries(moonmod_glbcar PRIVATE ${MOON_CORE_STACK})
 add_executable(moonmod_img tools/c/moonmod_img.c)
 target_link_libraries(moonmod_img PRIVATE ${MOON_CORE_STACK})
 
+# The disc's own nation -> maker catalogue, for the SDK's inspector.
+add_executable(moonmod_catalog tools/c/moonmod_catalog.c)
+target_link_libraries(moonmod_catalog PRIVATE ${MOON_CORE_STACK})
+
 add_executable(gt4hdui tools/c/gt4hdui.c)
 target_link_libraries(gt4hdui PRIVATE ${MOON_CORE_STACK} miniz)
 
