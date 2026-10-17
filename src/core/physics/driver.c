@@ -190,12 +190,12 @@ static int steering(uint32_t car, uint32_t cmd)
     if (kind == 6)
         max = GT4_F32(params + PARAMS_STEER_MAX);
     else if (kind == 4)
-        max = gt4_curve_eval(
+        max = gt4_curve_eval_linear(
             gt4_ptr(params + (table_set == 1 ? PARAMS_STEER_CURVE_C : PARAMS_STEER_CURVE_B)),
             speed);
     else {
         table_set = surf;
-        max = gt4_curve_eval(
+        max = gt4_curve_eval_linear(
             gt4_ptr(params + (table_set == 1 ? PARAMS_STEER_CURVE_C : PARAMS_STEER_CURVE_A)),
             speed);
     }

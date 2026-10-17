@@ -173,9 +173,10 @@ static float tyre_peak_slip(uint32_t t)
         float best = 0;
         int deg = 90;
         for (int i = 0; i < 46; i++) {
-            float side,
-                f = gt4_curve_eval(c, gt4_slip_fold((float)i * K(0x3c8efa34u) - 0.0f, &side)) *
-                    side;
+            /* 00353800: finish the slip-fold call before reading its sign. */
+            float side;
+            float folded = gt4_slip_fold((float)i * K(0x3c8efa34u) - 0.0f, &side);
+            float f = gt4_curve_eval_linear(c, folded) * side;
             if (best < f) {
                 best = f;
                 deg = i;
@@ -338,7 +339,7 @@ void gt4_tyre_static_load(uint32_t p, uint32_t which)
             wa = GT4_U8(lay + LAYOUT_AXLE + wheel);
         load = load / GT4_F32(p + PARAMS_LOAD_REF + wa * 4);
         GT4_F32(t + TYRE_MU_SCALE) =
-            GT4_F32(t + TYRE_MU_SCALE) * gt4_curve_eval(gt4_ptr(t + TYRE_LOAD_CURVE), load);
+            GT4_F32(t + TYRE_MU_SCALE) * gt4_curve_eval_linear(gt4_ptr(t + TYRE_LOAD_CURVE), load);
     }
     GT4_U8(p + 0x104a) =
         GT4_F32(p + PARAMS_TYRES + TYRE_MU) != GT4_F32(p + PARAMS_TYRES + 3 * TYRE_SIZE + TYRE_MU);
@@ -516,7 +517,7 @@ static void top_speed(uint32_t p, uint32_t wear)
         drive = gt4_engine_power_cap(e, engine_torque(e, speed, wear), speed) * GT4_F32(g);
         if (GT4_U8(d + 0x12) == 1)
             drive = drive * ratio;
-        resist = gt4_curve_eval(gt4_ptr(ROLLING_CURVE), v) * GT4_F32(ROLLING_CURVE + 0x4c) *
+        resist = gt4_curve_eval_linear(gt4_ptr(ROLLING_CURVE), v) * GT4_F32(ROLLING_CURVE + 0x4c) *
                      (GT4_F32(p + 0x103c) + GT4_F32(p + PARAMS_DOWNFORCE) * v2 +
                       GT4_F32(p + PARAMS_DOWNFORCE + 4) * v2) +
                  GT4_F32(p + PARAMS_DRAG) * v2;

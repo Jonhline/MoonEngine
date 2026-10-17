@@ -1,6 +1,11 @@
 # Included only after the native targets exist. Host tools/tests are not NROs.
 set_target_properties(gt4vol gt4driver_survey PROPERTIES EXCLUDE_FROM_ALL TRUE)
 find_package(PkgConfig REQUIRED)
+pkg_check_modules(SWITCH_FFMPEG REQUIRED IMPORTED_TARGET libavfilter libavformat libavcodec libavutil)
+target_sources(moon_platform_sdl PRIVATE src/platform/switch/movie_ffmpeg.c src/platform/switch/movie_decode.c)
+target_link_libraries(moon_platform_sdl PUBLIC PkgConfig::SWITCH_FFMPEG)
+target_compile_definitions(moon_platform_sdl PUBLIC MOON_SWITCH_MOVIES=1)
+
 if(MOON_SWITCH_RENDERER STREQUAL "deko3d")
   include(cmake/SwitchDeko.cmake)
 else()
@@ -10,7 +15,7 @@ else()
 endif()
 # Mesa contains C++ code; let the C++ driver put its runtime after the archives.
 set_target_properties(moonengine PROPERTIES LINKER_LANGUAGE CXX)
-target_sources(moonengine PRIVATE src/app/disc_checkpoint.c)
+target_sources(moonengine PRIVATE src/app/disc_checkpoint.c src/platform/switch/font_bake.c)
 target_compile_options(moon_physics PRIVATE -ffp-contract=off -frounding-math)
 target_compile_definitions(moon_platform_common PRIVATE _FILE_OFFSET_BITS=64)
 target_sources(moon_platform_common PRIVATE src/platform/common/switch_profile.c)

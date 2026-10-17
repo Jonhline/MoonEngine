@@ -352,6 +352,16 @@ int main(int argc, char **argv)
         background[i * 4 + 2] = 43;
         background[i * 4 + 3] = (i + i / Side) & 1 ? 255 : 0;
     }
+    int red_mask = argc > 2 && !strncmp(argv[2], "--redmask", 9);
+    uint8_t scalar[Side * Side];
+    for (unsigned i = 0; i < Side * Side; ++i)
+        scalar[i] = background[i * 4 + 3];
+    GLuint mask;
+    glGenTextures(1, &mask);
+    glBindTexture(GL_TEXTURE_2D, mask);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, Side, Side, 0, GL_RED, GL_UNSIGNED_BYTE, scalar);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     GLuint image = texture(4, 4, pixels), dest = texture(Side, Side, background);
     GLuint environment = texture(4, 4, pixels), target = texture(Side, Side, background);
     glGenFramebuffers(1, &fbo);
@@ -406,11 +416,12 @@ int main(int argc, char **argv)
                         glActiveTexture(GL_TEXTURE1);
                         glBindTexture(GL_TEXTURE_2D, environment);
                         glActiveTexture(GL_TEXTURE2);
-                        glBindTexture(GL_TEXTURE_2D, dest);
+                        glBindTexture(GL_TEXTURE_2D, which && red_mask ? mask : dest);
                         if (!which)
                             reference(programs[0], &u);
                         else {
                             nd_uniform input = u;
+                            input.v[46][3] = red_mask && strcmp(argv[2], "--redmask-negative");
                             if (argc > 2 && !strcmp(argv[2], "--date-negative"))
                                 input.v[46][1] = 1 - input.v[46][1];
                             if (argc > 2 && !strcmp(argv[2], "--extent-negative"))

@@ -8,6 +8,7 @@
  * race's parts around the step.
  */
 #include "race_run.h"
+#include "replay_run.h"
 #include "fields_conductor.h"
 #include "course_objects.h"
 #include "license_session.h"
@@ -69,6 +70,7 @@ struct gt4_race_run {
     gt4_specdb_src db;
     uint32_t cond;
     int cars;
+    int legacy_recording;
     unsigned frames;                /* display time since the start event, at 60 Hz */
     int aspec_points;               /* func_003C0FF8, computed after the entries start */
     float height[6], travel0[6][4]; /* at the start: ride height, suspension travel */
@@ -299,14 +301,22 @@ void gt4_race_restore_entry(uint32_t entry, const uint8_t *record)
 
 gt4_race_run *gt4_race_run_open(const char *disc, const gt4_race_desc *d, char *msg, size_t len)
 {
+#ifndef MOON_LEGACY_RECORDING
+    /* Native GT4R v1 predates the EE arithmetic correction. Keep its old
+       commands reproducible; live races and original files share the solver. */
+    if (d && d->legacy_recording)
+        return legacy_gt4_race_run_open(disc, d, msg, len);
+#endif
     gt4_race_run *r;
     const char *err = NULL;
     fenv_t env;
     msg[0] = 0;
     gt4_race_desc tt;
-    if (d && d->time_trial && d->cars == 1) {
+    if (d && d->time_trial && d->cars == 1 && !d->disc_race_options) {
         /* the Time Trial's entries: the player's car and its ghost, the
            same car (the TT captures' two entries, car 0x3B both) */
+        /* 003DDA08 imports exactly GT4M +0x958 entries. An original saved
+           recording must not acquire a ghost absent from that list. */
         tt = *d;
         tt.cars = 2;
         tt.car[1] = d->car[0];
@@ -328,6 +338,7 @@ gt4_race_run *gt4_race_run_open(const char *disc, const gt4_race_desc *d, char *
     }
     r->cond = COND;
     r->cars = d->cars;
+    r->legacy_recording = d->legacy_recording;
     r->ghost_time = 0x157529ffu;
     gt4_phys_mem = r->ram;
     gt4_orig_call = no_original;
@@ -653,7 +664,10 @@ gt4_race_run *gt4_race_run_open(const char *disc, const gt4_race_desc *d, char *
        before the world starts the session: Practice's after-cars method
        (003F4F60) reads each entry's best lap there (+0x1198) */
     gt4_race_records_start(RACE);
-    gt4_race_init(COND, d->disc_race_options ? (d->bspec ? 3 : 2) : GT4_U8(COND + CONDUCTOR_FIELD_DRIVING_MODE_U), &r->db, INIT_SCRATCH);
+    gt4_race_init(COND,
+                  d->disc_race_options ? (d->bspec ? 3 : 2)
+                                       : GT4_U8(COND + CONDUCTOR_FIELD_DRIVING_MODE_U),
+                  &r->db, INIT_SCRATCH);
     if (d->license) { /* 003F5FA8 after 0034D490 */
         GT4_U32(RACE + 0x88) = 0xfffffffeu;
         GT4_U32(RACE + 0x8c) = 0x157529ffu;
@@ -882,6 +896,10 @@ int gt4_race_run_ghost_set(gt4_race_run *r, const uint8_t car[GT4_GHOST_CAR], ui
 
 int gt4_race_run_frame(gt4_race_run *r)
 {
+#ifndef MOON_LEGACY_RECORDING
+    if (r && r->legacy_recording)
+        return legacy_gt4_race_run_frame(r);
+#endif
     fenv_t env;
     if (!r)
         return 0;

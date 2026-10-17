@@ -4,6 +4,10 @@
 #include "phys.h"
 #include <SDL.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <switch.h>
+#include <arpa/inet.h>
 #include <sys/stat.h>
 
 int launcher_bootstrap(int *argc, char ***argv, launcher_startup *start)
@@ -18,8 +22,30 @@ int launcher_bootstrap(int *argc, char ***argv, launcher_startup *start)
     if (!gt4_save_mkdir(root))
         return -1;
     snprintf(file, sizeof file, "%s/moonengine.log", root);
-    FILE *log = freopen(file, "w", stderr);
-    (void)log;
+    /* A host override makes multi-adapter PCs (VPN plus LAN) deterministic. */
+    for (int i = 1; i < *argc; i++) {
+        if (strcmp((*argv)[i], "--nxlink-host"))
+            continue;
+        if (i + 1 >= *argc || !inet_aton((*argv)[i + 1], &__nxlink_host))
+            return -1;
+        memmove(*argv + i, *argv + i + 2, (size_t)(*argc - i - 1) * sizeof **argv);
+        *argc -= 2;
+        i--;
+    }
+    int remote_log = -1;
+    /* nxlink supplies its host address only for a netloader launch. */
+    if (__nxlink_host.s_addr && R_SUCCEEDED(socketInitializeDefault())) {
+        remote_log = nxlinkStdioForDebug();
+        if (remote_log < 0)
+            socketExit();
+        else
+            atexit(socketExit);
+    }
+    if (remote_log < 0) {
+        FILE *log = freopen(file, "w", stderr);
+        (void)log;
+    }
+
     /* Keep complete diagnostic records available after HOME -> Close. */
     setvbuf(stderr, NULL, _IOLBF, 8192);
     gt4_phys_fpu_enter();
@@ -46,8 +72,15 @@ int launcher_bootstrap(int *argc, char ***argv, launcher_startup *start)
     start->arguments[4] = "--config-file";
     start->arguments[5] = start->video_file;
     start->arguments[6] = NULL;
-    *argc = 6;
-    *argv = start->arguments;
+    /* Keep netloader command-line fixtures, such as --drive and --race-course. */
+    char **arguments = calloc((size_t)*argc + 6, sizeof *arguments);
+    if (!arguments)
+        return -1;
+    memcpy(arguments, start->arguments, 6 * sizeof *arguments);
+    for (int i = 1; i < *argc; i++)
+        arguments[i + 5] = (*argv)[i];
+    *argc += 5;
+    *argv = arguments; /* The startup arguments remain alive for the application lifetime. */
     /* SDL normalizes Nintendo face buttons to their physical positions. */
     SDL_SetHint(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, "0");
     /* Reuse the existing five-second pose trace for disc/attract replays.

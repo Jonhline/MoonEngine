@@ -19,6 +19,7 @@
 #include "rtext.h"
 #include "tex1.h"
 #include "platform/platform.h"
+#include "platform/switch_profile.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -176,7 +177,7 @@ typedef struct hud_font {
     char name[32];
     gt4_font face;
     plat_texture *ink, *outline;
-    int palette;
+    int palette, borrowed_textures;
     float sx, sy;
     int ok;
     struct hud_font *next;
@@ -186,6 +187,7 @@ struct race_hud {
     gt4_vol *vol;
     hud_image img[IMG_COUNT];
     hud_font *fonts;
+    unsigned prepared_fonts;
     int nfonts;
     float rank_now;            /* the rank element's rolling figure (+0x20) */
     int rank_shown;            /* its +0x18 */
@@ -292,6 +294,7 @@ static hud_font *font(race_hud *h, const char *spec)
         }
         p += strcspn(p, "#*");
     }
+    SWP_LOAD_BEGIN(spec);
     {
         const char *const files[] = {"/font/race.fnt", "/font/system.fnt"};
         for (unsigned i = 0; i < 2 && !f->ok; i++) {
@@ -303,12 +306,46 @@ static hud_font *font(race_hud *h, const char *spec)
         }
     }
     if (!f->ok) {
+        SWP_LOAD_END();
         fprintf(stderr, "hud: no font %s\n", spec);
         return NULL;
     }
+#if defined(__SWITCH__) || defined(MOON_HUD_RESIDENT_TEXTURE_TEST)
+    /* Font styles alter palette/scale metadata, not the base atlas decoded
+       above. Keep one GPU/SDF pair per base face; cache nodes remain stable. */
+    for (hud_font *prior = f->next; prior; prior = prior->next) {
+        if (prior->ok && prior->ink && prior->outline && strcspn(prior->name, "#*") == n &&
+            !memcmp(prior->name, base, n)) {
+            f->ink = prior->ink;
+            f->outline = prior->outline;
+            f->borrowed_textures = 1;
+            SWP_LOAD_END();
+            return f;
+        }
+    }
+#endif
     f->ink = glyph_texture(&f->face.atlases[f->face.natlases > 1 ? 1 : 0]);
     f->outline = glyph_texture(&f->face.atlases[0]);
+    SWP_LOAD_END();
     return f;
+}
+
+static const char *const prepared_styles[] = {
+    "FC_26", "FC_26*80,80",   "hn_20R",  "GT4meter#1", "hb_24#1",       "hb_24#1*130,130",
+    "FC_48", "GT4oddmeter#1", "hm_16#1", "Gaiji#1",    "hm_16#1*90,90", "hc_20#1*70,70"};
+int race_hud_prepare_next_font(race_hud *h)
+{
+    /* Existing draw_message/countdown (003A4AE8/003A4E00), opening and
+       music-caption styles. Keep atlas preparation before presentation time. */
+    if (!h || h->prepared_fonts >= sizeof prepared_styles / sizeof *prepared_styles)
+        return 1;
+    font(h, prepared_styles[h->prepared_fonts++]);
+    return h->prepared_fonts == sizeof prepared_styles / sizeof *prepared_styles;
+}
+void race_hud_prepare_fonts(race_hud *h)
+{
+    while (!race_hud_prepare_next_font(h)) {
+    }
 }
 
 race_hud *race_hud_open(gt4_vol *vol)
@@ -447,9 +484,9 @@ void race_hud_close(race_hud *h)
     free(h->rt_data);
     for (hud_font *f = h->fonts, *next; f; f = next) {
         next = f->next;
-        if (f->ink)
+        if (f->ink && !f->borrowed_textures)
             plat_texture_destroy(f->ink);
-        if (f->outline)
+        if (f->outline && !f->borrowed_textures)
             plat_texture_destroy(f->outline);
         if (f->ok)
             gt4_font_free(&f->face);

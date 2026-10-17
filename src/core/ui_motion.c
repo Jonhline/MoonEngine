@@ -375,3 +375,16 @@ void ui_model_pivot_offset(const float rotation[9], const float rest[9], const f
         offset[i] = before - after;
     }
 }
+
+/* The original clips after conversion to the console framebuffer, including
+   the half-height interlaced field. Truncating each origin/extent separately
+   is essential: trunc(y+h) is not trunc(y)+trunc(h). */
+void gt4_ui_scissor(const float rect[4], int width, int height, int interlaced, int out[4])
+{
+    volatile float virtual_width = 640.f, virtual_height = 480.f;
+    float sx = (float)width / virtual_width, sy = (float)height / virtual_height;
+    float x = rect[0] * sx, y = rect[1] * sy;
+    float w = rect[2] * sx, h = rect[3] * sy;
+    if (interlaced) { y *= .5f; h *= .5f; }
+    out[0] = (int)x; out[1] = (int)y; out[2] = (int)w; out[3] = (int)h;
+}

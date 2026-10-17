@@ -38,10 +38,18 @@ void copy(const DkImageView *src, const DkImageRect *from, const DkImageView *ds
           const DkImageRect *to)
 {
     failed |= src != &source.view || dst != &mask.view;
-    failed |= from->x != 0 || from->y != 0 || from->width != 4 || from->height != 4;
-    failed |= to->x != 0 || to->y != 0 || to->width != 4 || to->height != 4;
+    failed |= from->width != to->width || from->height != to->height;
+    failed |= from->x + from->width > 4 || from->y + from->height > 4;
+    failed |= to->x + to->width > 4 || to->y + to->height > 4;
+    DkImageRect a = *from, b = *to;
+    if (!std::strcmp(negative, "--snapshot-negative") && from->x == 1)
+        b.x = 0; /* A translated snapshot must fail the untouched-pixel check. */
     copies++;
-    transfers.push_back([] { mask.memory = source.memory; });
+    transfers.push_back([a, b] {
+        for (unsigned y = 0; y < a.height; ++y)
+            for (unsigned x = 0; x < a.width; ++x)
+                mask.memory[(b.y + y) * 4 + b.x + x] = source.memory[(a.y + y) * 4 + a.x + x];
+    });
 }
 } // namespace
 extern "C" void dkCmdBufBarrier(DkCmdBuf, DkBarrier mode, uint32_t flags)
@@ -112,9 +120,26 @@ int main(int argc, char **argv)
             return 1;
         }
     }
-    if (observed_reads != 120 || copies != 120 || barrier_count != 240)
+    for (unsigned frame = 0; frame < 60; ++frame) {
+        Pixels old = sample(mask), next, expected = old;
+        for (unsigned i = 0; i < next.size(); ++i)
+            next[i] = 50000 + frame * 101 + i * 19;
+        for (unsigned y = 1; y < 3; ++y)
+            for (unsigned x = 1; x < 3; ++x)
+                expected[y * 4 + x] = next[y * 4 + x];
+        graphics.push_back([old] {
+            failed |= sample(mask) != old;
+            observed_reads++;
+        });
+        graphics.push_back([next] { source.memory = next; });
+        DkImageRect region{1, 1, 0, 2, 2, 1};
+        nd_snapshot_commands(nullptr, &source.view, &mask.view, &region);
+        if (sample(mask) != expected || failed)
+            return 1;
+    }
+    if (observed_reads != 180 || copies != 180 || barrier_count != 360)
         return 1;
     std::puts(
-        "120 delayed blit/copy/upload snapshots: prior readers, source writes, completion and cache PASS");
+        "180 delayed full/cropped blit/copy/upload snapshots: prior readers, source writes, completion and cache PASS");
     return 0;
 }

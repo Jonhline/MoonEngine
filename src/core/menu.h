@@ -99,6 +99,10 @@ void menu_set_car_loader(menu *m, int (*fn)(menu *, const ui_widget *, void *), 
 void menu_animate(menu *m, float seconds);
 float menu_cursor_speed(menu *m);
 void menu_send_input(menu *m, menu_input input);
+/* P: host pointer boundary. action: 0 move, 1 left release, 2 right release.
+   enabled=0 is a strict no-op apart from restoring controller cursor ownership. */
+void menu_edge_pan(menu *m, int enabled, float seconds);
+int menu_pointer(menu *m, int enabled, float x, float y, int action, int wheel);
 /* a PS2 button the scripts take as its own key (keysym, the engine's
    D_006192E4: L1 0xFFC8, L2 0xFFC9, R1 0xFFD2, R2 0xFFD3, Square
    0xFF63, Select 0xFFFF), pressed or released */

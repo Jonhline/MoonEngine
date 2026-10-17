@@ -118,6 +118,7 @@ int race_game_replay_export(const race_game *g, gt4_replay_file *r, int kind)
         return 0;
     memset(r, 0, sizeof *r);
     r->kind = kind;
+    r->legacy_math = g->replaying && g->legacy_replay_math;
     snprintf(r->course, sizeof r->course, "%s", g->last_course);
     snprintf(r->car, sizeof r->car, "%s", g->last_car);
     r->color = g->last_color;
@@ -284,6 +285,7 @@ int race_game_replay_import(race_game *g, const gt4_replay_file *r)
         memcpy(g->disc_states[i], r->disc_info + r->disc_segment_offset[i], 0x14f4);
     }
     g->last_prepared = r->prepared;
+    g->legacy_replay_math = r->legacy_math;
     if (r->prepared) {
         gt4_race_desc *d = &g->last_desc;
         memset(d, 0, sizeof *d);

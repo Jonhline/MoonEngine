@@ -173,7 +173,7 @@ const char *moon_mod_roots(void)
     mod_roots_ready = 1;
     mod_roots[0] = 0;
 
-    const char *env = getenv("OPENGT4_OVERLAY");   /* what the launcher hands over */
+    const char *env = getenv("MOON_OVERLAY");   /* what the launcher hands over */
     if (env && *env) {
         snprintf(mod_roots, sizeof mod_roots, "%s", env);
         return mod_roots;
@@ -211,7 +211,7 @@ const char *moon_mod_roots(void)
     }
     free(text);
     plat_file_close(f);
-    if (mod_roots[0] && getenv("OPENGT4_OVERLAY_TRACE"))
+    if (mod_roots[0] && getenv("MOON_OVERLAY_TRACE"))
         fprintf(stderr, "mods: %s\n", mod_roots);
     return mod_roots;
 }

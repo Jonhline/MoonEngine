@@ -406,8 +406,8 @@ static void draw_car_face(void *user, const ui_widget *w, float x, float y, floa
     showroom_set_wheel(cars, w->car_wheel);
     showroom_set_wing(cars, w->car_wing);
     showroom_set_selection(cars, w->car_code, w->car_color_index);
-    if (!w->car_normal &&
-        (!w->car_pose_set || !strcmp(ui_root_name(menu_ui(m), w->root), "BuyCarRoot"))) {
+    if (!w->car_normal && !w->car_pose_set &&
+        strcmp(ui_root_name(menu_ui(m), w->root), "BuyCarRoot")) {
         /* the studio fills the view: its own scene target (MSAA, FSR) */
         video_begin_scene();
         SWP_ASSET_DRAW(showroom_draw(cars, w->car_code, dt));
@@ -421,6 +421,7 @@ static void draw_car_face(void *user, const ui_widget *w, float x, float y, floa
         f.y = y;
         f.w = wd;
         f.h = h;
+        f.surface = ui_root_name(menu_ui(m), w->root); /* the camera log names this surface */
         f.crew_data = w->car_crew_data;
         f.crew_size = w->car_crew_size;
         f.crew_serial = w->car_crew_serial;
@@ -434,7 +435,10 @@ static void draw_car_face(void *user, const ui_widget *w, float x, float y, floa
         memcpy(f.service_geometry, w->car_service_geometry, sizeof f.service_geometry);
         f.service_geometry_valid = w->car_service_geometry_valid;
         f.additional_scale = w->car_additional_scale;
-        f.pose_valid = w->car_pose_set && strcmp(ui_root_name(menu_ui(m), w->root), "BuyCarRoot");
+        /* Original: BuyCarRoot.CarFace.move_car instructions 18..76.
+           Dealers use the same authored pose bridge as other CarFaces. */
+        f.pose_valid = w->car_pose_set;
+        f.service_opacity = w->car_model_opacity;
         /* func_00157378: advanced owner copies x/y, negates z and adds
            exactly 180 degrees to the pose yaw before scene projection. */
         float yaw = w->model_angles[1];
@@ -990,6 +994,11 @@ static char *next_scripted_key(void)
     scripted_keys = next;
     return key;
 }
+static int desktop_menu_event(menu *m, plat_key_event *ev)
+{
+    desktop_input_hints(m,app_video_settings && app_video_settings->current.input_hints,ev);
+    return desktop_input(m, app_video_settings && app_video_settings->current.desktop, ev);
+}
 static int present_event(menu *m, void *user)
 {
     (void)user;
@@ -1005,6 +1014,7 @@ static int present_event(menu *m, void *user)
     }
     plat_key_event ev;
     while (plat_sdl_poll(&ev)) {
+        if (desktop_menu_event(m, &ev)) continue;
         const Uint8 *held = SDL_GetKeyboardState(NULL);
         menu_set_pad_held(m, plat_sdl_menu_buttons() | (held[SDL_SCANCODE_Q] ? MENU_PAD_L1 : 0) |
                                  (held[SDL_SCANCODE_E] ? MENU_PAD_R1 : 0));
@@ -1153,8 +1163,21 @@ static int present_dialog(menu *m, const char *title, const char *message, int t
     do {
         plat_key_event ev;
         while (plat_sdl_poll(&ev)) {
-            if (closing || motion_time < .5f)
-                continue;
+            ui_widget *mouse_items[] = {confirm ? negative : single, positive};
+            int mouse_action = 0;
+            int hovered = desktop_dialog_input(dialog_ui,
+                app_video_settings && app_video_settings->current.desktop,
+                mouse_items, confirm ? 2 : 1, &ev, &mouse_action);
+            if (closing || motion_time < .5f) continue;
+            if (hovered >= 0 && confirm && selected != hovered) {
+                selected = hovered;
+                menu_play_effect(m, "cursor");
+            }
+            if (mouse_action) {
+                result = mouse_action == 2 ? 0 : confirm ? selected : 1;
+                menu_play_effect(m, mouse_action == 2 ? "cancel" : "ok");
+                break;
+            }
             if ((ev.key == SDLK_ESCAPE && !ev.pad) || ev.key == SDLK_F4 ||
                 (ev.pad && ev.key == SDLK_INSERT)) {
                 menu_play_effect(m, "cancel");
@@ -1325,6 +1348,16 @@ static int present_profile_picker(menu *m)
         }
         plat_key_event ev;
         while (plat_sdl_poll(&ev)) {
+            int mouse_action = 0;
+            int hovered = desktop_dialog_input(dialog_ui,
+                app_video_settings && app_video_settings->current.desktop,
+                group->kids, count, &ev, &mouse_action);
+            if (hovered >= 0 && selected != hovered) {
+                selected = hovered;
+                menu_play_effect(m, "cursor");
+            }
+            if (mouse_action == 2) result = 0;
+            if (mouse_action == 1 && hovered >= 0) result = slots[hovered];
             if ((ev.key == SDLK_ESCAPE && !ev.pad) || ev.key == SDLK_F4 ||
                 (ev.pad && ev.key == SDLK_INSERT))
                 result = 0;

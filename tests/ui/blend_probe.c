@@ -10,15 +10,17 @@
     do {                                                                                           \
         if (!(x)) {                                                                                \
             fprintf(stderr, "blend probe line %d: %s\n", __LINE__, #x);                            \
-            return 1;                                                                              \
+            goto cleanup;                                                                          \
         }                                                                                          \
     } while (0)
 int main(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
+    int result = 1, video_ready = 0;
     plat_video_desc desc = {640, 480, 0, 0, 0};
     CHECK(plat_video_init(&desc)==0);
+    video_ready = 1;
     SDL_HideWindow(plat_sdl_window());
     plat_video_set_view(640, 480);
     const uint8_t white[4] = {255, 255, 255, 255}, black[4] = {0, 0, 0, 255};
@@ -98,7 +100,12 @@ int main(int argc, char **argv)
     }
     CHECK(w==4*bw && h==4*bh);
     CHECK(2*x+w==2*bx+bw && 2*y+h==2*by+bh);
-    plat_video_shutdown();
+    result = 0;
     puts("PASS 129 GL blend coefficients and foreground overlay/order; byte rounding tolerance 1.");
-    return 0;
+cleanup:
+    /* Negative assertions must also drain and shut down the renderer.
+       Returning directly left live Vulkan work to process/driver teardown. */
+    if (video_ready)
+        plat_video_shutdown();
+    return result;
 }

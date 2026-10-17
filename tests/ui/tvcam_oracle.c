@@ -189,6 +189,7 @@ int main(int argc, char **argv)
     put(data, 0xb0, 0x100);
     memcpy(data + 0x100, "REP4", 4);
     putf(data, 0x114, 1000);
+    putf(data, 0x118, 1000); /* the table's end (003DDF18) */
     put(data, 0x120, 1);
     put(data, 0x124, 0x40);
     /* Two knots per curve, including changing lens/roll and off-centre framing. */

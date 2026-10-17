@@ -20,7 +20,7 @@ echo "AUTHOR_EXIT=$?"
 find "$MOD" -type f -printf '%p %s bytes\n'
 
 echo "=== the engine, reading the added label with the mod folder on ==="
-OPENGT4_OVERLAY="$MOD" "$B/gt4course" "$D" "$NEW" > /tmp/course_mod.txt 2>&1
+MOON_OVERLAY="$MOD" "$B/gt4course" "$D" "$NEW" > /tmp/course_mod.txt 2>&1
 echo "MOD_EXIT=$?"
 head -3 /tmp/course_mod.txt
 
@@ -35,4 +35,4 @@ else
 fi
 
 echo "=== the merged COURSE.idi answers for a label the disc does not have ==="
-OPENGT4_OVERLAY="$MOD" "$B/moonmod_addtrack" "$D" "$NEW" moon_second_added_track /tmp/moon-second-track 2>&1 | head -4
+MOON_OVERLAY="$MOD" "$B/moonmod_addtrack" "$D" "$NEW" moon_second_added_track /tmp/moon-second-track 2>&1 | head -4

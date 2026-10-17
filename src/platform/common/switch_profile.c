@@ -17,7 +17,92 @@ static double milliseconds(uint64_t value)
 {
     return armTicksToNs(value) / 1e6;
 }
-#define OUTPUT(...) fprintf(stderr, __VA_ARGS__)
+#include "switch_log_queue.h"
+#include <stdarg.h>
+#include <stdlib.h>
+
+static struct {
+    swp_log_queue queue;
+    Mutex lock;
+    CondVar wake;
+    Thread worker;
+    int initialized, running, stop;
+} output;
+
+static void output_worker(void *unused)
+{
+    (void)unused;
+    char line[SWP_LOG_LINE];
+    for (;;) {
+        mutexLock(&output.lock);
+        while (!output.queue.count && !output.stop)
+            condvarWait(&output.wake, &output.lock);
+        int available = swp_log_pop(&output.queue, line);
+        int done = output.stop && !available;
+        mutexUnlock(&output.lock);
+        if (done)
+            break;
+        if (available)
+            fputs(line, stderr);
+    }
+}
+
+static void output_shutdown(void)
+{
+    if (!output.running)
+        return;
+    mutexLock(&output.lock);
+    output.stop = 1;
+    condvarWakeOne(&output.wake);
+    mutexUnlock(&output.lock);
+    threadWaitForExit(&output.worker);
+    threadClose(&output.worker);
+    output.running = 0;
+}
+
+/* Never hold the queue mutex while writing stdio: SD/network diagnostics can
+   wait behind a movie read for hundreds of milliseconds on the console. */
+static void output_line(const char *format, ...)
+{
+    mutexLock(&output.lock);
+    if (!output.initialized) {
+        output.initialized = 1;
+        /* libnx thread.h: 0x3B is the preemptive worker priority on cores 0..2. */
+        Result result = threadCreate(&output.worker, output_worker, NULL, NULL, 64 * 1024, 0x3b, 2);
+        if (R_FAILED(result))
+            result = threadCreate(&output.worker, output_worker, NULL, NULL, 64 * 1024, 0x3b, -2);
+        if (R_FAILED(result)) {
+            mutexUnlock(&output.lock);
+            fprintf(stderr, "Switch profiler: output worker creation failed: %08x\n", result);
+            return;
+        }
+        result = threadStart(&output.worker);
+        if (R_FAILED(result)) {
+            threadClose(&output.worker);
+            mutexUnlock(&output.lock);
+            fprintf(stderr, "Switch profiler: output worker start failed: %08x\n", result);
+            return;
+        }
+        output.running = 1;
+        atexit(output_shutdown);
+    }
+    int running = output.running;
+    mutexUnlock(&output.lock);
+    if (!running)
+        return;
+    char line[SWP_LOG_LINE];
+    va_list args;
+    va_start(args, format);
+    int size = vsnprintf(line, sizeof line, format, args);
+    va_end(args);
+    if (size < 0 || (size_t)size >= sizeof line)
+        return;
+    mutexLock(&output.lock);
+    if (swp_log_push(&output.queue, line))
+        condvarWakeOne(&output.wake);
+    mutexUnlock(&output.lock);
+}
+#define OUTPUT(...) output_line(__VA_ARGS__)
 #else
 /* The host fixture controls the clock; counters still support concurrent workers. */
 #ifdef _WIN32
@@ -50,7 +135,8 @@ static double milliseconds(uint64_t value)
 static counter busy[SWP_STAGE_COUNT], calls[SWP_STAGE_COUNT];
 static const char *names[] = {"physics",   "scene",       "gl_submit",     "swap",
                               "audio_mix", "audio_synth", "audio_control", "disc",
-                              "inflate",   "loading",     "logic",         "idle"};
+                              "inflate",   "loading",     "logic",         "idle",
+                              "gpu_fence", "gpu_acquire", "gpu_copy",      "gpu_date"};
 static TLS struct {
     enum swp_stage stack[32];
     unsigned depth, overflow;

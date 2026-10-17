@@ -15,6 +15,7 @@ Start with [How it works](HOW_IT_WORKS.md), then [Building and testing](BUILDING
 - [Resource coverage](CLASSIC_RESOURCE_AUDIT.md): functional availability versus verification.
 - [GT Mode interface](GT_MODE_UI.md): scripts, career objects and presentation boundaries.
 - [Cinematic camera](CINEMATIC_CAMERA.md): controls for the deliberate PC camera feature.
+- [Input support](INPUT.md): current mouse/keyboard controls, options, evidence and planned Switch/Android touch.
 - [Display settings](PC_VIDEO_UI.md): host display choices and their persistence.
 - [PC launcher](LAUNCHER.md): disc-backed fonts and icons, live car preview,
   cinematic cameras and presentation limits.

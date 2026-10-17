@@ -1,13 +1,11 @@
-# PC launcher (secondary)
+# PC launcher
 
-This is Moon Engine's **secondary launcher**. The official launcher is a
-separate contribution in development and is not in this repository yet; it
-keeps the plain launcher names. To avoid clashing with it, this one stores
-`secondary_launcher.ini`, `secondary_launcher-options` and
-`secondary_launcher_photos` in the player data folder (files of the earlier
-`launcher*` names are moved once on start), registers its Windows classes as
-`MoonEngineSecondary*` and titles its window "Moon Engine - secondary
-launcher". Its source files and tests keep their names.
+Since 16/10/2026 the launcher is Mr. Dante's official one (front-end studio
+room, first-run wizard and `launcher_ui`), integrated from his MoonEngine
+commits 89a0be0 and ab5b249; the earlier secondary launcher was removed.
+Its own design notes are in `docs/vulcan4/` (`LAUNCHER-ARCHITECTURE.md`,
+`LAUNCHER-V2.md`, `STUDIO-ROOM.md`). The text below describes the earlier
+launcher and is kept as history until it is rewritten for the official one.
 
 The Windows launcher prepares the disc, display, audio, controls and active
 save before starting the native game. Its home screen is a PC presentation
@@ -149,3 +147,15 @@ background, frame and label at zero tolerance. The negative calls the former
 native button eraser and fails when its white fill changes the pixels.
 This is a tested PC presentation fix (P), not a PS2 fidelity claim or proof
 that every possible source of flicker has been eliminated.
+
+
+## Frame queue and refresh limit
+
+The Video page includes **Vulkan frame queue**: Balanced uses two independent
+submission slots, while Low latency waits for the current slot. **Frame
+limit** offers Unlimited, 60, 90, 120, 144, 165 and 240 FPS. VSync can impose
+a lower display limit. The cap applies to race/replay rendering on either
+PC backend; native menus retain 60 Hz pacing. These choices persist in the
+video preferences and are preserved by the original in-game settings.
+The queue setting affects Vulkan only. See [Vulkan performance and tests](VULKAN.md#frame-queue-preparation-and-frame-pacing)
+for resource lifetime, cache preparation, timings and limitations. Grade P.

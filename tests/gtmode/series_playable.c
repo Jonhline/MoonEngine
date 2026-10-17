@@ -587,7 +587,7 @@ static int physical(const char *disc, gt4_vol *vol, menu *m, const char *series,
         while (order[position])
             position++;
         uint32_t player = gt4_race_run_car(run, 0),
-                 a = gt4_career_distance_integer(GT4_F32(player + 0x6d4) - GT4_F32(player + 0x7b0)),
+                 a = gt4_career_distance_aspec(GT4_F32(player + 0x6d4), GT4_F32(player + 0x7b0)),
                  b = gt4_career_distance_integer(GT4_F32(player + 0x7b0));
         uint8_t wear[32];
         memcpy(wear, gt4_ptr(player + CAR_ENGINE_WEAR), 32);

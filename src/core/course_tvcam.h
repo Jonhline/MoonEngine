@@ -12,7 +12,8 @@
 typedef struct gt4_tvcam gt4_tvcam;
 
 /* the watched car: its place (the camera aims 0.4 above it) and distance
-   along the course (car+0x5A8) */
+   along the course with the laps the shots cover (target+0x34, from
+   gt4_tvcam_distance) */
 typedef struct {
     float pos[3];
     float distance;
@@ -39,6 +40,8 @@ void gt4_tvcam_set_zoom(gt4_tvcam *c, float zoom);
 float gt4_tvcam_zoom_step(float s[3], int on);
 /* one 60 Hz tick: picks a shot when none runs or the last one ended */
 int gt4_tvcam_step(gt4_tvcam *c, const gt4_tvcam_target *t, gt4_tvcam_view *out);
+/* target+0x34 from the car's course distance (car+0x5A8) and lap (00343BC0) */
+float gt4_tvcam_distance(const gt4_tvcam *c, float course_distance, int lap);
 unsigned gt4_tvcam_count(const gt4_tvcam *c);
 
 /* The replay's Dive mode (func_00376638's director with its point

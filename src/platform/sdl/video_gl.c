@@ -20,6 +20,7 @@
 #include "vk_render.h"
 #endif
 #include "fsr.h"
+#include "../common/frame_pacing.h"
 #if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
 #include "switch_quality.h"
 #endif
@@ -48,13 +49,24 @@ static int vsync, upscale;
 static int menu_pacing = 1, frame_presented;
 static int menu_projection = 1;
 static void layout_view(void);
-static uint64_t menu_deadline;
+static moon_frame_pacer frame_pacer;
+static int frame_limit;
+void video_performance_options(int low_latency, int fps_limit)
+{
+    frame_limit = fps_limit >= 0 && fps_limit <= 500 ? fps_limit : 0;
+    frame_pacer.rate = 0;
+#ifdef MOON_PC_VULKAN
+    moon_vk_render_low_latency(low_latency);
+#else
+    (void)low_latency;
+#endif
+}
 void video_set_menu_pacing(int enabled)
 {
     enabled = enabled != 0;
     if (menu_pacing != enabled) {
         menu_pacing = enabled;
-        menu_deadline = 0;
+        frame_pacer.rate = 0;
     }
 }
 /* Diagnostic only: synchronize the GPU to measure complete frame work. */
@@ -638,17 +650,17 @@ void plat_video_begin_frame(void)
 {
     /* Native UI advances at 60 Hz. A high-refresh display or disabled swap
        interval must not make an idle menu submit unbounded GPU work.
-       Sleep before rendering; no spinning and no accumulated catch-up frames. */
-    if (menu_pacing || capture_pipe) {
-        const uint64_t period = 1000000000ull / 60;
-        uint64_t now = plat_time_ns();
-        if (menu_deadline && now < menu_deadline) {
-            SWP_VOID(SWP_IDLE, SDL_Delay((Uint32)((menu_deadline - now + 999999) / 1000000)));
-            now = plat_time_ns();
-        }
-        if (!menu_deadline || now > menu_deadline + period)
-            menu_deadline = now;
-        menu_deadline += period;
+       Sleep before rendering, yield near the deadline, and avoid catch-up bursts. */
+    unsigned rate = menu_pacing || capture_pipe ? 60u : (unsigned)frame_limit;
+    uint64_t now = plat_time_ns();
+    uint64_t deadline = moon_frame_deadline(&frame_pacer, now, rate);
+    while (now < deadline) {
+        uint64_t remaining = deadline - now;
+        if (remaining > 1500000)
+            SDL_Delay((Uint32)((remaining - 500000) / 1000000));
+        else
+            SDL_Delay(0);
+        now = plat_time_ns();
     }
     if (profile_frames) {
         profile_start = plat_time_ns();
@@ -1143,6 +1155,18 @@ GLuint video_texture_id(const plat_texture *t)
 {
     return t ? t->id : 0;
 }
+
+#ifndef __SWITCH__
+int video_window_to_ui(int x, int y, float *u, float *v)
+{
+    int ww, wh;
+    SDL_GetWindowSize(plat_sdl_window(), &ww, &wh);
+    if (ww <= 0 || wh <= 0 || scale_x <= 0 || scale_y <= 0) return 0;
+    *u = (x * (float)fb_w / ww - off_x) / scale_x;
+    *v = (y * (float)fb_h / wh - off_y) / scale_y;
+    return *u >= 0 && *v >= 0 && *u < view_w && *v < view_h;
+}
+#endif
 
 void video_viewport(float x, float y, float w, float h, int *vx, int *vy, int *vw, int *vh)
 {

@@ -26,6 +26,16 @@ This permits direct memory comparisons against the original. It is a data
 representation, not CPU emulation in the game. Native setup loads CORE.GT4
 tables and constructs the state consumed by the C solver.
 
+Every live mode uses the same scalar arithmetic. At build time,
+`tools/ps2_replay_float.py` lowers float operators in our native C through
+`pycparser` to the existing integer EE arithmetic model. This preserves
+operand order, including the multiplier's asymmetric low bits. Generated
+project C stays under `build/physics_math/`; the build never consumes an
+original executable or original-code output. `cmake/ReplayMath.cmake` also
+builds a historical host-float variant solely for native GT4R v1 playback.
+New recordings are GT4R v2; original GT4M imports and live races use EE math.
+See [arithmetic evidence and limits](notes/DISC_REPLAY_ARITHMETIC.md).
+
 The `moonengine` target in `CMakeLists.txt` links native core, physics, vehicle,
 sound and platform libraries. It does not link `moon_ee`; reference test
 targets may link that library and locally generated original-code chunks.

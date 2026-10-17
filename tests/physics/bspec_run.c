@@ -4,7 +4,7 @@
    orders go through the race's event block (cond+0xF8F8 + car * 4) and
    the controller's read (00426D50 copies the block into the command,
    00349FD0 hands +0x14/+0x15 to 003F19E0): the pace into the driver's
-   +0x6D with its ratios (slot 07: level 4, +0x70/+0x74 0x3F8CCCCD), the
+   +0x6D with its ratios (slot 07: level 4, +0x70/+0x74 0x3F8CCCCC), the
    overtake into +0x6E (slot 08). --negative builds it A-Spec: the car
    stays the player's and does not move. */
 #include "physics/race_run.h"
@@ -125,7 +125,8 @@ int main(int argc, char **argv)
     CHECK(gt4_bspec_order(cond,idx,7,0)==4);
     printf("pace order 4: driver +0x6D %u +0x70 %08x +0x74 %08x\n", GT4_U8(obj + 0x6d),
            GT4_U32(obj + 0x70), GT4_U32(obj + 0x74));
-    CHECK(GT4_U8(obj+0x6d)==4 && GT4_U32(obj+0x70)==0x3f8ccccdu && GT4_U32(obj+0x74)==0x3f8ccccdu);
+    /* 003F1790 +0xB8..0xE4: verified by physics_bspec_choices, EE division. */
+    CHECK(GT4_U8(obj+0x6d)==4 && GT4_U32(obj+0x70)==0x3f8cccccu && GT4_U32(obj+0x74)==0x3f8cccccu);
     CHECK(gt4_bspec_order(cond,idx,5,1)==1);
     CHECK(run(r,2));
     CHECK(gt4_bspec_order(cond,idx,8,0)==1);

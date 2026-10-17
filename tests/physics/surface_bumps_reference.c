@@ -1,7 +1,9 @@
-/* Original: func_0035F808 +0x1B8. Captured surface wave numbers are
-   independent of the native/oracle host divider and are compared as bits. */
+/* Original: func_0035F808 +0x19C..0x1B8. Check both historical host
+   arithmetic against its captures and EE arithmetic against original code.
+   The PCSX2 snapshots retain the emulator's historical host multiplier. */
 #include "car.h"
 #include "fields_conductor.h"
+#include "ee.h"
 
 #include <fenv.h>
 #include <stdio.h>
@@ -14,6 +16,8 @@ enum {
     SURFACE_WAVES = 0x00620a44,
     SURFACE_COUNT = 24
 };
+ee_fn recomp_lookup(uint32_t);
+void legacy_gt4_surface_bumps(uint32_t);
 
 static int check_capture(const char *path, int negative)
 {
@@ -55,6 +59,33 @@ static int check_capture(const char *path, int negative)
     fenv_t environment;
     fegetenv(&environment);
     gt4_phys_fpu_enter();
+    legacy_gt4_surface_bumps(conductor);
+    if (memcmp(expected, ram + SURFACE_WAVES, sizeof expected)) {
+        fprintf(stderr, "%s: historical capture/legacy arithmetic mismatch\n", path);
+        free(ram);
+        fesetenv(&environment);
+        return 1;
+    }
+    ee_ctx original;
+    if (ee_init(&original)) {
+        free(ram);
+        fesetenv(&environment);
+        return 1;
+    }
+    memcpy(original.ram, ram, RAM_SIZE);
+    original.lookup = recomp_lookup;
+    original.r[4].uw[0] = conductor;
+    original.r[29].uw[0] = 0x01ef0000;
+    recomp_lookup(0x0035f808)(&original);
+    if (original.end_reason != EE_END_NONE) {
+        fprintf(stderr, "%s: original surface initializer stopped: %s\n", path,
+                original.end_detail);
+        ee_free(&original);
+        free(ram);
+        fesetenv(&environment);
+        return 1;
+    }
+    memcpy(expected, original.ram + SURFACE_WAVES, sizeof expected);
     gt4_surface_bumps(conductor);
     fesetenv(&environment);
     if (negative)
@@ -69,6 +100,7 @@ static int check_capture(const char *path, int negative)
         }
     }
     free(ram);
+    ee_free(&original);
     gt4_phys_mem = NULL;
     return different;
 }
@@ -81,7 +113,7 @@ int main(int argc, char **argv)
     for (int i = first; i < argc; i++)
         if (check_capture(argv[i], first == 2))
             return 1;
-    printf("PASS %d captures, %d original surface wave numbers each\n", argc - first,
-           SURFACE_COUNT);
+    printf("PASS %d captures: legacy words retained, %d EE surface words match original each\n",
+           argc - first, SURFACE_COUNT);
     return 0;
 }

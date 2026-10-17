@@ -62,4 +62,6 @@ void gt4_car_turn_step(float *angle, float *velocity);
 /* Keep a map-model pivot at its authored resting position during rotation. */
 void ui_model_pivot_offset(const float rotation[9], const float rest[9], const float pivot[3],
                            float offset[3]);
+/* 00215FE0 -> 004A2DF8: quantize origin and extent separately for GS scissor. */
+void gt4_ui_scissor(const float rect[4], int width, int height, int interlaced, int out[4]);
 #endif

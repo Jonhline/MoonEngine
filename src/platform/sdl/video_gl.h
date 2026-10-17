@@ -39,7 +39,11 @@ void video_end_scene(void);
 /* UI filtering: 0 linear, 1 sharp cubic, 2 nearest. Text is separate. */
 void video_ui_quality(int filter, float text_sharpness);
 int video_set_vsync(int enabled);
+void video_performance_options(int low_latency, int fps_limit);
 /* A rectangle of the virtual screen as a GL viewport in frame pixels. */
+#ifndef __SWITCH__
+int video_window_to_ui(int x, int y, float *u, float *v);
+#endif
 void video_viewport(float x, float y, float w, float h, int *vx, int *vy, int *vw, int *vh);
 /* Copies what the frame holds in a rectangle of the virtual screen into t
    (created or resized as needed; NULL makes one). Drawn back with

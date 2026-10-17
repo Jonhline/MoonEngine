@@ -7,14 +7,15 @@
  */
 #include "platform/switch_profile.h"
 #include "race_view.h"
-#if defined(__SWITCH__) || defined(MOON_PC_VULKAN)
+#ifdef MOON_PC_VULKAN
+#include "vk_render.h"
+#endif
 #include "switch_render.h"
 #include "video_gl.h"
 #ifdef _WIN32
 /* Windows calling-convention aliases collide with course field names. */
 #undef near
 #undef far
-#endif
 #endif
 #ifdef MOON_PC_VULKAN
 #include "vk_render.h"
@@ -150,9 +151,7 @@ struct race_view {
     plat_texture *sky;
     r3d_mesh *env_sky;
     uint8_t *env_faces;
-#if defined(__SWITCH__) || defined(MOON_PC_VULKAN)
     switch_gpu_image *gpu_env;
-#endif
     tex1_image env_map;
     int env_ok; /* the cars' reflection of the course */
     int warned;
@@ -707,10 +706,8 @@ static void drop_meshes(race_view *v)
     r3d_mesh_destroy(v->env_sky);
     v->env_sky = NULL;
     v->env_ok = 0;
-#if defined(__SWITCH__) || defined(MOON_PC_VULKAN)
     switch_gpu_image_destroy(v->gpu_env);
     v->gpu_env = NULL;
-#endif
     r3d_mesh_destroy(v->sheen_mask);
     v->sheen_mask = NULL;
     r3d_mesh_destroy(v->sheen_set);
@@ -1023,8 +1020,13 @@ int race_view_poll(race_view *v, int cancel)
         return -1;
     if (cancel)
         free_asset(a);
-    else
+    else {
         install(v, a);
+#ifdef MOON_PC_VULKAN
+        if (!moon_vk_render_prepare_geometry())
+            return -1;
+#endif
+    }
     return 1;
 }
 
@@ -1884,16 +1886,16 @@ static void course_reflection(race_view *v, const float centre[3], const r3d_vie
     if (!v->env_sky && !v->scenery)
         return;
     int gpu = 0;
-#if defined(__SWITCH__) || defined(MOON_PC_VULKAN)
-    /* Keep Vulkan reflections resident: six synchronous face readbacks
-       otherwise serialize the race frame. CPU composition remains a reference. */
-#ifdef MOON_PC_VULKAN
-    if (moon_vk_render_active() && !getenv("MOON_REFLECTION_CPU"))
+    /* PC and native Switch retain the six views and remap on the GPU.
+       CPU composition remains available for independent comparisons. */
+#if defined(__SWITCH__)
+    int resident_environment = 1;
+#else
+    int resident_environment = r3d_resident_reflections();
 #endif
-        if (!v->gpu_env)
-            v->gpu_env = switch_gpu_env_create(ENV_FACE, ENV_SIZE);
-    gpu = v->gpu_env != NULL;
-#endif
+    if (resident_environment && !v->gpu_env)
+        v->gpu_env = switch_gpu_env_create(ENV_FACE, ENV_SIZE);
+    gpu = resident_environment && v->gpu_env != NULL;
     if (!gpu && !v->env_faces && !(v->env_faces = malloc((size_t)6 * ENV_FACE * ENV_FACE * 4)))
         return;
     if (!gpu && !v->env_map.rgba) {
@@ -1926,20 +1928,16 @@ static void course_reflection(race_view *v, const float centre[3], const r3d_vie
         f.cam[1] = centre[1] + .8f;
         f.cam[2] = centre[2];
         r3d_draw(v->scenery, &f);
-#if defined(__SWITCH__) || defined(MOON_PC_VULKAN)
         if (gpu)
             switch_gpu_env_capture(v->gpu_env, face);
         else
-#endif
             r3d_end_target(v->env_faces + (size_t)face * ENV_FACE * ENV_FACE * 4);
     }
-#if defined(__SWITCH__) || defined(MOON_PC_VULKAN)
     if (gpu) {
         switch_gpu_env_remap(v->gpu_env, eye->r, eye->u, eye->f);
         v->env_ok = 1;
         return;
     }
-#endif
     for (int y = 0; y < ENV_SIZE; y++)
         for (int x = 0; x < ENV_SIZE; x++) {
             /* sphere-map texel -> view-space reflection -> world direction (the showroom's) */
@@ -2091,17 +2089,18 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
     car.color_scale = 0;
     memcpy(car.rot, rot, sizeof rot);
     memcpy(car.pos, pos, sizeof pos);
-#ifndef MOON_DEKO3D
     if (!pregrid)
         course_reflection(v, pos, &world);
-#endif /* P: native Switch uses resident static environment probes. */
     /* the Dive's filter on the course, not the cars: rp_04 (PCSX2) shows
        its fence at (1, 0.6, 0.35) of the grey and the cars' paint as it
        is (A: the pass that does it is not read) */
     if (!menu && v->grade_on)
         memcpy(world.grade, v->grade, sizeof world.grade);
-#if defined(__SWITCH__) || defined(MOON_PC_VULKAN)
-    if (v->gpu_env && v->env_ok) {
+    if (v->gpu_env && v->env_ok
+#if !defined(__SWITCH__)
+        && r3d_resident_reflections()
+#endif
+    ) {
         if (photo)
             r3d_begin_ui_environment(x, y, w, h, NULL);
         else
@@ -2109,7 +2108,6 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
         r3d_gpu_environment(video_texture_id(switch_gpu_image_texture(v->gpu_env)), ENV_SIZE,
                             ENV_SIZE);
     } else
-#endif
         if (photo)
         r3d_begin_ui_environment(x, y, w, h,
                                  v->env_ok               ? &v->env_map

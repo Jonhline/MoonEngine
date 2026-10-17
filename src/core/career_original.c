@@ -2,6 +2,7 @@
 #include <string.h>
 #include <math.h>
 #include "career_float.h"
+#include "physics/replay_float.h"
 #include <fenv.h>
 
 /* 0014EC60 -> 00343A80 -> 00366300. 003660D8 initializes the linear
@@ -437,13 +438,18 @@ int32_t gt4_career_course_length(float metres)
         return bits >> 31 ? INT32_MIN : INT32_MAX;
     return (int32_t)metres;
 }
+/* 0035DDB0 +0x14, then 0010FB44: subtract before distance conversion. */
+uint32_t gt4_career_distance_aspec(float total, float bspec)
+{
+    return gt4_career_distance_integer(gt4_replay_f_sub(total, bspec));
+}
 uint32_t gt4_career_distance_integer(float distance)
 {
     /* cvt.w.s saturates signed overflow and truncates towards zero;
        0010FB58..0010FB68 handles the unsigned high half separately. */
     int high = distance >= 2147483648.0f;
     if (high)
-        distance = distance - 2147483648.0f;
+        distance = gt4_replay_f_sub(distance, 2147483648.0f);
     uint32_t bits;
     memcpy(&bits, &distance, 4);
     uint32_t value = (bits & 0x7f800000u) >= (158u << 23)
