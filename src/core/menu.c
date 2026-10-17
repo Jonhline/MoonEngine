@@ -478,6 +478,69 @@ menu *menu_open(gt4_vol *vol, const char *project, char *err, size_t err_len)
     return menu_open_presented(vol, project, err, err_len, NULL, NULL);
 }
 
+/* A mod's car joins the DEALERSHIP's own catalog. The showroom lists what the
+   disc's authored catalog says -- `<maker>_carlist` plus its own `<maker>_carnum`
+   count, inside the containers the script declares (`NewCarData` for the new-car
+   dealers, `CompleteCarData` for the full browse, both read from
+   /projects/gtmode/US_carlist.adc the moment the project opens).
+ *
+ * So a car that is not in those lists can be driven in Arcade but never bought.
+   The label is pushed in and the COUNT IS BUMPED -- a script that walks its own
+   list by count would otherwise never see the addition. From there the purchase
+   path is the game's own: the label resolves through the same merged GENERIC_CAR
+   tables, GetPrice reads the row the SDK wrote, and the garage takes it.
+ *
+ * Only a car whose manifest names a maker is filed: a brand-less car stays out of
+   the dealership rather than being invented into a random brand. */
+static void mod_cars_into_catalog(menu *m)
+{
+    static const char *labels[MOON_MOD_MAX], *makers[MOON_MOD_MAX];
+    size_t n = moon_mod_added_cars(labels, makers, MOON_MOD_MAX);
+    if (!n || !m)
+        return;
+    static const char *const containers[] = {"NewCarData", "CompleteCarData", "CarData"};
+    int filed = 0;
+    for (size_t c = 0; c < sizeof containers / sizeof containers[0]; c++) {
+        ah_val data;
+        if (!ah_get_member(m->vm, m->project, containers[c], &data))
+            continue;
+        ah_obj *store = ah_as_obj(data, AO_MODULE);
+        if (!store)
+            continue;
+        for (size_t i = 0; i < n; i++) {
+            if (!makers[i][0])
+                continue;
+            char key[192], num_key[192];
+            snprintf(key, sizeof key, "%s_carlist", makers[i]);
+            snprintf(num_key, sizeof num_key, "%s_carnum", makers[i]);
+            ah_val cars;
+            if (!ah_get_member(m->vm, store, key, &cars))
+                continue;
+            ah_obj *list = ah_as_obj(cars, AO_ARRAY);
+            if (!list)
+                continue;
+            int have = 0;
+            for (int k = 0; k < ah_array_size(list); k++) {
+                const char *e = ah_cstr(ah_array_get(list, k));
+                if (e && !strcmp(e, labels[i])) {
+                    have = 1;
+                    break;
+                }
+            }
+            if (!have) {
+                ah_array_push(m->vm, list, ah_str(m->vm, labels[i]));
+                filed++;
+            }
+            ah_set_member(m->vm, store, num_key, ah_int(ah_array_size(list)));
+            printf("menu: %s.%s gains \"%s\" (a mod's car), list now %d\n", containers[c], key,
+                   labels[i], ah_array_size(list));
+        }
+    }
+    if (!filed)
+        printf("menu: a mod's car could not be filed in the dealership catalog "
+               "(no maker, or the project declares no new-car list)\n");
+}
+
 menu *menu_open_presented(gt4_vol *vol, const char *project, char *err, size_t err_len,
                           void (*progress)(void *), void *user)
 {
@@ -618,6 +681,9 @@ menu *menu_open_presented(gt4_vol *vol, const char *project, char *err, size_t e
         ah_val ctx = ah_objv(m->context), result;
         if (ah_call_member(m->vm, m->project, "onLoad", 1, &ctx, &result) < 0)
             fprintf(stderr, "menu: gtmode project onLoad failed\n");
+        /* After the project is up: its CarData exists by now, so a mod's car can
+           be filed. Doing this before onLoad asked a catalog that was not there. */
+        mod_cars_into_catalog(m);
     }
     if (!strcmp(project, "labomode"))
         album_music_bind(m);
