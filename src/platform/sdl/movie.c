@@ -166,6 +166,38 @@ void sdl_movie_close(sdl_movie *m)
     plat_texture_destroy(m->texture);
     free(m);
 }
+/* Create every component of a wide directory path (trailing separator or not),
+   like gt4_save_mkdir does for the save folders, so an adopted copy has a place
+   to land even on a machine where nothing has written there yet. */
+static void movie_make_dirs(wchar_t *path)
+{
+    for (wchar_t *at = path; *at; at++) {
+        if ((at > path + 2 && (*at == L'\\' || *at == L'/')) || !at[1]) {
+            wchar_t c = *at;
+            int end = !at[1];
+            if (!end)
+                *at = 0;
+            CreateDirectoryW(path, NULL);
+            if (!end)
+                *at = c;
+        }
+    }
+}
+/* Nothing found: name every place we looked, in order, in one block. */
+static void movie_report_search(const wchar_t *user, const wchar_t *beside)
+{
+    fprintf(stderr, "movie: ffmpeg not found -- looked for ffmpeg.exe, in order:\n");
+    fprintf(stderr, "movie:   1. user folder     %ls\n",
+            user && user[0] ? user : L"(unavailable)");
+    fprintf(stderr, "movie:   2. beside the exe  %ls\n",
+            beside && beside[0] ? beside : L"(unavailable)");
+#ifdef MOON_FFMPEG
+    fprintf(stderr, "movie:   3. build setting   %s\n", MOON_FFMPEG);
+#else
+    fprintf(stderr, "movie:   3. build setting   (not set)\n");
+#endif
+    fprintf(stderr, "movie:   4. PATH            ffmpeg.exe\n");
+}
 static sdl_movie *open_media(const uint8_t *data, size_t size, int interlace, int repeat,
                              int audio_track, int ipu)
 {
@@ -192,14 +224,21 @@ static sdl_movie *open_media(const uint8_t *data, size_t size, int interlace, in
     fclose(f);
     if (written != size)
         goto fail;
-    /* FFmpeg: beside the executable first (a release ships it there), then the
+    /* FFmpeg decodes the menu's MPEG-PS movies. It is meant to live in the
        engine's own user folder (%APPDATA%\MoonEngine\MoonEngine\ on Windows,
-       where mods, saves and launcher.ini live), then the one found when
-       building, then whatever PATH holds. */
+       where mods, saves and launcher.ini live), but a release ships it BESIDE
+       the executable so a fresh install is complete out of the box. On the
+       first run we adopt that beside-the-exe copy into the user folder once,
+       which leaves the program folder holding a single file from then on. The
+       search order is: the user folder (populated by adoption if needed), then
+       a copy still beside the exe, then the one found when building, then
+       whatever PATH holds. Never overwrite an ffmpeg already in the user
+       folder. */
     {
+        wchar_t user[MAX_PATH], beside[MAX_PATH];
         char pref[1024];
-        wchar_t user[MAX_PATH];
         user[0] = 0;
+        beside[0] = 0;
         if (plat_pref_dir(pref, sizeof pref)) {
             char full[1200];
             snprintf(full, sizeof full, "%sffmpeg.exe", pref);
@@ -210,20 +249,42 @@ static sdl_movie *open_media(const uint8_t *data, size_t size, int interlace, in
         wchar_t *cut = n && n < MAX_PATH ? wcsrchr(exe, L'\\') : NULL;
         if (cut) {
             wcscpy(cut + 1, L"ffmpeg.exe");
+            wcsncpy(beside, exe, MAX_PATH - 1);
+            beside[MAX_PATH - 1] = 0;
         }
-        if (!cut || GetFileAttributesW(exe) == INVALID_FILE_ATTRIBUTES) {
-            if (user[0] && GetFileAttributesW(user) != INVALID_FILE_ATTRIBUTES) {
-                wcsncpy(exe, user, MAX_PATH);
-                exe[MAX_PATH - 1] = 0;
-            } else {
+        int user_ok = user[0] && GetFileAttributesW(user) != INVALID_FILE_ATTRIBUTES;
+        int beside_ok = beside[0] && GetFileAttributesW(beside) != INVALID_FILE_ATTRIBUTES;
+        if (!user_ok && beside_ok && user[0]) {
+            wchar_t dir[MAX_PATH];
+            if (MultiByteToWideChar(CP_UTF8, 0, pref, -1, dir, MAX_PATH) > 0)
+                movie_make_dirs(dir);
+            /* Move it, so the program folder is left holding a single file.
+               MoveFileW fails across volumes; copy then remove covers that. */
+            int adopted = MoveFileW(beside, user);
+            if (!adopted && CopyFileW(beside, user, FALSE))
+                DeleteFileW(beside);
+            if (adopted || GetFileAttributesW(user) != INVALID_FILE_ATTRIBUTES) {
+                fprintf(stderr, "movie: adopted ffmpeg from beside the exe into %ls\n", user);
+                user_ok = 1;
+            }
+        }
+        if (user_ok) {
+            wcsncpy(exe, user, MAX_PATH - 1);
+            exe[MAX_PATH - 1] = 0;
+        } else if (beside_ok) {
+            /* Adoption could not write the user folder; still play from beside. */
+            wcsncpy(exe, beside, MAX_PATH - 1);
+            exe[MAX_PATH - 1] = 0;
+        } else {
 #ifdef MOON_FFMPEG
-                MultiByteToWideChar(CP_UTF8, 0, MOON_FFMPEG, -1, exe, MAX_PATH);
-                if (GetFileAttributesW(exe) == INVALID_FILE_ATTRIBUTES)
+            MultiByteToWideChar(CP_UTF8, 0, MOON_FFMPEG, -1, exe, MAX_PATH);
+            if (GetFileAttributesW(exe) == INVALID_FILE_ATTRIBUTES)
 #endif
-                {
-                    wchar_t *part = NULL;
-                    if (!SearchPathW(NULL, L"ffmpeg.exe", NULL, MAX_PATH, exe, &part))
-                        goto fail;
+            {
+                wchar_t *part = NULL;
+                if (!SearchPathW(NULL, L"ffmpeg.exe", NULL, MAX_PATH, exe, &part)) {
+                    movie_report_search(user, beside);
+                    goto fail;
                 }
             }
         }
