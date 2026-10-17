@@ -14,10 +14,10 @@ struct nd_image {
     DkImage image;
     DkImageView view;
     unsigned slot, width, height;
-    bool depth;
+    bool depth, alpha_mask;
 };
 
-enum nd_program { ND_UI, ND_MESH, ND_MIX };
+enum nd_program { ND_UI, ND_MESH, ND_MIX, ND_ENV, ND_SNAPSHOT, ND_MASK };
 int nd_init(unsigned width, unsigned height);
 void nd_shutdown();
 DkCmdBuf nd_commands();
@@ -30,11 +30,14 @@ void nd_release(nd_buffer memory);
 void *nd_cpu(nd_buffer memory);
 DkGpuAddr nd_gpu(nd_buffer memory);
 DkGpuAddr nd_stream(const void *bytes, size_t size, unsigned alignment = 256);
-nd_image *nd_image_create(unsigned w, unsigned h, bool depth = false, bool present = false);
+nd_image *nd_image_create(unsigned w, unsigned h, bool depth = false, bool present = false,
+                          bool alpha_mask = false);
 void nd_image_destroy(nd_image *image);
 void nd_image_upload(nd_image *image, const uint8_t *rgba);
 bool nd_image_read(nd_image *image, void *bytes);
 void nd_copy(nd_image *src, nd_image *dst, unsigned x, unsigned y, unsigned w, unsigned h);
+void nd_snapshot(nd_image *src, nd_image *dst, unsigned x, unsigned y, unsigned width,
+                 unsigned height);
 void nd_bind(nd_image *color, nd_image *depth);
 void nd_viewport(int x, int y, int w, int h);
 void nd_scissor(int x, int y, int w, int h);
@@ -43,7 +46,8 @@ void nd_pipeline(nd_program program, const nd_uniform &uniforms, nd_buffer verti
                  unsigned count, const unsigned images[4], const DkRasterizerState &raster,
                  const DkDepthStencilState &depth, const DkColorState &color,
                  const DkColorWriteState &mask, const DkBlendState &blend, float fixed_alpha,
-                 unsigned sampler = 0, DkGpuAddr vertex_address = 0, unsigned probe_flags = 0);
+                 unsigned sampler = 0, DkGpuAddr vertex_address = 0, unsigned probe_flags = 0,
+                 DkGpuAddr index_address = 0, unsigned index_count = 0);
 nd_image *nd_image_slot(unsigned slot);
 unsigned nd_program_count();
 #endif

@@ -67,6 +67,9 @@ struct race_game {
     race_view *view;
     gt4_race_run *run;
     int loading, ready, others, laps, time_trial;
+#ifdef __SWITCH__
+    int hud_preparing;
+#endif
     int world_mode; /* GT Mode Free Run 11 / Practice 12 (race_game_set_world_mode) */
     int tire, manual, assist_asm, assist_tcs;
     int split;
@@ -200,6 +203,7 @@ struct race_game {
     double license_result_test_clock;
     unsigned license_result_test_sent;
     int replaying, replay_next;
+    int legacy_replay_math; /* Native GT4R v1 playback only; live modes use EE math. */
     gt4_disc_replay *disc_replays;
     unsigned disc_segments, disc_segment, disc_segments_2p, disc_segment_2p;
     size_t disc_segment_at_2p[3];
@@ -587,6 +591,9 @@ void race_game_stop(race_game *g)
     gt4_race_run_close(g->run);
     g->run = NULL;
     g->loading = g->ready = 0;
+#ifdef __SWITCH__
+    g->hud_preparing = 0;
+#endif
     g->ghost_car = 0;
     if (gt4_wheel_smoke_user == g) {
         gt4_wheel_smoke = NULL;
@@ -750,6 +757,9 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
     if (d.split_battle)
         d.bspec = 0;
     g->split = d.split_battle;
+    d.legacy_recording = g->replay_next && !g->demonstrating && g->legacy_replay_math;
+    if (!g->replay_next)
+        g->legacy_replay_math = 0;
     g->run = gt4_race_run_open(g->disc, &d, msg, len);
     if (!g->run)
         return 0;
@@ -1087,14 +1097,30 @@ static void start_smoke(race_game *g)
         gt4_wheel_leaves = leaf_wheel;
 }
 
+#ifdef __SWITCH__
+static int prepare_switch_hud(race_game *g);
+#endif
+
 int race_game_poll(race_game *g)
 {
     int r;
     if (!g || !g->loading)
         return g && g->ready ? 1 : -1;
+#ifdef __SWITCH__
+    r = g->hud_preparing ? 1 : race_view_poll(g->view, 0);
+#else
     r = race_view_poll(g->view, 0);
+#endif
     if (r == 0)
         return 0;
+#ifdef __SWITCH__
+    if (r > 0) {
+        g->hud_preparing = 1;
+        if (!prepare_switch_hud(g))
+            return 0; /* One font/upload batch per loading frame, before reveal. */
+        g->hud_preparing = 0;
+    }
+#endif
     g->loading = 0;
     if (r < 0) {
         race_game_stop(g);
@@ -1254,7 +1280,7 @@ int race_game_player_distances(const race_game *g, uint32_t *a, uint32_t *b)
     /* 0035DDB0: kind 0 subtracts B-spec mileage, kind 1 returns it. */
     gt4_phys_fpu_enter();
     float bdistance = GT4_F32(car + CAR_7B0);
-    *a = gt4_career_distance_integer(GT4_F32(car + CAR_DISTANCE) - bdistance);
+    *a = gt4_career_distance_aspec(GT4_F32(car + CAR_DISTANCE), bdistance);
     *b = gt4_career_distance_integer(bdistance);
     return 1;
 }

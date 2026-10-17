@@ -1,5 +1,5 @@
-#ifndef OPENGT4_LAUNCHER_UI_H
-#define OPENGT4_LAUNCHER_UI_H
+#ifndef MOON_LAUNCHER_UI_H
+#define MOON_LAUNCHER_UI_H
 #include "launcher.h"
 
 /* The MOON ENGINE front door: our own window, our own look, no game artwork and no

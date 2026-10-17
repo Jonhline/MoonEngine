@@ -7,6 +7,39 @@
             return 1;                                                                              \
         }                                                                                          \
     } while (0)
+static int check_right_stick(SDL_Joystick *joy, race_game *game)
+{
+    const Sint16 positions[] = {-32768, -16384, 0, 16384, 32767};
+    for (unsigned i = 0; i < sizeof positions / sizeof positions[0]; i++) {
+        CHECK(!SDL_JoystickSetVirtualAxis(joy, SDL_CONTROLLER_AXIS_RIGHTY, positions[i]));
+        read_controls(game);
+        CHECK(command.throttle == (positions[i] < 0 ? -positions[i] / 8 : 0));
+        CHECK(command.brake == (positions[i] > 0 ? (i == 4 ? 4096 : 2048) : 0));
+        CHECK(!command.steer && !command.reverse && !command.handbrake);
+        if (getenv("GT4_RIGHT_STICK_NEGATIVE"))
+            CHECK(command.throttle == 0); /* Deliberately lose upward acceleration. */
+    }
+    CHECK(!SDL_JoystickSetVirtualAxis(joy, SDL_CONTROLLER_AXIS_RIGHTY, 0));
+    gt4_pad_config config;
+    plat_pad_state state = {0};
+    gt4_pad_actions actions;
+    for (int port = 0; port < 2; port++) {
+        gt4_pad_defaults(&config, port);
+        CHECK(config.analog[GT4_PAD_RYF] == GT4_PAD_ACCEL);
+        CHECK(config.analog[GT4_PAD_RYL] == GT4_PAD_BRAKE);
+        config.analog[GT4_PAD_RYF] = config.analog[GT4_PAD_RYL] = -1;
+        state.axes[3] = -.5f;
+        gt4_pad_evaluate(&config, &state, &actions);
+        CHECK(actions.action[GT4_PAD_ACCEL] == .5f && !actions.action[GT4_PAD_BRAKE]);
+        config.analog[GT4_PAD_RYF] = GT4_PAD_REVERSE;
+        gt4_pad_evaluate(&config, &state, &actions);
+        CHECK(actions.action[GT4_PAD_REVERSE] == .5f && !actions.action[GT4_PAD_ACCEL]);
+        state.axes[3] = .5f;
+        gt4_pad_evaluate(&config, &state, &actions);
+        CHECK(!actions.action[GT4_PAD_BRAKE]); /* Preserve explicit unassignment. */
+    }
+    return 0;
+}
 int main(int argc, char **argv)
 {
     /* Only virtual pads belong to this test; connected user devices must
@@ -31,6 +64,7 @@ int main(int argc, char **argv)
     g.finished = 0;
     g.camera = 1;
     menu_options_storage(NULL);
+    CHECK(!check_right_stick(joy, &g));
     uint8_t cmd[32] = {0}, ev[32] = {0};
     CHECK(!SDL_JoystickSetVirtualButton(joy,SDL_CONTROLLER_BUTTON_A,1));
     CHECK(!SDL_JoystickSetVirtualAxis(joy,0,-16384));

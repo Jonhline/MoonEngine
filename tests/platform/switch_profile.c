@@ -3,6 +3,7 @@
 #include "../../src/platform/common/switch_profile.c"
 #include <stdarg.h>
 #include <stdlib.h>
+#include "../../src/platform/common/switch_log_queue.h"
 
 static TLS uint64_t now;
 static char output[16384];
@@ -49,6 +50,44 @@ static DWORD WINAPI concurrent_worker(void *unused)
 int main(int argc, char **argv)
 {
     int negative = argc > 1 && !strcmp(argv[1], "--negative");
+    /* A stalled sink must not block producers or overwrite queued records. */
+    swp_log_queue *queue = calloc(1, sizeof *queue);
+    CHECK(queue != NULL);
+    char line[SWP_LOG_LINE];
+    CHECK(!swp_log_pop(queue, line));
+    for (unsigned i = 0; i < SWP_LOG_CAPACITY; i++) {
+        snprintf(line, sizeof line, "record-%u", i);
+        CHECK(swp_log_push(queue, line));
+    }
+    CHECK(!swp_log_push(queue, "overflow"));
+    for (unsigned i = 0; i < SWP_LOG_CAPACITY; i++) {
+        char expected[32];
+        snprintf(expected, sizeof expected, "record-%u", i);
+        CHECK(swp_log_pop(queue, line) && !strcmp(line, expected));
+        CHECK(swp_log_push(queue, "wrapped"));
+    }
+    for (unsigned i = 0; i < SWP_LOG_CAPACITY; i++)
+        CHECK(swp_log_pop(queue, line) && !strcmp(line, "wrapped"));
+    CHECK(!swp_log_pop(queue, line));
+    char oversized[SWP_LOG_LINE + 1];
+    memset(oversized, 'x', sizeof oversized - 1);
+    oversized[sizeof oversized - 1] = 0;
+    CHECK(!swp_log_push(queue, oversized));
+    free(queue);
+    now = 0;
+    swp_push(SWP_GPU_DATE);
+    now += 3;
+    swp_push(SWP_GPU_COPY);
+    now += 7;
+    swp_pop();
+    now += 5;
+    swp_pop();
+    CHECK(busy[SWP_GPU_DATE] == 8 && busy[SWP_GPU_COPY] == 7);
+    CHECK(calls[SWP_GPU_DATE] == 1 && calls[SWP_GPU_COPY] == 1);
+    CHECK(!strcmp(names[SWP_GPU_DATE], "gpu_date"));
+    CHECK(!strcmp(names[SWP_GPU_COPY], "gpu_copy"));
+    busy[SWP_GPU_DATE] = busy[SWP_GPU_COPY] = 0;
+    calls[SWP_GPU_DATE] = calls[SWP_GPU_COPY] = 0;
     now = 100;
     swp_push(SWP_SCENE);
     now += 10;
@@ -65,6 +104,14 @@ int main(int argc, char **argv)
     CHECK(busy[SWP_GL] == 60);
     CHECK(busy[SWP_DISC] == (negative ? 31 : 30));
     CHECK(calls[SWP_DISC] == 1 && thread.depth == 0);
+    swp_push(SWP_GPU_FENCE);
+    now += 7;
+    swp_pop();
+    swp_push(SWP_GPU_ACQUIRE);
+    now += 9;
+    swp_pop();
+    CHECK(busy[SWP_GPU_FENCE] == 7 && busy[SWP_GPU_ACQUIRE] == 9);
+    CHECK(calls[SWP_GPU_FENCE] == 1 && calls[SWP_GPU_ACQUIRE] == 1);
     now = 1000000000;
     swp_context("arcade", "TopRoot", "", "", 0);
     now += 5000000;
@@ -105,6 +152,22 @@ int main(int argc, char **argv)
     CHECK(strstr(output, "Switch load: root total_ms=2.000"));
     CHECK(strstr(output, "Switch load: project total_ms=10.000"));
     CHECK(thread.depth == 0);
+    swp_context("arcade", "TopRoot", "tsukuba", "ka_01", 2);
+    swp_frame(1280, 720);
+    output[0] = 0;
+    used = 0;
+    swp_push(SWP_PHYSICS);
+    now += 1000000;
+    swp_pop();
+    swp_push(SWP_SCENE);
+    now += 30000000;
+    swp_pop();
+    if (argc > 1 && !strcmp(argv[1], "--slow-negative"))
+        thread.frame_busy[SWP_SCENE] += 1000000;
+    swp_frame(1280, 720);
+    CHECK(strstr(output,"Switch slow-frame: frame_ms=31.000"));
+    CHECK(strstr(output,"physics_ms=1.000") && strstr(output,"scene_ms=30.000"));
+    CHECK(thread.frame_busy[SWP_PHYSICS]==0 && thread.frame_busy[SWP_SCENE]==0);
 #ifdef _WIN32
     for (unsigned i = 0; i < SWP_STAGE_COUNT; i++) {
         TAKE(busy + i);

@@ -1,11 +1,6 @@
-# Launcher em duas etapas
-
-16/10/2026: este é o launcher **secundário**. O oficial do Moon Engine é
-outra contribuição, ainda fora do repositório, e fica com os nomes
-`launcher*` na pasta de dados; este usa `secondary_launcher.ini`,
-`secondary_launcher-options` e `secondary_launcher_photos` (os antigos são
-movidos uma vez), classes Windows `MoonEngineSecondary*` e título
-"Moon Engine - secondary launcher". Ver `docs/LAUNCHER.md`.
+16/10/2026: o launcher agora é o oficial do Mr. Dante (commits 89a0be0 e
+ab5b249 do MoonEngine, integrados no 38b2099); o secundário foi apagado por
+decisão de Jonhline. O texto abaixo é histórico. Ver `docs/LAUNCHER.md`.
 
 13/10/2026. O seletor anterior à validação mostra somente Moon Engine, o pedido
 da ISO NTSC-U/SCUS-97328 e o botão do seletor Windows já existente.

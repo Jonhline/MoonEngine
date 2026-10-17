@@ -166,9 +166,9 @@ static void rolling_resistance(uint32_t car)
     }
     v = GT4_F32(car + CAR_SPEED);
     if (0 < v)
-        r = -gt4_curve_eval(gt4_ptr(ROLLING_CURVE), v);
+        r = -gt4_curve_eval_linear(gt4_ptr(ROLLING_CURVE), v);
     else
-        r = gt4_curve_eval(gt4_ptr(ROLLING_CURVE), -v);
+        r = gt4_curve_eval_linear(gt4_ptr(ROLLING_CURVE), -v);
     GT4_F32(car + CAR_ROLLING) = r * sum;
 }
 

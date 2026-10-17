@@ -1,5 +1,5 @@
-#ifndef OPENGT4_LAUNCHER_H
-#define OPENGT4_LAUNCHER_H
+#ifndef MOON_LAUNCHER_H
+#define MOON_LAUNCHER_H
 #include "pad_config.h"
 #include <stddef.h>
 #define LAUNCHER_PATH 1024

@@ -1,4 +1,6 @@
 /* Disc/PC manager isolation, with real authored menu data and save API. */
+#include <SDL.h>
+#include "plat_sdl.h"
 #include "../../src/core/menu.c"
 #define CHECK(x)                                                                                   \
     do {                                                                                           \
@@ -10,6 +12,9 @@
 int main(int argc, char **argv)
 {
     CHECK(argc>=3);
+    /* The catalogue uploads the real disc icon, requiring a video context. */
+    CHECK(!plat_video_init(&(plat_video_desc){640, 480, 0, 0, 0}));
+    SDL_HideWindow(SDL_GetWindowFromID(1));
     gt4_save_init(argv[2]);
     const char *why;
     char error[256];
@@ -75,5 +80,6 @@ int main(int argc, char **argv)
     menu_close(m);
     gt4_vol_close(vol);
     gt4_save_shutdown();
+    plat_video_shutdown();
     return 0;
 }

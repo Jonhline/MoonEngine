@@ -1,5 +1,5 @@
-#ifndef OPENGT4_LAUNCHER_TEXT_H
-#define OPENGT4_LAUNCHER_TEXT_H
+#ifndef MOON_LAUNCHER_TEXT_H
+#define MOON_LAUNCHER_TEXT_H
 #include <SDL.h>
 
 /* Anti-aliased text for the launcher, rasterised from an embedded TrueType face

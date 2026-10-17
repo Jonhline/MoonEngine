@@ -6,6 +6,8 @@
 #include "rtext.h"
 #include "strobe_player.h"
 #include "save.h"
+#include "ui.h"
+#include "platform/platform.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -14,6 +16,10 @@
 
 struct race_pause {
     strb_player *movie;
+    gt4_vol *volume;
+    ui_project *cursor;
+    int pointer_active;
+    float pointer_x,pointer_y;
     int state, retry, screen, confirm;
     int replay;
     int nav; /* a navigation asked while the movie opened: 1 vertical, 2 all */
@@ -103,6 +109,7 @@ race_pause *race_pause_open_display(gt4_vol *vol, int retry, int screen, int con
     strb_host host;
     if (!p)
         return NULL;
+    p->volume = vol;
     p->retry = retry;
     p->replay = replay != 0;
     p->screen = screen;
@@ -143,24 +150,43 @@ void race_pause_close(race_pause *p)
     if (!p)
         return;
     strb_close(p->movie);
+    ui_project_free(p->cursor);
     free(p->rt_data);
     free(p);
 }
 
 void race_pause_key(race_pause *p, int code)
 {
-    if (p)
+    if (p) {
+        p->pointer_active=0;
         strb_key(p->movie, code);
+    }
 }
 void race_pause_update(race_pause *p, double dt)
 {
     if (p)
         strb_tick(p->movie, dt);
 }
+int race_pause_pointer(race_pause *p,int enabled,float x,float y,int action)
+{
+    if(!p) return 0;
+    p->pointer_active=enabled;
+    if(!enabled) return 0;
+    p->pointer_x=x;p->pointer_y=y;
+    if(!p->cursor) {char error[128];p->cursor=ui_project_load(p->volume,"cursor",error,sizeof error);}
+    if(action==2) strb_key(p->movie,27);
+    return strb_pointer(p->movie,x,y,action==1);
+}
 void race_pause_draw(race_pause *p)
 {
-    if (p)
+    if (p) {
         strb_draw(p->movie);
+        if(p->pointer_active && p->cursor) {
+            plat_video_set_view(640,480);
+            ui_image_draw(p->cursor,"image/cursor/cursor.png",p->pointer_x-16,p->pointer_y,32,32,1);
+            plat_video_set_view(640,448);
+        }
+    }
 }
 int race_pause_state(const race_pause *p)
 {

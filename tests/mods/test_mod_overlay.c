@@ -7,7 +7,7 @@
  * answer from the mod source).
  *
  * The contract under test:
- *   - OPENGT4_OVERLAY unset, empty, or with no such file -> NULL, disc answers;
+ *   - MOON_OVERLAY unset, empty, or with no such file -> NULL, disc answers;
  *   - a file in a mod folder is served byte-for-byte, with an exact *size;
  *   - the FIRST folder listed wins, a missing folder is skipped;
  *   - "..", a bare "/" and a path that only walks up are refused;
@@ -96,9 +96,9 @@ int main(int argc, char **argv)
 
     /* off by default: the disc is the only source (LAW 12). */
 #ifdef _WIN32
-    _putenv_s("OPENGT4_OVERLAY", "");
+    _putenv_s("MOON_OVERLAY", "");
 #else
-    unsetenv("OPENGT4_OVERLAY");
+    unsetenv("MOON_OVERLAY");
 #endif
     EXPECT(gt4_overlay_read("/car/menu/zzz_postcar.mdl", NULL) == NULL,
            "no overlay set -> the mod source answers nothing");
@@ -108,9 +108,9 @@ int main(int argc, char **argv)
     /* the first folder listed wins, so mod order is a list order. */
     snprintf(env, sizeof env, "%s;%s", b, a);
 #ifdef _WIN32
-    _putenv_s("OPENGT4_OVERLAY", env);
+    _putenv_s("MOON_OVERLAY", env);
 #else
-    setenv("OPENGT4_OVERLAY", env, 1);
+    setenv("MOON_OVERLAY", env, 1);
 #endif
     size_t n = 0;
     EXPECT(served("/car/menu/zzz_postcar.mdl", beta, sizeof beta - 1, &n),
@@ -120,9 +120,9 @@ int main(int argc, char **argv)
     /* a folder that is not there is skipped, not fatal. */
     snprintf(env, sizeof env, "%s/mod_missing;%s", base, a);
 #ifdef _WIN32
-    _putenv_s("OPENGT4_OVERLAY", env);
+    _putenv_s("MOON_OVERLAY", env);
 #else
-    setenv("OPENGT4_OVERLAY", env, 1);
+    setenv("MOON_OVERLAY", env, 1);
 #endif
     EXPECT(served("/car/menu/zzz_postcar.mdl", alpha, sizeof alpha - 1, NULL),
            "a missing folder is skipped and the next one answers");
@@ -149,9 +149,9 @@ int main(int argc, char **argv)
 
     /* an empty variable and an unset one behave the same. */
 #ifdef _WIN32
-    _putenv_s("OPENGT4_OVERLAY", "");
+    _putenv_s("MOON_OVERLAY", "");
 #else
-    setenv("OPENGT4_OVERLAY", "", 1);
+    setenv("MOON_OVERLAY", "", 1);
 #endif
     EXPECT(gt4_overlay_read("/car/menu/zzz_postcar.mdl", NULL) == NULL,
            "an empty variable behaves like no variable");

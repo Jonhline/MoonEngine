@@ -60,15 +60,52 @@ static int benchmark_race(race_game *g, const char *prefix)
     video_set_menu_pacing(0);
     video_set_vsync(0);
     fixture_key[SDL_SCANCODE_UP] = 1;
-    for (int i = 0; i < 600; i++)
+    if (getenv("PROBE_SCENE_MODE")) {
+        int mode = atoi(getenv("PROBE_SCENE_MODE"));
+        CHECK(mode >= 0 && mode <= 3);
+        r3d_scene_options(mode & 1, (mode >> 1) & 1);
+    }
+    const int frames = getenv("PROBE_FRAMES") ? atoi(getenv("PROBE_FRAMES")) : 120;
+    const int warmup = getenv("PROBE_WARMUP") ? atoi(getenv("PROBE_WARMUP")) : 20;
+    CHECK(frames >= 60 && frames <= 3600 && warmup >= 0 && warmup <= 120);
+    int preparation_ticks = getenv("PROBE_REPLAY") ? frames + warmup + 1200
+                            : getenv("PROBE_GRID") ? 0
+                                                   : 600;
+    for (int i = 0; i < preparation_ticks; i++)
         race_game_update(g, 1. / 60);
+    if (getenv("PROBE_REPLAY")) {
+        char message[256];
+        CHECK(race_game_can_replay(g));
+        CHECK(race_game_replay(g, message, sizeof message));
+        int ready = 0;
+        for (int i = 0; i < 2000 && !ready; i++) {
+            SDL_Delay(5);
+            ready = race_game_poll(g);
+        }
+        CHECK(ready == 1 && race_game_replaying(g));
+    }
     Uint64 update = 0, render = 0, present = 0;
     moon_vk_render_stats before = {0};
-    const int frames = 120;
-    for (int i = -20; i < frames; i++) {
+    r3d_totals work_before = {0};
+    double *frame_ms = malloc((size_t)frames * sizeof *frame_ms);
+    CHECK(frame_ms);
+    moon_vk_render_stats loading = moon_vk_render_statistics();
+    for (int i = -warmup; i < frames; i++) {
         Uint64 start = SDL_GetPerformanceCounter();
-        if (i == 0)
+        if (i == 0) {
+            moon_vk_render_drain();
+            if (!moon_vk_render_active())
+                glFinish();
             before = moon_vk_render_statistics();
+            work_before = r3d_work_totals();
+            start = SDL_GetPerformanceCounter();
+        }
+        if (getenv("PROBE_SWEEP_CAMERA") && i >= 0 && !(i % 240)) {
+            const int cameras[] = {1, 0, 6};
+            g->camera = cameras[(i / 240) % 3];
+        }
+        if (getenv("PROBE_SCENE_SWITCH") && i == frames / 2)
+            r3d_scene_options(0, 0);
         race_game_update(g, 1. / 60);
         Uint64 updated = SDL_GetPerformanceCounter();
         plat_video_begin_frame();
@@ -78,15 +115,54 @@ static int benchmark_race(race_game *g, const char *prefix)
         if (i >= 0) {
             update += updated - start;
             render += drawn - updated;
-            present += SDL_GetPerformanceCounter() - drawn;
+            Uint64 end = SDL_GetPerformanceCounter();
+            present += end - drawn;
+            frame_ms[i] = (end - start) * 1000. / SDL_GetPerformanceFrequency();
         }
     }
+    Uint64 drain_start = SDL_GetPerformanceCounter();
+    moon_vk_render_drain();
+    if (!moon_vk_render_active())
+        glFinish();
+    present += SDL_GetPerformanceCounter() - drain_start;
+    for (int i = 0; i < frames; i++)
+        for (int j = i + 1; j < frames; j++)
+            if (frame_ms[j] < frame_ms[i]) {
+                double swap = frame_ms[i];
+                frame_ms[i] = frame_ms[j];
+                frame_ms[j] = swap;
+            }
+    fprintf(stderr, "frame pacing: median=%.3f p95=%.3f p99=%.3f worst=%.3f ms\n",
+            frame_ms[frames / 2], frame_ms[(frames * 95 + 99) / 100 - 1],
+            frame_ms[(frames * 99 + 99) / 100 - 1], frame_ms[frames - 1]);
+    int spikes = 0;
+    for (int i = 0; i < frames; i++)
+        spikes += frame_ms[i] > 1000. / 60;
+    free(frame_ms);
+    fprintf(stderr, "frame budget: %d/%d over 16.667 ms\n", spikes, frames);
     double scale = 1000. / SDL_GetPerformanceFrequency() / frames;
-    fprintf(stderr, "race benchmark: %d frames update=%.3f render=%.3f present=%.3f total=%.3f ms/frame\n",
+    fprintf(stderr,
+            "race benchmark: %d frames update=%.3f render=%.3f present=%.3f total=%.3f ms/frame\n",
             frames, update * scale, render * scale, present * scale,
             (update + render + present) * scale);
     CHECK(!g->pause && !g->held && g->run);
     moon_vk_render_stats after = moon_vk_render_statistics();
+    r3d_totals work_after = r3d_work_totals();
+    fprintf(stderr, "shared work: draws=%llu triangles=%llu merged=%llu culled=%llu\n",
+            (unsigned long long)(work_after.draws - work_before.draws),
+            (unsigned long long)(work_after.triangles - work_before.triangles),
+            (unsigned long long)(work_after.merged_groups - work_before.merged_groups),
+            (unsigned long long)(work_after.culled_groups - work_before.culled_groups));
+    fprintf(stderr,
+            "shared materials: textures=%llu texture-hits=%llu states=%llu state-hits=%llu\n",
+            (unsigned long long)(work_after.texture_updates - work_before.texture_updates),
+            (unsigned long long)(work_after.texture_hits - work_before.texture_hits),
+            (unsigned long long)(work_after.state_updates - work_before.state_updates),
+            (unsigned long long)(work_after.state_hits - work_before.state_hits));
+    fprintf(stderr, "visibility work: tests=%llu spatial-rejected=%llu readbacks=%llu\n",
+            (unsigned long long)(work_after.visibility_tests - work_before.visibility_tests),
+            (unsigned long long)(work_after.spatial_rejected - work_before.spatial_rejected),
+            (unsigned long long)(work_after.readbacks - work_before.readbacks));
     fprintf(stderr, "race benchmark: uploaded=%llu state=%08lx\n",
             (unsigned long long)(after.vertex_upload_bytes - before.vertex_upload_bytes),
             (unsigned long)mz_crc32(0, gt4_phys_mem, 0x2000000));
@@ -96,6 +172,30 @@ static int benchmark_race(race_game *g, const char *prefix)
             (unsigned long long)(after.submissions - before.submissions));
     fprintf(stderr, "race benchmark: framebuffers=%llu\n",
             (unsigned long long)(after.framebuffer_creations - before.framebuffer_creations));
+    if (moon_vk_render_active()) {
+        fprintf(stderr, "GPU timing: %.3f ms/frame samples=%llu fence-wait=%.3f ms/frame\n",
+                (after.gpu_ns - before.gpu_ns) / 1e6 / frames,
+                (unsigned long long)(after.gpu_samples - before.gpu_samples),
+                (after.fence_wait_ns - before.fence_wait_ns) / 1e6 / frames);
+        fprintf(stderr, "queue rotations: %llu\n",
+                (unsigned long long)(after.frame_rotations - before.frame_rotations));
+        fprintf(stderr, "draw commands: pipeline=%llu dynamic=%llu vertex=%llu\n",
+                (unsigned long long)(after.pipeline_binds - before.pipeline_binds),
+                (unsigned long long)(after.dynamic_sets - before.dynamic_sets),
+                (unsigned long long)(after.vertex_binds - before.vertex_binds));
+        fprintf(stderr,
+                "draw CPU: prepare=%.3f descriptors=%.3f pipeline=%.3f commands=%.3f ms/frame\n",
+                (after.cpu_prepare_ns - before.cpu_prepare_ns) / 1e6 / frames,
+                (after.cpu_descriptors_ns - before.cpu_descriptors_ns) / 1e6 / frames,
+                (after.cpu_pipeline_ns - before.cpu_pipeline_ns) / 1e6 / frames,
+                (after.cpu_commands_ns - before.cpu_commands_ns) / 1e6 / frames);
+        fprintf(stderr, "pipeline preparation: warmup=%llu measured=%llu create=%.3f ms\n",
+                (unsigned long long)(before.pipeline_creations - loading.pipeline_creations),
+                (unsigned long long)(after.pipeline_creations - before.pipeline_creations),
+                (after.pipeline_ns - before.pipeline_ns) / 1e6);
+    } else {
+        fprintf(stderr, "GPU timing: unavailable for OpenGL in this probe\n");
+    }
     char state_path[1024];
     snprintf(state_path, sizeof state_path, "%s.state", prefix);
     FILE *state = fopen(state_path, "wb");
@@ -124,6 +224,9 @@ int main(int argc, char **argv)
     CHECK(g);
     const char *others[] = {getenv("PROBE_RIVAL") ? getenv("PROBE_RIVAL") : "ka_01", "z_act_70",
                             "today_g_85", "midget2_d_type_98", "s500_63"};
+    if (getenv("PROBE_FULL_GRID"))
+        for (int i = 0; i < 5; i++)
+            others[i] = getenv("PROBE_RIVAL") ? getenv("PROBE_RIVAL") : "ford_gt_05";
     if (getenv("PROBE_LICENSE")) {
         gt4_career_race_lookup_data lookup;
         gt4_career_license_exam exam;
@@ -131,7 +234,7 @@ int main(int argc, char **argv)
         CHECK(gt4_career_license_prepare(&exam,argv[1],&lookup,getenv("PROBE_LICENSE"),msg,sizeof msg));
         CHECK(race_game_start_prepared(g,&exam.desc,msg,sizeof msg));
     } else
-        CHECK(race_game_start(g,"tsukuba",getenv("PROBE_CAR")?getenv("PROBE_CAR"):"ka_01",0,others,NULL,5,msg,sizeof msg)); /* PROBE_CAR: another car */
+        CHECK(race_game_start(g,getenv("PROBE_COURSE")?getenv("PROBE_COURSE"):"tsukuba",getenv("PROBE_CAR")?getenv("PROBE_CAR"):"ka_01",0,others,NULL,5,msg,sizeof msg)); /* PROBE_CAR: another car */
     int ready = 0;
     for (int i = 0; i < 2000 && !ready; i++) {
         SDL_PumpEvents();

@@ -2,8 +2,8 @@
    Barlow and Barlow Condensed, (c) 2017 The Barlow Project Authors, SIL Open
    Font License 1.1 -- see assets/fonts/OFL.txt. Generated from assets/fonts/
    by: xxd -i <ttf>  (do not edit by hand). */
-#ifndef OPENGT4_LAUNCHER_FONTS_DATA_H
-#define OPENGT4_LAUNCHER_FONTS_DATA_H
+#ifndef MOON_LAUNCHER_FONTS_DATA_H
+#define MOON_LAUNCHER_FONTS_DATA_H
 static const unsigned char launcher_ttf_BARLOW_REGULAR[]={
     0x00, 0x01, 0x00, 0x00, 0x00, 0x12, 0x01, 0x00, 0x00, 0x04, 0x00, 0x20,
     0x44, 0x53, 0x49, 0x47, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x96, 0x7c,

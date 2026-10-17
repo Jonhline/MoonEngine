@@ -28,6 +28,9 @@ struct menu {
     int nwatchers;
     int pages[32], depth;
     ui_widget **focus;
+    ui_widget *pointer_hover;
+    int hover_dispatch;
+    int pointer_dispatch; /* P: preserve mouse ownership through synchronous dialogs. */
     int pending_page, pending_kind;
     int page_transition_depth;
     int pending_more[8], pending_mores; /* startPage's further pages, pushed in order */

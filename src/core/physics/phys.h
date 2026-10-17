@@ -7,12 +7,11 @@
  * layout, allowing direct field-by-field and bit-for-bit comparisons with
  * the original step in the test harness.
  *
- * Arithmetic: the PS2 FPU rounds toward zero and has no denormals, infinities
- * or NaNs. The code is plain float C and expects the caller to have set the
- * host rounding to toward-zero (gt4_phys_fpu_enter); constants are written as
- * the exact bit patterns the game uses. A multiply-add on the PS2 rounds the
- * product and then the sum, which is what `acc + a * b` does in C without
- * contraction.
+ * Arithmetic: every game mode uses the integer EE scalar arithmetic model
+ * (replay_float.h), preserving operation order and exact bit-pattern constants.
+ * The build lowers our native C operators; no original executable is linked.
+ * Toward-zero host mode remains necessary for numeric conversions. Only native
+ * GT4R v1 playback keeps the previous arithmetic for file compatibility.
  */
 #ifndef MOON_PHYS_H
 #define MOON_PHYS_H
@@ -131,6 +130,8 @@ typedef struct {
 } gt4_curve;
 
 float gt4_curve_eval(const gt4_curve *c, float x);
+/* 00359830: linear scan, with its original multiplication operand order. */
+float gt4_curve_eval_linear(const gt4_curve *c, float x);
 void gt4_curve_eval2(const gt4_curve *a, const gt4_curve *b, float x, float *ya, float *yb);
 
 /* The game's own float math (polynomials, not the C library's). */

@@ -1,4 +1,4 @@
-/* Disc teacher tapes through the unchanged native player examination.
+/* Disc teacher tapes through the native player examination.
    00110230 +98..110: import driving options and commands, not old setup IDs.
    A nonzero GT4M race time is a limited timing oracle. This DC=0 audit
    does not exercise the Demonstration Scene (Training: 00115290 +20..28,
@@ -44,6 +44,7 @@ int main(int argc, char **argv)
 {
     if (argc < 2)
         return 2;
+    int gold_catalog = argc > 2 && !strcmp(argv[2], "--gold-catalog");
     gt4_career_race_lookup_data lookup;
     if (!gt4_career_race_lookup_data_load(argv[1], &lookup))
         return 2;
@@ -62,7 +63,7 @@ int main(int argc, char **argv)
         for (unsigned n = 1; n <= 16; n++) {
             char code[32], path[64], error[256];
             snprintf(code, sizeof code, "%s%04u", groups[g], n);
-            if (argc > 2 && strcmp(argv[2], code))
+            if (argc > 2 && !gold_catalog && strcmp(argv[2], code))
                 continue;
             snprintf(path, sizeof path, "/replay/license/us%s", code);
             gt4_replay_file tape;
@@ -104,16 +105,20 @@ int main(int argc, char **argv)
             uint32_t elapsed = 0x157529ff;
             int result = gt4_race_run_license_result(run, &state, &elapsed);
             uint32_t expected = tape.race_time;
+            uint32_t gold = gt4_career_license_time(exam.row, 0);
             if (getenv("GT4_LICENSE_TEACHER_NEGATIVE"))
-                expected++;
+                if (gold_catalog)
+                    gold = 0; /* Prove the grade gate detects an impossible target. */
+                else
+                    expected++;
             int ok = advanced && result && gt4_race_run_finished(run) && state == 2 &&
-                     elapsed == expected;
+                     (gold_catalog ? elapsed <= gold : elapsed == expected);
             printf(
                 "%s %s class=%s kind=%u state=%d time=%u original=%u gold=%u commands=%zu/%zu frames=%zu\n",
                 ok ? "PASS" : "FAIL", code,
                 tape.disc_info ? (char *)tape.disc_info + 16 : "unknown",
-                GT4_U8(gt4_race_run_conductor(run) + 0xf81a), state, elapsed, expected,
-                gt4_career_license_time(exam.row, 0), cursor, tape.steps, frame);
+                GT4_U8(gt4_race_run_conductor(run) + 0xf81a), state, elapsed, expected, gold,
+                cursor, tape.steps, frame);
             if (argc > 2 && !ok) {
                 fprintf(stderr, "student flags=%u rank=%u mode=%d distance=%.6f; guides",
                         GT4_U8(player + 0x5b7), GT4_U8(player + 0x5b3),
@@ -132,9 +137,15 @@ int main(int argc, char **argv)
                 failed++;
             gt4_race_run_close(run);
             gt4_replay_free(&tape);
+            if (gold_catalog && !ok && getenv("GT4_LICENSE_TEACHER_NEGATIVE")) {
+                gt4_disc_replay_close(disc);
+                gt4_vol_close(vol);
+                return 1;
+            }
         }
     gt4_disc_replay_close(disc);
     gt4_vol_close(vol);
-    printf("Teacher player audit: %u pass, %u fail. Dynamics unchanged.\n", passed, failed);
-    return passed && !failed ? 0 : 1;
+    printf("Teacher %s audit: %u pass, %u fail.\n", gold_catalog ? "gold-gate" : "recorded-time",
+           passed, failed);
+    return passed && !failed && (!gold_catalog || passed == 80) ? 0 : 1;
 }

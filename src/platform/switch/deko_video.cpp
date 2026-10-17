@@ -2,6 +2,8 @@
 #include "deko_video.h"
 #include "deko_events.h"
 #include "deko_composition.h"
+#include "deko_ui_clip.h"
+#include "platform/switch_scene.h"
 extern "C" {
 #include "platform/switch_profile.h"
 }
@@ -29,6 +31,9 @@ bool menu_projection = true, menu_pacing = true, scene_active = false, initializ
 bool panel_on;
 int panel[4];
 uint64_t previous;
+int frame_limit;
+int scene_resolution = MOON_SWITCH_BALANCED;
+bool fill_window;
 void layout_view()
 {
     unsigned fb_w = current.color ? current.color->width : display_width,
@@ -41,6 +46,13 @@ void layout_view()
         content_width = panel[2];
         off_x = panel[0] + side_margin * scale_x;
         off_y = panel[1];
+        return;
+    }
+    if (fill_window) {
+        scale_x = scale_y = (float)fb_w / view_w;
+        content_width = (float)fb_w;
+        content_x = off_x = side_margin = 0;
+        off_y = ((float)fb_h - view_h * scale_y) * .5f;
         return;
     }
     float height = std::min((float)fb_h, fb_w / (16.f / 9)), width = height * (16.f / 9);
@@ -69,7 +81,7 @@ void draw_batch(nd_program program = ND_UI, const float *weights = nullptr,
     depth.depthTestEnable = depth.depthWriteEnable = false;
     DkColorState color;
     dkColorStateDefaults(&color);
-    color.blendEnableMask = program == ND_MIX ? 0 : 1;
+    color.blendEnableMask = program == ND_UI ? 1 : 0;
     DkColorWriteState mask;
     dkColorWriteStateDefaults(&mask);
     DkBlendState blend;
@@ -171,6 +183,46 @@ unsigned nv_white()
 unsigned nv_black()
 {
     return black->slot;
+}
+void nv_snapshot(nd_image *source, nd_image *target, unsigned x, unsigned y, unsigned w, unsigned h)
+{
+    auto saved = nv_get();
+    /* Both producer and consumer are now fragments on the 3D engine.
+       General 2D/copy-engine transfers retain their Full barriers. */
+    dkCmdBufBarrier(nd_commands(), DkBarrier_Fragments, DkInvalidateFlags_Image);
+    nv_target(target, nullptr);
+    current.clip[0] = x;
+    current.clip[1] = y;
+    current.clip[2] = w;
+    current.clip[3] = h;
+    Vertex vertices[6];
+    nd_full_image_quad(vertices);
+    batch.assign(vertices, vertices + 6);
+    batch_texture = source->slot;
+    batch_kind = 0;
+    draw_batch(target->alpha_mask ? ND_MASK : ND_SNAPSHOT);
+    /* Restoring a different target emits a fragment completion/cache barrier
+       before the saved alpha is sampled by the next mesh draw. */
+    nv_set(saved);
+}
+void nv_draw_environment(nd_image *target, nd_image *atlas, int face_size, const float r[3],
+                         const float u[3], const float f[3])
+{
+    auto saved = nv_get();
+    nv_target(target, nullptr);
+    Vertex vertices[6];
+    nd_full_image_quad(vertices);
+    batch.assign(vertices, vertices + 6);
+    batch_texture = batch_kind = 0;
+    nd_uniform params{};
+    params.v[0][0] = face_size;
+    params.v[0][1] = target->width;
+    std::memcpy(params.v[1], r, 3 * sizeof(float));
+    std::memcpy(params.v[2], u, 3 * sizeof(float));
+    std::memcpy(params.v[3], f, 3 * sizeof(float));
+    unsigned sources[4]{atlas->slot, white->slot, white->slot, white->slot};
+    draw_batch(ND_ENV, nullptr, sources, &params);
+    nv_set(saved);
 }
 void nv_draw_mix(nd_image *target, nd_image *const layers[4], const float weights[4])
 {
@@ -297,7 +349,58 @@ int plat_video_init(const plat_video_desc *)
     }
     for (auto layer : layers)
         nd_image_destroy(layer);
-    bool ok = upload_ok && quad_ok && copy_ok && mix_ok;
+    /* Boot-only validation: exercise all alpha byte values and dependent
+       3D ping-pong snapshots without an intermediate CPU/GPU wait. */
+    bool snapshot_ok = true;
+    {
+        constexpr unsigned w = 32, h = 24, bytes = w * h * 4;
+        uint8_t source[bytes], old[bytes], expected[bytes], actual[bytes];
+        for (unsigned i = 0; i < bytes; ++i) {
+            source[i] = (uint8_t)(i * 37 + i / 4);
+            old[i] = (uint8_t)(255 - source[i]);
+        }
+        nd_image *src = nd_image_create(w, h), *dst = nd_image_create(w, h);
+        nd_image_upload(src, source);
+        nd_image_upload(dst, old);
+        for (unsigned i = 0; i < 20; ++i) {
+            nv_snapshot(src, dst, 0, 0, w, h);
+            nv_snapshot(dst, src, 0, 0, w, h);
+        }
+        snapshot_ok = nd_image_read(dst, actual) && !std::memcmp(actual, source, bytes);
+        nd_image_upload(dst, old);
+        nv_snapshot(src, dst, 3, 5, 17, 11);
+        std::memcpy(expected, old, bytes);
+        for (unsigned y = 5; y < 16; ++y)
+            std::memcpy(expected + (y * w + 3) * 4, source + (y * w + 3) * 4, 17 * 4);
+        snapshot_ok =
+            nd_image_read(dst, actual) && !std::memcmp(actual, expected, bytes) && snapshot_ok;
+        nd_image *mask = nd_image_create(w, h, false, false, true);
+        nv_snapshot(src, mask, 0, 0, w, h);
+        uint8_t scalar[w * h];
+        bool mask_ok = nd_image_read(mask, scalar);
+        for (unsigned i = 0; i < w * h; ++i)
+            mask_ok = mask_ok && scalar[i] == source[i * 4 + 3];
+        nd_image_upload(src, old);
+        nv_snapshot(src, mask, 3, 5, 17, 11);
+        mask_ok = nd_image_read(mask, scalar) && mask_ok;
+        for (unsigned y = 0; y < h; ++y)
+            for (unsigned x = 0; x < w; ++x) {
+                unsigned i = y * w + x;
+                uint8_t wanted =
+                    x >= 3 && x < 20 && y >= 5 && y < 16 ? old[i * 4 + 3] : source[i * 4 + 3];
+                mask_ok = mask_ok && scalar[i] == wanted;
+            }
+        std::fprintf(stderr, "Switch deko3d selftest: scalar-DATE=%s full/crop/alpha256\n",
+                     mask_ok ? "PASS" : "FAIL");
+        snapshot_ok = snapshot_ok && mask_ok;
+        nv_set(saved);
+        nd_image_destroy(mask);
+        nd_image_destroy(src);
+        nd_image_destroy(dst);
+    }
+    std::fprintf(stderr, "Switch deko3d selftest: snapshot-3D=%s full/crop/dependent=41\n",
+                 snapshot_ok ? "PASS" : "FAIL");
+    bool ok = upload_ok && quad_ok && copy_ok && mix_ok && snapshot_ok;
     nv_set(saved);
     plat_video_set_view(640, 480);
     plat_texture_destroy(probe);
@@ -328,10 +431,12 @@ void plat_video_end_frame(void)
     nd_copy(page, nd_screen(), 0, 0, page->width, page->height);
     nd_present();
     SWP_POP();
-    if (menu_pacing && previous) {
+    unsigned rate = menu_pacing ? 60u : (unsigned)frame_limit;
+    if (rate && previous) {
+        uint64_t interval = 1000000000ull / rate;
         uint64_t elapsed = plat_time_ns() - previous;
-        if (elapsed < 16666667)
-            plat_sleep_ms((16666667 - elapsed) / 1000000);
+        if (elapsed < interval)
+            plat_sleep_ms((interval - elapsed) / 1000000);
     }
     previous = plat_time_ns();
     SWP_FRAME(display_width, display_height);
@@ -342,6 +447,7 @@ void plat_video_shutdown(void)
         return;
     video_flush2d();
     nd_sync();
+    nd_render_shutdown();
     nd_image_destroy(white);
     nd_image_destroy(black);
     nd_image_destroy(page);
@@ -369,9 +475,32 @@ void video_set_aspect(int)
 {
     layout_view();
 }
+void video_set_fill_window(int enabled)
+{
+    video_flush2d();
+    fill_window = enabled != 0;
+    layout_view();
+}
+int video_fill_window(void)
+{
+    return fill_window;
+}
+void video_performance_options(int low_latency, int fps_limit)
+{
+    /* The native queue owns presentation; the desktop Vulkan latency option is inapplicable. */
+    (void)low_latency;
+    frame_limit = fps_limit >= 0 && fps_limit <= 500 ? fps_limit : 0;
+    previous = 0;
+}
 float video_projection_x(void)
 {
-    return view_w / (view_h * (16.f / 9));
+    return fill_window ? 640.f / view_w : view_w / (view_h * (16.f / 9));
+}
+void video_switch_scene_resolution(int choice)
+{
+    scene_resolution = choice >= MOON_SWITCH_CLASSIC && choice <= MOON_SWITCH_PERFORMANCE
+                           ? choice
+                           : MOON_SWITCH_BALANCED;
 }
 int video_set_upscale(int)
 {
@@ -393,10 +522,15 @@ void video_begin_scene(void)
     if (scene_active)
         return;
     scene_saved = nv_get();
-    unsigned w = display_width >= 1920 ? 1280 : 960, h = display_height >= 1080 ? 720 : 540;
-    if (!scene) {
+    unsigned w, h;
+    moon_switch_scene_size(scene_resolution, display_width >= 1920, &w, &h);
+    if (!scene || scene->width != w || scene->height != h) {
+        nd_image_destroy(scene);
+        nd_image_destroy(scene_depth);
         scene = nd_image_create(w, h);
         scene_depth = nd_image_create(w, h, true);
+        std::fprintf(stderr, "Switch 3D target: mode=%d size=%ux%u output=%ux%u\n",
+                     scene_resolution, w, h, display_width, display_height);
     }
     nv_target(scene, scene_depth);
     nd_clear(0, 0, 0, 1, true, true);
@@ -428,9 +562,9 @@ void plat_set_clip(float x, float y, float w, float h)
         current.clip[2] = current.color->width;
         current.clip[3] = current.color->height;
     } else {
-        current.clip[0] = std::max(0, (int)std::floor(off_x + x * scale_x + .5f));
+        nd_clip_horizontal(x, w, view_w, off_x, scale_x, content_x, content_width, current.clip[0],
+                           current.clip[2]);
         current.clip[1] = std::max(0, (int)std::floor(off_y + y * scale_y + .5f));
-        current.clip[2] = std::max(0, (int)std::floor(w * scale_x + .5f));
         current.clip[3] = std::max(0, (int)std::floor(h * scale_y + .5f));
     }
     nd_scissor(current.clip[0], current.clip[1], current.clip[2], current.clip[3]);
@@ -477,8 +611,7 @@ void video_viewport(float x, float y, float w, float h, int *vx, int *vy, int *v
     *vw = (int)std::floor(w * scale_x + .5f);
     *vh = (int)std::floor(h * scale_y + .5f);
     if (x == 0 && w == view_w) {
-        *vx = (int)content_x;
-        *vw = (int)content_width;
+        nd_content_viewport(content_x, content_width, *vx, *vw);
     }
 }
 void video_ui_panel(float y, float h)

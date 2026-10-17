@@ -39,7 +39,7 @@ void main(){
   bool pass=f==1 || (f==2 && a<ref)||(f==3 && a<=ref)||(f==4 && a==ref)||(f==5 && a>=ref)||(f==6 && a>ref)||(f==7 && a!=ref);
   if(p[46].z==2.?pass:!pass)discard;
  }
- if(p[46].x>0.){bool bit=texelFetch(destination,ivec2(gl_FragCoord.xy),0).a>=.999;if(bit!=(p[46].y>0.))discard;}
+ if(p[46].x>0.){vec4 saved=texelFetch(destination,ivec2(gl_FragCoord.xy),0);bool bit=(p[46].w>0.?saved.r:saved.a)>=.999;if(bit!=(p[46].y>0.))discard;}
  vec3 rgb=p[9].w>0.?texture(environment,clamp(envuv,0.,1.)).rgb*tint.rgb:min(vec3(1.),texel.rgb*tint.rgb*(p[10].x>0.?1.:p[10].y)+shine);
  rgb=mix(p[21].xyz,rgb,fog);
  if(p[23].w>0.){float g=dot(rgb,vec3(.299,.587,.114));vec3 graded=clamp((g+(rgb-g)*p[22].w)*p[22].xyz+p[23].x,0.,1.);rgb=mix(rgb,graded,p[23].w);}

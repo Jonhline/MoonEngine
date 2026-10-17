@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <dirent.h>
+#include "../platform/common/moon_dirent.h"
 #ifdef _WIN32
 #include <direct.h>
 #define MKDIR(p) _mkdir(p)
@@ -441,9 +441,9 @@ static void hand_over(struct ui *u)
     if(tick)fclose(tick);
     if(enabled){
 #ifdef _WIN32
-        _putenv_s("OPENGT4_OVERLAY",joined);
+        _putenv_s("MOON_OVERLAY",joined);
 #else
-        setenv("OPENGT4_OVERLAY",joined,1);
+        setenv("MOON_OVERLAY",joined,1);
 #endif
         printf("launcher: overlay %s\n",joined);
     }
@@ -667,7 +667,6 @@ static void draw(struct ui *u)
     int sy=u->h-40;
     if(u->status[0])text_fit(u,32,sy,u->status,0,u->w-380,C_ACCENT_R,C_ACCENT_G,C_ACCENT_B);
     else text_fit(u,32,sy,"Arrows pick - Enter opens - Esc closes or quits - F11 fullscreen",0,u->w-380,204,208,214);
-    text_fit(u,u->w-340,sy,"Based on OpenGT4 - GPL v3",0,308,180,184,190);
     draw_dock(u);
     SDL_RenderPresent(u->ren);
 }
@@ -849,8 +848,8 @@ int launcher_ui_run(launcher_startup *startup)
         SDL_DestroyRenderer(u.ren);SDL_DestroyWindow(u.window);SDL_Quit();return -1;
     }
     browse_scan(&u);mods_scan(&u);load_background(&u);
-    /* Deterministic page for captures, like the engine's own OPENGT4_* hooks. */
-    const char *page_env=getenv("OPENGT4_LAUNCHER_PAGE");
+    /* Deterministic page for captures, like the engine's own MOON_* hooks. */
+    const char *page_env=getenv("MOON_LAUNCHER_PAGE");
     if(page_env){int p=atoi(page_env);if(p>=0 && p<PAGE_COUNT){u.dock=p;u.open=p;}}
     printf("launcher: MOON ENGINE front door, %d folder entries, %d mods, dock %s, page %s\n",
            u.nentries,u.nmods,page_names[u.dock],u.open<0?"none":page_names[u.open]);

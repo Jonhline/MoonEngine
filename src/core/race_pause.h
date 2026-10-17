@@ -25,6 +25,7 @@ void race_pause_close(race_pause *p);
 /* a key going down, as Flash's Key codes (37..40 the arrows, 13 enter) */
 void race_pause_key(race_pause *p, int code);
 void race_pause_update(race_pause *p, double dt);
+int race_pause_pointer(race_pause *p, int enabled, float x, float y, int action);
 void race_pause_draw(race_pause *p);
 int race_pause_state(const race_pause *p);
 

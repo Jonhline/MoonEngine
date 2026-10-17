@@ -52,10 +52,11 @@ void main(){
     if(shine_alpha.x>=6.)e*=e;if(shine_alpha.x>=12.)e*=e;s=e;}
    lit+=ambient*p[28+i].xyz+diffuse*p[32+i].xyz*d;sp+=specular*p[36+i].xyz*s;
   }
-  if(count>0){if(p[14].w>0.){lit=clamp(lit+sp,vec3(0.),vec3(p[14].w));sp=vec3(0.);}else sp*=p[10].z;}
+  // 0049EB90 +0x84..0x94: select the specular block before vertex saturation.
+  if(count>0){if(p[14].w>0.){lit=clamp(p[14].y>0.?sp:lit+sp,vec3(0.),vec3(p[14].w));sp=vec3(0.);}else sp*=p[10].z;}
  }
  if(p[9].x==0. && p[9].w>0.){lit=diffuse;sp=vec3(0.);}
- if(p[9].x==0. && p[14].y>0.){lit=sp;sp=vec3(0.);}
+ if(p[9].x==0. && p[14].y>0. && p[14].w<=0.){lit=sp;sp=vec3(0.);}
  if(p[9].x!=0. && p[17].w>0.)lit=lit*p[17].xyz+p[18].xyz;
  vec3 nn=vec3(dot(wn,p[5].xyz),dot(wn,p[6].xyz),-dot(wn,p[7].xyz));
  vec3 incident=normalize(vec3(x,y,-max(z,1e-6)));vec3 r=reflect(incident,nn);r.z+=1.;

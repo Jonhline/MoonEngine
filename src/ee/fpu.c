@@ -1,5 +1,7 @@
 /*
- * EE FPU arithmetic with PS2 semantics. See fpu.h.
+ * Host-float EE arithmetic used by the established native-code oracles.
+ * This does not model every EE rounding detail, including the operand-sensitive
+ * multiplier. Physics original-code comparisons select replay_arithmetic.c results.
  *
  * Every operation here relies on the host rounding mode set by
  * ee_fpu_enter() (toward zero). Floating-point environment access is turned

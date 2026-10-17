@@ -55,6 +55,8 @@ uint32_t gt4_career_race_prize(const uint8_t *race, uint64_t position);
 void gt4_career_odometer_set(uint8_t *wear, uint64_t mileage);
 /* 0010FB3C..0010FBB4: PS2 cvt.w.s with unsigned correction. */
 uint32_t gt4_career_distance_integer(float distance);
+/* 0010FA58: EE subtraction precedes the unsigned distance conversion. */
+uint32_t gt4_career_distance_aspec(float total, float bspec);
 /* ctor table 0061736c -> 003BB820/003BB7E8 -> 005792D8. */
 void gt4_career_enemy_rng_init(uint32_t *state);
 /* medal: 0 gold, 1 silver, 2 bronze; decoded original RACE structure. */

@@ -8,7 +8,7 @@ MOD=/mnt/ssd/mods/moon-first-car
 rm -rf "$MOD"
 
 echo "=== baseline: no mod source ==="
-env -u OPENGT4_OVERLAY "$B/gt4car_survey" "$D" > /tmp/survey_base.txt 2>&1
+env -u MOON_OVERLAY "$B/gt4car_survey" "$D" > /tmp/survey_base.txt 2>&1
 echo "BASE_EXIT=$?"
 tail -1 /tmp/survey_base.txt
 
@@ -18,7 +18,7 @@ echo "AUTHOR_EXIT=$?"
 find "$MOD" -type f -printf '%p %s bytes\n'
 
 echo "=== the engine, with the mod folder on ==="
-OPENGT4_OVERLAY="$MOD" "$B/gt4car_survey" "$D" > /tmp/survey_mod.txt 2>&1
+MOON_OVERLAY="$MOD" "$B/gt4car_survey" "$D" > /tmp/survey_mod.txt 2>&1
 echo "MOD_EXIT=$?"
 tail -1 /tmp/survey_mod.txt
 

@@ -16,6 +16,10 @@ enum swp_stage {
     SWP_LOADING,
     SWP_LOGIC,
     SWP_IDLE,
+    SWP_GPU_FENCE,
+    SWP_GPU_ACQUIRE,
+    SWP_GPU_COPY,
+    SWP_GPU_DATE,
     SWP_STAGE_COUNT
 };
 

@@ -2,6 +2,8 @@
    (003EDE50 / 003EF498) set it, and pause.strb asks before Exit. */
 #include "race_pause.h"
 #include "vol.h"
+#include "platform/platform.h"
+#include <SDL.h>
 #include <stdio.h>
 #include <string.h>
 static int run(gt4_vol *vol, int confirm, int downs, int extra_enter, int *after_exit)
@@ -36,6 +38,10 @@ int main(int argc, char **argv)
 {
     if (argc < 2)
         return 2;
+    /* STRB can create textures while opening its authored button states. */
+    SDL_setenv("MOON_WINDOW_HIDDEN","1",1);
+    plat_video_desc video={320,240,0,0,0};
+    if(plat_video_init(&video)) return 2;
     const char *why;
     gt4_vol *vol = gt4_vol_open(argv[1], &why);
     if (!vol)
@@ -58,6 +64,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "confirm did not ask before Exit\n");
         return 1;
     }
+    plat_video_shutdown();
     puts("PASS pause confirm");
     return 0;
 }

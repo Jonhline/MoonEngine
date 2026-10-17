@@ -637,7 +637,7 @@ static void APIENTRY vkglGetProgramInfoLog(GLuint id, GLsizei max, GLsizei *leng
 static void APIENTRY vkglDeleteProgram(GLuint id)
 {
     auto &c = context();
-    c.flush();
+    c.drain();
     auto found = c.programs.find(id);
     if (found == c.programs.end())
         return;

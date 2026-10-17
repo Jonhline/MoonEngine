@@ -137,8 +137,8 @@ void gt4_car_tyre_grip(uint32_t car)
         GT4_U8(w + WHEEL_DD) = GT4_U8(tyre + TYRE_1DA);
         load = GT4_F32(w + WHEEL_LOAD);
         /* func_003573A8: load relative to the axle's reference */
-        grip = load * gt4_curve_eval(gt4_ptr(tyre + TYRE_LOAD_CURVE),
-                                     load / GT4_F32(params + PARAMS_LOAD_REF + axle * 4));
+        grip = load * gt4_curve_eval_linear(gt4_ptr(tyre + TYRE_LOAD_CURVE),
+                                            load / GT4_F32(params + PARAMS_LOAD_REF + axle * 4));
         if (condition)
             grip = grip * GT4_F32(w + WHEEL_GRIP_FACTOR);
         grip = grip * GT4_F32(params + PARAMS_AXLE_GRIP + axle * 4);
@@ -150,7 +150,7 @@ void gt4_car_tyre_grip(uint32_t car)
             camber = side == 0 ? -roll : side == 1 ? roll : 0;
             camber = camber + GT4_F32(w + WHEEL_CAMBER);
         }
-        camber = gt4_curve_eval(gt4_ptr(params + PARAMS_CAMBER_CURVE + axle * 12), camber);
+        camber = gt4_curve_eval_linear(gt4_ptr(params + PARAMS_CAMBER_CURVE + axle * 12), camber);
         GT4_F32(w + WHEEL_GRIP) = grip * GT4_F32(tyre + TYRE_MU + surface * 4) * camber;
         GT4_F32(w + WHEEL_GRIP) = GT4_F32(w + WHEEL_GRIP) * gt4_surface_factor(car, surface);
     }
@@ -240,7 +240,7 @@ void gt4_car_tyre_forces(uint32_t car)
             sum = sum + slip;
             count++;
         }
-        curve = gt4_curve_eval(gt4_ptr(tyre + TYRE_SIDE_CURVE), slip);
+        curve = gt4_curve_eval_linear(gt4_ptr(tyre + TYRE_SIDE_CURVE), slip);
         GT4_F32(w + WHEEL_SIDE_CURVE) = curve;
         camber = 0;
         lat = side * curve;
@@ -271,7 +271,7 @@ void gt4_car_tyre_forces(uint32_t car)
             GT4_F32(w + WHEEL_FORCE_6C) = 0;
         } else {
             /* friction circle with the second curve */
-            float lon = gt4_curve_eval(gt4_ptr(tyre + TYRE_6C_CURVE), slip), mag, limit;
+            float lon = gt4_curve_eval_linear(gt4_ptr(tyre + TYRE_6C_CURVE), slip), mag, limit;
             if (!GT4_U8(tyre + TYRE_BY_VELOCITY))
                 lon = lon * GT4_F32(w + WHEEL_VEL_WEIGHT);
             mag = sqrtf(lat * lat + lon * lon);

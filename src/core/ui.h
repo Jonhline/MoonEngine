@@ -59,13 +59,20 @@ struct ui_widget {
     char *flash_path;
     char *image_path;                    /* ImageFace */
     char *text, *text_key;               /* TextFace; owned by widget */
+    char *hint_text, *hint_source;
+    int hint_mode;
     char *wrapped_text, *wrapped_source; /* layout cache; never alters script text */
     float scale_x, scale_y, letter_spacing;
     ui_widget *item_template;
+    float pointer_light, pointer_hover_time;
+    float desktop_offset;
+    int desktop_scrolled;
     float strip_offset;
     float text_scroll; /* ToolTipFace: seconds since the text changed */
     gt4_tooltip_motion tooltip_motion;
     int strip_ready;
+    float strip_zoom, strip_card_scale;
+    double strip_ticks;
     float scroll_tx, scroll_ty; /* scrolled "space": eased target position */
     int scroll_set;
     /* MScaleBar 00239018/20: float value, clamped by script min/max. */
@@ -109,6 +116,7 @@ struct ui_widget {
     uint8_t chip_rgb[3];
     uint8_t chip_bands[4][3]; /* ColorChipFace.setColor(colours): the quick menus' bands */
     int chip_band_count;
+    float pointer_rect[4]; /* P: last painted, clipped bounds for desktop input. */
     unsigned drawn_tick; /* ui_draw_tick() when last drawn */
     void *script;        /* the script object bound to this widget, if any */
 };
@@ -164,6 +172,18 @@ void ui_text_size(ui_project *p, const ui_widget *w, float size[2]);
 /* Sets the text of every ToolTipFace under w (NULL clears) and restarts its scrolling. */
 void ui_set_tooltips(ui_widget *w, const char *text);
 void ui_reset_tooltips(ui_widget *w);
+void ui_menu_readability(ui_project *p, int compact_cars);
+void ui_pointer_feedback(ui_project *p, int enabled); /* P: animated mouse prelight. */
+void ui_pointer_smoothing(ui_project *p, int enabled); /* P: brief mouse easing. */
+void ui_pointer(ui_project *p, int enabled, float x, float y);
+int ui_pointer_position(const ui_project *p, float *x, float *y);
+void ui_main_menu_layout(ui_project *p, int expanded); /* P: optional main menu overview. */
+void ui_input_hints(ui_project *p, int device); /* 0 original, 1 keyboard/mouse */
+int ui_pointer_scroll(ui_project *p, int root, float x, float y, int wheel);
+void ui_pointer_edge_scroll(ui_project *p, int root, float seconds);
+void ui_pointer_scroll_clear(ui_project *p);
+void ui_pointer_hover(ui_project *p, const ui_widget *widget);
+int ui_pointer_contains(const ui_project *p, const ui_widget *w, float x, float y);
 void ui_cursor_speed(ui_project *p, float ratio);
 /* The context focus owns the cursor; decorative lists cannot replace it. */
 void ui_cursor_select(ui_project *p, const ui_widget *widget);

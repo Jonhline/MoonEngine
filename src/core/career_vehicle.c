@@ -3,6 +3,7 @@
 #include "career_vehicle.h"
 #include "car_service.h"
 #include "career_float.h"
+#include "physics/replay_float.h"
 #include "career_setting.h"
 #include "engine.h"
 #include "spectables.h"
@@ -164,12 +165,12 @@ static float peak_stats(uint32_t engine, uint32_t wear, float *torque)
         end = points[count - 1];
     float best = 0, best_t = 0;
     for (int rpm = points[0]; rpm <= end; rpm += 100) {
-        float speed = (float)rpm * gt4_f32(0x3dd6774e);
+        float speed = gt4_replay_f_mul((float)rpm, gt4_f32(0x3dd6774e));
         float t = gt4_engine_torque(gt4_ptr(engine), speed, gt4_ptr(wear));
         t = gt4_engine_power_cap(engine, t, speed);
-        t = t / gt4_f32(0x411ccccc);
-        float p = t * (float)rpm;
-        p = p / gt4_f32(0x44330ccc);
+        t = gt4_replay_f_div(t, gt4_f32(0x411ccccc));
+        float p = gt4_replay_f_mul(t, (float)rpm);
+        p = gt4_replay_f_div(p, gt4_f32(0x44330ccc));
         if (rpm <= redline && best < p)
             best = p;
         if (rpm <= redline && best_t < t)
@@ -200,11 +201,11 @@ static void compact_ratings(const gt4_specdb_src *db, uint32_t setup, uint32_t w
     uint32_t drive = REC + 0x834;
     if (GT4_U8(drive) == 7) { /* 00356E08 -> 00355978: power constants */
         float a = (float)GT4_U8(0x62045a), b = (float)GT4_U8(0x62045b);
-        extra = ((a + a) + b) / gt4_f32(0x3f3c49ba);
+        extra = gt4_replay_f_div(gt4_replay_f_add(gt4_replay_f_add(a, a), b), gt4_f32(0x3f3c49ba));
     } else if (GT4_U8(drive + 0x13) == 4)
         extra = gt4_f32(0x41598a02);
-    power = power + extra;
-    power = power * 100.0f;
+    power = gt4_replay_f_add(power, extra);
+    power = gt4_replay_f_mul(power, 100.0f);
     uint32_t p = (uint32_t)(int32_t)power & 0x3ffffu;
     uint32_t weight = GT4_U16(REC + 0x1648) & 0x1fffu;
     if (generic[0x12] & 8) {
@@ -494,11 +495,12 @@ int gt4_career_vehicle_stats(void *ctx, const uint8_t body[0x4b8], int32_t out[3
     uint32_t drive = REC + 0x834;
     if (GT4_U8(drive) == 7) {
         float a = (float)GT4_U8(0x62045a), b = (float)GT4_U8(0x62045b);
-        p += ((a + a) + b) / gt4_f32(0x3f3c49ba);
+        p = gt4_replay_f_add(
+            p, gt4_replay_f_div(gt4_replay_f_add(gt4_replay_f_add(a, a), b), gt4_f32(0x3f3c49ba)));
     } else if (GT4_U8(drive + 0x13) == 4)
-        p += gt4_f32(0x41598a02);
-    out[0] = (int32_t)(p * 100.0f);
-    out[1] = (int32_t)(tq * 100.0f);
+        p = gt4_replay_f_add(p, gt4_f32(0x41598a02));
+    out[0] = (int32_t)(gt4_replay_f_mul(p, 100.0f));
+    out[1] = (int32_t)(gt4_replay_f_mul(tq, 100.0f));
     out[2] = GT4_U16(REC + 0x1648);
     uint8_t generic[24];
     if (v->db.row(v->db.ctx, 0, r32(body), 0, generic, sizeof generic) == 24 && (generic[0x12] & 8))
@@ -655,9 +657,11 @@ int gt4_career_vehicle_setting(void *ctx, uint8_t body[0x4b8], int operation, in
         uint32_t display_drive = REC + 0x834;
         if (GT4_U8(display_drive) == 7) {
             float a = (float)GT4_U8(0x62045a), b = (float)GT4_U8(0x62045b);
-            out->peak_power += ((a + a) + b) / gt4_f32(0x3f3c49ba);
+            out->peak_power = gt4_replay_f_add(
+                out->peak_power,
+                gt4_replay_f_div(gt4_replay_f_add(gt4_replay_f_add(a, a), b), gt4_f32(0x3f3c49ba)));
         } else if (GT4_U8(display_drive + 0x13) == 4)
-            out->peak_power += gt4_f32(0x41598a02);
+            out->peak_power = gt4_replay_f_add(out->peak_power, gt4_f32(0x41598a02));
         if (operation == 3) {
             /* 0034B808 +34..D0, 00148940 +B8..1A0: forward gear endpoints,
       up to nine forward gears (0034B088..B0A0; ten includes reverse). */
@@ -673,35 +677,47 @@ int gt4_career_vehicle_setting(void *ctx, uint8_t body[0x4b8], int operation, in
        ratios, before converter normalization. Physics RAM stays private. */
                 float raw[10] = {0};
                 int final = (int16_t)GT4_U16(REC + 0x150);
-                float f = (float)(final < 500 ? 4000 : final) * gt4_f32(0x3a83126e);
+                float f =
+                    gt4_replay_f_mul((float)(final < 500 ? 4000 : final), gt4_f32(0x3a83126e));
                 for (unsigned i = 1; i <= n; i++) {
                     int ratio = (int16_t)GT4_U16(REC + 0x138 + i * 2);
                     if (ratio < 100)
                         ratio = 4000;
-                    raw[i] = (float)ratio * gt4_f32(0x3a83126e) * f;
+                    raw[i] =
+                        gt4_replay_f_mul(gt4_replay_f_mul((float)ratio, gt4_f32(0x3a83126e)), f);
                     unsigned kind = GT4_U8(REC + 0x154);
                     int v = (int16_t)GT4_U16(REC + 0x152);
                     if (kind && kind != 4 && v >= 500) {
-                        float m = (float)v * gt4_f32(0x3a83126e);
+                        float m = gt4_replay_f_mul((float)v, gt4_f32(0x3a83126e));
                         if (kind == 1)
-                            raw[i] *= m;
+                            raw[i] = gt4_replay_f_mul(raw[i], m);
                         else if (kind == 2 && i >= 5)
-                            raw[i] *= m / f;
+                            raw[i] = gt4_replay_f_mul(raw[i], gt4_replay_f_div(m, f));
                         else if (kind == 3 && i >= 3 && i < 5)
-                            raw[i] *= m / f;
+                            raw[i] = gt4_replay_f_mul(raw[i], gt4_replay_f_div(m, f));
                     }
                 }
                 for (unsigned i = 1; i <= n; i++) {
                     unsigned r = 1000;
                     if (i >= 2) {
                         unsigned g = i - 1;
-                        int up = (int)((float)GT4_U16(drive + 0x2e) * gt4_f32(0x3dd6774e) *
-                                       raw[g + 1] / raw[g] * 60.f / gt4_f32(0x40c90fda));
+                        int up = (int)(gt4_replay_f_div(
+                            gt4_replay_f_mul(
+                                gt4_replay_f_div(
+                                    gt4_replay_f_mul(gt4_replay_f_mul((float)GT4_U16(drive + 0x2e),
+                                                                      gt4_f32(0x3dd6774e)),
+                                                     raw[g + 1]),
+                                    raw[g]),
+                                60.f),
+                            gt4_f32(0x40c90fda)));
                         int lo = GT4_U16(drive + 0x2c);
                         if (GT4_U8(0x620dea) && g == 1)
                             up = (lo + up) / 2;
-                        int drop = (int)(GT4_F32(drive + 0x68 + i * 4) * gt4_f32(0x4031c71b) *
-                                         60.f / gt4_f32(0x40c90fda));
+                        int drop = (int)(gt4_replay_f_div(
+                            gt4_replay_f_mul(gt4_replay_f_mul(GT4_F32(drive + 0x68 + i * 4),
+                                                              gt4_f32(0x4031c71b)),
+                                             60.f),
+                            gt4_f32(0x40c90fda)));
                         up -= drop;
                         if (up < lo + 500)
                             up = lo + 500;
@@ -709,21 +725,25 @@ int gt4_career_vehicle_setting(void *ctx, uint8_t body[0x4b8], int operation, in
                     }
                     unsigned end = i == n ? (unsigned)out->max_rpm : GT4_U16(drive + 0x2e);
                     float factor = GT4_F32(drive + 0x68 + i * 4);
-                    out->chart[(i - 1) * 2][0] = ((float)r * gt4_f32(0x3dd6774e) / factor) / 100.f;
-                    out->chart[(i - 1) * 2 + 1][0] =
-                        ((float)end * gt4_f32(0x3dd6774e) / factor) / 100.f;
+                    out->chart[(i - 1) * 2][0] = gt4_replay_f_div(
+                        gt4_replay_f_div(gt4_replay_f_mul((float)r, gt4_f32(0x3dd6774e)), factor),
+                        100.f);
+                    out->chart[(i - 1) * 2 + 1][0] = gt4_replay_f_div(
+                        gt4_replay_f_div(gt4_replay_f_mul((float)end, gt4_f32(0x3dd6774e)), factor),
+                        100.f);
                     out->chart[(i - 1) * 2][1] = (float)r;
                     out->chart[(i - 1) * 2 + 1][1] = (float)end;
                     if (maximum < end)
                         maximum = (float)end;
                 }
                 for (unsigned i = 0; i < n * 2; i++)
-                    out->chart[i][1] /= maximum;
+                    out->chart[i][1] = gt4_replay_f_div(out->chart[i][1], maximum);
                 out->chart_count = (int)n * 2;
             }
         }
         for (int i = 0; i < (int16_t)GT4_U16(engine); i++) {
-            int rpm = (int)(GT4_F32(engine + 0xc + i * 4) * 60.f / gt4_f32(0x40c90fda));
+            int rpm = (int)(gt4_replay_f_div(gt4_replay_f_mul(GT4_F32(engine + 0xc + i * 4), 60.f),
+                                             gt4_f32(0x40c90fda)));
             rpm = (rpm + 50) / 100 * 100;
             if (!count || out->rpm[count - 1] < rpm) {
                 if (count == 24) {
@@ -735,12 +755,12 @@ int gt4_career_vehicle_setting(void *ctx, uint8_t body[0x4b8], int operation, in
         }
         out->count = count;
         for (int i = 0; i < count; i++) {
-            float speed = out->rpm[i] * gt4_f32(0x3dd6774e);
+            float speed = gt4_replay_f_mul(out->rpm[i], gt4_f32(0x3dd6774e));
             float t = gt4_engine_torque(gt4_ptr(engine), speed, gt4_ptr(FULL + 0x4a0));
             t = gt4_engine_power_cap(engine, t, speed);
-            t = t / gt4_f32(0x411ccccc);
+            t = gt4_replay_f_div(t, gt4_f32(0x411ccccc));
             out->torque[i] = t;
-            out->power[i] = (t * out->rpm[i]) / gt4_f32(0x44330ccc);
+            out->power[i] = gt4_replay_f_div(gt4_replay_f_mul(t, out->rpm[i]), gt4_f32(0x44330ccc));
         }
     }
     gt4_phys_mem = old;

@@ -7,7 +7,11 @@
 #include "deko_shaders.h"
 #include "deko_draw_range.h"
 #include "deko_submission.h"
+#include "deko_pipeline_cache.h"
 #include <switch.h>
+extern "C" {
+#include "platform/switch_profile.h"
+}
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -40,13 +44,15 @@ struct Shader {
     nd_buffer memory;
 };
 struct Context {
+    nd_pipeline_cache pipeline;
     DkDevice device{};
     DkQueue queue{};
     DkSwapchain swapchain{};
     nd_image *screens[Frames]{}, *color{}, *depth{};
     nd_buffer descriptors{};
     DkImageDescriptor *image_descriptors{};
-    Shader ui_vert{}, ui_frag{}, mesh_vert{}, mesh_frag{}, mix_frag{};
+    Shader ui_vert{}, ui_frag{}, mesh_vert{}, mesh_frag{}, mix_frag{}, env_frag{}, snapshot_frag{},
+        mask_frag{};
     Shader probe_first_vert{}, probe_first_frag{}, probe_broken_vert{};
     Frame frames[Frames];
     std::vector<Retired> retired;
@@ -55,6 +61,10 @@ struct Context {
     nd_image *images[Images]{};
     unsigned width{}, height{}, frame{}, next_image{1};
     int acquired{-1};
+#ifdef MOON_DEKO_DIAGNOSTICS
+    unsigned allocation_calls{}, allocation_size{}, allocation_flags{};
+    uint64_t allocation_bytes{};
+#endif
     bool active{};
 } gpu;
 uint32_t align_up(uint32_t n, uint32_t align)
@@ -65,6 +75,17 @@ void fault_context()
 {
     std::fprintf(stderr, "Switch GPU fault context: serial=%llu slot=%u acquired=%d active=%d\n",
                  (unsigned long long)gpu.serial, gpu.frame, gpu.acquired, gpu.active);
+#ifdef MOON_DEKO_DIAGNOSTICS
+    uint64_t used = 0, available = 0;
+    svcGetInfo(&used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0);
+    svcGetInfo(&available, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0);
+    std::fprintf(
+        stderr,
+        "Switch GPU allocation: calls=%u last_size=%u flags=%x requested_bytes=%llu process_used=%llu process_total=%llu\n",
+        gpu.allocation_calls, gpu.allocation_size, gpu.allocation_flags,
+        (unsigned long long)gpu.allocation_bytes, (unsigned long long)used,
+        (unsigned long long)available);
+#endif
     for (unsigned i = 0; i < Frames; i++) {
         const auto &f = gpu.frames[i];
         std::fprintf(stderr,
@@ -168,6 +189,12 @@ extern "C" Result __wrap_nvGpuChannelKickoff(NvGpuChannel *channel)
 }
 nd_buffer nd_alloc(uint32_t size, uint32_t flags)
 {
+#ifdef MOON_DEKO_DIAGNOSTICS
+    gpu.allocation_calls++;
+    gpu.allocation_size = size;
+    gpu.allocation_flags = flags;
+    gpu.allocation_bytes += align_up(size, DK_MEMBLOCK_ALIGNMENT);
+#endif
     DkMemBlockMaker maker;
     dkMemBlockMakerDefaults(&maker, gpu.device, align_up(size, DK_MEMBLOCK_ALIGNMENT));
     maker.flags = flags;
@@ -189,20 +216,24 @@ void nd_release(nd_buffer m)
     if (m.mem)
         gpu.retired.push_back({m, 0, gpu.serial + Frames});
 }
-nd_image *nd_image_create(unsigned w, unsigned h, bool depth, bool present)
+nd_image *nd_image_create(unsigned w, unsigned h, bool depth, bool present, bool alpha_mask)
 {
     auto *image = new nd_image{};
     image->width = w;
     image->height = h;
     image->depth = depth;
+    image->alpha_mask = alpha_mask;
     DkImageLayoutMaker maker;
     dkImageLayoutMakerDefaults(&maker, gpu.device);
     maker.dimensions[0] = w;
     maker.dimensions[1] = h;
-    maker.format = depth ? DkImageFormat_ZF32 : DkImageFormat_RGBA8_Unorm;
+    maker.format = depth        ? DkImageFormat_ZF32
+                   : alpha_mask ? DkImageFormat_R8_Unorm
+                                : DkImageFormat_RGBA8_Unorm;
     /* SDK 0.5 ImageInfo::Transfer2D requires this for the GPU blits used by
        menu captures, layers and presentation. Depth uses the copy engine. */
-    maker.flags = DkImageFlags_UsageRender | (depth ? 0 : DkImageFlags_Usage2DEngine) |
+    maker.flags = DkImageFlags_UsageRender |
+                  (depth || alpha_mask ? 0 : DkImageFlags_Usage2DEngine) |
                   (present ? DkImageFlags_UsagePresent : 0);
     DkImageLayout layout;
     dkImageLayoutInitialize(&layout, &maker);
@@ -260,6 +291,8 @@ void nd_image_upload(nd_image *image, const uint8_t *rgba)
 {
     if (!image || !rgba)
         return;
+    if (image->alpha_mask)
+        fail("RGBA upload to scalar snapshot image");
     DkCopyBuf from{nd_stream(rgba, (size_t)image->width * image->height * 4), 0, 0};
     auto &frame = gpu.frames[gpu.frame];
     frame.uploads++;
@@ -282,14 +315,14 @@ bool nd_image_read(nd_image *image, void *bytes)
 {
     if (!image || !bytes)
         return false;
-    auto staging = nd_alloc(image->width * image->height * 4,
-                            DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached);
+    size_t bytes_count = (size_t)image->width * image->height * (image->alpha_mask ? 1 : 4);
+    auto staging = nd_alloc(bytes_count, DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached);
     DkCopyBuf to{nd_gpu(staging), 0, 0};
     DkImageRect rect{0, 0, 0, image->width, image->height, 1};
     nd_transfer_begin(nd_commands());
     dkCmdBufCopyImageToBuffer(nd_commands(), &image->view, &rect, &to, 0);
     nd_sync();
-    std::memcpy(bytes, nd_cpu(staging), (size_t)image->width * image->height * 4);
+    std::memcpy(bytes, nd_cpu(staging), bytes_count);
     dkMemBlockDestroy(staging.mem);
     return true;
 }
@@ -297,11 +330,30 @@ void nd_copy(nd_image *src, nd_image *dst, unsigned x, unsigned y, unsigned w, u
 {
     if (!src || !dst || !w || !h)
         return;
+    SWP_PUSH(SWP_GPU_COPY);
     DkImageRect a{x, y, 0, w, h, 1}, b{0, 0, 0, dst->width, dst->height, 1};
     nd_blit_commands(nd_commands(), &src->view, &a, &dst->view, &b);
     auto &frame = gpu.frames[gpu.frame];
     if (nd_submit_transfer(frame.pending, gpu.queue, frame.commands, 0))
         frame.submissions++;
+    SWP_POP();
+}
+void nd_snapshot(nd_image *src, nd_image *dst, unsigned x, unsigned y, unsigned width,
+                 unsigned height)
+{
+    if (!src || !dst || !width || src->width != dst->width || src->height != dst->height ||
+        x > src->width || width > src->width - x || !height || y > src->height ||
+        height > src->height - y)
+        fail("invalid framebuffer snapshot span");
+    SWP_PUSH(SWP_GPU_COPY);
+    DkImageRect rect{x, y, 0, width, height, 1};
+    /* Same framebuffer coordinates on both sides: the fragment shader still
+       addresses DATE with gl_FragCoord, without scaling or a UV adjustment. */
+    nd_snapshot_commands(nd_commands(), &src->view, &dst->view, &rect);
+    auto &frame = gpu.frames[gpu.frame];
+    if (nd_submit_transfer(frame.pending, gpu.queue, frame.commands, 0))
+        frame.submissions++;
+    SWP_POP();
 }
 void nd_bind(nd_image *color, nd_image *depth)
 {
@@ -341,8 +393,10 @@ void nd_begin()
     if (gpu.active)
         return;
     auto &frame = gpu.frames[gpu.frame];
+    SWP_PUSH(SWP_GPU_FENCE);
     if (frame.fenced && dkFenceWait(&frame.fence, UINT64_MAX) != DkResult_Success)
         fail("frame fence failed; retaining in-flight buffers");
+    SWP_POP();
     dkCmdBufClear(frame.commands);
     for (auto memory : frame.extra_commands)
         dkMemBlockDestroy(memory.mem);
@@ -360,8 +414,11 @@ void nd_begin()
     frame.pending = {};
     frame.submissions = 0;
     collect();
+    gpu.pipeline = {};
     gpu.active = true;
+    SWP_PUSH(SWP_GPU_ACQUIRE);
     gpu.acquired = dkQueueAcquireImage(gpu.queue, gpu.swapchain);
+    SWP_POP();
     if (gpu.acquired < 0)
         fail("swapchain acquire failed");
     dkCmdBufBindImageDescriptorSet(frame.commands, nd_gpu(gpu.descriptors), Images);
@@ -395,14 +452,16 @@ nd_image *nd_image_slot(unsigned slot)
 }
 unsigned nd_program_count()
 {
-    return gpu.device ? 3 : 0;
+    return gpu.device ? 6 : 0;
 }
 void nd_pipeline(nd_program program, const nd_uniform &uniforms, nd_buffer vertices, unsigned first,
                  unsigned count, const unsigned images[4], const DkRasterizerState &raster,
                  const DkDepthStencilState &depth, const DkColorState &color,
                  const DkColorWriteState &mask, const DkBlendState &blend, float fixed_alpha,
-                 unsigned sampler, DkGpuAddr vertex_address, unsigned probe_flags)
+                 unsigned sampler, DkGpuAddr vertex_address, unsigned probe_flags,
+                 DkGpuAddr index_address, unsigned index_count)
 {
+    SWP_PUSH(SWP_GL);
     DkCmdBuf cmd = nd_commands();
     auto &frame = gpu.frames[gpu.frame];
     frame.draws++;
@@ -413,12 +472,18 @@ void nd_pipeline(nd_program program, const nd_uniform &uniforms, nd_buffer verti
     frame.last_vertices = vertex_address ? vertex_address : nd_gpu(vertices);
     frame.target_width = gpu.color->width;
     frame.target_height = gpu.color->height;
-    if (!nd_draw_range_valid(vertices.size, program == ND_MESH ? 108 : 32, first, count))
+    if (index_address) {
+        if (program != ND_MESH || first > index_count || count > index_count - first)
+            fail("draw outside index buffer");
+    } else if (!nd_draw_range_valid(vertices.size, program == ND_MESH ? 108 : 32, first, count))
         fail("draw outside vertex buffer");
     DkShader const *shaders[2]{program == ND_MESH ? &gpu.mesh_vert.object : &gpu.ui_vert.object,
-                               program == ND_MESH  ? &gpu.mesh_frag.object
-                               : program == ND_MIX ? &gpu.mix_frag.object
-                                                   : &gpu.ui_frag.object};
+                               program == ND_MESH       ? &gpu.mesh_frag.object
+                               : program == ND_MASK     ? &gpu.mask_frag.object
+                               : program == ND_SNAPSHOT ? &gpu.snapshot_frag.object
+                               : program == ND_ENV      ? &gpu.env_frag.object
+                               : program == ND_MIX      ? &gpu.mix_frag.object
+                                                        : &gpu.ui_frag.object};
     /* Only the standalone regression probe supplies flags. Production always
        uses zero. Load the exact 7715ae8 shader sources lazily for a same-GPU
        comparison, without replacing the player executable or its saves. */
@@ -440,7 +505,7 @@ void nd_pipeline(nd_program program, const nd_uniform &uniforms, nd_buffer verti
             shaders[0] = &gpu.probe_broken_vert.object;
         }
     }
-    dkCmdBufBindShaders(cmd, DkStageFlag_GraphicsMask, shaders, 2);
+    nd_bind_pipeline_commands(gpu.pipeline, cmd, shaders, program == ND_MESH);
     dkCmdBufBindRasterizerState(cmd, &raster);
     dkCmdBufBindDepthStencilState(cmd, &depth);
     dkCmdBufBindColorState(cmd, &color);
@@ -471,32 +536,6 @@ void nd_pipeline(nd_program program, const nd_uniform &uniforms, nd_buffer verti
     unsigned param_size = align_up(sizeof uniforms, DK_UNIFORM_BUF_ALIGNMENT);
     dkCmdBufBindUniformBuffer(cmd, DkStage_Vertex, 0, params, param_size);
     dkCmdBufBindUniformBuffer(cmd, DkStage_Fragment, 0, params, param_size);
-    DkVtxAttribState attributes[9]{};
-    DkVtxBufferState buffer{};
-    if (program == ND_MESH) {
-        const unsigned offsets[]{0, 12, 24, 32, 44, 56, 68, 76, 92};
-        const DkVtxAttribSize sizes[]{
-            DkVtxAttribSize_3x32, DkVtxAttribSize_3x32, DkVtxAttribSize_2x32,
-            DkVtxAttribSize_3x32, DkVtxAttribSize_3x32, DkVtxAttribSize_3x32,
-            DkVtxAttribSize_2x32, DkVtxAttribSize_4x32, DkVtxAttribSize_4x32};
-        for (unsigned i = 0; i < 9; i++) {
-            attributes[i].offset = offsets[i];
-            attributes[i].size = sizes[i];
-            attributes[i].type = DkVtxAttribType_Float;
-        }
-        buffer.stride = 108;
-    } else {
-        attributes[0].size = DkVtxAttribSize_2x32;
-        attributes[0].type = DkVtxAttribType_Float;
-        attributes[1] = attributes[0];
-        attributes[1].offset = 8;
-        attributes[2].offset = 16;
-        attributes[2].size = DkVtxAttribSize_4x32;
-        attributes[2].type = DkVtxAttribType_Float;
-        buffer.stride = 32;
-    }
-    dkCmdBufBindVtxAttribState(cmd, attributes, program == ND_MESH ? 9 : 3);
-    dkCmdBufBindVtxBufferState(cmd, &buffer, 1);
     dkCmdBufBindVtxBuffer(cmd, 0, vertex_address ? vertex_address : nd_gpu(vertices),
                           vertices.size);
     DkResHandle handles[4];
@@ -505,7 +544,12 @@ void nd_pipeline(nd_program program, const nd_uniform &uniforms, nd_buffer verti
            framebuffer masks keep clamp-to-edge independently of that surface. */
         handles[i] = dkMakeTextureHandle(images[i], i == 0 ? sampler : 0);
     dkCmdBufBindTextures(cmd, DkStage_Fragment, 0, handles, 4);
-    dkCmdBufDraw(cmd, DkPrimitive_Triangles, count, 1, first, 0);
+    if (index_address) {
+        dkCmdBufBindIdxBuffer(cmd, DkIdxFormat_Uint32, index_address);
+        dkCmdBufDrawIndexed(cmd, DkPrimitive_Triangles, count, 1, first, 0, 0);
+    } else
+        dkCmdBufDraw(cmd, DkPrimitive_Triangles, count, 1, first, 0);
+    SWP_POP();
 }
 #ifdef MOON_DEKO_DIAGNOSTICS
 static bool upload_burst_probe()
@@ -611,7 +655,10 @@ int nd_init(unsigned width, unsigned height)
     gpu.mesh_frag = shader(nd_mesh_frag, sizeof nd_mesh_frag);
     boot_step("mix fragment shader");
     gpu.mix_frag = shader(nd_mix_frag, sizeof nd_mix_frag);
-    std::fprintf(stderr, "Switch renderer: deko3d native shaders=5 gl_context=0\n");
+    gpu.env_frag = shader(nd_env_frag, sizeof nd_env_frag);
+    gpu.snapshot_frag = shader(nd_snapshot_frag, sizeof nd_snapshot_frag);
+    gpu.mask_frag = shader(nd_mask_frag, sizeof nd_mask_frag);
+    std::fprintf(stderr, "Switch renderer: deko3d native shaders=8 gl_context=0\n");
     std::fprintf(stderr, "Switch GPU diagnostics: draw-ranges=checked fault-context=3-frames\n");
     std::fprintf(stderr,
                  "Switch GPU submission: transfers=32 upload_bytes=4194304 raw-kickoff=1\n");
@@ -647,7 +694,8 @@ void nd_shutdown()
         for (auto m : frame.streams)
             dkMemBlockDestroy(m.mem);
     }
-    for (auto sh : {gpu.ui_vert, gpu.ui_frag, gpu.mesh_vert, gpu.mesh_frag, gpu.mix_frag})
+    for (auto sh : {gpu.ui_vert, gpu.ui_frag, gpu.mesh_vert, gpu.mesh_frag, gpu.mix_frag,
+                    gpu.env_frag, gpu.snapshot_frag, gpu.mask_frag})
         dkMemBlockDestroy(sh.memory.mem);
     for (auto sh : {gpu.probe_first_vert, gpu.probe_first_frag, gpu.probe_broken_vert})
         if (sh.memory.mem)
@@ -657,3 +705,30 @@ void nd_shutdown()
     dkDeviceDestroy(gpu.device);
     gpu = Context{};
 }
+
+#ifdef MOON_DEKO_DIAGNOSTICS
+extern "C" Result __real_nvMapCreate(NvMap *, void *, u32, u32, NvKind, bool);
+extern "C" Result __wrap_nvMapCreate(NvMap *map, void *address, u32 size, u32 alignment,
+                                     NvKind kind, bool cached)
+{
+    Result result = __real_nvMapCreate(map, address, size, alignment, kind, cached);
+    if (R_FAILED(result))
+        std::fprintf(
+            stderr,
+            "Switch GPU nvMapCreate failed: result=%08x module=%u description=%u size=%u align=%u cpu=%p\n",
+            result, R_MODULE(result), R_DESCRIPTION(result), size, alignment, address);
+    return result;
+}
+extern "C" Result __real_nvAddressSpaceMap(NvAddressSpace *, u32, bool, NvKind, iova_t *);
+extern "C" Result __wrap_nvAddressSpaceMap(NvAddressSpace *space, u32 handle, bool cached,
+                                           NvKind kind, iova_t *address)
+{
+    Result result = __real_nvAddressSpaceMap(space, handle, cached, kind, address);
+    if (R_FAILED(result))
+        std::fprintf(
+            stderr,
+            "Switch GPU nvAddressSpaceMap failed: result=%08x module=%u description=%u handle=%u kind=%u\n",
+            result, R_MODULE(result), R_DESCRIPTION(result), handle, (unsigned)kind);
+    return result;
+}
+#endif

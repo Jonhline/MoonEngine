@@ -17,8 +17,8 @@
  * uncompressed one (specdb.c:62 -- `if(!(r16(b+4)&1))` copies the row straight).
  * No game data is embedded anywhere here; every row comes from the user's disc.
  */
-#ifndef OPENGT4_MOD_MERGE_H
-#define OPENGT4_MOD_MERGE_H
+#ifndef MOON_MOD_MERGE_H
+#define MOON_MOD_MERGE_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -34,4 +34,4 @@ uint8_t *moon_mod_merge_table(const uint8_t *disc, size_t disc_size,
                               const uint8_t *mod, size_t mod_size,
                               size_t *out_size, const char **why);
 
-#endif /* OPENGT4_MOD_MERGE_H */
+#endif /* MOON_MOD_MERGE_H */

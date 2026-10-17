@@ -11,10 +11,17 @@ int moon_vk_render_active(void);
 void *moon_vk_render_proc(const char *name);
 void moon_vk_render_size(SDL_Window *window, int *width, int *height);
 void moon_vk_render_present(void);
+void moon_vk_render_drain(void);
+int moon_vk_render_prepare_geometry(void);
+void moon_vk_render_low_latency(int enabled);
 int moon_vk_render_vsync(int enabled);
 typedef struct {
     uint64_t submissions, passes, draws, readbacks;
     uint64_t vertex_upload_bytes, descriptor_updates, framebuffer_creations;
+    uint64_t pipeline_binds, dynamic_sets, vertex_binds, pipeline_warmups;
+    uint64_t cpu_prepare_ns, cpu_descriptors_ns, cpu_pipeline_ns, cpu_commands_ns;
+    uint64_t frame_rotations, pipeline_cache_bytes;
+    uint64_t gpu_ns, gpu_samples, fence_wait_ns, pipeline_ns, pipeline_creations;
 } moon_vk_render_stats;
 moon_vk_render_stats moon_vk_render_statistics(void);
 #ifdef __cplusplus

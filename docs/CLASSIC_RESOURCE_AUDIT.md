@@ -1,6 +1,6 @@
 # Classic resource coverage
 
-The [resource audit](notes/CLASSIC_RESOURCE_AUDIT.md) records implemented,
+The 13/10/2026 [resource audit](notes/CLASSIC_RESOURCE_AUDIT.md) records implemented,
 missing and partially verified features by subsystem. Use it alongside
 [Fidelity](FIDELITY.md): functional availability, data agreement and complete
 presentation equivalence are separate properties. A working menu entry or

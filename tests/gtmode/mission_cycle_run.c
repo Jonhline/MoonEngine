@@ -37,12 +37,21 @@ static gt4_race_run *driven;
 static uint32_t player;
 static int drive(void *u, uint32_t car, uint8_t *cmd, const uint8_t *ev)
 {
-    (void)u;
     if (car != player)
         return 0;
     memset(cmd, 0, 32);
     cmd[3] = ev[3];
-    mission_pad_fixture(driven, car, cmd);
+    if (u) {
+        if (fread(cmd, 1, 32, (FILE *)u) != 32) {
+            memset(cmd, 0, 32);
+            cmd[1] = 1;
+        }
+        if (getenv("GT4_MISSION_COMMAND_NEGATIVE")) {
+            memset(cmd, 0, 32);
+            cmd[1] = 1;
+        }
+    } else
+        mission_pad_fixture(driven, car, cmd);
     return 1;
 }
 static int wheel(void *u, uint32_t car, int16_t out[2])
@@ -110,6 +119,10 @@ int main(int argc, char **argv)
     driven = gt4_race_run_open(argv[1], &mission.desc, msg, sizeof msg);
     CHECK(driven);
     player = gt4_race_run_car(driven, 0);
+    const char *commands_path = getenv("GT4_MISSION_COMMANDS");
+    FILE *commands = commands_path ? fopen(commands_path, "rb") : NULL;
+    CHECK(!commands_path || commands);
+    gt4_phys_pad.ctx = commands;
     if (getenv("GT4_MISSION_TAKEOVER"))
         CHECK(gt4_car_take_over(player, 1));
     gt4_phys_pad.read = drive;
@@ -127,6 +140,11 @@ int main(int argc, char **argv)
     gt4_race_hud hud;
     CHECK(gt4_race_run_hud(driven,0,&hud));
     CHECK(outcome==GT4_MISSION_BOARD && hud.finished && hud.rank==1);
+    if (commands) {
+        CHECK(!ferror(commands));
+        fclose(commands);
+        gt4_phys_pad.ctx = NULL;
+    }
     uint32_t prize = gt4_career_race_prize(mission.row, 0), award = 0;
     CHECK(prize>0);
     CHECK(menu_apply_mission_result(career,winning_code,hud.finished,0,hud.best_lap,hud.aspec_points,prize,&award));

@@ -290,20 +290,59 @@ static float curve(const gt4_tvcam *c, const uint8_t *e, unsigned field, float t
     return at ? gt4_pregrid_curve(c->data + at, t) : missing;
 }
 
-/* 003DDFF0: the first shot whose span holds the distance (the course
-   wrapping at its length) */
+/* 003DDE78: the table's period, the laps it covers less one, in metres */
+static float period(const gt4_tvcam *c)
+{
+    int laps = (int)(f32(c->data + 0x18) / c->length) - (int)(f32(c->entries + 4) / c->length) - 1;
+    return c->length * (float)laps;
+}
+
+float gt4_tvcam_distance(const gt4_tvcam *c, float course_distance, int lap)
+{
+    if (!c)
+        return course_distance;
+    /* 003FBE70 +1C8..1F4 (003DDEC8): the lap kept within the laps the
+       table covers, at least one; target+0x34 = distance + lap x length */
+    int laps = (int)(f32(c->entries + 4) / c->length);
+    laps = (int)(f32(c->data + 0x18) / c->length) - laps - 1;
+    if (!(0 < laps))
+        laps = 1;
+    int k = lap > 0 ? (lap - 1) % laps + 1 : 0;
+    return c->length * (float)k + course_distance;
+}
+
+/* 003FD980 -> 003DDFF0: the shot holding target+0x34 (+0x3C, 003FCAB0, taken
+   as 0: A). 003DDF18 folds a distance past the table's end by its period;
+   003DDF88 finds the last shot starting at or before it, which must also
+   end after it; past the last shot the search goes on from the first, one
+   period back. The first match is the shot. */
 static int pick(const gt4_tvcam *c, float distance)
 {
-    float d = fmodf(distance, c->length);
-    if (d < 0)
-        d += c->length;
-    for (int lap = 0; lap < 2; lap++)
-        for (unsigned i = 0; i < c->count; i++) {
-            const uint8_t *e = c->entries + i * 0x7c;
-            float x = d - lap * c->length;
-            if (f32(e + 4) <= x && x < f32(e + 8))
-                return (int)i;
+    float d = distance, p = period(c);
+    if (!(d < 0) && !(d < f32(c->data + 0x18)))
+        d -= p * (float)(int)(p / d);
+    if (d < f32(c->entries + 4))
+        return -1;
+    unsigned lo = 0, hi = c->count;
+    while (lo < hi) {
+        unsigned mid = (lo + hi) >> 1;
+        if (d < f32(c->entries + mid * 0x7c + 4))
+            hi = mid;
+        else
+            lo = mid + 1;
+    }
+    unsigned i = lo - 1;
+    for (unsigned n = 0; n < 0x20 && f32(c->entries + i * 0x7c + 4) <= d; n++) {
+        if (d < f32(c->entries + i * 0x7c + 8))
+            return (int)i;
+        if (++i >= c->count) {
+            float was = d;
+            d -= p;
+            i -= c->count;
+            if (!(d < was))
+                break;
         }
+    }
     return -1;
 }
 

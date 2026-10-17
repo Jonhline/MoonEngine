@@ -102,6 +102,32 @@ static int catalog(menu *m)
     return 0;
 }
 
+/* P: legal player setup fixture. Original menu ranges/setters only;
+   never patch the car's aerodynamic coefficients in the solver. */
+/* Original: func_0014A6A0 +0x00 */
+/* Original: func_0043E410 +0x00 */
+/* Original: func_0043E438 +0x00 */
+static int owned_fixture_aero(ah_vm *vm, ah_val car, const char *label)
+{
+    if (!getenv("GT4_SERIES_MAX_AERO"))
+        return 0;
+    ah_val result, ranges;
+    CHECK(ah_call_member(vm, car.u.o, "beginSetting", 0, NULL, &result) >= 0);
+    CHECK(ah_call_member(vm, car.u.o, "getRacingModifyRange", 0, NULL, &ranges) >= 0);
+    CHECK(ranges.t == AV_OBJ && ah_array_size(ranges.u.o) == 4);
+    for (int i = 0; i < 2; i++) {
+        ah_val value = ah_array_get(ranges.u.o, i * 2 + 1);
+        ah_val args[] = {ah_int(i), value};
+        CHECK(ah_call_member(vm, car.u.o, "setRacingModifySetting", 2, args, &result) >= 0);
+        CHECK(ah_call_member(vm, car.u.o, "getRacingModifySetting", 1, args, &result) >= 0);
+        CHECK(ah_num(result) == ah_num(value));
+        printf("owned setup fixture car=%s downforce index=%d value=%g original_range=%g..%g\n",
+               label, i, ah_num(value), ah_num(ah_array_get(ranges.u.o, i * 2)), ah_num(value));
+    }
+    CHECK(ah_call_member(vm, car.u.o, "endSetting", 0, NULL, &result) >= 0);
+    return 0;
+}
+
 static int owned_fixture_parts(ah_vm *vm, menu *m, ah_val selected, const char *parts,
                                const char *car_label)
 {
@@ -131,6 +157,7 @@ static int owned_fixture_parts(ah_vm *vm, menu *m, ah_val selected, const char *
         CHECK(ah_call_member(vm,selected.u.o,"endSetting",0,NULL,&ret)>=0);
         menu_save_capture(m);
     }
+    CHECK(!owned_fixture_aero(vm, selected, car_label));
     return 0;
 }
 
@@ -587,7 +614,7 @@ static int physical(const char *disc, gt4_vol *vol, menu *m, const char *series,
         while (order[position])
             position++;
         uint32_t player = gt4_race_run_car(run, 0),
-                 a = gt4_career_distance_integer(GT4_F32(player + 0x6d4) - GT4_F32(player + 0x7b0)),
+                 a = gt4_career_distance_aspec(GT4_F32(player + 0x6d4), GT4_F32(player + 0x7b0)),
                  b = gt4_career_distance_integer(GT4_F32(player + 0x7b0));
         uint8_t wear[32];
         memcpy(wear, gt4_ptr(player + CAR_ENGINE_WEAR), 32);

@@ -17,7 +17,92 @@ static double milliseconds(uint64_t value)
 {
     return armTicksToNs(value) / 1e6;
 }
-#define OUTPUT(...) fprintf(stderr, __VA_ARGS__)
+#include "switch_log_queue.h"
+#include <stdarg.h>
+#include <stdlib.h>
+
+static struct {
+    swp_log_queue queue;
+    Mutex lock;
+    CondVar wake;
+    Thread worker;
+    int initialized, running, stop;
+} output;
+
+static void output_worker(void *unused)
+{
+    (void)unused;
+    char line[SWP_LOG_LINE];
+    for (;;) {
+        mutexLock(&output.lock);
+        while (!output.queue.count && !output.stop)
+            condvarWait(&output.wake, &output.lock);
+        int available = swp_log_pop(&output.queue, line);
+        int done = output.stop && !available;
+        mutexUnlock(&output.lock);
+        if (done)
+            break;
+        if (available)
+            fputs(line, stderr);
+    }
+}
+
+static void output_shutdown(void)
+{
+    if (!output.running)
+        return;
+    mutexLock(&output.lock);
+    output.stop = 1;
+    condvarWakeOne(&output.wake);
+    mutexUnlock(&output.lock);
+    threadWaitForExit(&output.worker);
+    threadClose(&output.worker);
+    output.running = 0;
+}
+
+/* Never hold the queue mutex while writing stdio: SD/network diagnostics can
+   wait behind a movie read for hundreds of milliseconds on the console. */
+static void output_line(const char *format, ...)
+{
+    mutexLock(&output.lock);
+    if (!output.initialized) {
+        output.initialized = 1;
+        /* libnx thread.h: 0x3B is the preemptive worker priority on cores 0..2. */
+        Result result = threadCreate(&output.worker, output_worker, NULL, NULL, 64 * 1024, 0x3b, 2);
+        if (R_FAILED(result))
+            result = threadCreate(&output.worker, output_worker, NULL, NULL, 64 * 1024, 0x3b, -2);
+        if (R_FAILED(result)) {
+            mutexUnlock(&output.lock);
+            fprintf(stderr, "Switch profiler: output worker creation failed: %08x\n", result);
+            return;
+        }
+        result = threadStart(&output.worker);
+        if (R_FAILED(result)) {
+            threadClose(&output.worker);
+            mutexUnlock(&output.lock);
+            fprintf(stderr, "Switch profiler: output worker start failed: %08x\n", result);
+            return;
+        }
+        output.running = 1;
+        atexit(output_shutdown);
+    }
+    int running = output.running;
+    mutexUnlock(&output.lock);
+    if (!running)
+        return;
+    char line[SWP_LOG_LINE];
+    va_list args;
+    va_start(args, format);
+    int size = vsnprintf(line, sizeof line, format, args);
+    va_end(args);
+    if (size < 0 || (size_t)size >= sizeof line)
+        return;
+    mutexLock(&output.lock);
+    if (swp_log_push(&output.queue, line))
+        condvarWakeOne(&output.wake);
+    mutexUnlock(&output.lock);
+}
+#define OUTPUT(...) output_line(__VA_ARGS__)
 #else
 /* The host fixture controls the clock; counters still support concurrent workers. */
 #ifdef _WIN32
@@ -50,11 +135,13 @@ static double milliseconds(uint64_t value)
 static counter busy[SWP_STAGE_COUNT], calls[SWP_STAGE_COUNT];
 static const char *names[] = {"physics",   "scene",       "gl_submit",     "swap",
                               "audio_mix", "audio_synth", "audio_control", "disc",
-                              "inflate",   "loading",     "logic",         "idle"};
+                              "inflate",   "loading",     "logic",         "idle",
+                              "gpu_fence", "gpu_acquire", "gpu_copy",      "gpu_date"};
 static TLS struct {
     enum swp_stage stack[32];
     unsigned depth, overflow;
     uint64_t changed;
+    uint64_t frame_busy[SWP_STAGE_COUNT];
     char load[8][128];
     uint64_t load_start[8];
     unsigned load_depth, load_overflow;
@@ -75,8 +162,12 @@ static struct {
    their parent scene/loading counters. Separate threads can overlap in wall time. */
 static void charge(uint64_t now)
 {
-    if (thread.depth)
-        ADD(busy + thread.stack[thread.depth - 1], now - thread.changed);
+    if (thread.depth) {
+        unsigned stage = thread.stack[thread.depth - 1];
+        uint64_t elapsed = now - thread.changed;
+        ADD(busy + stage, elapsed);
+        thread.frame_busy[stage] += elapsed;
+    }
     thread.changed = now;
 }
 
@@ -128,6 +219,20 @@ static void report(uint64_t now, int w, int h)
     window = now;
 }
 
+/* Main-thread attribution for isolated stalls; the existing worker writes it. */
+static void report_slow_frame(uint64_t elapsed)
+{
+    if (milliseconds(elapsed) > 25 && strstr(context, "driving=2")) {
+        char line[2048];
+        size_t used = (size_t)snprintf(line, sizeof line, "Switch slow-frame: frame_ms=%.3f",
+                                       milliseconds(elapsed));
+        for (unsigned i = 0; i < SWP_STAGE_COUNT; i++)
+            used += (size_t)snprintf(line + used, sizeof line - used, " %s_ms=%.3f", names[i],
+                                     milliseconds(thread.frame_busy[i]));
+        OUTPUT("%s\n", line);
+    }
+    memset(thread.frame_busy, 0, sizeof thread.frame_busy);
+}
 void swp_frame(int width, int height)
 {
     last_width = width;
@@ -135,6 +240,7 @@ void swp_frame(int width, int height)
     uint64_t now = ticks();
     charge(now);
     if (!window) {
+        memset(thread.frame_busy, 0, sizeof thread.frame_busy);
         window = previous = now;
         for (unsigned i = 0; i < SWP_STAGE_COUNT; i++) {
             TAKE(busy + i);
@@ -143,6 +249,7 @@ void swp_frame(int width, int height)
         return;
     }
     uint64_t elapsed = now - previous;
+    report_slow_frame(elapsed);
     previous = now;
     frame_total += elapsed;
     if (elapsed > frame_max)

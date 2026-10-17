@@ -977,7 +977,7 @@ static float yaw_target(uint32_t car)
     s = GT4_F32(b + CAR_BLOCK_UNK_468) * K(0x3fc00000u);
     if (s < 0)
         s = -s;
-    g = gt4_curve_eval(gt4_ptr(tyre + 0x6c), s) * GT4_F32(tyre);
+    g = gt4_curve_eval_linear(gt4_ptr(tyre + 0x6c), s) * GT4_F32(tyre);
     g = g + g;
     if (g < 0)
         g = -g;
