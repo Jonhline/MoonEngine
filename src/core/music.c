@@ -458,6 +458,10 @@ unsigned gt4_music_render_playlist_available(int16_t *out, int frames, gt4_music
     return current;
 }
 static void render_synth(int16_t *out, int frames, gt4_music *m);
+size_t gt4_music_position(const gt4_music *m)
+{
+    return m ? m->cache_pos : 0;
+}
 void gt4_music_render_available(int16_t *out, int frames, gt4_music *m, unsigned available)
 {
     if (frames <= 0)

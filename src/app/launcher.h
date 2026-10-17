@@ -11,6 +11,8 @@ typedef struct {
     char car[48];   /* the room's car code for the front-end ("" = the built-in default) */
     int color;      /* its paint index */
     int show;
+    int theme;      /* the launcher room: 0 light, 1 dark */
+    int mood;       /* the room's light colour (an index into the launcher's list) */
 } launcher_preferences;
 typedef struct {
     int width,height,fullscreen,vsync,upscale,filter,text,aspect;

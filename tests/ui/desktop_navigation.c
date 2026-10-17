@@ -103,6 +103,20 @@ int main(int argc,char **argv)
         }
     }
     CHECK(exit_feedback && tile_feedback>1);
+    /* The authored Exit has its own alternate image. Mouse feedback must
+       still visibly animate that exact pictogram, rather than merely any
+       tile near the lower-right corner. */
+    ui_widget *exit=ui_widget_child(root,"Exit");
+    CHECK(exit);
+    float *exit_rect=exit->pointer_rect;
+    CHECK(menu_pointer(m,1,exit_rect[0]+exit_rect[2]*.5f,
+                         exit_rect[1]+exit_rect[3]*.5f,0,0));
+    CHECK(m->pointer_hover==exit);
+    menu_animate(m,.08f);
+    CHECK(exit->pointer_light>.5f);
+    ui_pointer_feedback(m->ui,0);quad_hash=0;paint(m);unsigned exit_plain=quad_hash;
+    ui_pointer_feedback(m->ui,1);quad_hash=0;paint(m);
+    CHECK(quad_hash!=exit_plain);
     ui_pointer_feedback(m->ui,0);gold_overlays=0;menu_pointer(m,0,0,0,0,0);paint(m);CHECK(!gold_overlays);
     ui_widget *before=m->focus[menu_active_root(m)];
     float old=space->scroll_set?space->scroll_ty:space->y;
@@ -275,6 +289,7 @@ int main(int argc,char **argv)
     menu_close(m);
     /* Real Arcade Ford catalog: hover previews without scrolling/selection. */
     m=menu_open(vol,"arcade",err,sizeof err);
+    ui_pointer_feedback(m->ui,1);
     CHECK(m && page(m,"MakerRoot")>=0);ticks(m);paint(m);
     ui_widget *makers[512];int makers_n=0;
     candidates(ui_root_widget(m->ui,menu_active_root(m)),makers,&makers_n);
@@ -301,6 +316,12 @@ int main(int argc,char **argv)
         ticks(m);
         if(strcmp(menu_selected_car(m),car_before)) {
             CHECK(list->focus_index==index && list->strip_offset==offset);
+            CHECK(item->strip_zoom>1.01f);
+            CHECK(list->kids[index]->strip_zoom<1.01f);
+            ui_pointer_feedback(m->ui,0);ticks(m);
+            CHECK(item->strip_zoom<1.01f && list->kids[index]->strip_zoom>1.01f);
+            ui_pointer_feedback(m->ui,1);ticks(m);
+            CHECK(item->strip_zoom>1.01f && list->focus_index==index);
             previewed=1;
         }
     }

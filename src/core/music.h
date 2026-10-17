@@ -24,5 +24,7 @@ unsigned gt4_music_render_playlist_available(int16_t *out, int frames, gt4_music
                                              const unsigned *available, unsigned count,
                                              unsigned current);
 void gt4_music_rewind(gt4_music *music);
+/* The prepared PCM's play position in frames (it falls back at the loop point). */
+size_t gt4_music_position(const gt4_music *music);
 void gt4_music_close(gt4_music *music);
 #endif

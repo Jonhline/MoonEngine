@@ -86,6 +86,10 @@ void plat_draw_quad4(const plat_texture *t, float x, float y, float w, float h, 
                      float u1, float v1, const uint8_t colors[4][4]);
 void plat_draw_rotated(const plat_texture *t, float x, float y, float w, float h, float cx,
                        float cy, float degrees, const uint8_t color[4]);
+/* Rotated atlas region; keeps text in the existing 2D batch. */
+void plat_draw_rotated_uv(const plat_texture *t, float x, float y, float w, float h, float cx,
+                          float cy, float degrees, float u0, float v0, float u1, float v1,
+                          const uint8_t color[4]);
 /* Baseline-relative horizontal shear, in screen units per vertical unit. */
 void plat_draw_glyph(const plat_texture *t, float x, float y, float w, float h, float baseline,
                      float shear, float u0, float v0, float u1, float v1, const uint8_t color[4]);

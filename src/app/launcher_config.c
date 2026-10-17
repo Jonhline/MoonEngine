@@ -40,6 +40,8 @@ int launcher_preferences_load(launcher_preferences *p,const char *file)
         else if(!strncmp(line,"api=",4)){if(strlen(line+4)>=sizeof p->api)ok=0;else strcpy(p->api,line+4);}
         else if(!strncmp(line,"car=",4)){if(strlen(line+4)>=sizeof p->car)ok=0;else strcpy(p->car,line+4);}
         else if(!strncmp(line,"color=",6))p->color=atoi(line+6);
+        else if(!strncmp(line,"theme=",6))p->theme=atoi(line+6)!=0;
+        else if(!strncmp(line,"mood=",5)){int m=atoi(line+5);p->mood=m<0?0:m>63?0:m;}
         else if(!strcmp(line,"show=0"))p->show=0;
         else if(!strcmp(line,"show=1"))p->show=1;
         if(!ok)break;
@@ -52,7 +54,7 @@ int launcher_preferences_save(const launcher_preferences *p)
     if(!p->file[0] || strpbrk(p->disc,"\r\n") || strpbrk(p->saves,"\r\n") || strpbrk(p->api,"\r\n") || strpbrk(p->car,"\r\n"))return 0;
     char tmp[LAUNCHER_PATH+8];snprintf(tmp,sizeof tmp,"%s.tmp",p->file);
     FILE *f=open_file(tmp,"wb");if(!f)return 0;
-    int ok=fprintf(f,"disc=%s\nsaves=%s\napi=%s\ncar=%s\ncolor=%d\nshow=%d\n",p->disc,p->saves,p->api,p->car,p->color,p->show!=0)>0;
+    int ok=fprintf(f,"disc=%s\nsaves=%s\napi=%s\ncar=%s\ncolor=%d\nshow=%d\ntheme=%d\nmood=%d\n",p->disc,p->saves,p->api,p->car,p->color,p->show!=0,p->theme!=0,p->mood)>0;
     if(fclose(f))ok=0;
 #ifdef _WIN32
     wchar_t a[LAUNCHER_PATH+8],b[LAUNCHER_PATH];

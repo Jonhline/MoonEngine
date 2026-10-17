@@ -89,6 +89,8 @@ struct showroom {
     /* White studio (--studio): the studio scene with a seamless near-white
        room instead of bg.mdl's lit layers. Off by default. */
     int white_studio, white_ready;
+    int room_dark;       /* the launcher room: 0 white, 1 dark */
+    float room_mood[3];  /* its light colour; tints the room, the floor and the car's lights */
     /* The camera: eye, right/up/forward axes; yaw turns the car so its
        starting pose faces the camera the same way whichever camera is used. */
     float eye[3], cam_r[3], cam_u[3], cam_f[3], yaw;
@@ -96,6 +98,7 @@ struct showroom {
        studio pose. rig_car[3] is the car's offset from its parking spot. */
     int rig;
     float rig_car[3], rig_car_angle;
+    float base_focal; /* the studio's focal while a launcher camera sets its own lens (0: none) */
     r3d_lights lit; /* light.mot's lights at light_time; count 0: CarFace lights */
     /* Soft floor shadow cast from light 0 (half resolution, as the PS2's). */
     float shadow_mask[(MAXW / 2) * (H / 2)], shadow_blur[(MAXW / 2) * (H / 2)];
@@ -182,6 +185,16 @@ void showroom_set_rig(showroom *s, const float eye[3], const float target[3],
     s->rig = 1;
     SDL_UnlockMutex(s->lock);
 }
+void showroom_set_rig_fov(showroom *s, float degrees)
+{
+    if (!s)
+        return;
+    SDL_LockMutex(s->lock);
+    if (!s->base_focal)
+        s->base_focal = s->focal;
+    s->focal = degrees > 0 ? 224 / tanf(degrees * .00872665f) : s->base_focal;
+    SDL_UnlockMutex(s->lock);
+}
 void showroom_clear_rig(showroom *s)
 {
     if (!s)
@@ -190,6 +203,10 @@ void showroom_clear_rig(showroom *s)
     s->rig = 0;
     s->rig_car[0] = s->rig_car[1] = s->rig_car[2] = 0;
     s->rig_car_angle = 0;
+    if (s->base_focal) {
+        s->focal = s->base_focal;
+        s->base_focal = 0;
+    }
     /* Hand-over: the game takes the showroom back. The rig's camera is cleared
        WITH the rig -- otherwise a game screen inherits the studio's camera and
        the shop's car sits where the launcher put it. The game's own CarFace
@@ -797,9 +814,21 @@ static void render_layers(showroom *s)
 /* The white studio room: one seamless near-white sweep, the back wall
    #FEFCFD falling off softly into a floor #F2F1F2 - no corner, no seam, no
    fixture, no grid (this is what stands in for bg.mdl's lit layers). */
-static void white_sweep(uint8_t *px, int w)
+static void white_sweep(uint8_t *px, int w, int dark, const float mood[3])
 {
-    static const float wall[3] = {254.f, 252.f, 253.f}, ground[3] = {242.f, 241.f, 242.f};
+    /* P: the launcher's moods. White: the captain's room, the colour washing it gently;
+       dark: a near-black room whose floor catches the light's colour. */
+    float wall[3], ground[3];
+    for (int c = 0; c < 3; c++) {
+        float m = mood[c] > 0 ? mood[c] : 1;
+        if (dark) {
+            wall[c] = 12.f + 14.f * m;
+            ground[c] = 16.f + 62.f * m;
+        } else {
+            wall[c] = 254.f * (.82f + .18f * m) - (c == 1 ? 2 : c == 2 ? 1 : 0);
+            ground[c] = 242.f * (.7f + .3f * m) - (c == 1 ? 1 : 0);
+        }
+    }
     for (int y = 0; y < H; y++) {
         float t = (y - 250.f) / 150.f;
         if (t < 0)
@@ -821,7 +850,7 @@ static const uint8_t *compose_studio(showroom *s)
         if (!s->white_ready) {
             if (!s->studio_px && !(s->studio_px = malloc((size_t)MAXW * H * 4)))
                 return NULL;
-            white_sweep(s->studio_px, s->rw);
+            white_sweep(s->studio_px, s->rw, s->room_dark, s->room_mood);
             s->white_ready = 1;
         }
         return s->studio_px;
@@ -1078,6 +1107,26 @@ static void studio_lights(showroom *s, float t)
     }
     s->lit.count = 4;
     s->lit.specular_scale = .18f; /* the arcade CarFace path's calibration (PCSX2), not traced */
+    if (s->white_studio) { /* P: the launcher's light colour on the car; dark dims the fill */
+        for (int l = 0; l < 4; l++)
+            for (int k = 0; k < 3; k++) {
+                float m = s->room_mood[k] > 0 ? s->room_mood[k] : 1;
+                s->lit.diffuse[l][k] *= m;
+                s->lit.specular[l][k] *= .5f + .5f * m;
+                s->lit.ambient[l][k] *= (s->room_dark ? .55f : 1.f) * (.6f + .4f * m);
+            }
+    }
+}
+void showroom_set_room_mood(showroom *s, int dark, const float rgb[3])
+{
+    if (!s)
+        return;
+    SDL_LockMutex(s->lock);
+    s->room_dark = dark != 0;
+    for (int k = 0; k < 3; k++)
+        s->room_mood[k] = rgb ? rgb[k] : 1;
+    s->white_ready = 0; /* the room is painted again with the new colours */
+    SDL_UnlockMutex(s->lock);
 }
 
 /* The studio's soft floor shadow: the car's silhouette cast from light 0's

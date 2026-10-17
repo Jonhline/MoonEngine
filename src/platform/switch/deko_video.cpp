@@ -791,6 +791,21 @@ void plat_draw_rotated(const plat_texture *t, float x, float y, float w, float h
     quad(t ? t->image->slot : 0, 0, px, py, tu, tv, cc);
 }
 
+void plat_draw_rotated_uv(const plat_texture *t, float x, float y, float w, float h, float cx,
+                       float cy, float degrees, float u0, float v0, float u1, float v1, const uint8_t c[4])
+{
+    float a = degrees * 0.01745329252f, sn = sinf(a), cs = cosf(a), px[4], py[4];
+    const float tu[4] = {u0, u1, u0, u1}, tv[4] = {v0, v0, v1, v1};
+    uint8_t cc[4][4];
+    for (int i = 0; i < 4; i++) {
+        float xx = x + (i % 2) * w - cx, yy = y + (i / 2) * h - cy;
+        px[i] = cx + cs * xx - sn * yy;
+        py[i] = cy + sn * xx + cs * yy;
+        memcpy(cc[i], c, 4);
+    }
+    quad(t ? t->image->slot : 0, 1, px, py, tu, tv, cc);
+}
+
 /* 004A81A8's existing channel/matrix boundary, implemented by the native UI shader. */
 void video_license_image(const plat_texture *t, float x, float y, float w, float h,
                          const uint8_t lut[256][3], const uint8_t mix[3][3])

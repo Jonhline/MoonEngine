@@ -154,6 +154,169 @@ static void save(video_settings *s)
         snprintf(s->message, sizeof s->message, "Preferences applied; could not save settings.");
 }
 
+/* ---- the launcher's view of the same settings (P) ---- */
+enum {
+    VS_RENDERER, VS_FULLSCREEN, VS_RESOLUTION, VS_ASPECT, VS_VSYNC, VS_UPSCALE, VS_FILTER,
+    VS_TEXT, VS_LOW_LATENCY, VS_SPATIAL, VS_REFLECTIONS, VS_DESKTOP, VS_EDGE_PAN, VS_HINTS,
+    VS_MAIN_MENU, VS_SMOOTH_CURSOR, VS_HOVER, VS_COMPACT, VS_PRESET, VS_FPS, VS_COUNT
+};
+static const char *const vs_preset[] = {"Classic", "Enhanced", "Modified"};
+static const char *const vs_fps[] = {"Unlimited", "60 FPS",  "90 FPS", "120 FPS",
+                                     "144 FPS",   "165 FPS", "240 FPS"};
+static const int vs_fps_values[] = {0, 60, 90, 120, 144, 165, 240};
+static const char *const vs_off_on[] = {"Off", "On"};
+static const char *const vs_api[] = {"OpenGL", "Vulkan"};
+static const char *const vs_mode[] = {"Windowed", "Full Screen"};
+static const char *const vs_size[] = {"1280 x 720",  "1280 x 960",  "1600 x 900",
+                                      "1920 x 1080", "2560 x 1440", "3840 x 2160"};
+static const char *const vs_ratio[] = {"4:3", "16:9"};
+static const char *const vs_fsr[] = {"Native", "FSR Ultra Quality", "FSR Quality", "FSR Balanced",
+                                     "FSR Performance"};
+static const char *const vs_filter[] = {"Smooth", "Sharp", "Original"};
+static const char *const vs_text[] = {"0%", "25%", "50%", "75%", "100%"};
+static const video_setting_info vs_info[VS_COUNT] = {
+    {"Video", "Graphics API", "The renderer. Applies the next time Moon Engine opens.", 2, vs_api},
+    {"Video", "Window Mode", "A window, or the whole screen.", 2, vs_mode},
+    {"Video", "Resolution", "The window's size.", 6, vs_size},
+    {"Video", "Aspect Ratio", "The game's picture: the original 4:3 or widescreen.", 2, vs_ratio},
+    {"Video", "VSync", "Wait for the display's refresh.", 2, vs_off_on},
+    {"Video", "Upscaling", "Render below the window's size and sharpen it back (FSR).", 5, vs_fsr},
+    {"Video", "UI Filter", "How the menus' pictures are scaled.", 3, vs_filter},
+    {"Video", "Text Clarity", "Sharpen the menus' text.", 5, vs_text},
+    {"Video", "Low Latency", "Shorter frame queue: quicker input, less margin.", 2, vs_off_on},
+    {"Video", "Spatial Visibility", "Skip drawing what the camera cannot see.", 2, vs_off_on},
+    {"Video", "GPU Reflections", "Course reflections kept on the graphics card.", 2, vs_off_on},
+    {"Interface", "Desktop Input", "Mouse and keyboard in the menus.", 2, vs_off_on},
+    {"Interface", "Map Edge Pan", "The GT Mode map scrolls at the screen's edge.", 2, vs_off_on},
+    {"Interface", "Input Hints", "Show the buttons of the device in use.", 2, vs_off_on},
+    {"Interface", "Main Menu", "The PC main menu overview.", 2, vs_off_on},
+    {"Interface", "Smooth Cursor", "The menu cursor glides to the mouse.", 2, vs_off_on},
+    {"Interface", "Hover Feedback", "Menu items react under the mouse.", 2, vs_off_on},
+    {"Interface", "Compact Car Strip", "A tighter car list in the garage and dealers.", 2,
+     vs_off_on},
+    {"General", "PC Preset",
+     "Classic: the PS2 game. Enhanced: the recommended improvements. Any change makes it Modified.",
+     2, vs_preset},
+    {"Video", "Frame Limit", "The most frames drawn a second.", 7, vs_fps},
+};
+int video_setting_count(void)
+{
+    return VS_COUNT;
+}
+const video_setting_info *video_setting(int i)
+{
+    return i >= 0 && i < VS_COUNT ? &vs_info[i] : NULL;
+}
+int video_setting_get(const video_settings *s, int i)
+{
+    const pc_video_options *v = &s->current;
+    switch (i) {
+    case VS_RENDERER: return v->renderer == MOON_RENDERER_VULKAN;
+    case VS_FULLSCREEN: return v->video.fullscreen != 0;
+    case VS_RESOLUTION:
+        for (int k = 0; k < 6; k++)
+            if (sizes[k][0] == v->video.width && sizes[k][1] == v->video.height)
+                return k;
+        return 0;
+    case VS_ASPECT: return v->aspect != 0;
+    case VS_VSYNC: return v->video.vsync != 0;
+    case VS_UPSCALE: return v->video.upscale >= 0 && v->video.upscale < 5 ? v->video.upscale : 0;
+    case VS_FILTER: return v->filter >= 0 && v->filter < 3 ? v->filter : 0;
+    case VS_TEXT: return v->text / 25 < 5 ? v->text / 25 : 4;
+    case VS_LOW_LATENCY: return v->low_latency != 0;
+    case VS_SPATIAL: return v->spatial_visibility != 0;
+    case VS_REFLECTIONS: return v->resident_reflections != 0;
+    case VS_DESKTOP: return v->desktop != 0;
+    case VS_EDGE_PAN: return v->edge_pan != 0;
+    case VS_HINTS: return v->input_hints != 0;
+    case VS_MAIN_MENU: return v->main_menu != 0;
+    case VS_SMOOTH_CURSOR: return v->smooth_cursor != 0;
+    case VS_HOVER: return v->hover_feedback != 0;
+    case VS_COMPACT: return v->compact_cars != 0;
+    case VS_PRESET: return s->store.modified ? 2 : strcmp(s->store.preset, "Classic") != 0;
+    case VS_FPS:
+        for (int k = 0; k < 7; k++)
+            if (vs_fps_values[k] == v->fps_limit)
+                return k;
+        return 0;
+    }
+    return 0;
+}
+void video_setting_set(video_settings *s, int i, int value)
+{
+    if (!s || i < 0 || i >= VS_COUNT)
+        return;
+    int n = vs_info[i].count;
+    value = ((value % n) + n) % n;
+    pc_video_options *v = &s->current;
+    switch (i) {
+    case VS_RENDERER: v->renderer = value ? MOON_RENDERER_VULKAN : MOON_RENDERER_OPENGL; break;
+    case VS_FULLSCREEN: v->video.fullscreen = value; break;
+    case VS_RESOLUTION:
+        v->video.width = sizes[value][0];
+        v->video.height = sizes[value][1];
+        break;
+    case VS_ASPECT: v->aspect = value; break;
+    case VS_VSYNC: v->video.vsync = value; break;
+    case VS_UPSCALE: v->video.upscale = value; break;
+    case VS_FILTER: v->filter = value; break;
+    case VS_TEXT: v->text = value * 25; break;
+    case VS_LOW_LATENCY: v->low_latency = value; break;
+    case VS_SPATIAL: v->spatial_visibility = value; break;
+    case VS_REFLECTIONS: v->resident_reflections = value; break;
+    case VS_DESKTOP: v->desktop = value; break;
+    case VS_EDGE_PAN: v->edge_pan = value; break;
+    case VS_HINTS: v->input_hints = value; break;
+    case VS_MAIN_MENU: v->main_menu = value; break;
+    case VS_SMOOTH_CURSOR: v->smooth_cursor = value; break;
+    case VS_HOVER: v->hover_feedback = value; break;
+    case VS_COMPACT: v->compact_cars = value; break;
+    case VS_FPS: v->fps_limit = vs_fps_values[value]; break;
+    case VS_PRESET: {
+        /* as the Screen Settings page applies it: the registered PC options at the
+           preset's values; host size, mode and the API are kept */
+        int enhanced = value == 1;
+        v->filter = enhanced ? 0 : 2;
+        v->text = 0;
+        v->video.upscale = 0;
+        v->desktop = v->edge_pan = v->input_hints = v->main_menu = enhanced;
+        v->smooth_cursor = v->hover_feedback = v->compact_cars = enhanced;
+        v->spatial_visibility = v->resident_reflections = enhanced;
+        s->draft = s->current;
+        s->preset_draft = enhanced;
+        save(s);
+        s->preset_draft = -1;
+        return;
+    }
+    }
+    s->draft = s->current;
+    s->preset_draft = -1; /* an individual change: the preset reads Modified */
+    save(s);
+}
+void video_settings_apply_current(video_settings *s)
+{
+    if (!s)
+        return;
+    pc_video_options *v = &s->current;
+    video_performance_options(v->low_latency, v->fps_limit);
+#ifndef __SWITCH__
+    r3d_scene_options(v->spatial_visibility, v->resident_reflections);
+#endif
+    if (!video_set_vsync(v->video.vsync))
+        v->video.vsync = 0;
+    if (!video_set_upscale(v->video.upscale))
+        v->video.upscale = 0;
+    quality(v);
+}
+
+void video_settings_set_renderer(video_settings *s, int backend)
+{
+    if (!s)
+        return;
+    s->current.renderer = backend;
+    save(s);
+}
+
 static void text(ui_widget *w, const char *value)
 {
     if (w) {
@@ -656,11 +819,21 @@ void video_settings_attach(video_settings *s, menu *m)
         s->tabs[i] = tab;
         menu_native_method(m, tab, "onActivate", tab_activate, s);
     }
-    buttons->x = 24;
-    buttons->w = 512;
+    /* The authored footer background was laid out for a 320-wide pane.
+       Moving only its parent leaves that retained rectangle behind. Match
+       the PC body's inset and explicitly reallocate the decorative face. */
+    buttons->x = body->x;
+    buttons->w = body->w;
+    ui_widget *footer_bg=ui_widget_child(buttons,"bg");
+    if (footer_bg) {
+        footer_bg->x=footer_bg->y=0;
+        footer_bg->w=buttons->w;
+        footer_bg->h=buttons->h;
+        footer_bg->has_geometry=1;
+    }
     ui_widget *cancel_button=ui_widget_child(buttons,"Cancel");
     ui_widget *ok_button=ui_widget_child(buttons,"OK");
-    float left=(512-cancel_button->w-ok_button->w-16)*.5f;
+    float left=(buttons->w-cancel_button->w-ok_button->w-16)*.5f;
     cancel_button->x=left;ok_button->x=left+cancel_button->w+16;
     menu_native_method(m, s->page, "onKeyPress", tab_key, s);
 #endif

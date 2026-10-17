@@ -67,6 +67,11 @@ void showroom_set_angle(showroom *s, float angle);
 void showroom_set_width(showroom *s, int width);
 /* Hand the showroom back to the game after the studio: drop the captain's rig AND its camera, so a
    game screen never draws with the studio's camera; the game's own CarFace camera is restored. */
+/* The launcher camera's lens: vertical field of view in degrees, 0 = the studio's own. */
+void showroom_set_rig_fov(showroom *s, float degrees);
+/* The launcher room's mood: dark or white, and a light colour (1,1,1 = white light) that
+   tints the room, the floor and the lights on the car. */
+void showroom_set_room_mood(showroom *s, int dark, const float rgb[3]);
 void showroom_clear_rig(showroom *s);
 /* After the launcher: the game's showroom uses the disc's studio and its light motion. */
 void showroom_use_disc_room(showroom *s);

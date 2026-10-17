@@ -1350,3 +1350,67 @@ wheel/keyboard scroll limits. 5/5 focused tests passed, including negatives.
 Release rebuilt. The current adapter is scoped to the captured retail NTSC
 interlaced 640x448 (640x224 field) presentation; other original video modes
 and full final framebuffer pixels are not certified by this proof.
+
+
+### 17/10: UsedCarRoot sold-out stamp
+
+C (native integration), A (complete PS2 framebuffer equivalence): the retail
+UsedCarRoot Item.SoldOut resource specifies geometry (420,7,64,56), rotate
+-15, hb_24 at scale 1.4, orange (230,134,0), shadow 2.7. Its multiline flag
+was incorrectly treated as a request for automatic word wrapping, producing
+SOLD\nOUT. Bypass that adapter for the authored stamp, retaining explicit
+newlines and all other faces' existing wrapping behavior.
+
+TextFace now submits rotated ASCII glyph atlas regions, including shadows,
+through the existing batched 2D path. Pivot source: 002679B0 +0xFC..0x1C4
+translates by half the widget dimensions before/after 0024BEF8 rotation.
+The new platform entry exists for SDL/OpenGL/Vulkan and deko; Switch hardware
+was not tested. Combined skew/rotation and rotated Gaiji/KNJI are not covered
+by this change; no claim of a complete widget-transform implementation.
+
+used_car_stamp loads the actual retail menu, forces one stamp visible, draws
+120 frames, checks seven orange glyphs at -15 with a common pivot and no
+inserted newline. The negative explicitly reinstates the previous wrap and
+fails. desktop_navigation and its negative pass. Release rebuilt. These
+checks do not certify final pixels or reproduce the reported slowdown:
+headless timings omit driver/GPU/audio and are diagnostic only. No performance
+fix or PS2-exact rendering grade is claimed from them.
+
+
+### 17/10: PC Screen Settings footer allocation (P)
+
+The widened PC pane moved Cancel/OK but retained the authored 320-wide
+footer background allocation. The footer now shares PCBody's inset/width,
+its background explicitly fills that rectangle, and its two buttons remain
+centered. PC adaptation only, no option or original/Switch layout change.
+Hidden real-executable screenshots reproduced the old truncated strip and
+confirmed the corrected span; symmetric empty footer pixels differ before
+and agree afterward (local build/footer-before.png, footer-fixed.png).
+Build succeeded as MoonEngine-footer-proof.exe; replacement of the running
+MoonEngine.exe was blocked by Windows. No PS2 framebuffer equivalence claim.
+
+
+### 17/10: mouse feedback on the green Exit pictogram (P)
+
+interface.mouse_hover_feedback now applies the existing eased 4.5-percent
+image enlargement to image/labo/exit.png and exit_over.png under Exit,
+including roots outside OptionRoot. Preserve authored image selection;
+no added rectangle, replacement artwork or controller animation. Classic
+and Hover Feedback Off bypass this adaptation. desktop_navigation explicitly
+hovers OptionRoot.Exit, checks its animated prelight, then compares drawing
+with the setting Off/On. Positive and negative tests pass. Main executable
+was locked; the corrected build is build/Release/MoonEngine-hover.exe.
+
+
+### 17/10: hovered car thumbnail owns the original strip blob (P)
+
+With desktop pointer and interface.mouse_hover_feedback enabled, horizontal
+strip magnification targets the hovered item rather than the retained
+controller focus_index. Reuse the resource magnify_ratio and existing
+002D5660/002D6868 interpolation (0x3E4CCCCC per 60-Hz tick), including
+relaxation of the previous thumbnail. Do not move the strip or overwrite
+controller selection. Feedback Off/controller retain the old target.
+The actual Arcade Ford catalog regression checks preview, unchanged index
+and offset, enlargement of the hovered card, relaxation of the old one,
+and Off/On reversal. desktop_navigation and its negative pass. Main Release
+rebuilt successfully. P for input mapping, no new PS2 pixel-equivalence proof.

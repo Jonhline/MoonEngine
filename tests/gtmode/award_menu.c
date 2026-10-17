@@ -225,3 +225,11 @@ int main(int argc, char **argv)
     free(after);
     return 0;
 }
+
+void plat_draw_rotated_uv(const plat_texture *t, float x, float y, float w, float h,
+                          float cx, float cy, float degrees, float u0, float v0,
+                          float u1, float v1, const uint8_t c[4])
+{
+    (void)cx; (void)cy; (void)degrees;
+    plat_draw_glyph(t,x,y,w,h,y,0,u0,v0,u1,v1,c);
+}

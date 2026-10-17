@@ -1632,6 +1632,19 @@ static float rich_line_width(ui_project *p, const gt4_font *face, const char *te
     return gt4_font_line_width(face, plain, spacing) + buttons;
 }
 
+static void text_glyph(const plat_texture *t, float x, float y, float width, float height,
+                       float baseline, float shear, float u0, float v0, float u1, float v1,
+                       const uint8_t color[4], frame area, float rotation)
+{
+    if (rotation != 0)
+        /* 002679B0 +0xFC..0x1C4: translate by half the widget's
+           dimensions, rotate, then translate back. Not a glyph pivot. */
+        plat_draw_rotated_uv(t, x, y, width, height, area.x + area.w * .5f,
+                             area.y + area.h * .5f, rotation, u0, v0, u1, v1, color);
+    else
+        plat_draw_glyph(t, x, y, width, height, baseline, shear, u0, v0, u1, v1, color);
+}
+
 static void draw_text_face(ui_project *p, const ui_widget *w, frame area, const char *face)
 {
     const char *text = ui_widget_text(p, w);
@@ -1671,6 +1684,7 @@ static void draw_text_face(ui_project *p, const ui_widget *w, frame area, const 
     if (w->has_runtime_align)
         align = w->runtime_align;
     float shadow = (float)mp_number(w->src, "shadow", 0);
+    float rotation = (float)mp_number(w->src, "rotate", 0);
     double skew[2] = {0, 0};
     mp_numbers(w->src, "skew", skew, 2);
     /* TextFace skew is an angle; keep the baseline fixed while shearing. */
@@ -1860,11 +1874,11 @@ static void draw_text_face(ui_project *p, const ui_widget *w, frame area, const 
                     /* A light drop shadow uses glyph ink, not the expanded outline. */
                     const plat_texture *shadow_tex =
                         sc[0] + sc[1] + sc[2] > 384 ? f->tex : f->outline;
-                    plat_draw_glyph(shadow_tex, gx + shadow, gy + shadow, g->w * line_sx, g->h * sy,
-                                    y + shadow, shear, u0, v0, u1, v1, dark);
+                    text_glyph(shadow_tex, gx + shadow, gy + shadow, g->w * line_sx, g->h * sy,
+                               y + shadow, shear, u0, v0, u1, v1, dark, area, rotation);
                 }
-                plat_draw_glyph(f->tex, gx, gy, g->w * line_sx, g->h * sy, y, shear, u0, v0, u1, v1,
-                                color);
+                text_glyph(f->tex, gx, gy, g->w * line_sx, g->h * sy, y, shear, u0, v0, u1, v1,
+                           color, area, rotation);
             }
             x += step;
             previous = code == ' ' ? 0 : code;
@@ -1883,7 +1897,11 @@ static void draw_text(ui_project *p, const ui_widget *w, frame area)
        MissionRoot Item.doc, 380 wide): without it a centred description
        ran out of its card over the next one. Packed faces are wrapped to
        their pack's width first and keep it. */
-    if (mp_number(w->src, "multiline", 0) && w->w > 0) {
+    /* SoldOut's authored 64x56 rectangle positions a rotated stamp; it
+       does not constrain its line width. 00490BF8 counts explicit newlines.
+       Keep the existing unverified wrapping adapter for other faces. */
+    if (mp_number(w->src, "multiline", 0) && w->w > 0 &&
+        !(w->name && !strcmp(w->name, "SoldOut"))) {
         const char *source = ui_widget_source_text(p, w);
         if (*source && (!w->wrapped_source || strcmp(source, w->wrapped_source)))
             ui_text_wrap(p, (ui_widget *)w, w->w);
@@ -2212,7 +2230,14 @@ static int authored_hover(const ui_widget *w)
    GT Mode landmarks and main-menu labels retain their existing animations. */
 static float pointer_feedback_amount(const ui_project *p,const ui_widget *w)
 {
-    if(!p->mouse_feedback || strcmp(p->name,"option")) return 0;
+    if(!p->mouse_feedback) return 0;
+    /* P: the green exit pictogram has an authored alternate face, but
+       also needs the same eased mouse affordance outside OptionRoot. */
+    if(w->image_path && (strstr(w->image_path,"/exit.png") ||
+                         strstr(w->image_path,"/exit_over.png")))
+        for(const ui_widget *owner=w->parent;owner;owner=owner->parent)
+            if(owner->name && !strcmp(owner->name,"Exit")) return owner->pointer_light;
+    if(strcmp(p->name,"option")) return 0;
     for(const ui_widget *owner=w->parent;owner;owner=owner->parent)
         if(owner->pointer_light>.005f && !strcmp(ui_root_name(p,owner->root),"OptionRoot") &&
            !authored_hover(owner)) return owner->pointer_light;
@@ -3605,7 +3630,7 @@ void ui_car_prepare_draw(ui_widget *w)
                       gt4_mot1_end(w->car_camera), gt4_mot1_loop(w->car_camera),
                       w->car_camera_loop);
 }
-static void animate_strip(ui_widget *w, float seconds)
+static void animate_strip(ui_project *p, ui_widget *w, float seconds)
 {
     if (!w)
         return;
@@ -3690,7 +3715,12 @@ static void animate_strip(ui_widget *w, float seconds)
             strip_steps++;
             for (int i = 0; i < w->nkids; i++) {
                 ui_widget *item = w->kids[i];
-                float goal = i == w->focus_index ? (float)mp_number(w->src,"magnify_ratio",1) : 1;
+                /* P: pointer preview owns the blob independently of the
+                   controller index, which still owns strip navigation. Reuse
+                   the authored magnification and original interpolation. */
+                int selected = p->pointer_active && p->mouse_feedback
+                                   ? p->pointer_hover == item : i == w->focus_index;
+                float goal = selected ? (float)mp_number(w->src,"magnify_ratio",1) : 1;
                 if (item->strip_zoom <= 0) item->strip_zoom = goal;
                 else item->strip_zoom += (goal-item->strip_zoom)*ratio;
             }
@@ -3792,7 +3822,7 @@ static void animate_strip(ui_widget *w, float seconds)
             fabsf(w->scroll_ty - w->y) < .5f ? w->scroll_ty : w->y + (w->scroll_ty - w->y) * blend;
     }
     for (int i = 0; i < w->nkids; i++)
-        animate_strip(w->kids[i], seconds);
+        animate_strip(p, w->kids[i], seconds);
 }
 /* Native context focus, independent of the page paint/opacity. */
 void ui_cursor_show(ui_project *p, int visible)
@@ -4105,7 +4135,7 @@ void ui_animate(ui_project *p, int root, float seconds)
         }
     }
     animate_pointer(p,seconds);
-    animate_strip(ui_root_widget(p, root), seconds);
+    animate_strip(p, ui_root_widget(p, root), seconds);
     if (p->cursor_started && isfinite(seconds) && seconds > 0) {
         /* The original focus rectangle is taken after its actors update.
            Preserve the rendered layout offset while following live ancestors. */
