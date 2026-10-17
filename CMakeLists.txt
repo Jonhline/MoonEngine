@@ -272,7 +272,7 @@ endif()
 if(NINTENDO_SWITCH)
   set(MOON_LAUNCHER_SOURCES src/app/switch_startup.c src/app/switch_fpu.c src/app/launcher_config.c)
 else()
-  set(MOON_LAUNCHER_SOURCES src/app/launcher.c src/app/launcher_ui.c src/app/launcher_text.c src/app/launcher_config.c src/app/launcher_photos.c src/app/launcher_icons.c src/app/launcher_gallery.c src/app/launcher_audio.c)
+  set(MOON_LAUNCHER_SOURCES src/app/launcher.c src/app/launcher_ui.c src/app/launcher_text.c src/app/launcher_config.c src/app/launcher_photos.c src/app/launcher_icons.c src/app/launcher_gallery.c src/app/launcher_audio.c src/app/prepare_ffmpeg.c)
 endif()
 add_executable(moonengine src/app/main.c ${MOON_LAUNCHER_SOURCES} src/app/photo_travel.c src/app/pregrid_audio.c src/app/race_audio.c src/app/loading_screen.c src/app/video_settings.c src/app/desktop_input.c src/app/options_store.c src/app/save_ui.c src/app/race_game.c)
 set_target_properties(moonengine PROPERTIES OUTPUT_NAME MoonEngine)   # MoonEngine.exe

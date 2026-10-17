@@ -80,15 +80,18 @@ This folder is complete as it stands:
 
 HOW TO RUN
   Double-click MoonEngine.exe. Point it at your own Gran Turismo 4 disc image.
-  No disc image is included, and nothing is downloaded.
+  No disc image is included.
 
 FFMPEG
-  ffmpeg.exe must sit beside MoonEngine.exe on the first run. The first time
-  the engine starts it moves ffmpeg.exe into your own user folder
-  (%APPDATA%\MoonEngine\MoonEngine\) and uses that copy from then on, so this
-  folder is left holding just the game. If ffmpeg.exe is missing on the first
-  run, the menu loses its cutscene and its car, and the log names every place
-  the engine looked for it.
+  The first time the engine starts it makes sure the movie decoder (ffmpeg) is
+  in your own user folder (%APPDATA%\MoonEngine\MoonEngine\). If ffmpeg.exe sits
+  beside MoonEngine.exe it is moved there; if the executable was copied on its
+  own, the launcher downloads ffmpeg from BtbN FFmpeg-Builds (latest win64-gpl)
+  first, showing the progress, then uses that copy from then on. Either way this
+  folder is left holding just the game. If the download cannot be made (offline,
+  blocked) the engine says so plainly and starts anyway, without the menu
+  cutscene and its car; the attempt is remembered for a day. The engine's log
+  names every step.
 
   This is a static build of FFmpeg (BtbN FFmpeg-Builds, win64-gpl). FFmpeg is
   licensed under the LGPL/GPL; see its own terms.
