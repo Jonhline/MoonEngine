@@ -41,6 +41,23 @@ static void b_f32(buf *b, float v) { b_put(b, &v, 4); }
 static void put_u16(uint8_t *p, unsigned v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 static void put_u32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24); }
 static void put_u64(uint8_t *p, uint64_t v) { put_u32(p, (uint32_t)v); put_u32(p + 4, (uint32_t)(v >> 32)); }
+static uint32_t rd_u32(const uint8_t *p) { return p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
+static float rd_f32(const uint8_t *p) { float f; memcpy(&f, p, 4); return f; }
+
+/* A CAR4's camera table (header +0x80 count, +0x84 offset; 32 bytes each). The
+   same layout the reader parses (car_model.c:412-419). */
+int gt4_model_read_cameras(const uint8_t *bytes, size_t size, gt4_car_cameras *out)
+{
+    if (out) out->count = 0;
+    if (!bytes || !out || size < 0x88 || memcmp(bytes, "CAR4", 4)) return 0;
+    uint32_t count = rd_u32(bytes + 0x80), at = rd_u32(bytes + 0x84);
+    if (count > GT4_CAR_CAMERA_MAX) count = GT4_CAR_CAMERA_MAX;
+    int k = 0;
+    for (; (uint32_t)k < count && at + (size_t)(k + 1) * 32 <= size; k++)
+        for (int j = 0; j < 8; j++) out->point[k][j] = rd_f32(bytes + at + (size_t)k * 32 + j * 4);
+    out->count = k;
+    return k;
+}
 
 /* ---- Tex1 (PSMCT32, one transfer per image + level) ---------------------- */
 static unsigned next_pow2(unsigned v) { unsigned p = 1; while (p < v) p <<= 1; return p; }
@@ -292,7 +309,7 @@ static int pack_definitions(const gt4_model *m, uint8_t *blob[], size_t size[], 
     return nt;
 }
 
-uint8_t *gt4_model_encode_car4(const gt4_model *m, size_t *size)
+uint8_t *gt4_model_encode_car4_cameras(const gt4_model *m, const gt4_car_cameras *cameras, size_t *size)
 {
     if (!m || m->count <= 0) return NULL;
 
@@ -428,19 +445,37 @@ uint8_t *gt4_model_encode_car4(const gt4_model *m, size_t *size)
         memcpy(mp + 64, &mats[i].shine, 4);
     }
 
-    /* CAR4 container: header, then the MDLS at +0x40. +0x20/+0x2c/+0x30 (rim,
+    /* CAR4 container: header, then the MDLS. With a camera table the header
+       grows to hold it at the disc's own offset (+0x488, the Ka's), so +0x80/
+       +0x84 are header and the MDLS follows; without one the header stays 0x40
+       and the output is byte-for-byte as before. +0x20/+0x2c/+0x30 (rim,
        front/rear tyre) are put past the end so the loader reads no wheels --
        this model has none by design. +0x10 (CARINFO) stays 0. */
-    size_t car4_size = 0x40 + total;
+    int cam_count = cameras && cameras->count > 0 ? cameras->count : 0;
+    if (cam_count > GT4_CAR_CAMERA_MAX) cam_count = GT4_CAR_CAMERA_MAX;
+    size_t cam_at = 0x488;                              /* the table's own offset */
+    size_t hdr = cam_count ? cam_at + (size_t)cam_count * 32 : 0x40;
+    size_t car4_size = hdr + total;
     buf out = BUF_INIT;
-    b_zeros(&out, 0x40);
+    b_zeros(&out, hdr);
     memcpy(out.p, "CAR4", 4);
     put_u32(out.p + 8, (uint32_t)car4_size);
-    put_u32(out.p + 0x18, 0x40);                      /* base MDLS */
-    put_u32(out.p + 0x1c, 0);                          /* no Pat0 */
+    put_u32(out.p + 0x18, (uint32_t)hdr);               /* base MDLS */
+    put_u32(out.p + 0x1c, 0);                           /* no Pat0 */
     put_u32(out.p + 0x20, (uint32_t)car4_size);
     put_u32(out.p + 0x2c, (uint32_t)car4_size);
     put_u32(out.p + 0x30, (uint32_t)car4_size);
+    if (cam_count) {
+        put_u32(out.p + 0x80, (uint32_t)cam_count);     /* +0x80 count, +0x84 offset */
+        put_u32(out.p + 0x84, (uint32_t)cam_at);
+        for (int i = 0; i < cam_count; i++)
+            for (int j = 0; j < 8; j++) {
+                float f = cameras->point[i][j];
+                uint32_t bits;
+                memcpy(&bits, &f, 4);
+                put_u32(out.p + cam_at + (size_t)i * 32 + j * 4, bits);
+            }
+    }
     b_put(&out, d.p, total);
     free(d.p);
     if (!out.ok || out.n != car4_size) { free(out.p); return NULL; }
@@ -450,4 +485,9 @@ uint8_t *gt4_model_encode_car4(const gt4_model *m, size_t *size)
 fail_blobs:
     for (int t = 0; t < nt; t++) free(blob[t]);
     return NULL;
+}
+
+uint8_t *gt4_model_encode_car4(const gt4_model *m, size_t *size)
+{
+    return gt4_model_encode_car4_cameras(m, NULL, size);
 }
