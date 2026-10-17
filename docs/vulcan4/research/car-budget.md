@@ -43,6 +43,29 @@ Consequence for an author: a 1024×1024 RGBA texture is **4 MB on its own** — 
 image. That is why the disc's own car textures are small and paletted. A modern car's textures will not fit
 until they are converted and shrunk, which is the second thing the SDK has to tell a user honestly.
 
+## DECIMATION — proven, offline, fast (measured 2026-10-17)
+
+The pipeline needs to shrink a modern car down to what the game can afford. Measured with
+[meshoptimizer](https://github.com/zeux/meshoptimizer)'s `gltfpack` **v1.3** (a single static 4.1 MB binary,
+released for Windows/Linux/macOS — nothing to install):
+
+```
+gltfpack -i heavy.glb -o heavy-5k.glb -si <ratio>        # -si = target triangle ratio
+```
+
+| source | result | time |
+|---|---|---|
+| 81,920 tris → `-si 0.061` | **4,996 tris** (1,475,288 B → 50,796 B) | **0.031 s** |
+| 327,680 tris → `-si 0.0153` | **5,012 tris** | **0.136 s** |
+
+So a 300k-triangle modern car reaches the disc's own median budget in about a seventh of a second, in-process,
+offline, and it stays a `.glb` — the same format our converter reads. Relevant flags: `-si` ratio, `-se` error
+limit (default 1% deviation), `-sa` aggressive, `-slb` lock borders (avoids gaps on split meshes).
+
+**Open, not assumed:** whether gltfpack preserves the *named objects* our wheel assignment depends on
+(`body`, `wheel_LF`, …). That has to be measured on a real named model before the SDK relies on it — if it does
+not, the rig map (`rig.json`, schema §3.5) becomes the authority instead of the names, which is what it is for.
+
 ## WHAT THE SDK SHOULD SAY (no invented thresholds)
 
 - **Geometry:** per-model triangles, shown next to the disc's own range (median ≈ 5,000, p90 ≈ 5,800). Over
