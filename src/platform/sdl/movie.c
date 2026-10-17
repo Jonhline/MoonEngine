@@ -192,25 +192,42 @@ static sdl_movie *open_media(const uint8_t *data, size_t size, int interlace, in
     fclose(f);
     if (written != size)
         goto fail;
-    /* FFmpeg: beside the executable first (a release ships it there), then
-       the one found when building, then whatever PATH holds */
+    /* FFmpeg: beside the executable first (a release ships it there), then the
+       engine's own user folder (%APPDATA%\MoonEngine\MoonEngine\ on Windows,
+       where mods, saves and launcher.ini live), then the one found when
+       building, then whatever PATH holds. */
     {
+        char pref[1024];
+        wchar_t user[MAX_PATH];
+        user[0] = 0;
+        if (plat_pref_dir(pref, sizeof pref)) {
+            char full[1200];
+            snprintf(full, sizeof full, "%sffmpeg.exe", pref);
+            if (MultiByteToWideChar(CP_UTF8, 0, full, -1, user, MAX_PATH) <= 0)
+                user[0] = 0;
+        }
         DWORD n = GetModuleFileNameW(NULL, exe, MAX_PATH);
         wchar_t *cut = n && n < MAX_PATH ? wcsrchr(exe, L'\\') : NULL;
         if (cut) {
             wcscpy(cut + 1, L"ffmpeg.exe");
         }
         if (!cut || GetFileAttributesW(exe) == INVALID_FILE_ATTRIBUTES) {
+            if (user[0] && GetFileAttributesW(user) != INVALID_FILE_ATTRIBUTES) {
+                wcsncpy(exe, user, MAX_PATH);
+                exe[MAX_PATH - 1] = 0;
+            } else {
 #ifdef MOON_FFMPEG
-            MultiByteToWideChar(CP_UTF8, 0, MOON_FFMPEG, -1, exe, MAX_PATH);
-            if (GetFileAttributesW(exe) == INVALID_FILE_ATTRIBUTES)
+                MultiByteToWideChar(CP_UTF8, 0, MOON_FFMPEG, -1, exe, MAX_PATH);
+                if (GetFileAttributesW(exe) == INVALID_FILE_ATTRIBUTES)
 #endif
-            {
-                wchar_t *part = NULL;
-                if (!SearchPathW(NULL, L"ffmpeg.exe", NULL, MAX_PATH, exe, &part))
-                    goto fail;
+                {
+                    wchar_t *part = NULL;
+                    if (!SearchPathW(NULL, L"ffmpeg.exe", NULL, MAX_PATH, exe, &part))
+                        goto fail;
+                }
             }
         }
+        fprintf(stderr, "movie: using ffmpeg from %ls\n", exe);
     }
     /* No shell: only a generated temporary path is passed to FFmpeg.
        Interlaced movies store each frame as two stacked 224-line fields,
