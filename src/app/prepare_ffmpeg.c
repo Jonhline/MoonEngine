@@ -8,6 +8,7 @@
 #include <stdarg.h>
 #include <string.h>
 #include <time.h>
+#include <math.h>
 
 #ifdef _WIN32
 
@@ -17,6 +18,7 @@
 #include <SDL.h>
 #include "launcher_text.h"
 #include "launcher_fonts_data.h"
+#include "launcher_update.h"
 #include "miniz.h"
 
 /* The rolling "latest" release of BtbN FFmpeg-Builds. The asset name is the same
@@ -27,8 +29,8 @@
 #define FFMPEG_MAX_BYTES (600ull * 1024 * 1024)    /* reject a runaway response */
 #define RETRY_SECONDS 86400                        /* remember a failure for a day */
 
-#define PREP_W 620
-#define PREP_H 300
+#define PREP_W 960   /* the launcher's window: the setup that follows opens in the same place */
+#define PREP_H 720
 
 enum { ST_CHECK = 0, ST_DOWNLOAD, ST_EXTRACT, ST_VERIFY, ST_DONE, ST_FAILED, ST_CANCELLED };
 enum { ERR_NONE = 0, ERR_NETWORK, ERR_HTTP, ERR_WRITE, ERR_SMALL, ERR_EXTRACT, ERR_MOVE };
@@ -263,6 +265,9 @@ static DWORD WINAPI prep_worker(void *context)
     }
     InterlockedExchange(&j->state, ST_DONE);
 out:
+    /* an error names the failure (the window shows it, then the game goes on) */
+    if (prep_err(j) && prep_state(j) != ST_CANCELLED)
+        InterlockedExchange(&j->state, ST_FAILED);
     if (r)
         WinHttpCloseHandle(r);
     if (connection)
@@ -280,27 +285,55 @@ typedef struct {
     int w, h;
 } prep_ui;
 
-static void p_fill(prep_ui *u, int x, int y, int w, int h, int r, int g, int b)
+/* The launcher's first-run look (docs/UI_ART_DIRECTION.md, "Without the disc"): the white
+   room, the graphite band with a fine light edge and the black help strip, in the home
+   bar's 640x448 proportions, the bundled Barlow. Nothing here comes from the game. */
+static void p_fill(prep_ui *u, float x, float y, float w, float h, int r, int g, int b, int a)
 {
-    SDL_SetRenderDrawColor(u->ren, (Uint8)r, (Uint8)g, (Uint8)b, 255);
-    SDL_Rect rc = {x, y, w, h};
+    SDL_SetRenderDrawColor(u->ren, (Uint8)r, (Uint8)g, (Uint8)b, (Uint8)a);
+    SDL_Rect rc = {(int)x, (int)y, (int)(x + w) - (int)x, (int)(y + h) - (int)y};
     SDL_RenderFillRect(u->ren, &rc);
 }
-static void p_text(prep_ui *u, lt_font *font, int x, int y, const char *s, int r, int g, int b)
+static void p_ramp(prep_ui *u, float y0, float y1, const int top[4], const int bot[4])
 {
-    SDL_Color c = {(Uint8)r, (Uint8)g, (Uint8)b, 255};
-    lt_draw(u->ren, font, x, y, s, 0, c);
+    for (int y = (int)y0; y < (int)y1; y++) {
+        float t = y1 > y0 ? (y - y0) / (y1 - y0) : 0;
+        SDL_SetRenderDrawColor(u->ren, (Uint8)(top[0] + (bot[0] - top[0]) * t),
+                               (Uint8)(top[1] + (bot[1] - top[1]) * t),
+                               (Uint8)(top[2] + (bot[2] - top[2]) * t),
+                               (Uint8)(top[3] + (bot[3] - top[3]) * t));
+        SDL_RenderDrawLine(u->ren, 0, y, u->w - 1, y);
+    }
+}
+/* text on a baseline; centred on cx when centre is set */
+static void p_text(prep_ui *u, lt_font *font, float x, float base, const char *s, int centre, int r,
+                   int g, int b, int a)
+{
+    SDL_Color c = {(Uint8)r, (Uint8)g, (Uint8)b, (Uint8)a};
+    if (centre)
+        x -= lt_width(font, s, 0) / 2.f;
+    lt_draw(u->ren, font, (int)x, (int)base - lt_ascent(font), s, 0, c);
 }
 static void prep_draw(prep_ui *u, prep_job *j)
 {
-    lt_font *title = lt_font_size(u->face_head, 26);
-    lt_font *body = lt_font_size(u->face_body, 19);
-    lt_font *small = lt_font_size(u->face_body, 15);
-    p_fill(u, 0, 0, u->w, u->h, 16, 17, 21);
-    p_fill(u, 0, 0, u->w, 4, 232, 180, 94);                  /* one warm accent rule */
-    p_text(u, title, 36, 40, "MOON ENGINE", 236, 238, 241);
-    p_text(u, small, 36, 78, "first-time setup", 126, 131, 142);
-    p_text(u, body, 36, 116, "The movie decoder (ffmpeg) is needed for the menu.", 200, 204, 210);
+    const float S = fminf(u->w / 640.f, u->h / 448.f), ox = (u->w - 640.f * S) * .5f,
+                oy = u->h - 448.f * S;
+    const float top = oy + 363.f * S, strip = oy + 418.f * S;
+    lt_font *mark = lt_font_size(u->face_body, (int)(26.4f * S));
+    lt_font *note = lt_font_size(u->face_body, (int)(10.6f * S));
+    lt_font *line_font = lt_font_size(u->face_head, (int)(15 * S));
+    lt_font *help = lt_font_size(u->face_body, (int)(10.5f * S));
+    SDL_SetRenderDrawBlendMode(u->ren, SDL_BLENDMODE_BLEND);
+    /* the room: wall, the sweep, the floor */
+    const int wall[4] = {254, 254, 253, 255}, ground[4] = {242, 242, 245, 255};
+    float y0 = u->h * 250.f / 448.f, y1 = u->h * 400.f / 448.f;
+    p_fill(u, 0, 0, (float)u->w, y0, wall[0], wall[1], wall[2], 255);
+    p_ramp(u, y0, y1, wall, ground);
+    p_fill(u, 0, y1, (float)u->w, u->h - y1, ground[0], ground[1], ground[2], 255);
+    /* the corner: the wordmark (placeholder until the artist's logo) */
+    p_text(u, mark, 16 * S, 38 * S, "MOON ENGINE", 0, 38, 40, 45, 255); /* where the setup has it */
+    p_text(u, note, 17 * S, 52 * S, "v" MOON_VERSION "   (logo placeholder)", 0, 110, 113, 120, 255);
+
     LONG state = prep_state(j);
     LONG err = prep_err(j);
     LONG64 got = prep_bytes((volatile LONG64 *)&j->got);
@@ -310,43 +343,51 @@ static void prep_draw(prep_ui *u, prep_job *j)
     switch (state) {
     case ST_DOWNLOAD:
         if (pct >= 0)
-            snprintf(line, sizeof line, "Downloading... %d%%  (%.1f MB / %.1f MB)", pct,
+            snprintf(line, sizeof line, "Downloading the movie decoder   %d%%   %.1f / %.1f MB", pct,
                      got / 1048576.0, total / 1048576.0);
         else
-            snprintf(line, sizeof line, "Downloading... %.1f MB", got / 1048576.0);
+            snprintf(line, sizeof line, "Downloading the movie decoder   %.1f MB", got / 1048576.0);
         break;
-    case ST_EXTRACT: snprintf(line, sizeof line, "Unpacking the archive..."); break;
-    case ST_VERIFY:  snprintf(line, sizeof line, "Verifying..."); break;
-    case ST_DONE:    snprintf(line, sizeof line, "Ready -- starting Moon Engine."); break;
+    case ST_EXTRACT: snprintf(line, sizeof line, "Unpacking the movie decoder"); break;
+    case ST_VERIFY:  snprintf(line, sizeof line, "Checking the movie decoder"); break;
+    case ST_DONE:    snprintf(line, sizeof line, "Ready"); break;
     case ST_FAILED:
         snprintf(line, sizeof line,
-                 "%s", err == ERR_HTTP  ? "Download failed (the server refused it)."
-                       : err == ERR_SMALL ? "Download failed (the file was not valid)."
-                       : err == ERR_EXTRACT ? "Download failed (could not unpack it)."
-                       : err == ERR_MOVE ? "Download failed (could not save it)."
-                                         : "Download failed (no connection?).");
+                 "%s", err == ERR_HTTP  ? "Download failed: the server refused it"
+                       : err == ERR_SMALL ? "Download failed: the file was not valid"
+                       : err == ERR_EXTRACT ? "Download failed: it could not be unpacked"
+                       : err == ERR_MOVE ? "Download failed: it could not be saved"
+                                         : "Download failed: no connection?");
         break;
-    case ST_CANCELLED: snprintf(line, sizeof line, "Download cancelled."); break;
-    default:           snprintf(line, sizeof line, "Checking the movie decoder..."); break;
+    case ST_CANCELLED: snprintf(line, sizeof line, "Download skipped"); break;
+    default:           snprintf(line, sizeof line, "Looking for the movie decoder"); break;
     }
-    p_text(u, body, 36, 150, line, state == ST_FAILED ? 240 : 200, state == ST_FAILED ? 120 : 204,
-           state == ST_FAILED ? 110 : 210);
-    int bar_x = 36, bar_y = 194, bar_w = u->w - 72, bar_h = 14;
-    p_fill(u, bar_x, bar_y, bar_w, bar_h, 44, 47, 56);
-    int fill = 0;
+    /* the band: graphite, a fine light edge; the step and its progress inside */
+    const int band_top[4] = {62, 64, 70, 235}, band_bot[4] = {32, 34, 38, 235};
+    p_ramp(u, top, strip, band_top, band_bot);
+    p_fill(u, 0, top, (float)u->w, fmaxf(1.f, S * .7f), 255, 255, 255, 110);
+    int failed = state == ST_FAILED;
+    p_text(u, line_font, u->w * .5f + S, oy + 386.f * S + S, line, 1, 0, 0, 0, 120);
+    p_text(u, line_font, u->w * .5f, oy + 386.f * S, line, 1, failed ? 235 : 236,
+           failed ? 120 : 238, failed ? 110 : 241, 255);
+    float bar_x = ox + 160.f * S, bar_w = 320.f * S, bar_y = oy + 398.f * S,
+          bar_h = fmaxf(2.f, 3.f * S);
+    p_fill(u, bar_x, bar_y, bar_w, bar_h, 255, 255, 255, 40);
+    float fill = 0;
     if (state == ST_DOWNLOAD)
-        fill = pct >= 0 ? bar_w * pct / 100 : bar_w / 4;
+        fill = pct >= 0 ? bar_w * pct / 100.f : bar_w / 4.f;
     else if (state == ST_EXTRACT || state == ST_VERIFY || state == ST_DONE)
         fill = bar_w;
     if (fill > 0)
-        p_fill(u, bar_x, bar_y, fill, bar_h, 232, 180, 94);
-    if (state == ST_FAILED || state == ST_CANCELLED)
-        p_text(u, small, 36, 230, "The game will start without the cutscenes. Press a key to continue.",
-               172, 177, 186);
-    else
-        p_text(u, small, 36, 230,
-               "BtbN FFmpeg-Builds (win64-gpl). This happens once; afterwards the game starts straight away.",
-               126, 131, 142);
+        p_fill(u, bar_x, bar_y, fill, bar_h, 255, 255, 255, 230);
+    /* the help strip: black, one line, centred */
+    p_fill(u, 0, strip, (float)u->w, (float)u->h - strip, 0, 0, 0, 240);
+    p_fill(u, 0, strip, (float)u->w, fmaxf(1.f, S * .5f), 70, 72, 76, 255);
+    p_text(u, help, u->w * .5f, oy + 437.f * S,
+           failed || state == ST_CANCELLED
+               ? "The game starts without its movies; it tries again tomorrow. Any key: continue."
+               : "ffmpeg (BtbN FFmpeg-Builds, win64-gpl) plays the game's movies. Fetched once.   Esc: skip",
+           1, 214, 216, 220, 255);
     SDL_RenderPresent(u->ren);
 }
 static void prep_capture(prep_ui *u, const char *path)
@@ -382,7 +423,7 @@ static void prep_show(prep_job *j, const char *shot)
         prep_log("prepare: no window: %s\n", SDL_GetError());
         return;
     }
-    u.window = SDL_CreateWindow("MOON ENGINE - preparing", SDL_WINDOWPOS_CENTERED,
+    u.window = SDL_CreateWindow("MOON ENGINE", SDL_WINDOWPOS_CENTERED,
                                 SDL_WINDOWPOS_CENTERED, PREP_W, PREP_H, SDL_WINDOW_SHOWN);
     if (u.window) {
         SDL_GetWindowSize(u.window, &u.w, &u.h);
@@ -552,6 +593,20 @@ void launcher_prepare_ffmpeg(void)
             return;
         }
         prep_log("prepare: ffmpeg sits beside the exe but could not be adopted\n");
+    }
+    {
+        /* the movie player's other places (movie.c): the build setting, then PATH */
+        wchar_t found[MAX_PATH], *part;
+#ifdef MOON_FFMPEG
+        if (GetFileAttributesA(MOON_FFMPEG) != INVALID_FILE_ATTRIBUTES) {
+            prep_log("prepare: ffmpeg set by the build (%s) -- nothing to do\n", MOON_FFMPEG);
+            return;
+        }
+#endif
+        if (SearchPathW(NULL, L"ffmpeg.exe", NULL, MAX_PATH, found, &part)) {
+            prep_log("prepare: ffmpeg on PATH (%ls) -- nothing to do\n", found);
+            return;
+        }
     }
     if (prep_stamp_fresh(stamp)) {
         prep_log("prepare: ffmpeg missing, but a download was tried less than a day ago; skipping\n");
