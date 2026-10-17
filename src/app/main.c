@@ -1833,6 +1833,89 @@ done:
     return start_launch?2:0;
 }
 
+/* The SDK preview (--preview <car>): the SAME showroom renderer and the SAME
+   studio scene -- the white room, the lights, the car -- and NOTHING else. No
+   dock, no names, no icons, no menu, no keyboard. Mouse only: LEFT-DRAG orbits,
+   WHEEL dollies, MIDDLE-DRAG pans (the studio's own camera math, not a second
+   one). The camera starts from the rig file if it exists, else the studio's
+   default framing; the requested car is always the one shown. One machine-
+   readable line is printed once the first frame is drawn. */
+static int preview_run(showroom *cars,const char *code,const char *shot,int color)
+{
+    float eye[3],target[3],car[3],angle;
+    int locked=1;char rig_car[48]="";   /* the rig supplies the CAMERA only */
+    char rig_path[1200]="",chosen[48]="";
+    snprintf(chosen,sizeof chosen,"%s",code);
+    video_set_fill_window(1);
+    {
+        char *pref=SDL_GetPrefPath("MoonEngine","MoonEngine");
+        if(pref){snprintf(rig_path,sizeof rig_path,"%sstudio-rig.txt",pref);SDL_free(pref);}
+    }
+    rig_defaults(eye,target,car,&angle);
+    if(rig_path[0])rig_load(rig_path,eye,target,car,&angle,rig_car,sizeof rig_car,&locked);
+    showroom_set_rig(cars,eye,target,car,angle);
+    uint64_t start=plat_time_ns();
+    while(showroom_prepare(cars,chosen)==0){
+        SDL_Event ev;while(SDL_PollEvent(&ev))if(ev.type==SDL_QUIT)return 0;
+        if(plat_time_ns()-start>UINT64_C(60000000000)){fprintf(stderr,"preview: assets did not arrive for %s\n",chosen);return 1;}
+        plat_video_begin_frame();plat_video_end_frame();plat_sleep_ms(10);
+    }
+    if(color>=0)showroom_set_color(cars,color);
+    int dragging=0,panning=0,dirty=0,ready=0;float lx=0,ly=0;
+    int cur_rw=0,pend_rw=-1;uint64_t pend_at=0;
+    const int frames=shot?60:0;   /* the entrance and the light timeline settle first */
+    for(int i=0;frames==0||i<frames;i++){
+        SDL_Event ev;
+        while(SDL_PollEvent(&ev)){
+            if(ev.type==SDL_QUIT)goto done;
+            if(ev.type==SDL_MOUSEBUTTONDOWN){
+                if(ev.button.button==SDL_BUTTON_LEFT){dragging=1;lx=(float)ev.button.x;ly=(float)ev.button.y;}
+                else if(ev.button.button==SDL_BUTTON_MIDDLE){panning=1;lx=(float)ev.button.x;ly=(float)ev.button.y;}
+            } else if(ev.type==SDL_MOUSEBUTTONUP){
+                if(ev.button.button==SDL_BUTTON_LEFT)dragging=0;
+                else if(ev.button.button==SDL_BUTTON_MIDDLE)panning=0;
+            } else if(ev.type==SDL_MOUSEMOTION){
+                float x=(float)ev.motion.x,y=(float)ev.motion.y;
+                if(dragging){rig_orbit(eye,target,(lx-x)*.008f,(ly-y)*.006f);lx=x;ly=y;dirty=1;}
+                else if(panning){
+                    /* pan along the camera's own floor plane, as the studio's WASD does */
+                    float f[3]={target[0]-eye[0],0,target[2]-eye[2]},fl=sqrtf(f[0]*f[0]+f[2]*f[2]);
+                    if(fl<1e-4f){f[0]=0;f[2]=-1;fl=1;}f[0]/=fl;f[2]/=fl;
+                    float r[3]={-f[2],0,f[0]},dx=(x-lx)*.006f,dz=(y-ly)*.006f;
+                    eye[0]-=f[0]*dz+r[0]*dx;eye[2]-=f[2]*dz+r[2]*dx;
+                    target[0]-=f[0]*dz+r[0]*dx;target[2]-=f[2]*dz+r[2]*dx;
+                    lx=x;ly=y;dirty=1;
+                }
+            } else if(ev.type==SDL_MOUSEWHEEL && ev.wheel.y){
+                float k=ev.wheel.y>0?.92f:1.087f;
+                for(int j=0;j<3;j++)eye[j]=target[j]+(eye[j]-target[j])*k;
+                float d[3]={eye[0]-target[0],eye[1]-target[1],eye[2]-target[2]};
+                float dl=sqrtf(d[0]*d[0]+d[1]*d[1]+d[2]*d[2]);
+                if(dl<1.2f)for(int j=0;j<3;j++)eye[j]=target[j]+d[j]*1.2f/dl;
+                dirty=1;
+            }
+        }
+        if(dirty){showroom_set_rig(cars,eye,target,car,angle);dirty=0;}
+        int fw=0,fh=0;SDL_GL_GetDrawableSize(plat_sdl_window(),&fw,&fh);if(fw<1)fw=640;if(fh<1)fh=448;
+        int want=(int)(448.f*(float)fw/(float)fh+.5f);if(want<320)want=320;if(want>1024)want=1024;
+        uint64_t now=plat_time_ns();
+        if(want!=pend_rw){pend_rw=want;pend_at=now;}
+        if(want!=cur_rw && (cur_rw==0 || now-pend_at>UINT64_C(150000000))){showroom_set_width(cars,want);cur_rw=want;}
+        plat_video_begin_frame();
+        video_begin_scene();
+        plat_video_set_view((float)cur_rw,448.f);
+        showroom_draw(cars,chosen,1.f/60.f);
+        video_end_scene();
+        plat_video_end_frame();
+        if(!ready){ready=1;printf("preview: ready car=%s window=%dx%d\n",chosen,fw,fh);fflush(stdout);}
+        if(shot && i==frames-1){screenshot(shot);printf("preview: %s painted '%s'\n",chosen,showroom_caption(cars));}
+        plat_sleep_ms(4);
+    }
+done:
+    printf("preview: closed %s\n",chosen);
+    return 0;
+}
+
 /* The user's folder must exist before anything scans or writes it. On a virgin
    machine neither subfolder is there: `mods/` is only ever scanned
    (launcher_ui.c mods_scan) and `saves/` is only made on the first save
@@ -1883,6 +1966,7 @@ int main(int argc, char **argv)
     const char *err = NULL;
     const char *shot = NULL;
     const char *studio_car=NULL;   /* --studio <car>: the white studio room instead of the menu */
+    const char *preview_car=NULL;  /* --preview <car>: the studio scene with no UI, mouse only */
     double shot_delay=0,input_interval=0;
     const char *quick_input=NULL;   /* --quick-input: inputs for the quick menu (tests), 1.5 s after it opens */
     int exit_code = 0;
@@ -1986,6 +2070,11 @@ int main(int argc, char **argv)
         if(!strcmp(argv[i],"--dialog-shot-scripted") && i+1<argc){dialog_shot=argv[++i];dialog_shot_scripted=1;continue;}   /* taken at the input "shot" */
         if(!strcmp(argv[i],"--with-music")){music_with_shot=1;continue;}
         if(!strcmp(argv[i],"--studio") && i+1<argc){studio_car=argv[++i];continue;}   /* the white studio room, no menu */
+        if(!strcmp(argv[i],"--preview") && i+1<argc){preview_car=argv[++i];continue;}   /* the studio scene, no UI, mouse only */
+        if(!strcmp(argv[i],"--preview-size") && i+1<argc){
+            if(sscanf(argv[++i],"%dx%d",&window_w,&window_h)!=2 || window_w<320 || window_h<240 || window_w>7680 || window_h>4320)return 2;
+            continue;
+        }
         if (!strcmp(argv[i], "--quick-input") || !strcmp(argv[i], "--input-interval") || !strcmp(argv[i], "--color") || !strcmp(argv[i], "--shot-delay") || !strcmp(argv[i], "--music-tempo") || !strcmp(argv[i], "--shot") || !strcmp(argv[i], "--select") || !strcmp(argv[i], "--input") || !strcmp(argv[i], "--dialog-answer")) {
             const char *option = argv[i];
             if (++i == argc) { fprintf(stderr, "%s needs a value\n", option); return 2; }
@@ -2087,9 +2176,10 @@ int main(int argc, char **argv)
 
     loading_screen_open(vol,argv[1]);
     presentation_disc=argv[1];
-    showroom *cars=(studio_car||front_end)?showroom_open_studio(argv[1]):showroom_open(argv[1]);presentation_cars=cars;
+    showroom *cars=(studio_car||preview_car||front_end)?showroom_open_studio(argv[1]):showroom_open(argv[1]);presentation_cars=cars;
     race_view *race=race_view_open(argv[1]);
     presentation_photo=photo_travel_open(argv[1]);
+    if(preview_car)return preview_run(cars,preview_car,shot,color_preview);
     if(studio_car)return studio_run(cars,vol,studio_car,shot,color_preview,0);
     if(front_end){
         const char *fcar=startup.preferences.car[0]?startup.preferences.car:FRONT_CAR;int fcol=startup.preferences.color;
