@@ -12,6 +12,16 @@ static uint32_t le32(const uint8_t *p) { return p[0] | (uint32_t)p[1] << 8 | (ui
 static void put32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24); }
 static int magic_is(const uint8_t *b, size_t n, const char *m) { return b && n >= MIN_TABLE && !memcmp(b, m, 4); }
 
+/* One line per table: the same summary (a table read many times) prints once. */
+static void mod_log_once(const char *line)
+{
+    static char seen[64][128];
+    static int n;
+    for (int i = 0; i < n; i++) if (!strcmp(seen[i], line)) return;
+    if (n < 64) snprintf(seen[n++], sizeof seen[0], "%s", line);
+    fputs(line, stderr);
+}
+
 int moon_mod_is_table(const uint8_t *bytes, size_t size)
 {
     return magic_is(bytes, size, "GTDB") || magic_is(bytes, size, "GTID") || magic_is(bytes, size, "GTST");
@@ -44,48 +54,66 @@ static uint8_t *merge_gtdb(const uint8_t *d, size_t dn, const uint8_t *m, size_t
     if (dw != mw) { *why = "row width differs from the disc's table"; return NULL; }
     if (dw > 4096) { *why = "implausible row width"; return NULL; }
 
-    uint32_t total = dc + mc;
-    merged_row *rows = malloc((size_t)total * sizeof *rows);
-    uint8_t *rows_data = malloc((size_t)total * (size_t)dw);
+    /* Decode every row through the engine's own reader, then merge BY ID: a mod
+       row whose id the disc already has REPLACES the disc's row when the bytes
+       differ, is dropped when they are identical, and is added when the id is
+       new. The disc's own rows -- including any id it repeats -- are kept whole.
+       (The old code compared adjacent rows after sorting, so a disc table with a
+       repeated id printed a per-id "kept" line for its own duplicate.) */
+    merged_row *disc = malloc((size_t)dc * sizeof *disc);
+    uint8_t *disc_data = malloc((size_t)dc * dw);
+    merged_row *mod = malloc((size_t)mc * sizeof *mod);
+    uint8_t *mod_data = malloc((size_t)mc * dw);
+    uint8_t *keep = calloc(mc, 1);
     uint8_t *out = NULL;
-    if (rows && rows_data) {
+    if (!disc || !disc_data || !mod || !mod_data || !keep) { *why = "out of memory"; goto done; }
+    {
         int ok = 1;
         for (uint32_t i = 0; i < dc && ok; i++) {
-            uint8_t *dst = rows_data + (size_t)i * dw;
-            if (gt4_specdb_row_at(d, dn, i, dst, dw) != (int)dw) ok = 0;
-            else { rows[i].id = le32(d + 16 + (size_t)i * 8); rows[i].row = dst; rows[i].from_mod = 0; }
+            if (gt4_specdb_row_at(d, dn, i, disc_data + (size_t)i * dw, dw) != (int)dw) ok = 0;
+            else { disc[i].id = le32(d + 16 + (size_t)i * 8); disc[i].row = disc_data + (size_t)i * dw; disc[i].from_mod = 0; }
         }
         for (uint32_t i = 0; i < mc && ok; i++) {
-            uint8_t *dst = rows_data + (size_t)(dc + i) * dw;
-            if (gt4_specdb_row_at(m, mn, i, dst, dw) != (int)dw) ok = 0;
-            else { rows[dc + i].id = le32(m + 16 + (size_t)i * 8); rows[dc + i].row = dst; rows[dc + i].from_mod = 1; }
+            if (gt4_specdb_row_at(m, mn, i, mod_data + (size_t)i * dw, dw) != (int)dw) ok = 0;
+            else { mod[i].id = le32(m + 16 + (size_t)i * 8); mod[i].row = mod_data + (size_t)i * dw; mod[i].from_mod = 1; }
         }
-        if (!ok) *why = "a row would not decode with the engine's own reader";
-        else {
-            size_t base = 16 + (size_t)total * 8;
-            out = malloc(base + (size_t)total * dw);
-            if (!out) *why = "out of memory";
-            else {
-                qsort(rows, total, sizeof *rows, by_id);
-                memset(out, 0, base);
-                memcpy(out, "GTDB", 4);
-                put32(out + 8, total);
-                put32(out + 12, dw);
-                for (uint32_t i = 0; i < total; i++) {
-                    put32(out + 16 + (size_t)i * 8, rows[i].id);
-                    put32(out + 20 + (size_t)i * 8, i * dw);
-                    memcpy(out + base + (size_t)i * dw, rows[i].row, dw);
-                }
-                if (out_size) *out_size = base + (size_t)total * dw;
-                for (uint32_t i = 1; i < total; i++)
-                    if (rows[i].id == rows[i - 1].id)
-                        fprintf(stderr, "mod: id %u exists in the disc's table and in a mod; the disc's row is kept\n",
-                                (unsigned)rows[i].id);
-            }
+        if (!ok) { *why = "a row would not decode with the engine's own reader"; goto done; }
+
+        uint32_t added = 0, overridden = 0, ignored = 0;
+        for (uint32_t i = 0; i < mc; i++) {
+            int found = -1;
+            for (uint32_t j = 0; j < dc; j++) if (disc[j].id == mod[i].id) { found = (int)j; break; }
+            if (found < 0) { keep[i] = 1; added++; }
+            else if (!memcmp(disc[found].row, mod[i].row, dw)) ignored++;
+            else { memcpy((uint8_t *)disc[found].row, mod[i].row, dw); overridden++; }
         }
-    } else *why = "out of memory";
-    free(rows);
-    free(rows_data);
+
+        uint32_t total = dc + added;
+        size_t base = 16 + (size_t)total * 8;
+        merged_row *all = malloc((size_t)total * sizeof *all);
+        out = all ? malloc(base + (size_t)total * dw) : NULL;
+        if (!all || !out) { free(all); free(out); out = NULL; *why = "out of memory"; goto done; }
+        memcpy(all, disc, (size_t)dc * sizeof *all);
+        { uint32_t at = dc; for (uint32_t i = 0; i < mc; i++) if (keep[i]) all[at++] = mod[i]; }
+        qsort(all, total, sizeof *all, by_id);
+        memset(out, 0, base);
+        memcpy(out, "GTDB", 4);
+        put32(out + 8, total);
+        put32(out + 12, dw);
+        for (uint32_t i = 0; i < total; i++) {
+            put32(out + 16 + (size_t)i * 8, all[i].id);
+            put32(out + 20 + (size_t)i * 8, i * dw);
+            memcpy(out + base + (size_t)i * dw, all[i].row, dw);
+        }
+        free(all);
+        if (out_size) *out_size = base + (size_t)total * dw;
+        { char line[160];
+          snprintf(line, sizeof line, "mod: GTDB (row width %u): %u row(s) added, %u overridden, %u identical copies ignored\n",
+                   (unsigned)dw, added, overridden, ignored);
+          mod_log_once(line); }
+    }
+done:
+    free(disc); free(disc_data); free(mod); free(mod_data); free(keep);
     return out;
 }
 
@@ -131,12 +159,20 @@ static uint8_t *merge_offset_table(const uint8_t *d, size_t dn, const uint8_t *m
         put32(out + at, (uint32_t)(pool_d + rel));
         if (entry_size == 8) put32(out + at + 4, le32(m + 20 + (size_t)i * 8));
     }
-    if (entry_size == 8)                     /* label -> id: an id may not be reused (docs/NEW-CARS.md §2) */
+    if (entry_size == 8) {                   /* GTID label -> id: an id the disc already lists keeps the disc's entry */
+        uint32_t reused = 0;
         for (uint32_t i = 0; i < mc; i++)
             for (uint32_t j = 0; j < dc; j++)
-                if (le32(m + 20 + (size_t)i * 8) == le32(d + 20 + (size_t)j * 8))
-                    fprintf(stderr, "mod: id %u is already in the disc's list and a mod adds it again; "
-                                    "the disc's entry answers first\n", (unsigned)le32(m + 20 + (size_t)i * 8));
+                if (le32(m + 20 + (size_t)i * 8) == le32(d + 20 + (size_t)j * 8)) { reused++; break; }
+        { char line[160];
+          snprintf(line, sizeof line, "mod: GTID: %u label(s) added, %u id(s) already in the disc's list (the disc's entry answers first)\n",
+                   mc - reused, reused);
+          mod_log_once(line); }
+    } else {                                   /* GTST string pool */
+        char line[128];
+        snprintf(line, sizeof line, "mod: GTST: %u string(s) added\n", mc);
+        mod_log_once(line);
+    }
     if (out_size) *out_size = size;
     return out;
 }
