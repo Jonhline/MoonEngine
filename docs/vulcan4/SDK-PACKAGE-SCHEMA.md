@@ -100,6 +100,35 @@ Full detail in `docs/vulcan4/SDK-MODEL-INTAKE.md`. In short: `.glb` (metres, Y-u
 named `body`/`wheel_fl`/`wheel_fr`/`wheel_rl`/`wheel_rr`, wheels centred on their own origin, PNG textures
 power-of-two, ≤10k triangles. The game scales 1/4096; the converter does that, the source stays human.
 
+### 3.5 The rig map — what the viewer's interactions produce
+
+Object names are a *convention*, and modern sources (Assetto Corsa ports, downloaded models) do not follow it.
+So the viewer does not rely on names: it lets the author **point at the model and say what things are**, and
+what it writes is a small sidecar the converter reads — `rig.json` at the package root:
+
+```
+forward      -Z            which axis the car's nose points along (-Z is the convention; set by clicking/gizmo)
+up           +Y            which way is up, if the source disagrees
+length_m     4.40          the car's real length; the converter's scale comes from this, never from the file's units
+ground_y     0.00          where the tyres touch; the model is offset so this is the floor
+wheel        wheel_LF  part=<mesh name>  radius=0.31  axis=X  steer=1  drive=1
+wheel        wheel_RF  part=<mesh name>  radius=0.31  axis=X  steer=1  drive=1
+wheel        wheel_LR  part=<mesh name>  radius=0.32  axis=X  steer=0  drive=1
+wheel        wheel_RR  part=<mesh name>  radius=0.32  axis=X  steer=0  drive=1
+```
+
+Rules:
+
+- A wheel entry **names a mesh in the file** and says which corner it is. That is how a model whose parts are
+  called `Wheel.003` or `tyre_fl_LOD0` still becomes a car the game can steer — the names never have to match
+  ours.
+- `axis` is the spin axis; `steer` says whether the game turns it; `drive` says whether it takes drive torque.
+  A body-only car is legal (no `wheel` lines at all) — the banana is exactly that.
+- `length_m` and `ground_y` are the two numbers that stop a model from arriving at the wrong size or sunk into
+  the floor. Both are set by looking at it, not by trusting the file.
+- `rig.json` is authored by the viewer and consumed by the CLI's converter. If the two ever disagree, the
+  viewer is wrong, because it is the one with eyes on it.
+
 ## 4. `interface:content-catalog`
 
 What the package declares, and where the engine files it (both are the game's own lists, not ours):
