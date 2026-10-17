@@ -1833,8 +1833,32 @@ done:
     return start_launch?2:0;
 }
 
+/* The user's folder must exist before anything scans or writes it. On a virgin
+   machine neither subfolder is there: `mods/` is only ever scanned
+   (launcher_ui.c mods_scan) and `saves/` is only made on the first save
+   (gt4_save_mkdir from save.c). Create the root and both subfolders here, at the
+   one entry point both front doors (the studio and the disc panel) pass through.
+   Idempotent (exists = fine) and non-fatal: a failure prints one line and the
+   game carries on. gt4_save_mkdir already does the Windows/POSIX dance. */
+static void ensure_user_folders(void)
+{
+    char pref[1200];
+    if (!plat_pref_dir(pref, sizeof pref)) {
+        fprintf(stderr, "player data: no user folder location (APPDATA/HOME unset?)\n");
+        return;
+    }
+    static const char *const subs[] = {"mods", "saves"};
+    for (int i = 0; i < (int)(sizeof subs / sizeof *subs); i++) {
+        char path[1300];
+        snprintf(path, sizeof path, "%s%s", pref, subs[i]);
+        if (!gt4_save_mkdir(path))
+            fprintf(stderr, "player data: could not create %s (carrying on)\n", path);
+    }
+}
+
 int main(int argc, char **argv)
 {
+    ensure_user_folders();
 #ifndef __SWITCH__
     /* Jonhline's renderer selection: --renderer opengl|vulkan and its diagnostic
        entry, kept from his work. The launcher-scene entry is not used here: the

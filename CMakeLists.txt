@@ -277,6 +277,10 @@ set_target_properties(moonengine PROPERTIES OUTPUT_NAME MoonEngine)   # MoonEngi
 target_link_libraries(moonengine PRIVATE moon_race_sound moon_career_vehicle ${MOON_SDL_STACK} moon_physics miniz SDL2::SDL2main)
 if(WIN32)
   target_link_libraries(moonengine PRIVATE winhttp bcrypt)
+  # ONE FILE: link the GCC/C++ runtime statically so a fresh Windows machine does
+  # not need libgcc_s_seh-1.dll / libstdc++-6.dll (nor libwinpthread) beside the
+  # program. Windows system DLLs are always imported, never shipped.
+  target_link_options(moonengine PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
 if(WIN32)
   target_sources(moonengine PRIVATE src/app/moonengine.rc)
