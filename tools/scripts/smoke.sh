@@ -52,8 +52,8 @@ fi
 
 # 5. the mod: its own model name, and the Ka untouched.
 if [ -d "$MOD" ]; then
-    a=$(OPENGT4_OVERLAY=$MOD timeout 200 "$B/gt4car_survey" "$D" --labels moon_banana 2>&1 | grep -E "^OK|^REVIEW")
-    b=$(OPENGT4_OVERLAY=$MOD timeout 200 "$B/gt4car_survey" "$D" --labels ka_01 2>&1 | grep -E "^OK|^REVIEW")
+    a=$(MOON_OVERLAY=$MOD timeout 200 "$B/gt4car_survey" "$D" --labels moon_banana 2>&1 | grep -E "^OK|^REVIEW")
+    b=$(MOON_OVERLAY=$MOD timeout 200 "$B/gt4car_survey" "$D" --labels ka_01 2>&1 | grep -E "^OK|^REVIEW")
     c=$(timeout 200 "$B/gt4car_survey" "$D" --labels ka_01 2>&1 | grep -E "^OK|^REVIEW")
     grep -q "model=moonbanana" <<<"$a" && line PASS "mod: the banana loads as its own model (moonbanana)" && pass=$((pass+1)) \
         || { line FAIL "mod: $a"; fail=$((fail+1)); }
