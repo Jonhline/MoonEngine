@@ -1691,6 +1691,7 @@ int main(int argc, char **argv)
         if (fr != 2)
             return fr; /* 2 = START: the launcher is black, run the game (its opening rises from black) */
         showroom_clear_rig(cars);
+        showroom_use_disc_room(cars);
         showroom_set_width(cars, 640); /* hand the showroom back to the game */
         /* The studio drew in its own fill view; put the game's own authentic present back
            (the resolution and ratio from the video options), so nothing is zoomed or cropped. */

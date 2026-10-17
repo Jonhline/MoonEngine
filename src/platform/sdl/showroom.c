@@ -199,6 +199,50 @@ void showroom_clear_rig(showroom *s)
     SDL_UnlockMutex(s->lock);
 }
 
+static int studio_camera(showroom *s, const gt4_mot1 *m);
+void showroom_use_disc_room(showroom *s)
+{
+    if (!s || !s->white_studio)
+        return;
+    /* Hand-over, part two: the launcher's white sweep and its held light are
+       the launcher's. The game's dealers get the disc's studio back -- bg.mdl's
+       four lit layers and light.mot running from its intro, as the PS2 does. */
+    const char *err = NULL;
+    gt4_vol *v = gt4_vol_open(s->disc, &err);
+    size_t size = 0;
+    uint8_t *bg = v ? gt4_vol_read(v, "/menu/select/bg.mdl", &size) : NULL;
+    gt4_model *layers[4] = {0};
+    int count = 0;
+    for (int i = 0; bg && i < 4 && (layers[i] = gt4_model_decode_part(bg, size, 0, i)); i++)
+        count++;
+    free(bg);
+    size_t camera_size = 0;
+    uint8_t *camera_data = v ? gt4_vol_read(v, "/menu/select/camera.mot", &camera_size) : NULL;
+    gt4_mot1 *camera = camera_data ? gt4_mot1_open(camera_data, camera_size) : NULL;
+    free(camera_data);
+    gt4_vol_close(v);
+    SDL_LockMutex(s->lock);
+    for (int i = 0; i < 4; i++)
+        gt4_model_free(s->studio[i]);
+    /* The dealers' camera is the studio's (camera.mot), as when the showroom
+       opens without the launcher; showroom_clear_rig left CarFace's. */
+    if (count == 4 && studio_camera(s, camera)) {
+        memcpy(s->studio, layers, sizeof layers);
+    } else {
+        for (int i = 0; i < 4; i++)
+            gt4_model_free(layers[i]);
+        memset(s->studio, 0, sizeof s->studio);
+        s->studio_count = 0; /* the plain backdrop, as when the studio is missing */
+        fprintf(stderr, "showroom: studio room unavailable after the launcher\n");
+    }
+    s->white_studio = 0;
+    s->white_ready = 0;
+    s->layers_ready = 0;
+    s->restart_light = 1;
+    SDL_UnlockMutex(s->lock);
+    gt4_mot1_close(camera);
+}
+
 /* camera.mot (docs/SHOWROOM_SCENE.md): a constant look-at (eye, target, up)
    and vertical fov. The scene projects with aspect 640/448 (0x001D5C00 ->
    0x0049AC00), so one focal length serves both axes of the 640x448 view. */

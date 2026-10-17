@@ -406,8 +406,8 @@ static void draw_car_face(void *user, const ui_widget *w, float x, float y, floa
     showroom_set_wheel(cars, w->car_wheel);
     showroom_set_wing(cars, w->car_wing);
     showroom_set_selection(cars, w->car_code, w->car_color_index);
-    if (!w->car_normal && !w->car_pose_set &&
-        strcmp(ui_root_name(menu_ui(m), w->root), "BuyCarRoot")) {
+    if (!w->car_normal &&
+        (!w->car_pose_set || !strcmp(ui_root_name(menu_ui(m), w->root), "BuyCarRoot"))) {
         /* the studio fills the view: its own scene target (MSAA, FSR) */
         video_begin_scene();
         SWP_ASSET_DRAW(showroom_draw(cars, w->car_code, dt));

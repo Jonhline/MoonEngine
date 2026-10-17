@@ -68,4 +68,6 @@ void showroom_set_width(showroom *s, int width);
 /* Hand the showroom back to the game after the studio: drop the captain's rig AND its camera, so a
    game screen never draws with the studio's camera; the game's own CarFace camera is restored. */
 void showroom_clear_rig(showroom *s);
+/* After the launcher: the game's showroom uses the disc's studio and its light motion. */
+void showroom_use_disc_room(showroom *s);
 #endif
