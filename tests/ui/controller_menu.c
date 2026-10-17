@@ -1,5 +1,6 @@
 /* Exercise the unmodified disc scripts, including draft/conflict handling. */
 #include "../../src/core/menu.c"
+#include <SDL.h>
 #define CHECK(x)                                                                                   \
     do {                                                                                           \
         if (!(x)) {                                                                                \
@@ -21,6 +22,8 @@ static int root_index(menu *m, const char *name)
 int main(int argc, char **argv)
 {
     CHECK(argc>=3);
+    SDL_setenv("MOON_WINDOW_HIDDEN", "1", 1);
+    CHECK(!plat_video_init(&(plat_video_desc){640, 480, 0, 0, 0}));
     menu_options_storage(NULL);
     snprintf(option_path, sizeof option_path, "%s", argv[2]);
     const char *why;
@@ -150,6 +153,7 @@ int main(int argc, char **argv)
         menu_close(mc);
     }
     gt4_vol_close(vol);
+    plat_video_shutdown();
     puts(
         "PASS original DS2 defaults/reflect, draft isolation, pedal swap, applied input and persistent reload; negative changes expected steering choice.");
     return 0;

@@ -35,7 +35,10 @@ int main(int argc, char **argv)
     SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT, "0");
     SDL_SetHint(SDL_HINT_XINPUT_ENABLED, "0");
     SDL_SetHint(SDL_HINT_DIRECTINPUT_ENABLED, "0");
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
     CHECK(!SDL_Init(SDL_INIT_GAMECONTROLLER|SDL_INIT_EVENTS));
+    SDL_setenv("MOON_WINDOW_HIDDEN", "1", 1);
+    CHECK(!plat_video_init(&(plat_video_desc){640, 480, 0, 0, 0}));
     const char *why;
     gt4_vol *vol = gt4_vol_open(argv[1], &why);
     CHECK(vol);
@@ -49,6 +52,7 @@ int main(int argc, char **argv)
     g.last_prepared = 1;
     g.last_desc.license = 1;
     g.pad_id = -1;
+    CHECK(plat_sdl_pad(0));
     const int outcomes[] = {0, 2, 3, 4};
     for (unsigned s = 0; s < sizeof outcomes / sizeof *outcomes; s++)
         for (int retry = 0; retry < 2; retry++) {
@@ -90,6 +94,7 @@ int main(int argc, char **argv)
     SDL_JoystickClose(joy);
     plat_input_shutdown();
     CHECK(!SDL_JoystickDetachVirtual(index));
+    plat_video_shutdown();
     SDL_Quit();
     gt4_vol_close(vol);
     puts(

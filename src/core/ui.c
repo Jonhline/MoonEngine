@@ -2649,7 +2649,7 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
                Quick-menu icons inherit their authored 72x68 button rectangle.
                Other menus retain their existing layout until their area is checked. */
             int client_size =
-                (w->parent && !strcmp(w->parent->name, "CarItem")) || w->has_geometry || !strncmp(p->name, "quick-", 6) ||
+                (w->parent && w->parent->name && !strcmp(w->parent->name, "CarItem")) || w->has_geometry || !strncmp(p->name, "quick-", 6) ||
                 !strcmp(p->name, "labomode"); /* labomode's folder_bg (107x10) fills its 107x480 */
             /* 002A2608 uses inherited client dimensions as well. Authored
                GT Mode card backgrounds must not draw at PNG source size. */
