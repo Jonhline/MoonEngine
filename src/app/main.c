@@ -1497,13 +1497,25 @@ static void wiz_restart(void) /* the new graphics API takes effect in a fresh pr
     }
 }
 #endif
+/* The launcher is the one phase that wants a finger to drive its existing pointer
+   code: SDL synthesizes the mouse events the wizard and the studio already read.
+   In-game touch belongs to the overlay (mobile_controls.c), so the hint goes back
+   to the Android default as soon as the launcher hands over. */
+static void launcher_touch_mouse(int on)
+{
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, on ? "1" : "0");
+    fprintf(stderr, "launcher: touch-mouse synthesis %s\n", on ? "on" : "off");
+}
 #ifndef __SWITCH__
 /* Runs the setup on the current window: 1 = saved, 2 = saved and restarted for the new
    graphics API (the caller quits), 0 = cancelled (nothing written). */
 static int first_run_wizard(launcher_preferences *prefs)
 {
-    if (!wiz_font_init())
+    launcher_touch_mouse(1);
+    if (!wiz_font_init()) {
+        launcher_touch_mouse(0);
         return 0;
+    }
     char disc[LAUNCHER_PATH], status[256] = "";
     snprintf(disc, sizeof disc, "%s", prefs->disc);
     wiz_dark = prefs->theme;
@@ -1812,8 +1824,10 @@ static int first_run_wizard(launcher_preferences *prefs)
         plat_video_end_frame();
         plat_sleep_ms(16);
     }
-    if (!saved)
+    if (!saved) {
+        launcher_touch_mouse(0);
         return 0;
+    }
     snprintf(prefs->disc, sizeof prefs->disc, "%s", disc);
     snprintf(prefs->api, sizeof prefs->api, "%s", moon_renderer_name(api));
     launcher_preferences_save(prefs);
@@ -1821,9 +1835,11 @@ static int first_run_wizard(launcher_preferences *prefs)
         video_settings_set_renderer(app_video_settings, api);
 #ifdef _WIN32
         wiz_restart();
+        launcher_touch_mouse(0);
         return 2;
 #endif
     }
+    launcher_touch_mouse(0);
     return 1;
 }
 
@@ -2121,6 +2137,7 @@ static int studio_saved_car(const char *saves, gt4_vol *vol, char code[96], int 
 static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char *shot, int color,
                       int fade_in)
 {
+    launcher_touch_mouse(1);
     float eye[3], target[3], car[3], angle;
     int locked =
         1; /* the room opens with the camera held: he frames it once, then works on the rest */
@@ -2187,10 +2204,13 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
     while (showroom_prepare(cars, chosen) == 0) {
         SDL_Event ev;
         while (SDL_PollEvent(&ev))
-            if (ev.type == SDL_QUIT)
+            if (ev.type == SDL_QUIT) {
+                launcher_touch_mouse(0);
                 return 0;
+            }
         if (plat_time_ns() - start > UINT64_C(60000000000)) {
             fprintf(stderr, "studio: assets did not arrive for %s\n", chosen);
+            launcher_touch_mouse(0);
             return 1;
         }
         plat_video_begin_frame();
@@ -2988,6 +3008,7 @@ done:
     if (rig_path[0])
         rig_save(rig_path, eye, target, car, angle, chosen, locked);
     printf("studio: white room, %s\n", chosen);
+    launcher_touch_mouse(0);
     return start_launch ? 2 : 0;
 }
 
