@@ -1623,7 +1623,29 @@ ultimate racing sim"* — is registered there: the logger, the race engineer, an
   printed so it can be subtracted.
 - **Why it matters now, not later:** the Android port and the Switch port both live or die on numbers nobody can
   currently see on the device. Every "it feels slow" argument ends the moment the overlay can be switched on.
-- **STATUS:** ⬜ registered, **not scheduled.**
+- **Field list, researched 2026-10-18 — most of these numbers are already collected every frame:**
+  - *Already measured, printed to a log today:* **ms/frame, fps, draws/frame, quads/frame** —
+    `src/platform/sdl/video_gl.c:699` prints exactly this every 30 frames, gated behind the
+    `MOON_VIDEO_PROFILE` environment variable (`video_gl.c:377`). The overlay is that line, on screen.
+  - *Already counted per frame:* `r3d_frame_stats()` (`render3d.h:72-79`) — draws, **triangles**, culled groups,
+    wheel passes, texture updates/hits, state updates/hits, merged groups, visibility tests, spatial rejections,
+    readbacks; `r3d_work_totals()` for the lifetime equivalents; and on the Vulkan path `vk_render.h:19` —
+    submissions, passes, draws, readbacks.
+  - *Already available:* the frame pacer (`moon_frame_deadline`, `frame_pacing.h`) — whether frames are on time or
+    late; the renderer in use (`moon_renderer_name()`); the Vulkan device and API version (`moon_vk_name()`,
+    already used by the diagnostic); the window/surface size.
+  - *Not collected yet, and honestly out of stage 1:* the simulation tick's own cost (one timer around the step),
+    per-process memory (one platform call per OS), battery/thermal (Android's `BatteryManager`/`PowerManager`
+    through JNI). Named here so nobody promises them by accident.
+- **The toggle the captain asked for: the two volume buttons.** Measured: **SDL swallows them today** —
+  `SDLActivity.dispatchKeyEvent` (SDL 2.30.9, `android-project/.../SDLActivity.java:666-672`) returns `false` for
+  `KEYCODE_VOLUME_UP`/`VOLUME_DOWN` deliberately, "so they're handled by Android", and the native side never sees
+  them. So the chord needs one small Java addition in *our* `GameActivity`: override `dispatchKeyEvent`, watch
+  both volume codes, and when they arrive together (or are held together) call a native hook that flips the
+  overlay. A single press still returns `false`, so the volume keys keep working normally — only the chord is
+  taken. The same hook gets a desktop key (F3) so the feature is testable without a phone; that key is the
+  captain's to veto.
+- **STATUS:** ⬜ registered, **not scheduled.** (Field list and the volume-button chord researched 2026-10-18.)
 
 ### 🆕 G6.41 — **THE MOVIES WITHOUT THE SPARE PROGRAM** *(kill the 161 MB ffmpeg.exe, the captain's ask, 2026-10-18)*
 
