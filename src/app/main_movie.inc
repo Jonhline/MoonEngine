@@ -39,11 +39,44 @@ static void movie_preload_ipic(movie_view *v)
     fprintf(stderr, "movie: preloaded %u original menu pictures\n", archive.count);
 #endif
 }
+/* R2 kill switch: with the linked decoder's first Android appearance under
+   suspicion, the whole movie layer can be turned off without a rebuild.
+   MOON_NO_MOVIES=1 in the environment, or an empty file
+   <user root>/no-movies (on Android that is the reachable external root, so a
+   file manager can drop it over USB), makes every MovieFace fall back to the
+   authored poster -- or to nothing -- exactly as when a decoder fails to open.
+   Documented in docs/reports/2026-10-18.md. */
+static int moon_movies_disabled(void)
+{
+    static int cached = -1;
+    if (cached < 0) {
+        cached = getenv("MOON_NO_MOVIES") != NULL;
+        if (!cached) {
+            char path[1300];
+            char *pref = moon_pref_path();
+            if (pref) {
+                snprintf(path, sizeof path, "%sno-movies", pref);
+                FILE *file = fopen(path, "rb");
+                if (file) {
+                    cached = 1;
+                    fclose(file);
+                }
+                SDL_free(pref);
+            }
+        }
+        if (cached)
+            fprintf(stderr,
+                    "movie: disabled by MOON_NO_MOVIES=1 (or the no-movies file); the menu shows "
+                    "posters only\n");
+    }
+    return cached;
+}
 static int movie_worker(void *arg)
 {
     movie_view *v = arg;
     unsigned handled = 0;
-    movie_preload_ipic(v);
+    if (!moon_movies_disabled())
+        movie_preload_ipic(v);
     for (;;) {
         SDL_LockMutex(v->lock);
         while (!v->stop && handled == v->generation && !v->retired)
@@ -65,7 +98,7 @@ static int movie_worker(void *arg)
             continue;
         sdl_movie *next = NULL;
 #if !defined(__SWITCH__) || defined(MOON_SWITCH_MOVIES)
-        if (*name && v->volume) {
+        if (!moon_movies_disabled() && *name && v->volume) {
             char path[160];
             size_t size = 0;
             snprintf(path, sizeof path, "/mpeg/main/%s.pss", name);
@@ -138,6 +171,11 @@ static int draw_movie(void *user, const char *name, float x, float y, float w, f
 {
     movie_view *v = user;
     v->seen = 1;
+    if (moon_movies_disabled()) {
+        v->unavailable = 1;
+        v->generation = 1; /* makes the front-end's finish gate fire, as a failed decode does */
+        return 0;
+    }
     if (!v->thread || strlen(name) >= 100 || strchr(name, '/') || strchr(name, '\\')) {
         v->unavailable = 1;
         v->generation = 1;

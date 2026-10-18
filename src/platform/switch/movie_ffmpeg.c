@@ -11,6 +11,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__ANDROID__)
+void moon_android_mark_frame(const char *where);
+#define MOON_FRAME(where) moon_android_mark_frame(where)
+#else
+#define MOON_FRAME(where) ((void)0)
+#endif
+
 enum { MOVIE_QUEUE = 6 };
 struct sdl_movie {
     uint8_t *data;
@@ -174,6 +181,7 @@ static sdl_movie *open_owned(uint8_t *data, size_t size, int interlace, int repe
     m->rate = interlace ? 60 : 30;
     /* Equivalent to desktop ffmpeg -v error, with no per-frame logging. */
     av_log_set_level(AV_LOG_ERROR);
+    MOON_FRAME("movie_ffmpeg.c: decoder open");
     m->decoder = gt4_movie_decoder_open(data, size, interlace, repeat);
     if (!m->decoder)
         goto fail;
@@ -279,6 +287,7 @@ uint8_t *sdl_movie_ipic_decode(const uint8_t *stream, size_t size, unsigned coun
     fenv_t saved;
     if (fegetenv(&saved) || fesetround(FE_TONEAREST))
         return NULL;
+    MOON_FRAME("movie_ffmpeg.c: IPU decoder open");
     gt4_movie_decoder *decoder = gt4_movie_decoder_open(stream, size, 0, 0);
     uint8_t *pixels = decoder ? malloc((size_t)count * GT4_MOVIE_BYTES) : NULL;
     unsigned copied = 0;

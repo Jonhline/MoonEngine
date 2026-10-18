@@ -52,20 +52,28 @@ public final class DiscActivity extends Activity {
         layout.addView(title);
         message = new TextView(this);
         message.setGravity(Gravity.CENTER);
-        message.setText("Choose your own Gran Turismo 4 USA v2.00 ISO.\nSaves stay in this app's private storage.");
+        message.setText("Choose your own Gran Turismo 4 USA v2.00 ISO.\nSaves and settings are written to "
+                + "Android/data/org.moonengine.android/files/MoonEngine/MoonEngine, reachable over USB.");
         message.setTextSize(18); layout.addView(message);
         Button choose = new Button(this); choose.setText("CHOOSE DISC");
-        choose.setOnClickListener(v -> {
-            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            intent.addCategory(Intent.CATEGORY_OPENABLE);
-            intent.setType("*/*");
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-            startActivityForResult(intent, DISC);
-        });
+        choose.setOnClickListener(v -> launchPicker());
         layout.addView(choose); setContentView(layout);
-        if (pickerMode) return; // the launcher asked for a disc: always show CHOOSE
-        String saved = getSharedPreferences("startup", MODE_PRIVATE).getString("discUri", null);
-        if (saved != null) open(Uri.parse(saved));
+        // The launcher (native plat_pick_disc) starts us in picker mode: open the
+        // system file browser straight away, so one press on "choose disc" is one
+        // picker. This is the only owner of the picker; GameActivity never opens
+        // it again once a descriptor is held.
+        if (pickerMode) layout.post(this::launchPicker);
+        else {
+            String saved = getSharedPreferences("startup", MODE_PRIVATE).getString("discUri", null);
+            if (saved != null) open(Uri.parse(saved));
+        }
+    }
+    private void launchPicker() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(intent, DISC);
     }
     @Override protected void onDestroy() {
         // A cancel (Back) finishes without a result; a rotation recreate (not finishing) does not.

@@ -14,6 +14,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Android records the last marked decode step so a fatal signal can name it in
+   the log's final line. A no-op on every other platform. */
+#if defined(__ANDROID__)
+void moon_android_mark_frame(const char *where);
+#define MOON_FRAME(where) moon_android_mark_frame(where)
+#else
+#define MOON_FRAME(where) ((void)0)
+#endif
+
 struct gt4_movie_decoder {
     const uint8_t *data;
     size_t size, offset;
@@ -98,6 +107,7 @@ gt4_movie_decoder *gt4_movie_decoder_open(const uint8_t *data, size_t size, int 
     d->format->pb = d->io;
     d->format->flags |= AVFMT_FLAG_CUSTOM_IO;
     stage = "demux";
+    MOON_FRAME("movie_decode.c: demux open");
     if (avformat_open_input(&d->format, NULL, av_find_input_format(d->ipu ? "ipu" : "mpeg"), NULL) < 0 ||
         avformat_find_stream_info(d->format, NULL) < 0)
         goto fail;
@@ -117,6 +127,7 @@ gt4_movie_decoder *gt4_movie_decoder_open(const uint8_t *data, size_t size, int 
     stage = "codec open";
     d->codec->pkt_timebase = d->format->streams[d->video]->time_base;
     d->codec->thread_count = 1;
+    MOON_FRAME("movie_decode.c: codec open");
     if (avcodec_open2(d->codec, codec, NULL) < 0)
         goto fail;
     fprintf(stderr, "movie: linked libav %s decoder %s (in-process, no child process)\n",
@@ -226,8 +237,11 @@ int gt4_movie_decoder_read(gt4_movie_decoder *d, uint8_t *rgba)
         }
         result = avcodec_receive_frame(d->codec, d->frame);
         if (result >= 0) {
-            if (!d->filters && (result = make_filters(d)) < 0)
-                return result;
+            if (!d->filters) {
+                MOON_FRAME("movie_decode.c: filter graph");
+                if ((result = make_filters(d)) < 0)
+                    return result;
+            }
             d->frame->pts = d->frame->best_effort_timestamp;
             if (d->frame->pts == AV_NOPTS_VALUE)
                 d->frame->pts = av_rescale_q(d->decoded, (AVRational){1001, 30000},
@@ -259,6 +273,7 @@ int gt4_movie_decoder_read(gt4_movie_decoder *d, uint8_t *rgba)
         }
         if (result != AVERROR(EAGAIN) || d->input_eof)
             return result;
+        MOON_FRAME("movie_decode.c: read frame");
         while ((result = av_read_frame(d->format, d->packet)) >= 0) {
             if (d->packet->stream_index == d->video) {
                 result = avcodec_send_packet(d->codec, d->packet);
