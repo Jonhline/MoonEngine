@@ -11,4 +11,8 @@ void moon_android_overlay(ui_project *ui);
    the final log line ("last frame <file:line>"). A no-op elsewhere; the string
    must outlive the call (call sites pass a literal). */
 void moon_android_mark_frame(const char *where);
+/* The two user-state paths that are Android-only, for the startup inventory
+   line (main.c). Each returns the path set by moon_android_init, or NULL. */
+const char *moon_android_log_path(void);
+const char *moon_android_log_mirror(void);
 #endif

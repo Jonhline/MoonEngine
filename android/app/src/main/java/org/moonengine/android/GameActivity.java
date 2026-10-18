@@ -69,11 +69,11 @@ public final class GameActivity extends SDLActivity {
         // descriptor this process reuses it -- no second prompt. No disc yet:
         // start the engine with no arguments and let its own launcher ask.
         if (DiscActivity.disc == null) return new String[0];
-        String root = userRoot();
-        return new String[] { "/proc/self/fd/" + DiscActivity.disc.getFd(),
-            "--save-dir", root + "/saves",
-            "--config-file", root + "/options.ini",
-            "--renderer", "vulkan" };
+        // Only the disc descriptor is Android-specific. Saves, options.ini,
+        // launcher.ini, video.ini and mods are left to the engine's own
+        // plat_pref_dir() defaults -- the same single rule the desktop uses
+        // (android_host.c points XDG_DATA_HOME at this root).
+        return new String[] { "/proc/self/fd/" + DiscActivity.disc.getFd(), "--renderer", "vulkan" };
     }
     /** Native (android_host.c) starts the document picker in this same process. */
     public void startDiscPicker() { DiscActivity.startPicker(this); }

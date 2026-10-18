@@ -77,10 +77,10 @@ file. Native disc loading performs the existing disc-format checks. A
 revoked/unavailable document returns to selection rather than deleting saves.
 Process recreation reopens the saved URI. No game contents are packaged.
 
-Saves and the shared `options.ini` are in the app's private files directory.
-Uninstalling the app can delete those files. Import/export/backup UI is not
-implemented by this first foundation. Avoid treating it as a permanent save
-location until hardware validation and export support are complete.
+Saves and settings use the same user tree as the desktop build; see
+"User data layout" below. Import/export/backup UI is not implemented by this
+first foundation. Avoid treating the phone's copy as a permanent save location
+until hardware validation and export support are complete.
 
 ## Input and lifecycle
 
@@ -166,3 +166,43 @@ negative. Vulkan/OpenGL frame comparison and its negative also passed.
 APK builds and v2 signature verifies; image orientation on the phone remains
 pending physical validation. This supersedes treating Java orientation as
 the complete correction for the user's report.
+
+## User data layout
+
+Android mirrors `%APPDATA%\MoonEngine\MoonEngine\` **minus the Windows-only
+pieces** (no `ffmpeg.exe`; plus the Android-only Download log mirror). Every
+path is derived the same way on both platforms: from `plat_pref_dir()`, which
+is `%APPDATA%\MoonEngine\MoonEngine\` on Windows and
+`$XDG_DATA_HOME/MoonEngine/MoonEngine/` elsewhere. On Android `android_host.c`
+points `XDG_DATA_HOME` at the app's external files dir, so the root reads
+`/storage/emulated/0/Android/data/org.moonengine.android/files/MoonEngine/MoonEngine/`.
+
+| path (under the root) | desktop | Android | status |
+|---|---|---|---|
+| `launcher.ini` | `<root>/launcher.ini` | same | same |
+| `video.ini` | `<root>/video.ini` | same | same |
+| `video.ini.game_options` | `<root>/video.ini.game_options` | same | same (was `options.ini.game_options` on a disc launch) |
+| `options.ini` | `<root>/options.ini` | same | same |
+| `saves/` | `<root>/saves` | same | same |
+| `studio-rig.txt` | `<root>/studio-rig.txt` | same | same |
+| `mods.ini` | `<root>/mods.ini` | same | same |
+| `mods/` | `<root>/mods` | same | same |
+| `moonengine.log` | none | `<root>/moonengine.log` | Android-only run log |
+| `Download/MoonEngine/moonengine.log` | none | `/storage/emulated/0/Download/MoonEngine/moonengine.log` | Android-only mirror (a log a mail/chat picker can attach) |
+| `ffmpeg.exe` | `<root>/ffmpeg.exe` | none | Windows-only, not recreated |
+
+The Android game launch passes **only** the disc descriptor
+(`/proc/self/fd/N`, and `--renderer vulkan`); saves, `options.ini`,
+`video.ini`, `launcher.ini` and mods all come from the engine's own
+`plat_pref_dir()` defaults, exactly as a desktop launch with no override does.
+There is one rule, not two.
+
+At startup the engine prints one inventory line, the same shape on every
+platform, so a single screenshot of the log shows where the user's things are:
+
+```
+moonengine: user root=<root> | launcher.ini=<root>launcher.ini | video.ini=<root>video.ini | options.ini=<root>options.ini | saves=<root>saves | studio-rig.txt=<root>studio-rig.txt | mods.ini=<root>mods.ini | mods=<root>mods | log=<log or -> | mirror=<mirror or ->
+```
+
+`<root>` ends with the separator. Desktop has no run log, so `log` and
+`mirror` read `-` there; Android fills both in.

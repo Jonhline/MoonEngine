@@ -3142,6 +3142,29 @@ static void ensure_user_folders(void)
     }
 }
 
+/* One line, one shape, every platform: where every piece of user state lives,
+   so a single screenshot of the log answers "where are my things?". The root
+   is the same tree the desktop uses; only Android has a run log and its
+   Download mirror, so those read "-" elsewhere. */
+static void print_user_inventory(const char *saves)
+{
+    char pref[1200];
+    if (!plat_pref_dir(pref, sizeof pref))
+        return;
+    const char *log = "-", *mirror = "-";
+#if defined(__ANDROID__)
+    if (moon_android_log_path())
+        log = moon_android_log_path();
+    if (moon_android_log_mirror())
+        mirror = moon_android_log_mirror();
+#endif
+    fprintf(stderr,
+            "moonengine: user root=%s | launcher.ini=%slauncher.ini | video.ini=%svideo.ini | "
+            "options.ini=%soptions.ini | saves=%s | studio-rig.txt=%sstudio-rig.txt | "
+            "mods.ini=%smods.ini | mods=%smods | log=%s | mirror=%s\n",
+            pref, pref, pref, pref, saves && *saves ? saves : "-", pref, pref, pref, log, mirror);
+}
+
 int main(int argc, char **argv)
 {
 #ifdef __ANDROID__
@@ -3250,6 +3273,7 @@ int main(int argc, char **argv)
             SDL_free(pref);
         }
     }
+    print_user_inventory(save_directory);
     gt4_save_init(save_directory[0] ? save_directory : NULL);
 #ifdef __SWITCH__
     fprintf(stderr, "Switch save: directory=%s active=%d error=%s\n", gt4_save_directory(),

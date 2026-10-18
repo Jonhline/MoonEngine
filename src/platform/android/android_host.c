@@ -30,6 +30,9 @@
    same one desktop uses, so the paths read the same everywhere. */
 #define MOON_ANDROID_SUBDIR "MoonEngine/MoonEngine"
 #define MOON_LOG_ROTATE (2u * 1024u * 1024u)
+/* The Download mirror GameActivity keeps in step with the log (its own copy of
+   this path is in GameActivity.startLogMirror). */
+#define MOON_ANDROID_LOG_MIRROR "/storage/emulated/0/Download/MoonEngine/moonengine.log"
 
 static int moon_is_dir(const char *path)
 {
@@ -220,6 +223,19 @@ static void moon_android_adopt_user_root(const char *internal, const char *root)
    fatal handler, which writes one final, async-signal-safe line and fsyncs it. */
 static int g_log_fd = -1;
 static const char *volatile g_last_frame;
+/* The inventory line main.c prints at startup asks for these two. */
+static char g_log_path[1300];
+static char g_log_mirror[1300];
+
+const char *moon_android_log_path(void)
+{
+    return g_log_path[0] ? g_log_path : NULL;
+}
+
+const char *moon_android_log_mirror(void)
+{
+    return g_log_mirror[0] ? g_log_mirror : NULL;
+}
 
 void moon_android_mark_frame(const char *where)
 {
@@ -365,8 +381,10 @@ void moon_android_init(void)
                     "%s\n",
                     internal ? internal : "(none)");
         SDL_setenv("XDG_DATA_HOME", base, 1);
+        snprintf(g_log_path, sizeof g_log_path, "%s/moonengine.log", root);
+        snprintf(g_log_mirror, sizeof g_log_mirror, "%s", MOON_ANDROID_LOG_MIRROR);
         char logpath[1300];
-        snprintf(logpath, sizeof logpath, "%s/moonengine.log", root);
+        snprintf(logpath, sizeof logpath, "%s", g_log_path);
         struct stat info;
         if (!stat(logpath, &info) && info.st_size > (off_t)MOON_LOG_ROTATE) {
             char previous[1300];
@@ -380,10 +398,8 @@ void moon_android_init(void)
             g_log_fd = fileno(stderr);
         }
         moon_install_fatal_handlers();
-        fprintf(stderr, "moonengine: user root=%s/ log=%s mirror=%s/moonengine.log\n", root, logpath,
-                "/storage/emulated/0/Download/MoonEngine");
-        /* The log is append-only across sessions so the line a crash wrote is
-           still there after the next launch; mark where this one begins. */
+        /* The whole user-data inventory (root, every file, log and mirror) is
+           printed once by main.c -- one line, same shape on every platform. */
         fprintf(stderr, "moonengine: --- session start ---\n");
     }
     SDL_setenv("MOON_GRAPHICS_API", "vulkan", 1);
