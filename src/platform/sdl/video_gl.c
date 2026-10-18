@@ -51,6 +51,12 @@ static int menu_projection = 1;
 static void layout_view(void);
 static moon_frame_pacer frame_pacer;
 static int frame_limit;
+/* Frames that began already past their pacing deadline (debug overlay only). */
+static uint64_t frame_late_count;
+uint64_t video_frame_late_count(void)
+{
+    return frame_late_count;
+}
 void video_performance_options(int low_latency, int fps_limit)
 {
     frame_limit = fps_limit >= 0 && fps_limit <= 500 ? fps_limit : 0;
@@ -654,6 +660,8 @@ void plat_video_begin_frame(void)
     unsigned rate = menu_pacing || capture_pipe ? 60u : (unsigned)frame_limit;
     uint64_t now = plat_time_ns();
     uint64_t deadline = moon_frame_deadline(&frame_pacer, now, rate);
+    if (now > deadline)
+        frame_late_count++; /* started behind: the last frame/gap overran the rate */
     while (now < deadline) {
         uint64_t remaining = deadline - now;
         if (remaining > 1500000)

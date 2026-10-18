@@ -19,6 +19,9 @@ float video_read_depth(int x, int y);
 void video_flush2d(void);
 /* Bound frontend rendering to its native 60 Hz; race timing is separate. */
 void video_set_menu_pacing(int enabled);
+/* Frames whose pacing deadline had already passed when they began (the debug
+   overlay's "late" reading). Lifetime count; 0 before the first frame. */
+uint64_t video_frame_late_count(void);
 /* Opt-in offline movie export: one original 60 Hz update per real frame. */
 int video_export_fixed_step(void);
 /* Menu 2D maps to the whole PS2 framebuffer; race HUD has wide layout. */

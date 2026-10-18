@@ -2,12 +2,49 @@ package org.moonengine.android;
 
 import android.os.Bundle;
 import android.content.pm.ActivityInfo;
+import android.view.KeyEvent;
 import android.view.WindowManager;
 import org.libsdl.app.SDLActivity;
 
 /** SDL owns native input, audio and the Vulkan surface lifecycle. */
 public final class GameActivity extends SDLActivity {
     @Override protected String[] getLibraries() { return new String[] { "SDL2", "main" }; }
+
+    /* G6.40 debug overlay: VOLUME_UP + VOLUME_DOWN together toggle it. SDL
+       swallows the volume keys on purpose, so the chord is detected here; a
+       single press still falls through to Android and keeps working. */
+    private static native void nativeToggleOverlay();
+    private static final long CHORD_NS = 250_000_000L;
+    private long lastVolumeUpNs, lastVolumeDownNs;
+    private boolean volumeUpHeld, volumeDownHeld, overlayChord;
+
+    @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        int code = event.getKeyCode();
+        boolean up = code == KeyEvent.KEYCODE_VOLUME_UP;
+        boolean down = code == KeyEvent.KEYCODE_VOLUME_DOWN;
+        if (!up && !down)
+            return super.dispatchKeyEvent(event);
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            boolean otherHeld = up ? volumeDownHeld : volumeUpHeld;
+            if (up) volumeUpHeld = true; else volumeDownHeld = true;
+            if (event.getRepeatCount() == 0) {
+                long now = System.nanoTime();
+                long since = up ? now - lastVolumeDownNs : now - lastVolumeUpNs;
+                if (otherHeld || since <= CHORD_NS) {
+                    overlayChord = true;
+                    nativeToggleOverlay();
+                }
+                if (up) lastVolumeUpNs = now; else lastVolumeDownNs = now;
+            }
+            if (overlayChord)
+                return true; /* the chord is ours; no volume change */
+        } else if (event.getAction() == KeyEvent.ACTION_UP) {
+            if (up) volumeUpHeld = false; else volumeDownHeld = false;
+            if (!volumeUpHeld && !volumeDownHeld)
+                overlayChord = false;
+        }
+        return false; /* a single volume press is Android's, as before */
+    }
     @Override protected String[] getArguments() {
         // No disc yet: start the engine with no arguments. Its own launcher asks for
         // the disc (DiscActivity, driven from native) before the studio room opens.

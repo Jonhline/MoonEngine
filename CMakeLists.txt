@@ -253,7 +253,8 @@ endif()
 add_library(moon_platform_sdl STATIC src/platform/sdl/plat_sdl.c src/platform/sdl/moon_pref.c src/platform/sdl/pad_sdl.c ${MOON_GRAPHICS_SOURCES}
   src/platform/sdl/movie.c src/platform/sdl/showroom.c
   src/platform/sdl/screen_setting.c
-  src/platform/sdl/car_model.c src/platform/sdl/race_view.c src/platform/sdl/race_lights.c src/platform/sdl/license_scene.c)
+  src/platform/sdl/car_model.c src/platform/sdl/race_view.c src/platform/sdl/race_lights.c src/platform/sdl/license_scene.c
+  src/platform/sdl/plat_process.c src/platform/sdl/dev_overlay.c)
 target_include_directories(moon_platform_sdl PUBLIC include src/platform/sdl src/core)
 # Android's picker lives in android_host.c (it needs the Activity); the other
 # backends keep their own native dialog here.

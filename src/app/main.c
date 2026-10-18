@@ -72,6 +72,7 @@
 #include "career_event.h"
 #include "career_license_disc.h"
 #include "video_gl.h"
+#include "dev_overlay.h"
 #include "rtext.h"
 #include "font.h"
 #include "gpb.h"
@@ -1754,6 +1755,7 @@ static int first_run_wizard(launcher_preferences *prefs)
             (void)good;
         }
         wiz_bar(&L, labels, enabled, list_sel < 0 ? sel : -1, caption, 1.f);
+        moon_debug_overlay_draw(); /* G6.40: over the first-run setup too */
         /* dev (--setup-shot): script the setup and capture each step, no keyboard needed */
         if (wiz_shot_prefix && getenv("MOONSTUDIO_SETUP_DROP") && frame == 3) {
             /* dev: a file or folder dropped on the window */
@@ -2942,6 +2944,7 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                               (uint8_t)(255 * fade_curve((float)start_fade / FADE_FRAMES))};
             plat_draw_quad(NULL, 0, 0, (float)fw, (float)fh, 0, 0, 1, 1, blk);
         }
+        moon_debug_overlay_draw(); /* G6.40: over the studio room too */
         if (start_shot_prefix && start_fade >= FADE_FRAMES / 2 && !start_shot_mid) {
             char p[1200];
             snprintf(p, sizeof p, "%s-mid.png", start_shot_prefix);
@@ -3559,6 +3562,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "cannot open a window: %s\n", SDL_GetError());
         return 1;
     }
+    moon_debug_overlay_init(); /* F3 / volume chord; off until toggled */
 #ifdef __SWITCH__
     video_switch_scene_resolution(settings.current.scene_resolution);
 #endif
@@ -5783,6 +5787,9 @@ int main(int argc, char **argv)
             exit_code = 1;
         } else if (shot)
             shot_wait = 0; /* each movie transition gets a fresh loading deadline */
+        /* G6.40: the frame's last drawing — the debug overlay, over launcher,
+           menus and race alike. Its one hook in this loop. */
+        moon_debug_overlay_draw();
         int shot_due = shot != NULL;
         if (shot && shot_delay > 0) {
             if (!shot_started)

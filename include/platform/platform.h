@@ -134,6 +134,17 @@ void plat_input_set_ffb(int index, float torque);
 int plat_input_is_wheel(int index);
 void plat_input_shutdown(void);
 
+/* ---- process metrics (the debug overlay's own readings) ---- */
+/* Resident set size of this process in bytes, and the machine's total RAM.
+   Either pointer may be NULL. Returns 1 when the reading was taken, 0 when the
+   platform cannot answer (the overlay prints n/a, never a fabricated zero). */
+int plat_process_memory(uint64_t *rss_bytes, uint64_t *total_bytes);
+/* CPU use of this process since the previous call, as a percentage of one core
+   (sampled once per second; may exceed 100 with several busy threads). Returns 1
+   when a delta was available, 0 on the first call or when the platform cannot
+   answer. */
+int plat_process_cpu(double *percent);
+
 /* ---- disc selection ---- */
 /* The platform's own way to ask the player for their disc image. Fills `out` with the
    path the engine reads (Android: the SAF picker's /proc/self/fd/N in this process).

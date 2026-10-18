@@ -1,5 +1,6 @@
 #include "android_host.h"
 #include "android_state.h"
+#include "dev_overlay.h"
 #include "pad_config.h"
 #include "platform/platform.h"
 #include "video_gl.h"
@@ -8,6 +9,17 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+
+/* G6.40: GameActivity's volume-up + volume-down chord lands here (the JNI
+   symbol is resolved by name when libmain is loaded). SDL never sees the
+   volume keys, so this is the one hook that flips the debug overlay. */
+JNIEXPORT void JNICALL Java_org_moonengine_android_GameActivity_nativeToggleOverlay(
+    JNIEnv *env, jclass clazz)
+{
+    (void)env;
+    (void)clazz;
+    moon_debug_overlay_toggle();
+}
 /* Ask the Java document picker for the player's own disc. The launcher calls this from
    SDL's main thread; the Activity lifecycle runs on Android's UI thread, so wait here
    and let the picker finish. The descriptor stays in this process (same process as the
