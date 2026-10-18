@@ -1101,9 +1101,14 @@ void video_settings_attach(video_settings *s, menu *m)
 #endif
     buttons->y = rows == 7 ? 244 : 332;
     ui_widget_append(pane, buttons);
-    if (!video_fsr_available())
+    if (!video_fsr_available()) {
+        /* No FSR on this platform (Android/Switch have no desktop GL 4.3 core
+           context): the four FSR choices are refused out loud and greyed out
+           instead of a silent no-op. */
+        fprintf(stderr, "fsr: unavailable on this platform\n");
         for (int i = 1; i < 5; i++)
             ui_option_item(s->choices[6], i)->insensitive = 1;
+    }
     menu_native_method(m, s->page, "onLoad", idle, s);
     menu_native_method(m, s->page, "onInitialize", idle, s);
     menu_native_method(m, s->page, "enter", enter, s);

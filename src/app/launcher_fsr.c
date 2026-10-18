@@ -216,8 +216,16 @@ launcher_fsr *launcher_fsr_open(void)
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,SDL_GL_CONTEXT_PROFILE_CORE);
     launcher_fsr *f=calloc(1,sizeof *f);
     if(f) {
+#ifdef __ANDROID__
+        /* Android gives the app exactly one window and has no desktop GL 4.3
+           core context, so this hidden helper cannot run there. Refuse it
+           instead of asking SDL for a second window (which answers "Android
+           only supports one window" and kills the process). */
+        fprintf(stderr, "fsr: unavailable on this platform\n");
+#else
         f->window=SDL_CreateWindow("Moon Engine image filter",0,0,16,16,SDL_WINDOW_OPENGL|SDL_WINDOW_HIDDEN);
         if(f->window) f->context=SDL_GL_CreateContext(f->window);
+#endif
     }
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,major);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,minor);
