@@ -11,7 +11,7 @@ setting IDs/defaults and [Fidelity](FIDELITY.md) for bounded evidence.
 |---|---|---|
 | Original controller navigation | Retained | Original script actions, focus, authored cursor and transitions; Classic baseline |
 | PC mouse and keyboard menus | Implemented, optional (P) | Main menus, settings, lists, native confirmations, profile selection and race pause |
-| Switch touch | Planned, not implemented/validated by this work | Handheld menu interaction first; existing controller path remains available |
+| Switch touch | Implemented input/menu boundary; hardware validation pending | Tap/release, direct lists/map drag, parameter bars and native confirmation/profile dialogs; controller path retained |
 | Android touch | Planned, not implemented/validated by this work | Shared menu gestures after an Android platform/application foundation exists |
 | Touch race controls | Proposed later phase | Separate optional input overlay; no vehicle physics changes |
 
@@ -209,3 +209,119 @@ colour after leaving the strip. Hover Feedback adds a subtle white clearcoat
 (maximum alpha 12/255) and a 1.4-second reflected-light sweep (peak 44/255),
 with the existing 60 ms hover envelope. No enlargement, new texture or RGB
 change is applied to swatches. Classic/Off omits these presentation passes.
+
+## Switch menu touch implementation (17 October 2026)
+
+`controls.touch_menu` is exposed in Screen Settings and stored in the shared
+options file. Classic disables it; Enhanced enables it. One contact owns a
+menu gesture. Activation requires release on the original target, without
+crossing the eight-logical-pixel drag threshold. Other contacts cannot confirm
+or take ownership. Focus loss, background/display changes, controller input,
+loading and root changes cancel the contact. SDL touch-generated mouse events
+are discarded to prevent double activation. Coordinates map the normalized
+screen to the Switch renderer's 640-unit menu view.
+
+List/strip drag and clip/space map movement retain authored bounds and do not
+change controller selection on each crossed item. Sliders reuse the existing
+parameter callback. Native confirmation/profile dialogs maintain their own
+contact capture. These are menu changes only: no driving touch overlay,
+showroom orbit/pinch, Photo Mode camera or Logger gestures are delivered here.
+Eleven focused host checks cover contact phases, duplicate suppression,
+release/cancellation/second-contact behavior, scroll bounds, dialogs, presets
+and intentional negatives. Console touch and docking still require validation.
+
+The native deko3d renderer has no focused SDL window. Its contact source uses
+`hidInitializeTouchScreen` and `hidGetTouchScreenStates` directly, feeding the
+same menu event contract. The shared contact reducer is tested without a
+window: ownership, motion, release, no second-finger handoff, focus loss and
+docking cancellation. SDL finger events are retained for other adapters;
+they are ignored on deko3d to avoid duplicate streams.
+
+Touch hides the arrow until the next controller/key input. Lifting the finger,
+cancelling a gesture or entering another page does not flash the arrow back;
+modal/project cursor transfer preserves this presentation state. Contact
+feedback remains on the touched widget. This belongs to `controls.touch_menu`;
+Classic retains the original controller cursor. Host rendering tests count
+actual cursor draw calls and include a deliberate reappearance negative.
+
+### Select, then confirm by touch (17 October 2026)
+
+Menu activation now requires two separate taps on the same item. The first
+completed tap sets authored selection and preview, without accepting. The
+next completed tap on that item accepts; tapping another item selects it
+instead. No rapid double-tap timing is required. Drag, cancellation,
+controller input and page changes clear the pending confirmation. Native
+confirmation/profile dialogs use the same policy. Parameter bars continue
+to adjust directly while dragging. This refines `controls.touch_menu`;
+Classic controller input and desktop mouse clicks remain unchanged.
+
+### Touch-only Back (17 October 2026)
+
+An optional Back button appears at the lower left after touch is used and
+fades away when controller/key input resumes. It reuses the disc's native
+confirmation-button artwork/font with a Back label. The 150 ms smoothstep
+fade and eight-unit slide are presentation adaptations; tests compare the
+position reached after equal elapsed time at 30 and 60 Hz.
+
+One tap selects Back, the second confirms it. Contacts starting elsewhere
+remain owned by the menu; sliding across Back never activates it. Hidden or
+fading-out buttons are not clickable. Main menus use their authored MENU_BACK;
+native confirmations/profile dialogs cancel their own modal, and race pause
+uses its existing Escape action. The overlay is absent during driving and
+blocked loading/progress input. This belongs to `controls.touch_menu`, so
+Classic and desktop controller/mouse presentation remain unchanged.
+
+### Original Exit icon as the touch fallback (17 October 2026)
+
+The stretched confirmation-button fallback is superseded. The touch fallback
+now copies OptionRoot's original green Exit control, including both image
+states, child geometry, authored position and dimensions (567,390,58,40 in
+its 640x480 menu view). It does not substitute text or resize its faces.
+Screens with a painted Exit/Back/Cancel/Return/Close control omit the fallback;
+native confirmations retain their existing buttons. In particular, Options
+keeps its own original green Exit instead of drawing a duplicate. The
+fade/selection transition, touch-only visibility and two-tap action remain.
+
+### Persistent touch hover (2026-10-17)
+
+P: `controls.touch_menu` retains the desktop hover presentation after the
+selection tap: authored alternate faces/models, paint clearcoat/reflection,
+parameter-bar preview, strip magnification, and eased static Options/Exit
+artwork. The same 60 ms easing is shared with desktop hover. Static targets
+without authored feedback gain small gold corner accents. Selection is
+communicated through the element itself, without instructional text. Visual
+feedback does not change hit bounds. The detached green Exit uses the same feedback.
+Confirmation, drag, cancellation, page changes and controller handover clear
+the preview. Classic and desktop mouse behavior remain unchanged. Focused
+host checks include persistent painted accents, hidden targets, handover
+and a deliberate missing-preview negative. Console appearance is pending
+visual verification.
+
+### Animated touch selection and protected paint samples (2026-10-17)
+
+P: `controls.touch_menu` distinguishes rest, selection and the second press
+through motion. Selection retains each scenario's shared desktop hover,
+with a 220 ms arrival and a gently breathing underline outside the target.
+Static non-card controls also receive converging exterior accents and an
+initial light sweep. A second press compresses the shared hover before the
+original release action/transition, without an added delay. The green Exit
+uses the same treatment. Cards keep their whole-composition animation; no
+gold corner or light sweep paints over their color sample. Classic and
+desktop mouse behavior remain unchanged. Focused host checks cover 30/60 Hz
+arrival, second-press compression, hidden/cancelled targets and missing-
+preview negatives; the original UsedCarRoot fixture checks that gold
+feedback never overlaps the sample throughout the arrival. Hardware visual
+confirmation is pending.
+
+### Touch feedback without decorative overlays (2026-10-17)
+
+P: At the user's request, all added gold corners, underlines, breathing
+highlights and light sweeps are removed. This supersedes the decorative
+arrival described above. Touch selection retains only the shared desktop
+animations and authored faces: whole-card enlargement, paint hover, strip
+magnification, Options/Exit easing and second-press compression. There is
+no instructional text or separate colored overlay. The original authored
+artwork/colors remain authoritative. Focused host tests require zero added
+gold draws while retaining eased selection, press/release response and
+equal elapsed-time behavior at 30/60 Hz. Classic/controller behavior stays
+unchanged; the paint-sample overlap negative remains active.

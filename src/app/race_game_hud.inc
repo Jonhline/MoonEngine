@@ -8,9 +8,13 @@ static void hud_icon(void *user, int car, float x, float y, float w, float h)
     race_view_draw_icon_front(g->view, car, x, y, w, h);
 }
 
-#ifdef __SWITCH__
-static int prepare_switch_hud(race_game *g)
+static int prepare_hud(race_game *g)
 {
+    /* Headless simulation tests have no renderer to receive font textures. */
+#ifndef __SWITCH__
+    if (!plat_sdl_window())
+        return 1;
+#endif
     if (g->split)
         return 1;
     if (!g->hud)
@@ -22,7 +26,6 @@ static int prepare_switch_hud(race_game *g)
     }
     return race_hud_prepare_next_font(g->hud);
 }
-#endif
 
 static void draw_icon(void *user, int car, float x, float y, float w, float h,
                       const uint8_t color[4])

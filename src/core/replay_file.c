@@ -220,6 +220,13 @@ int gt4_replay_pack(const gt4_replay_file *r, uint8_t **out, size_t *size)
         putv(&o, (uint32_t)n);
         put(&o, r->title, n);
     }
+    if (r->license_poses && r->license_pose_count && r->license_pose_count < (1u << 20)) {
+        /* P: a licence's ghost poses (optional; older readers stop at an unknown tag) */
+        put(&o, "LGPS", 4);
+        puts_(&o, r->ghost_license);
+        put32(&o, (uint32_t)r->license_pose_count);
+        put(&o, r->license_poses, r->license_pose_count * GT4_REPLAY_LICENSE_POSE * sizeof(float));
+    }
     if (r->split_battle) {
         if (r->kind != GT4_REPLAY_FULL || r->nothers != 1 || !r->tape_2p || !r->steps_2p ||
             r->steps_2p > LIMIT_STEPS) {
@@ -352,6 +359,17 @@ int gt4_replay_unpack(const uint8_t *data, size_t size, gt4_replay_file *r)
             f = get32(&i);
             memcpy(&r->ghost_frac, &f, 4);
             get(&i, r->ghost_car, GT4_REPLAY_GHOST_CAR);
+        } else if (!i.bad && !memcmp(tag, "LGPS", 4) && !r->license_poses) {
+            gets_(&i, r->ghost_license, sizeof r->ghost_license);
+            uint32_t n = get32(&i);
+            size_t bytes = (size_t)n * GT4_REPLAY_LICENSE_POSE * sizeof(float);
+            if (i.bad || !n || n >= (1u << 20) || bytes > i.n - i.at ||
+                !(r->license_poses = malloc(bytes)))
+                i.bad = 1;
+            else {
+                get(&i, r->license_poses, bytes);
+                r->license_pose_count = n;
+            }
         } else if (!i.bad && !memcmp(tag, "TITL", 4)) {
             uint32_t n = getv(&i);
             if (n >= sizeof r->title)
@@ -409,6 +427,9 @@ void gt4_replay_free(gt4_replay_file *r)
         r->thumb = NULL;
         free(r->ghost_car);
         r->ghost_car = NULL;
+        free(r->license_poses);
+        r->license_poses = NULL;
+        r->license_pose_count = 0;
         free(r->disc_info);
         r->disc_info = NULL;
         free(r->disc_icon);

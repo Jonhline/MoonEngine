@@ -14,6 +14,7 @@
 #define GT4_REPLAY_ROW 151     /* a decoded RACE row (gt4_race_desc.event_row) */
 
 enum { GT4_REPLAY_FULL = 0, GT4_REPLAY_BEST_LAP = 1 };
+#define GT4_REPLAY_LICENSE_POSE 25
 
 typedef struct {
     int kind; /* GT4_REPLAY_FULL or _BEST_LAP (the ghost) */
@@ -61,6 +62,12 @@ typedef struct {
     uint8_t *ghost_car;
     uint32_t ghost_rest;
     float ghost_frac;
+    /* P: a licence's ghost (its best passed attempt as drawn): poses of
+       GT4_REPLAY_LICENSE_POSE floats (frame, place, rotation, wheels) and the exam's
+       code; the commands are one neutral step. NULL otherwise. */
+    float *license_poses;
+    size_t license_pose_count;
+    char ghost_license[32];
     /* Read-only demos from the user's disc. Owned plaintext GT4M header;
        absent in native saved files, never serialized by gt4_replay_pack. */
     uint8_t *disc_info;

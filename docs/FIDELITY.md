@@ -97,6 +97,9 @@ esquema A/B da física, comparando ordens de desenho em vez de memória.
 
 ## 4. Registro
 
+| Switch menu touch | P | Optional `controls.touch_menu` (Classic Off, Enhanced On), registered in Options. Uses existing authored menu hit bounds/actions and list/map limits; confirms once on matching release, with single-contact capture, cancellation and synthetic mouse suppression. Eleven focused host checks include Classic/Enhanced persistence, button/scroll/map/dialog behavior and negatives. Native Release builds; hardware touch/docking validation pending. No physics, race controls or camera gestures changed. |
+
+
 Legenda de quem conferiu: **(c)** conferido diretamente ao registrar esta
 linha; **(d)** copiado dos documentos da área, ainda precisa de
 confirmação ou correção.
@@ -153,7 +156,9 @@ confirmação ou correção.
 | Nintendo Switch: dynamic course reflection producer | A | Native path no longer skips course_reflection or returns null environment handles. Reusable six-face atlas and native sphere-map shader restore the existing PC adaptation around 0044E528/0044EEA8 without ordinary CPU readback. Three asymmetric camera poses match the CPU formula within 1 byte/channel; reversed-basis negative and 21 focused checks pass. Console Laguna/Ka PNG shows body reflections and rank, exits normally. Complete matched-tick PC/PS2 pixels unproved; GPU cost remains, no 60 FPS claim. See SWITCH.md. |
 | Nintendo Switch: bounded DATE transfer span | C | `deko_snapshot`/negative retain 100,000 projected float points in both axes across 1,000 boxes, rotation/mirror/jitter and near/skin fallback; 23 focused checks pass. Laguna/Ka console scene/car regions have zero changed RGB channels versus the full-copy build. Same shader, draws, physics and GPU barriers; transfer width only. Portable windows 34.61/44.71 → 60.36/59.56 FPS; later 44.97, not constant 60. Two-axis capture retains zero scene RGB differences; Laguna windows 60.00/59.98, later 47.26 FPS. Cropped-transfer delayed-engine and wrong-offset negative pass. Tsukuba 46.57–60.55 ordinary windows, with larger outliers. Full-frame/all-content parity unproved; separate HUD pixels differ. |
 | Nintendo Switch: fragment-engine DATE snapshots | C | Shipped shader matches full/cropped RGBA8 host framebuffers byte-for-byte; wrong-scissor negative fails. Native boot checks 40 dependent ping-pong snapshots plus one crop, all alpha bytes, exact after readback. Same authored draws, saved alpha and resolution; only GPU copy engine changes. Tsukuba ordinary windows roughly 52.69–60.73 FPS; START preparation outliers treated separately. Native racing capture checked visually; matched-tick full-scene equality and constant 60 unproved. |
-| Nintendo Switch: resident START/opening HUD fonts | C | FC_48 first-use measured 787.604 ms on console; staged/shared preloading puts atlas creation before readiness. Fixed original 003A4AE8/003A4E00 fonts/metrics/colors retained; no physics or presentation-clock change. Warmup verifies twelve cached styles, incremental loading and atlas alias ownership; exact fresh/used replay/pause framebuffer comparison and negatives pass. 30 area checks pass; native repeat removes observed ~800/460 ms START/catch-up spikes, early steady maxima 17.010/16.969/18.792 ms. Later 85.813 ms outlier remains; loading animation, split/docked/all-track and constant 60 coverage pending. Windows lazy path retained. |
+| Nintendo Switch: resident START/opening HUD fonts | C | FC_48 first-use measured 787.604 ms on console; staged/shared preloading puts atlas creation before readiness. Fixed original 003A4AE8/003A4E00 fonts/metrics/colors retained; no physics or presentation-clock change. Warmup verifies twelve cached styles, incremental loading and atlas alias ownership; exact fresh/used replay/pause framebuffer comparison and negatives pass. 30 area checks pass; native repeat removes observed ~800/460 ms START/catch-up spikes, early steady maxima 17.010/16.969/18.792 ms. Later 85.813 ms outlier remains; loading animation, split/docked/all-track and constant 60 coverage pending. Windows lazy path retained at that revision; superseded by the PC loading fix below. |
+| PC: prepare START fonts during race loading | C | Race readiness now waits for the same twelve incremental font preparations used on Switch, before the presentation clock starts. Original 003A1488 START duration and 003A4AE8 FC_48 rendering remain unchanged. Headless runs skip GPU preparation; split-screen preparation remains outside this fix. `race_hud_warmup`, its negative, `replay_hud` and its negative compare fresh/resident START plus replay/pause images exactly at 4:3 and 16:9; START adds no new cached face. Six focused HUD/license checks pass; a Release PC Ka/Tsukuba drive crosses START, captures at race time 2.966 s and exits normally. End-to-end PC frame timing still pending; this does not prove every START stall is gone. |
+
 | Nintendo Switch: scalar DATE masks | C | Destination alpha retained at the same 8-bit precision in R8_UNORM instead of RGBA8; same draw order, threshold and physics. Host full/cropped GPU checks cover all 256 values and untouched pixels; wrong-scissor/channel negatives fail. PC-reference material comparisons pass 3,072 fragment and 2,160 vertex cases; 34 focused tests pass. Native full/crop alpha256 probe passes; racing capture visually checked. Matched Tsukuba later windows 54.71/51.61/54.09/57.23 become 56.48/53.33/55.84/58.84 FPS; constant 60 and all-track coverage remain pending. |
 | Nintendo Switch: lossless indexed geometry | C | Complete 108-byte vertex keys reconstruct 6,000 authored vertices byte-for-byte; wrong-index negative fails, UV/normal/skin/signed-zero/NaN distinctions retained. Static meshes share vertex records without changing triangle/group order; transient/update paths keep expanded arrays. Native boot indexed-vs-original full RGBA8/depth comparison exact; racing capture visually checked. Tsukuba later windows 56.48/53.33/55.84/58.84 become 59.95/57.71/60.38/60.44 FPS. Constant 60 and broader tracks/docked coverage pending. |
 | Nintendo Switch: full-screen viewport bounds | C | Native viewport now rounds fitted content bounds as video_gl.c instead of truncating them. Tests cover widths immediately below 960/1280/1920, existing local/panel/HUD clips, and deliberate truncation negative; 39 focused tests pass. Native racing capture confirms rightmost columns now contain pavement (50,49,49), not background leakage. The earlier fragment-scaler experiment left the line unchanged and was removed; original 2D scene scaling restored. No cropping/resolution/physics change. Constant 60 still unproved. |
@@ -532,6 +537,7 @@ Preencher ao conferir a área. O que os documentos da área dizem hoje:
 | Licenças: relógio, gatilhos e fator do fade | E | (c) 06/10: 0033C4F0 +0x2dc..0x328 soma dt*rate e limita 0..1; 003BC6E0 +0x10c..0x16c com 004097F8/00409828 muda rate para -1/2 na fase 1 e +1 na fase 2, só valendo no tick seguinte; 0033FA40 +0x2c..0x48 conserva cúbica e ambas subtrações. license_camera_oracle: 1720 passos, 1120 pares enabled/fases/rate/clamps, 1001 fatores, byte a byte; sequência fecha/corta/abre, incluindo endpoints. Três negativos independentes alteram posição, rate e fator, todos falham. Integração desenha preto (00620200) antes do HUD/resultado conforme 0038B5A0 +0x18; raster GL/alpha de 8 bits permanece A, sem readback/alocação por frame. 18/18 CTest específicos; árvore staged isolada compila app/oráculo e passa 5/5 novos testes; app B-1 result/fail/retry --concourse passa na árvore local, sem certificar pixels PS2. |
 | Licenças: layout extra, molas e seleção de CLUT do troféu | E | (c) 06/10: license_presentation, 003BD808 +0x78..0x1d0, 003E18D0/003E1A80/003E2058 e 00498CA0 +0xb0..0x140. gtmode_license_presentation_oracle CORE compara os oito cabeçalhos de elementos, 9600 passos completos das dez molas e 768 seleções de CLUT contra o executável original; negativos deslocam x ou alteram TEX0 e falham. Não cobre HUD comum, projeção, renderer, material/arquivo malformado nem composição do troféu. |
 | Licenças: HUD e desenho nativo do resultado | A | (c) 003BD150/003BD740/003BCE70: tempos/ícones originais, contador FC_26*80,80 e supressão de Lap/contagem para exames com limite de contato; sem posição/Last Lap/introdução Arcade indevidos. 003E1B58/003E18D0: trophy.mdl tem geometria única e três variantes de CLUT, não três modelos. Extrender usa nome do próprio asset (+0x10); STRB aplica a cor adicional (+0x1c), antes ignorada e responsável pelo cronômetro preto. Fonte usa 00492978. gtmode_license_movie confere sete estados/duas saídas, troféus e glifos coloridos; negativos da ponte de troféu/cor falham. Cronômetro completo (oito glifos), sem reticências/recorte de campo, segue 00479CA0/00490700; negativo reduz glifos e falha. Desenho 3D ainda sem comparação PS2; uma amostra em vez da acumulação original de três; composição/projeção/lighting do adaptador e interpolação STRB float em vez de 1/256 permanecem A. |
+| Licenças: fantasma da melhor tentativa | A | 17/10: como no PS2 (relato do usuário), repetir a licença mostra a melhor tentativa aprovada (ouro/prata/bronze) transparente, a 0,55 como o do Time Trial. A: o mecanismo do original não foi lido (a sessão da licença 003F64D0/003F6588 não chama o gravador do Time Trial; 003BB478 limita a corrida às entradas do evento); aqui é só apresentação: a pose do carro (posição, rotação, rodas) por passo da física, interpolada, sem carro na simulação, física e tempos intactos. Save Ghost/Load Ghost (quick-license canSaveGhost/canLoadGhost) gravam/leem um arquivo de melhor volta com o bloco P `LGPS` (poses e código do exame), só para o mesmo exame, pista e carro. license_app retry: tentativa de prata guardada e mostrada na repetição; replay_file e 148 de 149 testes de licença/TT/replay/HUD passam (license_menu_demo já falhava). Sem comparação lado a lado com o PCSX2 |
 | Licenças: entrada/resultado/retry no aplicativo | C | (c) tests/gtmode/license_app.py --case exit/retry/next/leave: navega GT Mode → B-1, acelera/freia pelo controle nativo, chega prata/10248 ms, registra uma tentativa e retorna ao LicenseRoot, reinicia, abre B-2 ou volta à escola. Tolerância zero para estado/tempo; saves/capturas isolados em build/ui-audit/license-app. Regressão corrigida: descritor de exame não fornece RNG de grid; cópia incondicional travava. SetLoadingMode ligado à apresentação de carregamento PC (001AC248/00104E30). Captura com --shot-delay agora permite transições; retorno reinicializa quick-license para atualizar BestTime e LicenseDetailRoot para esconder o véu da saída. Negativo do aplicativo exige medalha errada e falha. Não compara visual/áudio nem prova os outros 79 exames. Primitivas e ponte testadas não equivalem a licença completa. |
 | Licenças: tempos no menu, instrução e acesso ao exame 16 | A | (c) goldTime/silverTime/bronzeTime são strings de 00127AF0 → 0042E478, diretamente atribuídas por quick-license.ad L276..278; ponte corrigida e conferida nos cinco grupos pelo gtmode_license_cycle, negativo injeta inteiro e falha. available_next original L122..149 rejeita exame 16 sem os quinze aprovados e libera depois, nos cinco grupos; negativo altera gate e falha. Instrução traduzida completa via L253..256/getTextSize, quebra e medida usam mesma métrica 00492978 do desenho. Layout de parágrafo/equalized e rolagem mantêm adaptador A; ainda falta comparar com PS2. |
 | Licenças: amostragem nativa do Logger | E | (c) 06/10: logger.c/h, 0011E400/0011E450/0011E310/0011E348, getters 00343B48/00344698/003446A0/00344798/00344828 e consultas 0011DBB0/0011DBE8/0011DC80/0011DD10. gtmode_logger_oracle CORE: 30600 entradas, 132046 pontos de oito bytes, 549756 consultas e 36 espaçamentos; buffer completo, estado float e resultados bit a bit. Executa também bloco original 00123050..00123078 para espaçamento. Toward-zero e intermediários sem FMA. Negativo altera speed_gear e falha; 4/4 CTest do Logger passam, incluindo B-1 abaixo. Fronteiras: proteção de buffer vazio distinta; replay, segunda volta/ghost, workers, tela e FPU excepcional não certificados. Sem valores estimados na amostragem. |
@@ -1414,3 +1420,286 @@ The actual Arcade Ford catalog regression checks preview, unchanged index
 and offset, enlargement of the hovered card, relaxation of the old one,
 and Off/On reversal. desktop_navigation and its negative pass. Main Release
 rebuilt successfully. P for input mapping, no new PS2 pixel-equivalence proof.
+
+
+### 17/10: desktop paint, adjustment bars and hover audio (P)
+
+Hover Feedback adds the existing eased 4.5-percent enlargement to paint
+chips, including their clearcoat/reflection. Raw widget hit bounds, RGB and
+controller presentation remain unchanged. Slider/ScaleBar decorations also
+receive feedback and expose their existing popup on hover.
+Desktop Input adds a code-drawn white adjustment hand at the pointer hotspot
+over bars (intentional desktop artwork, not claimed to be an original sprite).
+Integer SliderBar/ranged ScaleBar click/drag maps to authored min/max and
+knob travel, uses assign_index and onValueChanged, clamps beyond endpoints,
+and releases capture on release/disabled pointer/page changes. Non-ranged
+photo ScaleBar direct manipulation is not covered. Left press/held-motion
+are new SDL event actions; normal buttons still activate on release.
+Original hover callbacks continue animating but their sound.play requests
+are suppressed during hover dispatch. Emit one pointer-navigation sound on
+entry, none on leave, coalescing entries within 100 ms. Controller sound
+requests outside hover dispatch remain untouched. This adaptation belongs
+to controls.desktop_menu, rather than modifying original pad audio.
+
+Tests: desktop_navigation measures swatch enlargement, renders 20 hand rows
+instead of the arrow, exercises bar click/drag/clamps/release and counts actual
+sound playback requests (entry/leave/reentry/cooldown/script suppression and
+non-hover playback). desktop_events checks press/held/release translation.
+Both existing negative cases still fail as expected. Full listening comparison
+and whole-game coverage are not certified by these checks.
+
+### 17/10: preserve the authored Quick Setup entry fade (C integration)
+
+Retail setting.ad onLoad L32..33 constructs MColorTransition then calls panIn.
+The app called menu_setting_begin before its generic cached-fade clear,
+therefore erasing this request. Clear the cached SettingProject fade before
+onLoad and skip the later clear for that project. Keep the existing original
+colour-transition period (00286EA0, 0.25s), with no guessed extra loading
+screen/delay. gtmode_setting_menu verifies the script leaves more than 0.24s
+of fade; its negative reinstates the clear and fails. This proves the request
+and integration order, not PS2-identical full-frame pixels or every other
+project's loading flow.
+
+
+### 17/10: project entry fades, including Logger (C integration)
+
+Audit: tests/ui/project_entry.py reads project-level onLoad bytecode directly
+from 21 retail project files (the save route uses boot). Each constructs a
+MColorTransition; ten call panIn: arcade, gtmode, boot, setting, event,
+labomode, photo_shoot, logger, slide and photo_save. Logger source: logger.ad
+L20..25; Setting: setting.ad L30..33. Quick race projects do not request
+project-entry panIn and retain their separate page/race transitions.
+
+menu_project_entry reconstructs this original transition fragment at the
+project boundary, for fresh and cached entries. Use MColorTransition's
+existing constructor/period (00286EA0), not a new universal duration. Clear
+stale cached fades before entry scripts; never erase their new requests
+afterward. The first menu_enter also prepares the fragment for direct
+viewer entry. Holding black/pending reveal follows the context-update pause
+around startPage (0022F6A0); asset-loading animation time cannot consume the
+new reveal before the destination commits. Page-owned transitions remain
+script driven. No new loading screen or option was introduced.
+
+project_entry_fades compares the native boundary against each disc-derived
+request, twice (fresh/cached), including black held during 0.5s simulated
+loading and submitted GS-quantized alpha 1 -> 68/128 after seven ticks -> 0.
+The negative reinstates the erased Logger fade and fails. Six focused checks
+passed including Setting and desktop navigation with negatives. Main Release
+rebuilt. Real Logger screenshots/logs are local build/logger-fade-*.png/log;
+they show the initialized LoggerMenu, not a certified temporal PS2 pixel
+comparison. Coverage is project-entry requests/hold/alpha; all within-page
+transitions and every full application route are not certified by this test.
+
+
+### 17/10: original slider hand and manufacturer edge panning (P)
+
+Replace the code-drawn hand with the actual image/common/slider/pinch.png
+from the user's disc. Inspected decoded retail source: 36x59, value plate
+above y25, hand ink x9..29/y25..55; pointer fingertip x17/y25. Draw that
+atlas region at the pointer, without rotation; draw only the value plate
+at the hovered slider's knob, avoiding two hands. Outside mouse hover the
+original complete pinch remains. Desktop Input controls this adaptation.
+No disc pixels are bundled. The 21x31 crop is native asset coverage, not
+a new hand design.
+
+Arcade MakerRoot/HistoryRoot clip-space panels now use the existing mouse
+edge-scroll policy (10-percent edge zone, 1.5 viewport widths per second),
+clamped to authored content dimensions. This is a desktop adaptation; it
+does not change controller focus or the original geometry.
+desktop_navigation checks the original hand texture dimensions/UV crop,
+absence of arrow draw, and pans the actual manufacturer viewport left/right,
+retaining focus; disabled pointer leaves it unchanged. Its negative remains.
+Text placement and license bronze trophy reported in the same message were
+explicitly deferred by the user; neither is claimed fixed here.
+
+
+### 17/10: main menu blank side space is not clickable (P correction)
+
+Removed the invisible x48..592 main-menu hit extension. Hover/click now
+uses the row bounds recorded by its paint pass, preserving full-row access
+without selecting through blank side space. desktop_navigation tests both
+visible row ends, blank left/right space, clearing hover and ignoring a
+blank-space release. Positive/negative passed. Main executable was locked;
+corrected build is build/Release/MoonEngine-hover-bounds.exe.
+
+
+### 17/10: fullscreen mouse confinement and Replay Theater return
+
+P: Desktop Input now requests SDL mouse-only grab while fullscreen, focused
+and not minimized. Reevaluate flags during event polling; Off/windowed/focus
+loss release the request. Keyboard is never grabbed (Alt+Tab stays available).
+The Switch path is a no-op. Existing controls.desktop_menu owns the feature.
+desktop_events checks enabled/disabled, fullscreen/windowed, focus loss and
+minimization. Actual two-monitor OS confinement remains a manual hardware
+check, not claimed verified by the flag-policy test.
+
+C integration: load_replay records the actual caller's project instead of a
+stale per-VM major_menu_project default (arcade), and updates the shared
+major project label. App copies the caller's major project/page context for
+ReplayTheaterRoot as for PhotoRoot. Original labomode.ad ReplayTheaterRoot
+exit L3258..3261 reads those fields and requests the menu sequence.
+project_entry_fades now exercises original theater exit from both Arcade and
+GT Mode, checking each return route; a manual negative forces the stale
+Arcade origin for GT Mode and fails (build/replay-return-negative.log).
+Four focused registered tests passed. Main remained open; combined build
+including corrected main-menu hover is build/Release/MoonEngine-menu-fixes.exe.
+
+### Switch touch cursor ownership (2026-10-17, P)
+
+With Touch Menus enabled, direct contact hides cursor artwork until the next
+controller/key input; release, cancellation and context transfer preserve
+that state. Widget contact feedback and original controller behavior remain.
+Three focused pointer checks include actual cursor draw counts and a negative
+that forces reappearance. Native Release compiles. The user confirmed the
+preceding libnx menu touch works; this cursor follow-up awaits console confirmation.
+
+### 17/10: blob de mouse recortado na borda da faixa
+
+P: com feedback de mouse ligado, SelectBox/ListBox horizontais revelam a
+largura corrente da miniatura apontada, corrigindo o destino do scroll pelo
+excesso em cada borda. Mantidos viewport, magnify_ratio authored e easing
+0x3e4ccccc (002D5660/002D6868); controle/feedback desligado preservados.
+Componente compartilhado, sem declarar todas as telas verificadas.
+desktop_navigation usa BuyCarRoot original com viewport de 100, exige a
+miniatura completa de 70 e deslocamento negativo; negativo próprio
+MOON_BLOB_EDGE_NEGATIVE desliga feedback e falha no deslocamento.
+Dois testes registrados passaram. Corrigido isolamento do fixture mouse
+após fixture touch (cursor oculto), sem mudança de produção nessa parte.
+Build Release principal atualizada; comparação visual em execução pendente.
+
+### Switch touch selection before confirmation (2026-10-17, P)
+
+At the user's request, Touch Menus now selects/previews on the first completed
+tap and accepts only on a subsequent tap on the same target, without a timing
+window. Native dialogs follow the same policy; sliders remain direct.
+Root change, drag, cancellation or controller input invalidates confirmation.
+Host tests assert zero activation after selection, one after the second tap,
+no duplicate release activation, dialog parity and deliberate failure cases.
+Six focused tests pass, including actual dropdown pending-versus-committed selection. Native Release builds; console validation of this follow-up remains pending.
+
+### 17/10: Passed sobre o título do License Center
+
+C para integração do selo: LicenseRoot no gtmode.mproject retail define
+Passed em {-30,-52,128,128}, rotate=-20, label sem geometry/align. O port
+usava default top-center e descartava rotação do Composite. Aplicados ao
+label que ocupa o client o align=4 do construtor 00246F58 +C4 e o rotate do
+pai, com pivô central como 002679B0 +FC..1C4 / 0024BEF8. Escopo restrito
+a Passed; transformações genéricas aninhadas continuam sem certificação.
+used_car_stamp agora executa LicenseRoot original, torna cada selo visível
+isoladamente e confere seis glyphs, rotação, pivô authored e posição vertical
+central nas cinco categorias. MOON_LICENSE_STAMP_NEGATIVE força o alinhamento
+antigo e falha; dois testes registrados passaram, incluindo SoldOut.
+Build principal Release atualizada. Pixels completos contra PCSX2 pendentes.
+
+### Switch touch-only Back overlay (2026-10-17, P)
+
+The user-requested Back button is displayed only after touch, inside the
+existing `controls.touch_menu` option. Native disc confirmation-button artwork
+is reused; the new placement, 150 ms smoothstep fade, eight-unit slide and
+selection crossfade are intentional presentation differences. Two taps use the
+same selection/confirmation rule; main-menu Back, native modal cancellation
+and pause Escape retain their existing actions. Hidden/fading-out targets are
+noninteractive; controller input hides the overlay and restores its cursor.
+Seven focused pointer/navigation tests pass, covering visibility, two-tap Back, no duplicate release,
+controller cancellation, 30/60 Hz reveal agreement and deliberate negatives.
+Console image/input validation remains pending.
+
+### Switch Back uses the original Exit icon (2026-10-17, P)
+
+Replaces the visually rejected resized confirmation button with OptionRoot's
+original green Exit, retaining authored 567/390 position, 58x40 dimensions,
+child image paths and geometry. The fallback is suppressed when an existing
+return control is painted; Options and native confirmations keep their own
+controls. Four focused pointer checks include original Exit geometry/image
+comparison, existing-control visibility detection, two-tap behavior and
+intentional negatives. Placement/animation of the fallback outside Options
+remain a presentation adaptation; console capture pending.
+
+### Switch touch during title attract playback (2026-10-17)
+
+P: With `controls.touch_menu` enabled, a touch-down during the automatic
+title demo invokes the same attract cancellation and Escape path as a pad
+press (0010BA28/0010BE20). Previously touch events returned before that
+branch and could not leave the demo. Classic leaves touch disabled; normal
+races and user replays do not acquire touch driving controls. Hardware
+return-to-title verification is pending.
+
+### Persistent touch hover (2026-10-17)
+
+P: `controls.touch_menu` retains the desktop hover presentation after the
+selection tap: authored alternate faces/models, paint clearcoat/reflection,
+parameter-bar preview, strip magnification, and eased static Options/Exit
+artwork. The same 60 ms easing is shared with desktop hover. Static targets
+without authored feedback gain small gold corner accents. Selection is
+communicated through the element itself, without instructional text. Visual
+feedback does not change hit bounds. The detached green Exit uses the same feedback.
+Confirmation, drag, cancellation, page changes and controller handover clear
+the preview. Classic and desktop mouse behavior remain unchanged. Focused
+host checks include persistent painted accents, hidden targets, handover
+and a deliberate missing-preview negative. Console appearance is pending
+visual verification.
+
+### 17/10: hover do card inteiro nas listas
+
+P: interface.mouse_hover_feedback amplia em 4,5% o conjunto de cada card
+Composite de SelectBox/ListBox não horizontal com bg ColorFace, usando o
+pointer_light suavizado existente (60 ms). Subárvore inteira recebe a mesma
+escala/centro; geometria e escala de texto restauradas exatamente após draw.
+Chip deixa de receber aumento duplicado quando pertence ao card ampliado.
+Faixas horizontais continuam com seu blob authored, sem este novo efeito.
+Implementação compartilhada por estrutura, não pelo nome UsedCarRoot; teste
+usando Item retail de UsedCarRoot verifica nome, preço, especificação e chip
+crescendo juntos, geometria original intacta e opção Off reversível.
+MOON_CARD_HOVER_NEGATIVE desliga o efeito e falha no nome; used_car_stamp e
+seu negativo passaram. Build principal atualizada. Cobertura visual de todas
+as listas e recorte dos cards que cruzam os limites do viewport pendentes.
+
+### Animated touch selection and protected paint samples (2026-10-17)
+
+P: `controls.touch_menu` distinguishes rest, selection and the second press
+through motion. Selection retains each scenario's shared desktop hover,
+with a 220 ms arrival and a gently breathing underline outside the target.
+Static non-card controls also receive converging exterior accents and an
+initial light sweep. A second press compresses the shared hover before the
+original release action/transition, without an added delay. The green Exit
+uses the same treatment. Cards keep their whole-composition animation; no
+gold corner or light sweep paints over their color sample. Classic and
+desktop mouse behavior remain unchanged. Focused host checks cover 30/60 Hz
+arrival, second-press compression, hidden/cancelled targets and missing-
+preview negatives; the original UsedCarRoot fixture checks that gold
+feedback never overlaps the sample throughout the arrival. Hardware visual
+confirmation is pending.
+
+### Touch feedback without decorative overlays (2026-10-17)
+
+P: At the user's request, all added gold corners, underlines, breathing
+highlights and light sweeps are removed. This supersedes the decorative
+arrival described above. Touch selection retains only the shared desktop
+animations and authored faces: whole-card enlargement, paint hover, strip
+magnification, Options/Exit easing and second-press compression. There is
+no instructional text or separate colored overlay. The original authored
+artwork/colors remain authoritative. Focused host tests require zero added
+gold draws while retaining eased selection, press/release response and
+equal elapsed-time behavior at 30/60 Hz. Classic/controller behavior stays
+unchanged; the paint-sample overlap negative remains active.
+
+### 17/10: piscada ao cancelar showroom Arcade e música na pausa
+
+C do caso de fade: arcade.ad CarRoot.CarScroll.SelectBox.onCancel L4301
+pede panOutIn antes de start_page, cujo page_util.ad L40 pede novamente.
+O bridge reiniciava a opacidade em zero na segunda saída. Agora usa a
+opacidade atual; 00287350 +60..88 / 002873B0 atualiza o campo +20 existente,
+sem limpá-lo a cada frame. Getter ui_fade_opacity mantém o preto alcançado.
+desktop_navigation executa o cancel original após selecionar Ford no
+MakerRoot e exige saída monotônica em todos os frames ainda de CarRoot.
+Restaurar ui_fade(0,1,period) provoca falha nessa asserção (log local
+build/fade-blink-negative.log). Transições parcialmente interrompidas A.
+
+C do transporte PC solicitado para a pausa: race_audio_pause segura o
+decoder PCM por atomic, sem silenciar os SE do menu. race_music_pause usa
+PCM/racing sequência 8 retail, confere 120 blocos silenciosos sem avanço e
+retomada sample-exact contra decoder independente; negativo remove a pausa
+e falha. Isso verifica transporte, não prova o comportamento BGM do PS2.
+Quatro testes focados passaram; nada alterado para loads/Used Cars após a
+correção do relato pelo usuário. Principal bloqueado por processo aberto;
+build alternativa pronta em build/Release/MoonEngine-pause-fade.exe.

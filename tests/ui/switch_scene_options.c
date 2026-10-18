@@ -38,6 +38,7 @@ int main(int argc, char **argv)
     CHECK(moon_options_int(&s,"graphics.width",0,1,5000)==1280);
     for (int enhanced = 0; enhanced < 2; enhanced++) {
         moon_options_preset(&s, enhanced);
+        CHECK(moon_options_int(&s,"controls.touch_menu",-1,0,1)==enhanced);
         if (argc > 2)
             moon_options_set(&s, MOON_SWITCH_SCENE_KEY, "1");
         CHECK(moon_options_int(&s,MOON_SWITCH_SCENE_KEY,-1,0,2)==(enhanced?2:0));

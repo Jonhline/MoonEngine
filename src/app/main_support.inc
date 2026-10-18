@@ -368,6 +368,23 @@ static void draw_pages(menu *m, int *drawn, int *skipped)
     ui_draw_root(p, menu_active_root(m), drawn, skipped);
     if (progress_open && dialog_ui && progress_root >= 0)
         ui_draw_root(dialog_ui, progress_root, NULL, NULL);
+#ifdef __SWITCH__
+    else if (app_video_settings && dialog_ui) {
+        uint64_t now = plat_time_ns();
+        float dt = app_video_settings->touch_back_clock
+                       ? (float)((now - app_video_settings->touch_back_clock) / 1e9)
+                       : 1.f / 60;
+        app_video_settings->touch_back_clock = now;
+        plat_video_set_view(640, 480);
+        if (ui_has_back_control(p, menu_active_root(m))) {
+            ui_hide_touch_back(dialog_ui);
+            app_video_settings->touch_back.tap = (touch_dialog_state){0};
+        } else
+            ui_draw_touch_back(dialog_ui,
+                               app_video_settings->current.touch_menu && ui_touch_active(p),
+                               app_video_settings->touch_back.tap.selected != NULL, dt);
+    }
+#endif
 }
 
 /* GT Mode's CarFaces (dealers, garage, car wash...), drawn in place by the
@@ -601,6 +618,8 @@ static void present_wait(menu *m, float seconds, void *user)
         }
         if (page_below_popup(m, "CarRoot")) {
             video_begin_scene();
+            showroom_set_wheel(presentation_cars, NULL); /* Arcade's cars are stock */
+            showroom_set_wing(presentation_cars, NULL);
             showroom_draw(presentation_cars, menu_selected_car(m), dt);
             showroom_set_color(presentation_cars, menu_car_color(m));
             video_end_scene();
@@ -881,9 +900,13 @@ static void switch_to(gt4_vol *vol, menu **cache, menu **mn, int *proj, char *ne
             if (i == 18 || i == 19)
                 menu_setting_context(cache[i],
                                      *mn); /* FreeRun/Practice exits read major_menu_project/page */
-            if (i == 12 && !strcmp(labo_arg, "PhotoRoot"))
+            if (i == 12 &&
+                (!strcmp(labo_arg, "PhotoRoot") || !strcmp(labo_arg, "ReplayTheaterRoot")))
                 menu_setting_context(
                     cache[i], *mn); /* labomode.ad PhotoRoot exit reads major_menu_project/page */
+            /* Project onLoad owns its reveal. Prepare it before any entry
+               script so cached state cannot erase a freshly requested fade. */
+            menu_project_entry(cache[i]);
             if (i == 4 && !menu_setting_begin(cache[i])) {
                 fprintf(stderr, "cannot open setting\n");
                 if (own_loading)
@@ -905,7 +928,6 @@ static void switch_to(gt4_vol *vol, menu **cache, menu **mn, int *proj, char *ne
                     }
             /* Clear a cached outgoing fade before authored onStart/panIn runs;
            never replace the game's transition after it has been selected. */
-            ui_fade(menu_ui(*mn), 0, 0, 0);
             if (career_return) {
                 if (!menu_enter_career_return(*mn))
                     fprintf(stderr, "career reward entry failed\n");
@@ -996,6 +1018,34 @@ static char *next_scripted_key(void)
 }
 static int desktop_menu_event(menu *m, plat_key_event *ev)
 {
+#ifdef __SWITCH__
+    if (ev->touch) {
+        int enabled = app_video_settings && app_video_settings->current.touch_menu;
+        if (!enabled) ui_touch_mode(menu_ui(m),0);
+        int back = 0;
+        if (app_video_settings &&
+            touch_back_input(dialog_ui,
+                             enabled && !ui_has_back_control(menu_ui(m), menu_active_root(m)), m,
+                             menu_active_root(m), ev, &app_video_settings->touch_back, &back)) {
+            menu_touch(m, 0, 4, 0, 0, 0);
+            ui_touch_mode(menu_ui(m), 1);
+            if (back)
+                menu_send_input(m, MENU_BACK);
+            return 1;
+        }
+        return menu_touch(m, enabled, ev->touch, ev->touch_id, ev->touch_x * 640.f,
+                          ev->touch_y * video_view_height());
+    }
+    if (ev->pad || ev->key) {
+        ui_touch_mode(menu_ui(m),0);
+        if (app_video_settings)
+            app_video_settings->touch_back.tap = (touch_dialog_state){0};
+        menu_touch(m, 0, 4, 0, 0, 0);
+    }
+#else
+    if (ev->touch)
+        return 1;
+#endif
     desktop_input_hints(m,app_video_settings && app_video_settings->current.input_hints,ev);
     return desktop_input(m, app_video_settings && app_video_settings->current.desktop, ev);
 }
@@ -1159,6 +1209,10 @@ static int present_dialog(menu *m, const char *title, const char *message, int t
     ui_cursor_select(dialog_ui, confirm ? (selected ? positive : negative) : single);
     ui_cursor_speed(dialog_ui, speed);
     uint64_t last = plat_time_ns();
+#ifdef __SWITCH__
+    touch_dialog_state touch = {0};
+
+#endif
     printf("in-game dialog: %s / %s\n", title, message);
     do {
         plat_key_event ev;
@@ -1168,6 +1222,12 @@ static int present_dialog(menu *m, const char *title, const char *message, int t
             int hovered = desktop_dialog_input(dialog_ui,
                 app_video_settings && app_video_settings->current.desktop,
                 mouse_items, confirm ? 2 : 1, &ev, &mouse_action);
+#ifdef __SWITCH__
+            int touch_enabled = app_video_settings && app_video_settings->current.touch_menu &&
+                                !closing && motion_time >= .5f;
+            hovered = touch_dialog_input(dialog_ui, touch_enabled, mouse_items, confirm ? 2 : 1,
+                                         &ev, &touch, &mouse_action);
+#endif
             if (closing || motion_time < .5f) continue;
             if (hovered >= 0 && confirm && selected != hovered) {
                 selected = hovered;
@@ -1229,11 +1289,16 @@ static int present_dialog(menu *m, const char *title, const char *message, int t
         plat_video_begin_frame();
         if (page_below_popup(m, "CarRoot")) {
             video_begin_scene();
+            showroom_set_wheel(presentation_cars, NULL); /* Arcade's cars are stock */
+            showroom_set_wing(presentation_cars, NULL);
             showroom_draw(presentation_cars, menu_selected_car(m), dt);
             video_end_scene();
         }
         dialog_background(m);
         ui_draw_root(dialog_ui, root, NULL, NULL);
+#ifdef __SWITCH__
+        ui_hide_touch_back(dialog_ui);
+#endif
         if (dialog_shot && !closing && motion_time >= .5f) {
             screenshot(dialog_shot);
             dialog_shot = NULL;
@@ -1327,6 +1392,10 @@ static int present_profile_picker(menu *m)
         }
     }
     int selected = 0, result = -1;
+#ifdef __SWITCH__
+    touch_dialog_state touch = {0};
+    touch_back_state back_touch = {0};
+#endif
     ui_fade(dialog_ui, 0, 0, 0);
     ui_cursor_transfer(dialog_ui, menu_ui(m));
     ui_cursor_hold(dialog_ui, 0);
@@ -1352,6 +1421,17 @@ static int present_profile_picker(menu *m)
             int hovered = desktop_dialog_input(dialog_ui,
                 app_video_settings && app_video_settings->current.desktop,
                 group->kids, count, &ev, &mouse_action);
+#ifdef __SWITCH__
+            int touch_enabled = app_video_settings && app_video_settings->current.touch_menu;
+            int back = 0;
+            if (touch_back_input(dialog_ui, touch_enabled, group, root, &ev, &back_touch, &back)) {
+                touch = (touch_dialog_state){0};
+                hovered = -1;
+                mouse_action = back ? 2 : 0;
+            } else
+                hovered = touch_dialog_input(dialog_ui, touch_enabled, group->kids, count, &ev,
+                                             &touch, &mouse_action);
+#endif
             if (hovered >= 0 && selected != hovered) {
                 selected = hovered;
                 menu_play_effect(m, "cursor");
@@ -1380,6 +1460,12 @@ static int present_profile_picker(menu *m)
         plat_video_begin_frame();
         ui_draw_under(menu_ui(m), menu_active_root(m));
         ui_draw_root(dialog_ui, root, NULL, NULL);
+#ifdef __SWITCH__
+        ui_draw_touch_back(dialog_ui,
+                           app_video_settings && app_video_settings->current.touch_menu &&
+                               ui_touch_active(dialog_ui),
+                           back_touch.tap.selected != NULL, 1.f / 60);
+#endif
         if (capture && dialog_shot) {
             screenshot(dialog_shot);
             dialog_shot = NULL;

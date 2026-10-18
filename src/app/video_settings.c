@@ -35,6 +35,7 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     /* P: Switch always starts in 16:9, including older SD configurations. */
     s->current.aspect = 1;
     s->current.scene_resolution = MOON_SWITCH_PERFORMANCE;
+    s->current.touch_menu = 1;
     moon_options_load(&s->store,NULL,NULL);
 #else
     s->current.video = (plat_video_desc){1280, 960, 0, 1, 0};
@@ -84,6 +85,8 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     if (!moon_options_switch_load(&s->store,legacy_path)) return;
     snprintf(s->path,sizeof s->path,"%s",s->store.path);
     s->current.scene_resolution=moon_options_int(&s->store,MOON_SWITCH_SCENE_KEY,1,0,2);
+    s->current.touch_menu = moon_options_int(&s->store, "controls.touch_menu",
+                                             strcmp(s->store.preset, "Classic") != 0, 0, 1);
 #endif
     FILE *f = fopen(s->path, "r");
     if (!f)
@@ -145,6 +148,7 @@ static void save(video_settings *s)
     char scene_value[8];
     snprintf(scene_value,sizeof scene_value,"%d",v->scene_resolution);
     moon_options_set(&s->store,MOON_SWITCH_SCENE_KEY,scene_value);
+    moon_options_set(&s->store, "controls.touch_menu", v->touch_menu ? "1" : "0");
 #endif
     if (s->preset_draft >= 0) {
         snprintf(s->store.preset, sizeof s->store.preset, "%s", s->preset_draft ? "Enhanced" : "Classic");
@@ -377,6 +381,7 @@ static void read_draft(video_settings *s)
     v->video.upscale = s->choices[6]->focus_index;
 #ifdef __SWITCH__
     v->scene_resolution = s->choices[7]->focus_index;
+    v->touch_menu = s->choices[9]->focus_index;
 #endif
 #ifndef __SWITCH__
     v->desktop = s->choices[7]->focus_index;
@@ -441,6 +446,7 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
         s->choices[4]->focus_index=0;
         s->choices[6]->focus_index=0;
         s->choices[7]->focus_index=enhanced?MOON_SWITCH_PERFORMANCE:MOON_SWITCH_CLASSIC;
+        s->choices[9]->focus_index = enhanced;
         read_draft(s);
     } else {
         s->preset_draft=-1;
@@ -479,6 +485,13 @@ static int focus(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     video_settings *s = data;
     ui_widget *w = ah_host_data(self);
 #ifdef __SWITCH__
+    if (w == s->choices[9]) {
+        ui_set_tooltips(
+            s->page,
+            "Tap to select and preview; tap the same item again to confirm. Drag lists or the GT Mode map.");
+        *ret = ah_int(2);
+        return 0;
+    }
     if (w == s->choices[7]) {
         ui_set_tooltips(s->page,"Classic: PS2 render size. Balanced: sharper 3D. Performance: lower 3D resolution for 60 FPS; HUD stays sharp.");
         *ret=ah_int(2);return 0;
@@ -595,6 +608,7 @@ static int enter(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
 #endif
 #ifdef __SWITCH__
     s->choices[7]->focus_index=s->current.scene_resolution;
+    s->choices[9]->focus_index = s->current.touch_menu;
     s->choices[8]->focus_index=s->store.modified?2:strcmp(s->store.preset,"Classic")!=0;
 #endif
     quality(&s->current);
@@ -705,7 +719,7 @@ void video_settings_attach(video_settings *s, menu *m)
        Cancel/OK buttons. Keep its authored centre clear of the tooltip bar. */
     float pane_center = pane->y + pane->h * .5f;
 #ifdef __SWITCH__
-    const int rows = 9;
+    const int rows = 10;
 #else
     const int rows = 17;
 #endif
@@ -722,7 +736,12 @@ void video_settings_attach(video_settings *s, menu *m)
             title->kids[i]->w = pane->w;
     }
 #endif
+#ifdef __SWITCH__
+    int pitch = 29;
+    pane->type = "Composite";
+#else
     int pitch = 32;
+#endif
     pane->y = rows == 7 ? 78 : fmaxf(0, pane_center - 370 * .5f);
     pane->h = rows == 7 ? 278 : 370;
     ui_widget *bg = ui_widget_child(pane, "bg");
@@ -761,6 +780,8 @@ void video_settings_attach(video_settings *s, menu *m)
     const char *scene_sizes[]={"Classic","Balanced","Performance"};
     names[7]="SceneResolution"; titles[7]="3D Resolution"; titles[8]="Preset";
     lists[7]=scene_sizes;counts[7]=3;
+    names[9] = "TouchMenus";
+    titles[9] = "Touch Menus";
 #endif
     for (int i = 0; i < rows; i++) {
         ui_widget *w = ui_widget_copy(ui, sample);
@@ -771,6 +792,9 @@ void video_settings_attach(video_settings *s, menu *m)
         s->rows[i] = w;
         w->x = 24;
         widen(w,512);
+#endif
+#ifdef __SWITCH__
+        w->h = (float)pitch;
 #endif
         w->y = 20 + i * pitch;
         text(ui_widget_child(w, "label"), titles[i]);

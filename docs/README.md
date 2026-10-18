@@ -19,6 +19,8 @@ Start with [How it works](HOW_IT_WORKS.md), then [Building and testing](BUILDING
 - [Display settings](PC_VIDEO_UI.md): host display choices and their persistence.
 - [PC launcher](LAUNCHER.md): disc-backed fonts and icons, live car preview,
   cinematic cameras and presentation limits.
+- [UI art direction](UI_ART_DIRECTION.md): how new screens look and behave
+  (original language, disc assets, the launcher's bar, pages and pointer).
 - [Development notes](notes/README.md): implementation history, original
   addresses, experiments and positive/negative test evidence.
 

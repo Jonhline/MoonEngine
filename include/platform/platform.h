@@ -108,6 +108,8 @@ int plat_audio_set_music(plat_audio_cb cb, void *user);
 void plat_audio_fade_music(float seconds);
 /* Stops the music source only while `user` still owns it. */
 void plat_audio_release_music(void *user);
+/* 1 while `user` is the music output's current producer. */
+int plat_audio_music_owned(void *user);
 /* Frames of the current music source the device has consumed since
    plat_audio_set_music; a clock for pictures that follow the sound. */
 uint64_t plat_audio_music_position(void);

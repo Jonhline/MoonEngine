@@ -855,6 +855,10 @@ static int ghost_write(void *u, uint32_t car, const uint8_t *out)
     return r->outer.write && r->outer.write(r->outer.ctx, car, out);
 }
 
+unsigned gt4_race_run_frames(const gt4_race_run *r)
+{
+    return r ? (unsigned)r->frames : 0;
+}
 int gt4_race_run_ghost_on(const gt4_race_run *r)
 {
     return r && r->ghost_on;

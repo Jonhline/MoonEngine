@@ -229,3 +229,14 @@ int race_game_pause_pointer(race_game *g,int enabled,float x,float y,int action)
 {
     return g && g->pause ? race_pause_pointer(g->pause,enabled,x,y,action) : 0;
 }
+
+int race_game_is_paused(const race_game *g)
+{
+    return g && g->pause;
+}
+
+void race_game_pause_back(race_game *g)
+{
+    if (g && g->pause)
+        race_pause_key(g->pause, 27);
+}

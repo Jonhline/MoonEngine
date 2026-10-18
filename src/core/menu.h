@@ -97,12 +97,17 @@ void menu_set_event_presenter(menu *m, int (*fn)(menu *, void *), void *user);
 /* Platform loader for CarFace.syncLoading; nonzero only when the requested model is ready. */
 void menu_set_car_loader(menu *m, int (*fn)(menu *, const ui_widget *, void *), void *user);
 void menu_animate(menu *m, float seconds);
+/* Project onLoad's authored colour reveal, including cached re-entry. */
+void menu_project_entry(menu *m);
 float menu_cursor_speed(menu *m);
 void menu_send_input(menu *m, menu_input input);
-/* P: host pointer boundary. action: 0 move, 1 left release, 2 right release.
+/* P: host pointer boundary. action: 0 move, 1 left release, 2 right release,
+   3 left press, 4 motion with left held (slider drag only).
    enabled=0 is a strict no-op apart from restoring controller cursor ownership. */
 void menu_edge_pan(menu *m, int enabled, float seconds);
 int menu_pointer(menu *m, int enabled, float x, float y, int action, int wheel);
+/* Optional direct contact input. Cancel on context/device changes; no simulated pad state. */
+int menu_touch(menu *m, int enabled, int phase, long long id, float x, float y);
 /* a PS2 button the scripts take as its own key (keysym, the engine's
    D_006192E4: L1 0xFFC8, L2 0xFFC9, R1 0xFFD2, R2 0xFFD3, Square
    0xFF63, Select 0xFFFF), pressed or released */

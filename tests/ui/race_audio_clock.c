@@ -135,6 +135,27 @@ static void observed_audio_step(race_audio *a, const gt4_race_run *run)
 int main(int argc, char **argv)
 {
     CHECK(argc>=2);
+    if(argc==3 && (!strcmp(argv[2],"--pause-music") || !strcmp(argv[2],"--pause-music-negative"))) {
+        gt4_vol *vol=gt4_vol_open(argv[1],NULL);CHECK(vol);
+        race_audio audio={0};
+        audio.music=gt4_pcm_music_open(vol,"racing",8);
+        gt4_pcm_music *reference=gt4_pcm_music_open(vol,"racing",8);
+        CHECK(audio.music && reference);
+        int16_t actual[1024],expected[1024];
+        render_race_music(&audio,actual,512);gt4_pcm_music_render(expected,512,reference);
+        CHECK(!memcmp(actual,expected,sizeof actual));
+        race_audio_pause(&audio,1);
+        if(!strcmp(argv[2],"--pause-music-negative")) SDL_AtomicSet(&audio.music_paused,0);
+        for(int tick=0;tick<120;tick++) {
+            memset(actual,1,sizeof actual);render_race_music(&audio,actual,512);
+            for(int i=0;i<1024;i++) CHECK(actual[i]==0);
+        }
+        race_audio_pause(&audio,0);
+        render_race_music(&audio,actual,512);gt4_pcm_music_render(expected,512,reference);
+        CHECK(!memcmp(actual,expected,sizeof actual));
+        gt4_pcm_music_close(audio.music);gt4_pcm_music_close(reference);gt4_vol_close(vol);
+        puts("PASS race music: silence while paused, sample-exact continuation");return 0;
+    }
     negative = argc == 3 && !strcmp(argv[2], "--negative");
     manual_mode =
         argc == 3 && (!strcmp(argv[2], "--manual") || !strcmp(argv[2], "--manual-negative"));

@@ -1,11 +1,34 @@
 #define plat_draw_quad4 fixture_draw_quad4
+#define plat_draw_quad fixture_draw_quad
 #define plat_draw_rotated fixture_draw_rotated
 #define main setting_fixture_main
+#define gt4_sound_play fixture_sound_play
 #include "../gtmode/setting_menu.c"
+#undef gt4_sound_play
 #undef main
 #undef plat_draw_rotated
 #undef plat_draw_quad4
+#undef plat_draw_quad
 #include "race_pause.h"
+static unsigned sounds;
+static int fade_blinks,fade_samples;
+static float exit_alpha;
+static void exit_present(menu *m,float seconds,void *user)
+{
+    (void)user;
+    int steps=(int)ceilf(seconds*60)+1;
+    for(int i=0;i<steps;i++) {
+        if(!strcmp(ui_root_name(m->ui,menu_active_root(m)),"CarRoot")) {
+            float alpha=ui_fade_opacity(m->ui);
+            fade_samples++;
+            if(alpha+.001f<exit_alpha) fade_blinks++;
+            exit_alpha=alpha;
+        }
+        menu_animate(m,1.f/60);
+    }
+}
+int fixture_sound_play(gt4_sound *s,const char *name)
+{(void)s;(void)name;sounds++;return 1;}
 void plat_video_set_view(float w,float h) {(void)w;(void)h;}
 static float tip[2];
 static int hover_faces, gold_overlays;
@@ -13,9 +36,23 @@ static unsigned quad_hash;
 static int check_thumbnails, course_gradient, gradient_bad;
 static float thumbnail_width;
 static int shine_draws;
+static int hand_rows;
+static float varnish_height;
 static float shine_y;
+void plat_draw_quad4(const plat_texture *,float,float,float,float,float,float,float,float,
+                     const uint8_t [4][4]);
+void plat_draw_quad(const plat_texture *t,float x,float y,float w,float h,float u,float v,
+                    float u1,float v1,const uint8_t c[4])
+{
+    uint8_t colors[4][4];for(int i=0;i<4;i++) memcpy(colors[i],c,4);
+    plat_draw_quad4(t,x,y,w,h,u,v,u1,v1,colors);
+}
 void plat_draw_quad4(const plat_texture *t,float x,float y,float w,float h,float u,float v,float a,float b,const uint8_t c[4][4])
 {
+    if(t && t->w==36 && t->h==59 && w==21 && h==31 &&
+       fabsf(u-9.f/36)<1e-6f && fabsf(v-25.f/59)<1e-6f) hand_rows++;
+    if(!t && c[0][0]==255 && c[0][1]==255 && c[0][3]>=10 && c[0][3]<=12 && c[2][3]==c[0][3])
+        varnish_height=h;
     if(check_thumbnails && t && t->w==50 && t->h==32) thumbnail_width=fmaxf(thumbnail_width,w);
     if(!t && c[0][0]==143 && c[0][1]==9 && c[0][2]==9) {
         course_gradient++;
@@ -117,6 +154,16 @@ int main(int argc,char **argv)
     ui_pointer_feedback(m->ui,0);quad_hash=0;paint(m);unsigned exit_plain=quad_hash;
     ui_pointer_feedback(m->ui,1);quad_hash=0;paint(m);
     CHECK(quad_hash!=exit_plain);
+    pointer_set_hover(m,NULL);m->pointer_sound_delay=0;sounds=0;
+    pointer_set_hover(m,exit);CHECK(sounds==1);
+    pointer_set_hover(m,NULL);CHECK(sounds==1);
+    pointer_set_hover(m,exit);CHECK(sounds==1);
+    menu_animate(m,.11f);pointer_set_hover(m,NULL);pointer_set_hover(m,exit);
+    CHECK(sounds==2);
+    ah_val sound_arg=ah_str(m->vm,"cursor"),sound_result;
+    m->hover_dispatch=1;nat_sound_play(m->vm,NULL,m,1,&sound_arg,&sound_result);
+    CHECK(sounds==2);m->hover_dispatch=0;
+    nat_sound_play(m->vm,NULL,m,1,&sound_arg,&sound_result);CHECK(sounds==3);
     ui_pointer_feedback(m->ui,0);gold_overlays=0;menu_pointer(m,0,0,0,0,0);paint(m);CHECK(!gold_overlays);
     ui_widget *before=m->focus[menu_active_root(m)];
     float old=space->scroll_set?space->scroll_ty:space->y;
@@ -128,6 +175,10 @@ int main(int argc,char **argv)
     menu_pointer(m,1,x,y,0,0);paint(m);
     CHECK(space->scroll_ty==target && m->focus[menu_active_root(m)]==before);
     menu_pointer(m,1,x,y,0,1000);
+    CHECK(space->scroll_ty==0);
+    CHECK(ui_touch_drag(m->ui,menu_active_root(m),x,y,0,-30));
+    CHECK(space->scroll_ty==-30);
+    CHECK(ui_touch_drag(m->ui,menu_active_root(m),x,y,0,10000));
     CHECK(space->scroll_ty==0);
     /* Full painted button (80x40), intentionally larger than client (10x10). */
     ui_widget *button=ui_widget_from_text(m->ui,menu_active_root(m),
@@ -141,9 +192,52 @@ int main(int argc,char **argv)
     paint(m);
     CHECK(hover_faces>0);
     CHECK(m->focus[menu_active_root(m)]==before);
+    /* Touch confirms once on a matching release, never on down/cancel/drag. */
+    menu_touch(m, 1, 1, 10, 85, 45);
+    CHECK(activated==0);
+    menu_touch(m, 1, 3, 11, 85, 45);
+    CHECK(activated==0); /* second contact */
+    menu_touch(m, 1, 3, 10, 150, 100);
+    CHECK(activated==0);
+    menu_touch(m, 1, 1, 10, 85, 45);
+    menu_touch(m, 1, 4, 10, 85, 45);
+    menu_touch(m, 1, 3, 10, 85, 45);
+    CHECK(activated==0);
+    menu_touch(m, 0, 1, 10, 85, 45);
+    menu_touch(m, 0, 3, 10, 85, 45);
+    CHECK(activated==0);
+    menu_touch(m, 1, 1, 10, 85, 45);
+    menu_touch(m, 1, 2, 10, 70, 45);
+    menu_touch(m, 1, 3, 10, 85, 45);
+    CHECK(activated==0);
+    if (getenv("MOON_TOUCH_NEGATIVE"))
+        button->visible = 0;
+    menu_touch(m, 1, 1, 10, 85, 45);
+    menu_touch(m, 1, 3, 10, 85, 45);
+    CHECK(activated==0 && m->focus[menu_active_root(m)]==button);
+    menu_touch(m, 1, 1, 10, 85, 45);
+    CHECK(activated==0);
+    menu_touch(m, 1, 3, 10, 85, 45);
+    CHECK(activated==1);
+    menu_touch(m, 1, 3, 10, 85, 45);
+    CHECK(activated==1);
+    activated = 0;
+    paint(m);
     if(argc>2) button->visible=0;
     menu_pointer(m,1,85,45,1,0);
     CHECK(activated==1 && tip[0]==85 && tip[1]==45);
+    ui_widget *slider=ui_widget_from_text(m->ui,menu_active_root(m),
+      "SliderBar { name string {\"MouseSlider\"} can_focus digit {1} geometry rectangle {20 80 120 24} range [2] { digit {-5} digit {5} } }");
+    CHECK(slider);ui_widget_append(root,slider);paint(m);
+    CHECK(menu_pointer(m,1,20,92,3,0) && m->pointer_drag==slider);
+    CHECK(slider->focus_index==-5);
+    CHECK(menu_pointer(m,1,80,92,4,0) && slider->focus_index==0);
+    CHECK(menu_pointer(m,1,200,92,4,0) && slider->focus_index==5);
+    CHECK(menu_pointer(m,1,140,92,1,0) && !m->pointer_drag);
+    menu_pointer(m,1,80,92,1,0);CHECK(slider->focus_index==0);
+    ui_touch_mode(m->ui,0); /* Return from the preceding touch fixture to mouse. */
+    hand_rows=0;tip[0]=-999;paint(m);
+    CHECK(hand_rows==1 && tip[0]==-999);
     /* Prompt transformation is presentation only and exactly reversible. */
     ui_widget *label=ui_widget_from_text(m->ui,menu_active_root(m),
       "TextFace { text string {\"%Bf Return %Ba Transfer game data\"} }");
@@ -171,6 +265,10 @@ int main(int argc,char **argv)
     menu_edge_pan(m,1,1.f/60);
     CHECK(space->scroll_tx<old && m->focus[menu_active_root(m)]==before);
     CHECK(space->scroll_tx>=clip->w-space->w);
+    float map_x = space->scroll_tx;
+    CHECK(ui_touch_drag(m->ui,menu_active_root(m),x,y,-20,0));
+    CHECK(space->scroll_tx==fmaxf(clip->w-space->w,map_x-20));
+    CHECK(m->focus[menu_active_root(m)]==before);
     /* Footer text is outside map hit bounds but still drives downward pan. */
     float footer_y=root->h-1;
     CHECK(footer_y>=clip->pointer_rect[1]+clip->pointer_rect[3]);
@@ -247,6 +345,18 @@ int main(int argc,char **argv)
     CHECK(dealer_list->strip_offset==dealer_offset);
     CHECK(dealer_face->car_position[2]>0 && dealer_face->car_position[2]<8.5f);
     CHECK(dealer_face->car_model_opacity>0 && dealer_face->car_model_opacity<1);
+    /* Reveal a hovered last card even when its blob reaches the edge. */
+    ui_pointer_feedback(m->ui,1);
+    float saved_width=dealer_list->w;
+    dealer_list->w=100;
+    dealer_list->desktop_offset=0;dealer_list->strip_offset=0;
+    if(getenv("MOON_BLOB_EDGE_NEGATIVE")) ui_pointer_feedback(m->ui,0);
+    for(int edge_tick=0;edge_tick<120;edge_tick++) menu_animate(m,1.f/60);
+    paint(m);
+    CHECK(dealer_list->desktop_offset<0);
+    CHECK(dealer_list->kids[1]->pointer_rect[2]>=69.9f);
+    dealer_list->w=saved_width;
+    dealer_list->desktop_offset=dealer_offset;dealer_list->strip_offset=dealer_offset;
     dr=dealer_list->kids[1]->pointer_rect;
     menu_pointer(m,1,dr[0]+dr[2]/2,dr[1]+dr[3]/2,1,0);ticks(m);
     CHECK(!strcmp(ah_cstr(get(m->vm,dealer,"current_car")),"svt_f150_lightning_03"));
@@ -267,7 +377,8 @@ int main(int argc,char **argv)
         ticks(m);paint(m);
         CHECK(paint_list->strip_offset==paint_offset);
     }
-    shine_draws=0;paint(m);CHECK(shine_draws>0);
+    shine_draws=0;varnish_height=0;paint(m);CHECK(shine_draws>0);
+    CHECK(varnish_height>child(paint_list->kids[0],"chip")->h);
     float old_shine_y=shine_y;
     shine_draws=0;paint(m);CHECK(shine_draws>0 && shine_y!=old_shine_y);
     ui_pointer_feedback(m->ui,0);shine_draws=0;paint(m);CHECK(!shine_draws);
@@ -291,6 +402,31 @@ int main(int argc,char **argv)
     m=menu_open(vol,"arcade",err,sizeof err);
     ui_pointer_feedback(m->ui,1);
     CHECK(m && page(m,"MakerRoot")>=0);ticks(m);paint(m);
+    ui_widget *maker_root=ui_root_widget(m->ui,menu_active_root(m));
+    ui_widget *maker_space=space_of(maker_root);
+    CHECK(maker_space);
+    /* Find the actual wide manufacturer viewport, independently of Nation. */
+    ui_widget *maker_clip=NULL;
+    for(int ci=0;ci<maker_root->nkids;ci++) {
+        ui_widget *c=child(maker_root->kids[ci],"clip");
+        ui_widget *s=c?child(c,"space"):NULL;
+        if(s && s->w>c->w) {maker_clip=c;maker_space=s;break;}
+    }
+    CHECK(maker_clip);
+    ui_widget *maker_focus=m->focus[menu_active_root(m)];
+    float mx=maker_clip->pointer_rect[0],my=maker_clip->pointer_rect[1]+maker_clip->h*.5f;
+    float maker_before=maker_space->scroll_set?maker_space->scroll_tx:maker_space->x;
+    menu_pointer(m,1,mx+maker_clip->w-1,my,0,0);
+    ui_pointer_edge_scroll(m->ui,menu_active_root(m),.1f);
+    CHECK(maker_space->scroll_tx<maker_before && m->focus[menu_active_root(m)]==maker_focus);
+    float maker_right=maker_space->scroll_tx;
+    menu_pointer(m,1,mx+1,my,0,0);
+    ui_pointer_edge_scroll(m->ui,menu_active_root(m),.1f);
+    CHECK(maker_space->scroll_tx>maker_right);
+    menu_pointer(m,0,0,0,0,0);maker_right=maker_space->scroll_tx;
+    ui_pointer_edge_scroll(m->ui,menu_active_root(m),.1f);
+    CHECK(maker_space->scroll_tx==maker_right);
+    paint(m);
     ui_widget *makers[512];int makers_n=0;
     candidates(ui_root_widget(m->ui,menu_active_root(m)),makers,&makers_n);
     ui_widget *ford=NULL;
@@ -326,6 +462,12 @@ int main(int argc,char **argv)
         }
     }
     CHECK(previewed);
+    menu_pointer(m,0,0,0,0,0);
+    menu_set_presenter(m,exit_present,NULL);
+    fade_blinks=fade_samples=0;exit_alpha=0;
+    menu_send_input(m,MENU_BACK);ticks(m);
+    CHECK(strcmp(ui_root_name(m->ui,menu_active_root(m)),"CarRoot"));
+    CHECK(fade_samples>0 && !fade_blinks);
     menu_close(m);
     /* P: retain original labels/actions with five visible vertical entries. */
     m=menu_open(vol,"arcade",err,sizeof err);CHECK(m && page(m,"TopRoot")>=0);
@@ -339,9 +481,15 @@ int main(int argc,char **argv)
         menu_pointer(m,1,165,306+i*25.f,0,0);
         CHECK(m->pointer_hover==main_list->kids[i]);
     }
-    /* Whole main-menu line, not just the middle word of its label. */
-    CHECK(menu_pointer(m,1,60,335,0,0) && m->pointer_hover==main_list->kids[1]);
-    CHECK(menu_pointer(m,1,580,335,0,0) && m->pointer_hover==main_list->kids[1]);
+    /* Whole visible row, but never blank screen space beside it. */
+    CHECK(menu_pointer(m,1,165,335,0,0) && m->pointer_hover==main_list->kids[1]);
+    CHECK(menu_pointer(m,1,475,335,0,0) && m->pointer_hover==main_list->kids[1]);
+    CHECK(!menu_pointer(m,1,60,335,0,0) && !m->pointer_hover);
+    CHECK(!menu_pointer(m,1,580,335,0,0) && !m->pointer_hover);
+    paint(m);
+    char empty_route[64];snprintf(empty_route,sizeof empty_route,"%s",m->next_project);
+    CHECK(!menu_pointer(m,1,580,335,1,0));
+    CHECK(!strcmp(empty_route,m->next_project));
     ui_pointer_feedback(m->ui,1);gold_overlays=0;paint(m);CHECK(!gold_overlays);
     CHECK(!menu_pointer(m,1,620,335,0,0));
     int selected=main_list->focus_index;

@@ -67,9 +67,7 @@ struct race_game {
     race_view *view;
     gt4_race_run *run;
     int loading, ready, others, laps, time_trial;
-#ifdef __SWITCH__
     int hud_preparing;
-#endif
     int world_mode; /* GT Mode Free Run 11 / Practice 12 (race_game_set_world_mode) */
     int tire, manual, assist_asm, assist_tcs;
     int split;
@@ -116,6 +114,7 @@ struct race_game {
     int mission_presentation;
     FILE *mission_test_pad;
     r3d_mesh *trophy[3];
+    tex1_image trophy_env[3]; /* each variant's own texture: its reflection map */
     int trophy_tried;
     plat_texture *license_screen;
     gt4_screen_setting screen_setting;
@@ -248,6 +247,20 @@ struct race_game {
     uint8_t last_owned[6][0x4b8], last_event_row[151];
     uint32_t last_rng;
     int ghost_car;       /* the Time Trial's: car 1 drawn while it drives */
+    /* The licence's ghost: the player's car as it was drawn (simulation frame, place,
+       rotation, wheels) through the best passed attempt, drawn see-through beside the
+       next. Presentation only: no car is added to the simulation. */
+    struct {
+        float *s; /* LIC_SAMPLE floats each */
+        size_t n, cap;
+    } lic_rec;
+    struct {
+        float *s;
+        size_t n, cap; /* cap: the buffer's room, kept when it swaps with the recording's */
+        uint32_t time;
+        char course[64], car[64];
+        int on;
+    } lic_ghost;
     race_smoke *smoke;   /* the tyres' smoke (the world's +0x31D0) */
     race_leaves *leaves; /* the leaves the wheels throw up (the world's +0x3238) */
     /* The Time Trial's ghost kept for the session (the PS2 keeps the best
@@ -416,9 +429,40 @@ race_game *race_game_open(const char *disc)
     return g;
 }
 
+#define LIC_SAMPLE 25 /* frame, place 3, rotation 9, wheels 12 */
+#define licence_exam_run(g) ((g)->last_prepared && (g)->last_desc.license == 1)
+/* a passed licence attempt (gold 2, silver 3, bronze 4) quicker than the one held
+   becomes the licence's ghost */
+static void keep_licence_ghost(race_game *g)
+{
+    int32_t result;
+    uint32_t time;
+    if (!g->run || g->replaying || !licence_exam_run(g) || g->lic_rec.n < 2 ||
+        !race_game_license_result(g, &result, &time) || result < 2 || result > 4)
+        return;
+    int same = g->lic_ghost.on && !strcmp(g->lic_ghost.course, g->last_course) &&
+               !strcmp(g->lic_ghost.car, g->last_car);
+    if (same && g->lic_ghost.time <= time)
+        return;
+    /* swap the buffers with their own room: the recording goes on in the old ghost's */
+    float *s = g->lic_ghost.s;
+    size_t cap = g->lic_ghost.cap;
+    g->lic_ghost.s = g->lic_rec.s;
+    g->lic_ghost.n = g->lic_rec.n;
+    g->lic_ghost.cap = g->lic_rec.cap;
+    g->lic_rec.s = s;
+    g->lic_rec.cap = s ? cap : 0;
+    g->lic_rec.n = 0;
+    g->lic_ghost.time = time;
+    snprintf(g->lic_ghost.course, sizeof g->lic_ghost.course, "%s", g->last_course);
+    snprintf(g->lic_ghost.car, sizeof g->lic_ghost.car, "%s", g->last_car);
+    g->lic_ghost.on = 1;
+    fprintf(stderr, "ghost: licence attempt %u kept (%zu poses)\n", time, g->lic_ghost.n);
+}
 /* the run's best lap kept as the session's ghost, when it is better */
 static void keep_ghost(race_game *g)
 {
+    keep_licence_ghost(g);
     const uint8_t *state, *tape;
     uint32_t rest, lap;
     float frac;
@@ -447,7 +491,13 @@ static void keep_ghost(race_game *g)
 
 int race_game_has_ghost(const race_game *g)
 {
-    return g && g->ghost.on;
+    return g && (g->ghost.on || (licence_exam_run(g) && g->lic_ghost.on));
+}
+/* the licence's result is in: a passed attempt is kept now, so SaveGhost can offer it */
+void race_game_keep_licence_ghost(race_game *g)
+{
+    if (g)
+        keep_licence_ghost(g);
 }
 
 /* the session's ghost as a best-lap replay (labomode's MODE_SAVE_BESTLAP_REPLAY),
@@ -457,6 +507,23 @@ int race_game_ghost_export(race_game *g, gt4_replay_file *r)
     if (!g || !r)
         return 0;
     keep_ghost(g);
+    if (licence_exam_run(g) && g->lic_ghost.on) {
+        /* P: the licence's ghost as a best-lap file: its poses, one neutral command */
+        static uint8_t neutral[0x20] = {0, 1};
+        memset(r, 0, sizeof *r);
+        r->kind = GT4_REPLAY_BEST_LAP;
+        snprintf(r->course, sizeof r->course, "%s", g->lic_ghost.course);
+        snprintf(r->car, sizeof r->car, "%s", g->lic_ghost.car);
+        r->color = g->last_color;
+        r->laps = 1;
+        r->best_lap = r->race_time = g->lic_ghost.time;
+        r->tape = neutral;
+        r->steps = 1;
+        r->license_poses = g->lic_ghost.s;
+        r->license_pose_count = g->lic_ghost.n;
+        snprintf(r->ghost_license, sizeof r->ghost_license, "%s", g->last_desc.license_code);
+        return 1;
+    }
     if (!g->ghost.on)
         return 0;
     memset(r, 0, sizeof *r);
@@ -484,6 +551,25 @@ int race_game_ghost_export(race_game *g, gt4_replay_file *r)
 int race_game_ghost_import(race_game *g, const gt4_replay_file *r)
 {
     uint8_t *copy;
+    if (g && r && r->kind == GT4_REPLAY_BEST_LAP && r->license_poses && r->license_pose_count > 1) {
+        /* a licence's saved ghost: for the same exam, course and car */
+        float *s;
+        size_t bytes = r->license_pose_count * LIC_SAMPLE * sizeof(float);
+        if (!licence_exam_run(g) || strcmp(r->course, g->last_course) ||
+            strcmp(r->car, g->last_car) ||
+            (r->ghost_license[0] && strcmp(r->ghost_license, g->last_desc.license_code)) ||
+            !(s = malloc(bytes)))
+            return 0;
+        memcpy(s, r->license_poses, bytes);
+        free(g->lic_ghost.s);
+        g->lic_ghost.s = s;
+        g->lic_ghost.n = g->lic_ghost.cap = r->license_pose_count;
+        g->lic_ghost.time = r->best_lap;
+        snprintf(g->lic_ghost.course, sizeof g->lic_ghost.course, "%s", r->course);
+        snprintf(g->lic_ghost.car, sizeof g->lic_ghost.car, "%s", r->car);
+        g->lic_ghost.on = 1;
+        return 1;
+    }
     if (!g || !r || r->kind != GT4_REPLAY_BEST_LAP || !r->ghost_car || !r->steps ||
         strcmp(r->course, g->last_course) || strcmp(r->car, g->last_car) ||
         !(copy = malloc(r->steps * 0x20)))
@@ -577,6 +663,8 @@ void race_game_stop(race_game *g)
     for (int i = 0; i < 3; i++) {
         r3d_mesh_destroy(g->trophy[i]);
         g->trophy[i] = NULL;
+        free(g->trophy_env[i].rgba);
+        memset(&g->trophy_env[i], 0, sizeof g->trophy_env[i]);
     }
     g->trophy_tried = 0;
     gt4_license_motion_close(g->license_start_motion);
@@ -591,9 +679,7 @@ void race_game_stop(race_game *g)
     gt4_race_run_close(g->run);
     g->run = NULL;
     g->loading = g->ready = 0;
-#ifdef __SWITCH__
     g->hud_preparing = 0;
-#endif
     g->ghost_car = 0;
     if (gt4_wheel_smoke_user == g) {
         gt4_wheel_smoke = NULL;
@@ -630,6 +716,8 @@ void race_game_close(race_game *g)
     gt4_vol_close(g->vol);
     g->pad = NULL; /* platform owns controller handles, including hotplug */
     free(g->ghost.tape);
+    free(g->lic_rec.s);
+    free(g->lic_ghost.s);
     free(g->disc);
     free(g->license_log_points);
     free(g->log_b_points);
@@ -816,6 +904,7 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
     /* RaceTraining's second entry is the visible guide (003ECB68),
        while RaceLicense clones a ghost (003BDC88). */
     g->ghost_car = (d.time_trial || d.license == 1) && gt4_race_run_cars(g->run) == 2;
+    g->lic_rec.n = 0;
     if (g->ghost_car && (!g->replay_next || g->log_analyzing) && g->ghost.on &&
         !strcmp(g->ghost.course, course) && !strcmp(g->ghost.car, car))
         gt4_race_run_ghost_set(g->run, g->ghost.state, g->ghost.rest, g->ghost.frac, g->ghost.lap,
@@ -948,7 +1037,8 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
     gt4_phys_pad.wheel_state = host_wheel;
     gt4_phys_pad.write = host_write;
     g->others = nothers;
-    if (g->time_trial && !nothers) { /* the ghost: the player's car again */
+    if ((g->time_trial || (prepared && d.license == 1)) &&
+        !nothers) { /* the ghost: the player's car again */
         const char *ghost = car;
         race_view_set_opponents(g->view, &ghost, &color, 1);
     } else
@@ -967,7 +1057,7 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
             race_view_set_film_parts(g->view, (unsigned)entry, wheel, wing);
         }
         /* A Time Trial run may describe one entry while the view adds ghost. */
-        if (g->time_trial && !nothers && d.cars == 1) {
+        if ((g->time_trial || (prepared && d.license == 1)) && !nothers && d.cars == 1) {
             wheel[0] = wing[0] = 0;
             if (pv && d.owned_car[0])
                 gt4_body_part_labels(pv, d.owned_car[0], wheel, wing);
@@ -1097,30 +1187,22 @@ static void start_smoke(race_game *g)
         gt4_wheel_leaves = leaf_wheel;
 }
 
-#ifdef __SWITCH__
-static int prepare_switch_hud(race_game *g);
-#endif
+static int prepare_hud(race_game *g);
 
 int race_game_poll(race_game *g)
 {
     int r;
     if (!g || !g->loading)
         return g && g->ready ? 1 : -1;
-#ifdef __SWITCH__
     r = g->hud_preparing ? 1 : race_view_poll(g->view, 0);
-#else
-    r = race_view_poll(g->view, 0);
-#endif
     if (r == 0)
         return 0;
-#ifdef __SWITCH__
     if (r > 0) {
         g->hud_preparing = 1;
-        if (!prepare_switch_hud(g))
+        if (!prepare_hud(g))
             return 0; /* One font/upload batch per loading frame, before reveal. */
         g->hud_preparing = 0;
     }
-#endif
     g->loading = 0;
     if (r < 0) {
         race_game_stop(g);
@@ -2342,6 +2424,52 @@ static void publish_photo_poses(race_game *g)
             race_view_set_opponent(g->view, i - 1, pos, rot, wheels);
             update_wheel_motion(g, i, rot);
         }
+    if (licence_exam_run(g) && !g->ghost_car && !g->split) {
+        unsigned frame = gt4_race_run_frames(g->run);
+        float now[LIC_SAMPLE];
+        if (!g->replaying && gt4_race_run_pose(g->run, 0, now + 1, now + 4, (float(*)[3])(now + 13))) {
+            now[0] = (float)frame;
+            if (!g->lic_rec.n || g->lic_rec.s[(g->lic_rec.n - 1) * LIC_SAMPLE] < now[0]) {
+                if (g->lic_rec.n == g->lic_rec.cap) {
+                    size_t cap = g->lic_rec.cap ? g->lic_rec.cap * 2 : 4096;
+                    float *s = realloc(g->lic_rec.s, cap * LIC_SAMPLE * sizeof(float));
+                    if (s) {
+                        g->lic_rec.s = s;
+                        g->lic_rec.cap = cap;
+                    }
+                }
+                if (g->lic_rec.n < g->lic_rec.cap)
+                    memcpy(g->lic_rec.s + g->lic_rec.n++ * LIC_SAMPLE, now, sizeof now);
+            }
+        }
+        /* the held attempt at this frame, between its two nearest poses */
+        int shown = 0;
+        if (!g->replaying && g->lic_ghost.on && g->lic_ghost.n > 1 &&
+            !strcmp(g->lic_ghost.course, g->last_course) && !strcmp(g->lic_ghost.car, g->last_car)) {
+            const float *s = g->lic_ghost.s;
+            size_t lo = 0, hi = g->lic_ghost.n - 1;
+            if ((float)frame >= s[0] && (float)frame <= s[hi * LIC_SAMPLE]) {
+                while (hi - lo > 1) {
+                    size_t mid = (lo + hi) / 2;
+                    if (s[mid * LIC_SAMPLE] <= (float)frame)
+                        lo = mid;
+                    else
+                        hi = mid;
+                }
+                const float *a = s + lo * LIC_SAMPLE, *b = s + hi * LIC_SAMPLE;
+                float t = b[0] > a[0] ? ((float)frame - a[0]) / (b[0] - a[0]) : 0, out[LIC_SAMPLE];
+                for (int k = 1; k < LIC_SAMPLE; k++)
+                    out[k] = a[k] + (b[k] - a[k]) * t;
+                race_view_set_ghost(g->view, 0, .55f);
+                race_view_set_opponent(g->view, 0, out + 1, out + 4, (float(*)[3])(out + 13));
+                if (!g->lic_rec.n || g->lic_rec.n == 1)
+                    fprintf(stderr, "ghost: licence attempt %u shown\n", g->lic_ghost.time);
+                shown = 1;
+            }
+        }
+        if (!shown)
+            race_view_set_opponent(g->view, 0, NULL, NULL, NULL);
+    }
     if (g->ghost_car) { /* the ghost, while it drives a lap */
         /* see-through: measured on a PCSX2 frame (Escort, Laguna Seca): its rear
            (64, 66, 72) between the player's same body (13, 13, 36) and the

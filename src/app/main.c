@@ -1258,6 +1258,7 @@ static void wiz_restart(void) /* the new graphics API takes effect in a fresh pr
     }
 }
 #endif
+#ifndef __SWITCH__
 /* Runs the setup on the current window: 1 = saved, 2 = saved and restarted for the new
    graphics API (the caller quits), 0 = cancelled (nothing written). */
 static int first_run_wizard(launcher_preferences *prefs)
@@ -1585,6 +1586,8 @@ static int first_run_wizard(launcher_preferences *prefs)
     }
     return 1;
 }
+
+#endif
 
 /* The captain's rig (--studio): where he put the camera and the car. Saved as plain
    numbers next to the engine's other user data, so a position survives a restart and
@@ -3200,6 +3203,7 @@ int main(int argc, char **argv)
         plat_audio_init(&audio, NULL, NULL);
     }
 
+#ifndef __SWITCH__
     /* The no-argument front-end: the disc and the graphics API come from launcher.ini, and on
        the very first run from the wizard (video is up, the volume is not open yet). */
     if (front_end) {
@@ -3217,6 +3221,7 @@ int main(int argc, char **argv)
         }
         argv[1] = (char *)front_disc;
     }
+#endif
     /* Disc-dependent tables and the volume open now that the disc is known. */
     app_car_ratings = gt4_car_ratings_open(argv[1]);
     SDL_PumpEvents(); /* P: keep the window answering while the disc's tables load */
@@ -3338,7 +3343,11 @@ int main(int argc, char **argv)
                     mods++;
             snprintf(studio_status.mods, sizeof studio_status.mods,
                      mods ? "Mods: %d active" : "Mods: none active", mods);
+#ifdef __SWITCH__
+            const char *api = "Switch";
+#else
             const char *api = moon_renderer_name(settings.current.renderer);
+#endif
             snprintf(studio_status.renderer, sizeof studio_status.renderer, "Renderer: %s",
                      !strcmp(api, "vulkan") ? "Vulkan" : !strcmp(api, "opengl") ? "OpenGL" : api);
         }
@@ -3359,6 +3368,9 @@ int main(int argc, char **argv)
             return fr; /* 2 = START: the launcher is black, run the game (its opening rises from black) */
         showroom_clear_rig(cars);
         showroom_use_disc_room(cars);
+        /* the save's wheel and wing were the room car's: the game's cars bring their own */
+        showroom_set_wheel(cars, NULL);
+        showroom_set_wing(cars, NULL);
         fprintf(stderr, "launcher: START, save slot %d active\n", gt4_save_active());
         showroom_set_width(cars, 640); /* hand the showroom back to the game */
         /* The studio drew in its own fill view; put the game's own authentic present back
@@ -3852,6 +3864,40 @@ int main(int argc, char **argv)
         if(!settings.current.desktop && mn) ui_pointer(menu_ui(mn),0,0,0);
 #endif
         while (plat_sdl_poll(&ev)) {
+#ifdef __SWITCH__
+            if (ev.pad || ev.key) {
+                if (mn)
+                    ui_touch_mode(menu_ui(mn), 0);
+                ui_touch_mode(dialog_ui, 0);
+                settings.touch_back.tap = (touch_dialog_state){0};
+            }
+#endif
+            if (ev.touch) {
+#ifdef __SWITCH__
+                /* Touch is activity too: use the same exit path as a pad press
+                   in the title attract cycle (0010BA28/0010BE20). */
+                if (settings.current.touch_menu && ev.touch == 1 && driving == 2 && theater == 2) {
+                    attract_cancel = 1;
+                    race_game_key(game, SDLK_ESCAPE);
+                    continue;
+                }
+                if (notice >= GT4_NOTICE_COUNT && driving != 2 && !race_loading &&
+                    !loading_screen_active())
+                    desktop_menu_event(mn, &ev);
+                else {
+                    menu_touch(mn, 0, 4, 0, 0, 0);
+                    if (driving == 2 && settings.current.touch_menu && race_game_is_paused(game)) {
+                        int back = 0;
+                        touch_back_input(dialog_ui, 1, game, -1, &ev, &settings.touch_back, &back);
+                        if (ev.touch == 1)
+                            ui_touch_mode(dialog_ui, 1);
+                        if (back)
+                            race_game_pause_back(game);
+                    }
+                }
+#endif
+                continue;
+            }
             if (ev.mouse && ev.mouse_absolute) {
 #ifndef __SWITCH__
                 if(driving==2 && settings.current.desktop) {
@@ -5199,6 +5245,9 @@ int main(int argc, char **argv)
                            (float)((448 - im->height) >> 1), (float)im->width, (float)im->height, 0,
                            0, 1, 1, tint);
         } else if (mn && page_below_popup(mn, "CarRoot")) {
+            /* Arcade's cars are stock: no wheel or wing left by a GT Mode car or the launcher */
+            showroom_set_wheel(cars, NULL);
+            showroom_set_wing(cars, NULL);
             car_ready = showroom_draw(cars, menu_selected_car(mn), (float)elapsed);
             if (!color_preview)
                 showroom_set_color(cars, menu_car_color(mn)); /* the script's colour chips */
@@ -5221,6 +5270,13 @@ int main(int argc, char **argv)
         }
         if (driving == 2)
             race_game_draw_hud(game, elapsed);
+#ifdef __SWITCH__
+        if (driving == 2 && settings.current.touch_menu && race_game_is_paused(game)) {
+            plat_video_set_view(640, 480);
+            ui_draw_touch_back(dialog_ui, ui_touch_active(dialog_ui),
+                               settings.touch_back.tap.selected != NULL, (float)elapsed);
+        }
+#endif
         int drawn = 0, skipped = 0;
         movie.seen = movie.drawn = 0;
         if (p && !race_active && driving != 2 && !notice_active) {

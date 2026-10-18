@@ -130,6 +130,9 @@ static int career_race_result(race_game *game, menu *career, menu *quick)
         fprintf(stderr, "licence attempt %s: state %d time %u best %u\n", career_license.code,
                 state, elapsed, career_license.best_time);
         career_license.result_applied = 1;
+        /* quick-license.ad SaveGhost: offered once a passed attempt is the ghost */
+        race_game_keep_licence_ghost(game);
+        menu_set_quick_ghost(race_game_has_ghost(game));
         return 1;
     }
     if (!career_race.active || career_race.result_applied || race_game_replaying(game))

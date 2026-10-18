@@ -1,5 +1,41 @@
 # Nintendo Switch
 
+## Private test package and Windows USB helper (2026-10-17)
+
+`tools/package_switch.py VERSION --nro TESTED_NRO --out NEW_DIRECTORY`
+creates a local ZIP; it never publishes or downloads anything. The package
+contains one NRO at `switch/moonengine/moonengine.nro`, Portuguese instructions,
+license notices, a source snapshot and a binary hash manifest. No ISO, saves,
+configuration copied from a player, keys or console firmware are included.
+Use an explicitly archived, hardware-tested NRO rather than silently rebuilding
+unrelated development changes. The source snapshot is the current tracked
+working tree and its commit is recorded separately from binary identity.
+
+`Instalar no Switch.cmd` starts Windows PowerShell in STA mode and runs the
+included `switch_install.ps1` and `switch_transfer.cs`. The player selects
+their own supported NTSC-U v2.00 ISO, then connects DBI's MTP responder.
+Only `1: SD Card` is considered; NAND/install endpoints are never selected.
+The helper copies through the Windows Shell's synchronous `IFileOperation`
+API, with native progress/cancellation, rather than assuming asynchronous
+`Folder.CopyHere` has completed. The installed NRO is read back and hashed.
+ISO input is checked against the locally recorded supported-disc SHA-1;
+the completed destination is checked for expected size, not read back in full.
+This single-file workflow requires a card accepting files larger than 4 GiB.
+
+The destination follows startup precedence: existing `moonengine`, otherwise
+existing `opengt4`, otherwise a new `moonengine` directory. Saves stay in place.
+Before replacing an NRO/config, backups go to `moonengine-backups` with disabled
+extensions. The selected ISO path is updated; other configuration fields remain.
+No global execution-policy setting, launcher, firmware or console-key changes
+are made. Extract the entire ZIP before running the helper.
+
+Package-content/invalid-input tests run with
+`python tests/tools/test_switch_package.py`. The Shell adapter's local file
+copy/rename, hash, invalid-path and save/config-preservation fixture runs with
+`powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File tools/switch_install.ps1 -SelfTest`.
+These checks passed; real USB/MTP installation remains unvalidated. The package
+marks that limit in its README and manifest. Manual SD copying remains available.
+
 MoonEngine runs as a native ARM64 homebrew application. The user has reached
 menus and races on hardware; native deko3d improves performance but has reported
 material defects under investigation. Cross builds and host checks alone do
@@ -1679,3 +1715,18 @@ capture confirms the line is gone: at y=500, columns 1278/1279 now read pavement
 The safe bucket-coalescing trial gained only about 0.28 FPS in the slow window
 and was removed as inconclusive. The accepted indexed geometry remains;
 constant 60 FPS is still unproved.
+
+### Desktop setup isolation (2026-10-17)
+
+The desktop first-run wizard and its renderer API selection are excluded from
+Switch compilation. Switch continues reading its SD configuration directly;
+this does not introduce the desktop launcher on the console. Native Release
+and Windows Release builds verify the platform guards. This build correction
+is separate from the texture-allocation crash investigation during race entry.
+
+### Main menu exit entry (2026-10-17)
+
+The Switch build omits the host-added Exit Game entry from the Arcade main
+menu. New Career remains present and desktop builds retain Exit Game. This is
+an explicit console UI adaptation requested by the user; system HOME remains
+available. Native Release compilation checks the console branch.

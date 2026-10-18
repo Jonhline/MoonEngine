@@ -72,6 +72,8 @@ const gt4_course_gadgets *gt4_race_run_objects(const gt4_race_run *run);
    (the race records the player's commands itself; func_003F5B80) */
 #define GT4_GHOST_CAR 0x10a0
 int gt4_race_run_ghost_on(const gt4_race_run *r);
+/* the simulation frames run so far (read only) */
+unsigned gt4_race_run_frames(const gt4_race_run *r);
 /* The ghost's best lap (the best-lap replay a Time Trial saves): the
    player's car at the lap's start, the start event's remaining thirds and
    step fraction, the lap's time (the HUD's best lap's unit) and its

@@ -34,7 +34,7 @@ args = [str(a.exe.resolve()), str(a.disc.resolve()), "gtmode", "LicenseRoot",
 if a.case != "pregrid":
     quick = "accept"
     if a.case in ["next", "leave"]:
-        quick += "," + ",".join(["right"] * (7 if a.case == "next" else 8)) + ",accept"
+        quick += "," + ",".join(["right"] * (8 if a.case == "next" else 9)) + ",accept"  # SaveGhost shows after a pass (quick-license.ad canSaveGhost)
     args += ["--quick-input", quick]
 if a.case in ["exit", "next", "leave"]:
     env["MOON_LICENSE_RESULT_KEYS"] = "8:40,9:13"
