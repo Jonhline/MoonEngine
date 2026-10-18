@@ -23,6 +23,7 @@
 #endif
 #include "miniz.h"
 #include "plat_sdl.h"
+#include "platform/platform.h"
 /* The project's vendored stb_image is JPEG-only and stdio-less (see
    jpeg_storage.c), so the launcher compiles its own PNG reader into this unit.
    STB_IMAGE_STATIC keeps it private: no symbol clash with that copy. */
@@ -831,11 +832,14 @@ int launcher_ui_run(launcher_startup *startup)
     }
     announce_page(&u);
     if(SDL_Init(SDL_INIT_VIDEO)!=0){fprintf(stderr,"launcher: SDL_Init failed: %s\n",SDL_GetError());return -1;}
-    /* The captain sizes this window: resizable, never smaller than the dock needs,
-       and F11 toggles fullscreen. */
-    u.window=SDL_CreateWindow("MOON ENGINE",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,UI_W,UI_H,
-                              SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE|SDL_WINDOW_ALLOW_HIGHDPI);
+    /* One window for the whole app: the engine's own accessor creates it here
+       and hands the same window back at START, so Android never sees a second
+       one. The captain sizes this window: resizable, never smaller than the
+       dock needs, and F11 toggles fullscreen. */
+    plat_video_desc window_desc={UI_W,UI_H,0,0,0,0};
+    u.window=plat_video_acquire_window(&window_desc);
     if(!u.window){fprintf(stderr,"launcher: no window: %s\n",SDL_GetError());SDL_Quit();return -1;}
+    SDL_SetWindowTitle(u.window,"MOON ENGINE");
     SDL_SetWindowMinimumSize(u.window,900,560);
     SDL_GetWindowSize(u.window,&u.w,&u.h);
     u.ren=SDL_CreateRenderer(u.window,-1,SDL_RENDERER_ACCELERATED);
@@ -915,8 +919,13 @@ int launcher_ui_run(launcher_startup *startup)
         }
     }
     if(u.background)SDL_DestroyTexture(u.background);
-    SDL_DestroyRenderer(u.ren);SDL_DestroyWindow(u.window);
+    SDL_DestroyRenderer(u.ren);
+    /* START hands the window to the engine: same SDL_Window, not a new one.
+       Cancelling or EXIT ends the app, so it may close the window for real. */
+    if(u.result!=1){
+        SDL_DestroyWindow(u.window);
+        SDL_Quit();
+    }
     lt_close(u.face_body);lt_close(u.face_head);
-    SDL_Quit();
     return u.result;
 }

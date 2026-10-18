@@ -59,6 +59,12 @@ typedef struct {
 } plat_video_desc;
 
 int plat_video_init(const plat_video_desc *desc);
+/* One window for the whole app. The launcher and the engine both ask for it;
+   the first request creates it and every later one returns the same window.
+   Android allows exactly one, so nothing else may create a window. */
+struct SDL_Window;
+struct SDL_Window *plat_video_window(void);
+struct SDL_Window *plat_video_acquire_window(const plat_video_desc *desc);
 void plat_video_begin_frame(void);
 void plat_video_end_frame(void);
 void plat_video_shutdown(void);

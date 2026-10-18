@@ -249,6 +249,14 @@ SDL_Window *plat_sdl_window(void)
 {
     return nullptr;
 }
+SDL_Window *plat_video_window(void)
+{
+    return nullptr;
+}
+SDL_Window *plat_video_acquire_window(const plat_video_desc *)
+{
+    return nullptr;
+}
 int plat_video_init(const plat_video_desc *)
 {
     std::fprintf(stderr, "Switch deko3d init: SDL\n");

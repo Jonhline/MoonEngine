@@ -293,18 +293,93 @@ static int ensure_framebuffer(void)
     return 1;
 }
 
+static int window_backend(const plat_video_desc *d)
+{
+#ifdef MOON_PC_VULKAN
+    int backend = d->backend;
+    const char *override = getenv("MOON_GRAPHICS_API");
+    if (override && !strcmp(override, "vulkan"))
+        backend = 1;
+    else if (override && !strcmp(override, "opengl"))
+        backend = 0;
+    return backend;
+#else
+    (void)d;
+    return 0;
+#endif
+}
+static Uint32 window_flags(const plat_video_desc *d, int backend)
+{
+    Uint32 flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
+#ifdef MOON_PC_VULKAN
+    flags |= backend ? SDL_WINDOW_VULKAN : SDL_WINDOW_OPENGL;
+#else
+    (void)backend;
+    flags |= SDL_WINDOW_OPENGL;
+#endif
+    if (d->fullscreen)
+        flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
+    if (getenv("MOON_WINDOW_HIDDEN"))
+        flags |= SDL_WINDOW_HIDDEN;
+    return flags;
+}
+
+SDL_Window *plat_video_window(void)
+{
+    return window;
+}
+
+/* SDL keeps this internal, but a static desktop SDL exports it. Android's
+   shared libSDL2 does not, so the call below is desktop-only. */
+#ifndef __ANDROID__
+extern int SDL_RecreateWindow(SDL_Window *window, Uint32 flags);
+#endif
+
+/* The single owner of the app's window. The launcher asks first; the engine
+   asks at handover and gets the same SDL_Window back. Reusing it is the whole
+   point: Android refuses a second window, and START must not make one. */
+SDL_Window *plat_video_acquire_window(const plat_video_desc *d)
+{
+    int backend = window_backend(d);
+    Uint32 flags = window_flags(d, backend);
+    if (window) {
+#ifndef __ANDROID__
+        /* A different graphics API is the one thing a native window cannot
+           change in place. SDL rebuilds the handle while keeping this same
+           SDL_Window pointer; no second window is ever added. */
+        if ((SDL_GetWindowFlags(window) & SDL_WINDOW_VULKAN) != (flags & SDL_WINDOW_VULKAN)) {
+            if (SDL_RecreateWindow(window, flags) != 0)
+                return NULL;
+        }
+#endif
+        SDL_SetWindowTitle(window, "Moon Engine");
+        if (!d->fullscreen && d->width > 0 && d->height > 0) {
+            int w = 0, h = 0;
+            SDL_GetWindowSize(window, &w, &h);
+            if (w != d->width || h != d->height)
+                SDL_SetWindowSize(window, d->width, d->height);
+        }
+        if (!(SDL_GetWindowFlags(window) & SDL_WINDOW_HIDDEN))
+            SDL_ShowWindow(window);
+        SDL_SetWindowFullscreen(window, d->fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+        return window;
+    }
+    int window_x = SDL_WINDOWPOS_CENTERED, window_y = SDL_WINDOWPOS_CENTERED;
+    const char *capture_position = getenv("MOON_WINDOW_POSITION");
+    if (capture_position && sscanf(capture_position, "%d,%d", &window_x, &window_y) == 2)
+        SDL_SetHint(SDL_HINT_WINDOW_NO_ACTIVATION_WHEN_SHOWN, "1");
+    if (!SDL_WasInit(SDL_INIT_VIDEO) && SDL_InitSubSystem(SDL_INIT_VIDEO) != 0)
+        return NULL;
+    window = SDL_CreateWindow("Moon Engine", window_x, window_y, d->width, d->height, flags);
+    return window;
+}
+
 int plat_video_init(const plat_video_desc *d)
 {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) != 0)
         return -1;
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    /* P: optional placement for filming on the user's secondary monitor.
-       Ordinary launches retain SDL's centered window. */
-    int window_x = SDL_WINDOWPOS_CENTERED, window_y = SDL_WINDOWPOS_CENTERED;
-    const char *capture_position = getenv("MOON_WINDOW_POSITION");
-    if (capture_position && sscanf(capture_position, "%d,%d", &window_x, &window_y) == 2)
-        SDL_SetHint(SDL_HINT_WINDOW_NO_ACTIVATION_WHEN_SHOWN, "1");
     int window_width = d->width, window_height = d->height, fullscreen = d->fullscreen;
 #ifdef __SWITCH__
     /* devkitPro SDL resizes a resizable window when the operation mode changes.
@@ -314,28 +389,12 @@ int plat_video_init(const plat_video_desc *d)
     window_height = docked ? 1080 : 720;
     fullscreen = 0;
 #endif
-    /* Keep Switch packaging independent of the PC product rename. */
-#ifdef __SWITCH__
-    const char *product_title = "Moon Engine";
-#else
-    const char *product_title = "Moon Engine";
-#endif
-    Uint32 graphics_flags = SDL_WINDOW_OPENGL;
-    if (getenv("MOON_WINDOW_HIDDEN"))
-        graphics_flags |= SDL_WINDOW_HIDDEN;
-#ifdef MOON_PC_VULKAN
-    int backend = d->backend;
-    const char *override = getenv("MOON_GRAPHICS_API");
-    if (override && !strcmp(override, "vulkan"))
-        backend = 1;
-    else if (override && !strcmp(override, "opengl"))
-        backend = 0;
-    if (backend == 1)
-        graphics_flags = (graphics_flags & ~SDL_WINDOW_OPENGL) | SDL_WINDOW_VULKAN;
-#endif
-    window = SDL_CreateWindow(product_title, window_x, window_y, window_width, window_height,
-                              graphics_flags | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI |
-                                  (fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
+    plat_video_desc open = *d;
+    open.width = window_width;
+    open.height = window_height;
+    open.fullscreen = fullscreen;
+    int backend = window_backend(&open);
+    window = plat_video_acquire_window(&open);
     if (!window)
         return -1;
     /* 4.3 for the FSR shaders; 3.3 is enough for everything else */
