@@ -117,6 +117,28 @@ pattern files — a format that has a written parser pattern can be inspected by
    judgement — arriving at the same conclusions independently is a good sign for our route, not a reason to copy
    theirs.
 
+## Not to be confused with Courage Reborn — and the one design lesson that comes from the pair
+
+There are **two** Twilight Princess ports from the same decompilation. **Dusklight is the open one**
+(`TwilitRealm`, CC0-1.0, source in public, this study). **Courage Reborn** (`Linifadomra`, a smaller team) is
+**closed**: a private Discord, no public repository, no declared licence, with the stated plan to open it "once
+the project hits beta".
+
+They also answer *"how do you run the original 30 Hz game logic at a higher framerate?"* in **opposite** ways, and
+that is the lesson worth keeping:
+
+| | Dusklight | Courage Reborn |
+|---|---|---|
+| method | logic stays at the original **30 Hz**; the renderer **interpolates positions between ticks** | **delta time** — game logic steps at the render rate (60 fps = 60 ticks) |
+| what it buys | the original feel, tick-for-tick — but no gain in responsiveness (nothing new is simulated) | genuinely faster input response |
+| what it costs | visually smooth, but the game is still a 30 Hz game underneath | timing-sensitive behaviour and tricks change; the game is no longer the same simulation |
+
+**For GT4 this decides `G6.14`.** Our law is that the physics must *match*, not merely look right — so the
+interpolation route (Dusklight's) is the one that keeps the original tick intact and draws more often, while
+delta-time would quietly replace the simulation we spent the project proving. Note also that neither is
+"frame generation": no AI, no invented geometry, just where the logic clock sits relative to the render clock.
+
+
 ## Sources
 
 - `github.com/TwilitRealm/dusklight` — README, `docs/modding.md`, `docs/building.md`, `platforms/android/README.md`,
