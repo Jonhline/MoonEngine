@@ -2,9 +2,11 @@
     <uses-feature android:name="android.hardware.vulkan.level" android:version="1" android:required="true" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <application android:label="Moon Engine" android:theme="@style/MoonTheme" android:allowBackup="false" android:hasCode="true">
-        <activity android:name=".DiscActivity" android:exported="true" android:screenOrientation="sensorLandscape">
+        <!-- The engine is the front door: no arguments starts its own launcher. The
+             disc picker is started from native (same process) when the launcher asks. -->
+        <activity android:name=".GameActivity" android:exported="true" android:screenOrientation="sensorLandscape" android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode|density">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>
-        <activity android:name=".GameActivity" android:exported="false" android:screenOrientation="sensorLandscape" android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode|density" />
+        <activity android:name=".DiscActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
     </application>
 </manifest>

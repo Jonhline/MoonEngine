@@ -1,11 +1,64 @@
 #include "android_host.h"
 #include "android_state.h"
 #include "pad_config.h"
+#include "platform/platform.h"
 #include "video_gl.h"
 #include <SDL.h>
+#include <jni.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+/* Ask the Java document picker for the player's own disc. The launcher calls this from
+   SDL's main thread; the Activity lifecycle runs on Android's UI thread, so wait here
+   and let the picker finish. The descriptor stays in this process (same process as the
+   launcher and the game), and native reads it through /proc/self/fd/N exactly as
+   GameActivity's own startup does. */
+int plat_pick_disc(char *out, size_t cap)
+{
+    if (!out || !cap)
+        return 0;
+    out[0] = 0;
+    JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    if (!env || !activity)
+        return 0;
+    jclass cls = (*env)->GetObjectClass(env, activity);
+    jmethodID start = cls ? (*env)->GetMethodID(env, cls, "startDiscPicker", "()V") : NULL;
+    jmethodID result =
+        cls ? (*env)->GetMethodID(env, cls, "discPickerResult", "()Ljava/lang/String;") : NULL;
+    int picked = 0;
+    if (start && result) {
+        (*env)->CallVoidMethod(env, activity, start);
+        if ((*env)->ExceptionCheck(env))
+            (*env)->ExceptionClear(env);
+        else
+            /* null = still open; "" = cancelled; a path = chosen. */
+            for (unsigned waited = 0; waited < 600000u; waited += 50) {
+                jstring found = (jstring)(*env)->CallObjectMethod(env, activity, result);
+                if ((*env)->ExceptionCheck(env)) {
+                    (*env)->ExceptionClear(env);
+                    break;
+                }
+                if (found) {
+                    const char *path = (*env)->GetStringUTFChars(env, found, NULL);
+                    if (path) {
+                        if (path[0]) {
+                            snprintf(out, cap, "%s", path);
+                            picked = 1;
+                        }
+                        (*env)->ReleaseStringUTFChars(env, found, path);
+                    }
+                    (*env)->DeleteLocalRef(env, found);
+                    break;
+                }
+                SDL_Delay(50);
+            }
+    }
+    if (cls)
+        (*env)->DeleteLocalRef(env, cls);
+    (*env)->DeleteLocalRef(env, activity);
+    return picked;
+}
 void moon_android_init(void)
 {
     const char *dir = SDL_AndroidGetInternalStoragePath();

@@ -134,6 +134,12 @@ void plat_input_set_ffb(int index, float torque);
 int plat_input_is_wheel(int index);
 void plat_input_shutdown(void);
 
+/* ---- disc selection ---- */
+/* The platform's own way to ask the player for their disc image. Fills `out` with the
+   path the engine reads (Android: the SAF picker's /proc/self/fd/N in this process).
+   Returns 1 when a disc was chosen, 0 on cancel or when the platform has no picker. */
+int plat_pick_disc(char *out, size_t cap);
+
 /* ---- app lifecycle ---- */
 int plat_should_quit(void);
 /* Synchronous dialog (presented inside the game by the app). confirm=0: OK; confirm=1: Yes/No.

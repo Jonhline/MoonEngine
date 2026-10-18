@@ -1278,36 +1278,10 @@ static void wiz_text_center(const char *s, float cx, float y, float sc, const ui
     wiz_text(s, cx - wiz_text_width(s, sc) / 2.f, y, sc, col);
 }
 
-#ifdef _WIN32
-#include <commdlg.h>
 static int wiz_pick_disc(char *out, size_t size) /* the platform's own open dialog */
 {
-    wchar_t wfile[LAUNCHER_PATH] = {0};
-    OPENFILENAMEW o;
-    memset(&o, 0, sizeof o);
-    o.lStructSize = sizeof o;
-    o.hwndOwner = NULL;
-    o.lpstrFilter = L"PlayStation 2 disc image (*.iso)\0*.iso\0All files\0*.*\0";
-    o.lpstrFile = wfile;
-    o.nMaxFile = LAUNCHER_PATH;
-    o.lpstrTitle = L"MOON ENGINE - Select game disc";
-    o.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-    if (!GetOpenFileNameW(&o))
-        return 0;
-    return WideCharToMultiByte(CP_UTF8, 0, wfile, -1, out, (int)size, NULL, NULL) > 0;
+    return plat_pick_disc(out, size);
 }
-#else
-static int wiz_pick_disc(char *out, size_t size)
-{
-    /* The native picker is Windows-only; other systems take the disc on the CLI (the dev path). */
-    const char *env = getenv("MOONSTUDIO_ISO");
-    if (env && *env) {
-        snprintf(out, size, "%s", env);
-        return 1;
-    }
-    return 0;
-}
-#endif
 static int wiz_valid(const char *path, char *msg, size_t n)
 {
     if (!path || !path[0]) {
@@ -3149,8 +3123,8 @@ int main(int argc, char **argv)
 {
 #ifdef __ANDROID__
     moon_android_init();
-    if (argc < 2)
-        return 1;
+    /* No arguments is the launcher's own first-run wizard / studio room, exactly as on
+       desktop. GameActivity passes the disc arguments only when a saved document exists. */
 #endif
     ensure_user_folders();
 #ifndef __SWITCH__
@@ -3161,7 +3135,7 @@ int main(int argc, char **argv)
     }
 #endif
     adopt_saves_from_old_names();
-#ifndef __SWITCH__
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
     /* The launcher's preparation step: make sure the movie decoder is present
        (user folder, then adopted from beside the exe, then downloaded) before
        the game proper starts. Invisible when it is already there. */
@@ -3172,6 +3146,8 @@ int main(int argc, char **argv)
     if (prepared <= 0)
         return prepared < 0 ? 1 : 0;
     int front_end = (prepared == 2); /* no-argument launch: the studio front-end */
+    fprintf(stderr, "launcher: %s (arguments %d)\n",
+            front_end ? "studio front-end" : "game", argc); /* the Android no-arg proof */
     const char *front_disc = startup.preferences.disc;
     const char *front_shot = getenv("MOONSTUDIO_FRONT_SHOT"); /* dev: capture the room headless */
     wiz_shot_prefix = getenv("MOONSTUDIO_SETUP_SHOT");        /* dev: capture the wizard headless */

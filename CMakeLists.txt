@@ -255,6 +255,11 @@ add_library(moon_platform_sdl STATIC src/platform/sdl/plat_sdl.c src/platform/sd
   src/platform/sdl/screen_setting.c
   src/platform/sdl/car_model.c src/platform/sdl/race_view.c src/platform/sdl/race_lights.c src/platform/sdl/license_scene.c)
 target_include_directories(moon_platform_sdl PUBLIC include src/platform/sdl src/core)
+# Android's picker lives in android_host.c (it needs the Activity); the other
+# backends keep their own native dialog here.
+if(NOT ANDROID)
+  target_sources(moon_platform_sdl PRIVATE src/platform/sdl/plat_pick_disc.c)
+endif()
 target_link_libraries(moon_platform_sdl PUBLIC SDL2::SDL2-static moon_physics)
 if(WIN32)
   target_link_libraries(moon_platform_sdl PUBLIC opengl32)   # GL 1.1 entry points

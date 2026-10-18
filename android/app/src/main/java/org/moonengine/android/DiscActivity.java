@@ -19,6 +19,21 @@ public final class DiscActivity extends Activity {
     private static final int DISC = 1;
     private TextView message;
     static ParcelFileDescriptor disc;
+    // The engine's launcher drives this activity from native. The picker runs in this
+    // process, so the chosen descriptor is handed back as a /proc/self/fd path.
+    private static volatile boolean pickerMode, pickerDone;
+    private static volatile String pickerPath;
+
+    static void startPicker(Activity host) {
+        pickerMode = true;
+        pickerDone = false;
+        pickerPath = null;
+        host.runOnUiThread(() -> host.startActivity(new Intent(host, DiscActivity.class)));
+    }
+    static String pickerResult() {
+        if (!pickerDone) return null;           // still open
+        return pickerPath != null ? pickerPath : ""; // "" = cancelled
+    }
 
     @Override protected void onResume() {
         super.onResume();
@@ -48,8 +63,17 @@ public final class DiscActivity extends Activity {
             startActivityForResult(intent, DISC);
         });
         layout.addView(choose); setContentView(layout);
+        if (pickerMode) return; // the launcher asked for a disc: always show CHOOSE
         String saved = getSharedPreferences("startup", MODE_PRIVATE).getString("discUri", null);
         if (saved != null) open(Uri.parse(saved));
+    }
+    @Override protected void onDestroy() {
+        // A cancel (Back) finishes without a result; a rotation recreate (not finishing) does not.
+        if (pickerMode && !pickerDone && isFinishing()) {
+            pickerPath = null;
+            pickerDone = true;
+        }
+        super.onDestroy();
     }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
@@ -71,6 +95,12 @@ public final class DiscActivity extends Activity {
             if (disc != null) disc.close();
             disc = selected;
             getSharedPreferences("startup", MODE_PRIVATE).edit().putString("discUri", uri.toString()).apply();
+            if (pickerMode) {
+                pickerPath = "/proc/self/fd/" + selected.getFd();
+                pickerDone = true;
+                finish(); // native reads pickerResult(); the descriptor stays in this process
+                return;
+            }
             startActivity(new Intent(this, GameActivity.class));
             finish();
         } catch (Exception error) {
