@@ -1646,6 +1646,27 @@ ultimate racing sim"* — is registered there: the logger, the race engineer, an
   taken. The same hook gets a desktop key (F3) so the feature is testable without a phone; that key is the
   captain's to veto.
 - **STATUS:** ⬜ registered, **not scheduled.** (Field list and the volume-button chord researched 2026-10-18.)
+- **Memory, CPU and GPU — asked 2026-10-18, and the honest answer differs per reading:**
+  - **Memory: yes.** Process RSS is one call per OS — `/proc/self/statm` on Linux *and* Android, `GetProcessMemoryInfo`
+    on Windows — and total system RAM is already available (`SDL_GetSystemRAM()`). *VRAM only where it exists:*
+    Vulkan's `VK_EXT_memory_budget` (`VkPhysicalDeviceMemoryBudgetPropertiesEXT`) reports heap usage/budget when
+    the driver supports it; where it does not, the overlay prints `n/a` rather than a zero. Android can add PSS
+    and Java heap through `ActivityManager` if the RSS line is not enough.
+  - **CPU: yes, per process.** `/proc/self/stat` (utime+stime deltas) on Linux/Android, `GetProcessTimes` on
+    Windows → percent of one core, plus a system-wide figure from `/proc/stat` on Linux/Android. Per-thread and
+    Windows system-wide would need PDH counters — deliberately out of stage 1.
+  - **GPU: no portable API exists, so the overlay gives the two readings that are actually useful.** (1) **Our own
+    GPU frame time** from Vulkan timestamp queries (`vkCmdWriteTimestamp`) — portable to all three platforms and
+    the number that says *GPU-bound or CPU-bound*, which is what a slow frame needs explained. (2) **Vendor load,
+    best effort and labelled as such:** Adreno `/sys/class/kgsl/kgsl-3d0/gpubusy` (readable unrooted on many
+    Qualcomm devices), Mali's `/sys/kernel/gpu/gpu_busy` or the kbase `utilisation` node where the kernel exposes
+    one, Linux NVIDIA via NVML and AMD via `/sys/class/drm/card*/device/gpu_busy_percent`, Windows via the PDH
+    `\GPU Engine(*)\Utilization Percentage` counters. Where none of those exist the line reads `n/a` — **never a
+    fabricated 0 %.**
+  - **New platform hooks this needs:** `plat_process_memory()` and `plat_process_cpu()` beside the existing
+    `plat_time_ns()` / `plat_disk_free()` in `include/platform/platform.h`, each implemented per OS in the
+    existing pattern. Drawing needs nothing new — `plat_draw_solid_quad`/`plat_draw_glyph` are already there.
+
 
 ### 🆕 G6.41 — **THE MOVIES WITHOUT THE SPARE PROGRAM** *(kill the 161 MB ffmpeg.exe, the captain's ask, 2026-10-18)*
 
