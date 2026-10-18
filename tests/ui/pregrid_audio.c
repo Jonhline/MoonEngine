@@ -33,6 +33,12 @@ void plat_audio_release_music(void *user)
         stops++;
     }
 }
+int plat_audio_music_owned(void *user)
+{
+    /* the same question the SDL backend answers (plat_sdl.c): is this stream
+       still the one the music output is playing? */
+    return callback != NULL && owner == user;
+}
 static void foreign(int16_t *out, int frames, void *user)
 {
     (void)out;
