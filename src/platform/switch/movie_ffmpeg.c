@@ -1,4 +1,4 @@
-/* Switch movie backend: bounded RGBA queue, in-process FFmpeg and the existing
+/* Linked libav movie backend (Switch, Linux, Windows, Android): bounded RGBA queue, in-process FFmpeg and the existing
    frontend music mixer. Only the render thread touches GPU textures. */
 #include "movie.h"
 #include "movie_decode.h"
@@ -53,7 +53,7 @@ static void start_audio(sdl_movie *m)
         return;
     m->audio_attempted = 1;
     m->audio_playing = plat_audio_set_music(movie_audio_render, m) == 0;
-    fprintf(stderr, "Switch movie: music output=%s\n",
+    fprintf(stderr, "movie: linked libav music output=%s\n",
             m->audio_playing ? "playing" : "unavailable");
 }
 static uint64_t playback_ns(sdl_movie *m)
@@ -85,7 +85,7 @@ static int decode(void *user)
         uint64_t elapsed = plat_time_ns() - before;
         if (result <= 0) {
             if (result < 0)
-                fprintf(stderr, "Switch movie: decoder ended with error %d\n", result);
+                fprintf(stderr, "movie: linked libav decoder ended with error %d\n", result);
             break;
         }
         m->decode_ns += elapsed;
@@ -152,7 +152,7 @@ void sdl_movie_close(sdl_movie *m)
     for (unsigned i = 0; i < MOVIE_QUEUE; i++)
         free(m->frames[i]);
     if (m->decoded)
-        fprintf(stderr, "Switch movie: decoded=%llu mean_ms=%.3f max_ms=%.3f\n",
+        fprintf(stderr, "movie: linked libav decoded=%llu mean_ms=%.3f max_ms=%.3f\n",
                 (unsigned long long)m->decoded, (double)m->decode_ns / m->decoded / 1e6,
                 (double)m->decode_max / 1e6);
     free(m->data);
@@ -179,10 +179,10 @@ static sdl_movie *open_owned(uint8_t *data, size_t size, int interlace, int repe
         goto fail;
     if (audio_track > 0 && !repeat) {
         if (gt4_pss_audio(data, size, (unsigned)audio_track, &m->pcm, &m->audio_frames))
-            fprintf(stderr, "Switch movie: audio track=%d frames=%zu stereo=48000\n", audio_track,
+            fprintf(stderr, "movie: linked libav audio track=%d frames=%zu stereo=48000\n", audio_track,
                     m->audio_frames);
         else
-            fprintf(stderr, "Switch movie: unsupported/missing audio track=%d\n", audio_track);
+            fprintf(stderr, "movie: linked libav unsupported/missing audio track=%d\n", audio_track);
     }
     m->lock = SDL_CreateMutex();
     m->ready = SDL_CreateCond();
@@ -199,11 +199,11 @@ static sdl_movie *open_owned(uint8_t *data, size_t size, int interlace, int repe
     m->thread = SDL_CreateThread(decode, "native MPEG-2 movie", m);
     if (!m->thread)
         goto fail;
-    fprintf(stderr, "Switch movie: in-process decoder ready, fields=%d repeat=%d\n", interlace != 0,
-            repeat != 0);
+    fprintf(stderr, "movie: linked libav decoder ready (in-process), fields=%d repeat=%d\n",
+            interlace != 0, repeat != 0);
     return m;
 fail:
-    fprintf(stderr, "Switch movie: cannot initialize in-process decoder\n");
+    fprintf(stderr, "movie: linked libav decoder failed to initialize\n");
     sdl_movie_close(m);
     return NULL;
 }
@@ -286,13 +286,13 @@ uint8_t *sdl_movie_ipic_decode(const uint8_t *stream, size_t size, unsigned coun
         while (copied < count) {
             int result = gt4_movie_decoder_read(decoder, pixels + (size_t)copied * GT4_MOVIE_BYTES);
             if (result != 1) {
-                fprintf(stderr, "Switch IPU: picture=%u/%u decode=%d\n", copied, count, result);
+                fprintf(stderr, "movie: linked libav IPU: picture=%u/%u decode=%d\n", copied, count, result);
                 break;
             }
             copied++;
         }
     else
-        fprintf(stderr, "Switch IPU: decoder=%s allocation=%s\n", decoder ? "ready" : "failed",
+        fprintf(stderr, "movie: linked libav IPU: decoder=%s allocation=%s\n", decoder ? "ready" : "failed",
                 pixels ? "ready" : "failed");
     gt4_movie_decoder_close(decoder);
     fesetenv(&saved);

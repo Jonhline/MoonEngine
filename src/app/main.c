@@ -49,7 +49,6 @@
 #endif
 #include "desktop_input.h"
 #include "launcher.h"
-#include "prepare_ffmpeg.h"
 #include "../platform/common/moon_dirent.h"
 #include "font_layout.h"
 #include "launcher_update.h"
@@ -3159,12 +3158,6 @@ int main(int argc, char **argv)
     }
 #endif
     adopt_saves_from_old_names();
-#if !defined(__SWITCH__) && !defined(__ANDROID__)
-    /* The launcher's preparation step: make sure the movie decoder is present
-       (user folder, then adopted from beside the exe, then downloaded) before
-       the game proper starts. Invisible when it is already there. */
-    launcher_prepare_ffmpeg();
-#endif
     launcher_startup startup = {0};
     int prepared = launcher_bootstrap(&argc, &argv, &startup);
     if (prepared <= 0)

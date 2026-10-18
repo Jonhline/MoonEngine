@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <wchar.h>
-#if defined(_WIN32) && !defined(MOON_SWITCH_MOVIES)
+#if !defined(MOON_LINKED_MOVIES) && defined(_WIN32)
 #include <windows.h>
 #define FRAME_BYTES (640 * 448 * 4)
 #define QUEUE 6
@@ -421,7 +421,7 @@ int sdl_movie_draw(sdl_movie *m, float x, float y, float w, float h, float opaci
     plat_draw_quad(m->texture, x, y, w, h, 0, 0, 1, 1, tint);
     return 1;
 }
-#elif !defined(MOON_SWITCH_MOVIES)
+#elif !defined(MOON_LINKED_MOVIES) && !defined(MOON_SWITCH_MOVIES)
 uint8_t *sdl_movie_ipic_decode(const uint8_t *stream, size_t size, unsigned count)
 {
     (void)stream;

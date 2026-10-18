@@ -119,6 +119,8 @@ gt4_movie_decoder *gt4_movie_decoder_open(const uint8_t *data, size_t size, int 
     d->codec->thread_count = 1;
     if (avcodec_open2(d->codec, codec, NULL) < 0)
         goto fail;
+    fprintf(stderr, "movie: linked libav %s decoder %s (in-process, no child process)\n",
+            d->ipu ? "IPU" : "MPEG-2", codec->name);
     d->packet = av_packet_alloc();
     d->frame = av_frame_alloc();
     d->output = av_frame_alloc();
@@ -127,7 +129,7 @@ gt4_movie_decoder *gt4_movie_decoder_open(const uint8_t *data, size_t size, int 
     return d;
 fail:
     if (d->ipu)
-        fprintf(stderr, "Switch IPU: open failed at %s\n", stage);
+        fprintf(stderr, "movie: linked libav IPU: open failed at %s\n", stage);
     gt4_movie_decoder_close(d);
     return NULL;
 }

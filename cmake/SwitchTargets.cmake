@@ -4,7 +4,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(SWITCH_FFMPEG REQUIRED IMPORTED_TARGET libavfilter libavformat libavcodec libavutil)
 target_sources(moon_platform_sdl PRIVATE src/platform/switch/movie_ffmpeg.c src/platform/switch/movie_decode.c)
 target_link_libraries(moon_platform_sdl PUBLIC PkgConfig::SWITCH_FFMPEG)
-target_compile_definitions(moon_platform_sdl PUBLIC MOON_SWITCH_MOVIES=1)
+target_compile_definitions(moon_platform_sdl PUBLIC MOON_SWITCH_MOVIES=1 MOON_LINKED_MOVIES=1)
 
 if(MOON_SWITCH_RENDERER STREQUAL "deko3d")
   include(cmake/SwitchDeko.cmake)

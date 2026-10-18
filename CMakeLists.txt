@@ -279,6 +279,68 @@ find_program(MOON_FFMPEG NAMES ffmpeg DOC "FFmpeg executable for menu MPEG-2 pla
 if(MOON_FFMPEG AND NOT MOON_WINDOWS_GUI)
   target_compile_definitions(moon_platform_sdl PRIVATE MOON_FFMPEG="${MOON_FFMPEG}")
 endif()
+# ---- In-process movie decoding (G6.41) ----
+# tools/build_libav.sh builds one pinned FFmpeg feature set for the host, Windows
+# and Android arm64. When those archives are present they are linked straight into
+# the binary: no side DLL, no download, no child process. Switch keeps its own
+# pkg-config route in cmake/SwitchTargets.cmake and defines MOON_LINKED_MOVIES too.
+set(MOON_LIBAV_TARGET "")
+if(ANDROID)
+  if(CMAKE_ANDROID_ARCH_ABI STREQUAL "arm64-v8a")
+    set(MOON_LIBAV_TARGET android-arm64)
+  endif()
+elseif(WIN32)
+  set(MOON_LIBAV_TARGET windows)
+elseif(UNIX AND NOT APPLE)
+  set(MOON_LIBAV_TARGET linux)
+endif()
+set(MOON_LIBAV_FOUND OFF)
+if(MOON_LIBAV_TARGET)
+  set(MOON_LIBAV_DIR "${CMAKE_SOURCE_DIR}/build/libav/${MOON_LIBAV_TARGET}")
+  set(MOON_LIBAV_ARCHIVES
+    "${MOON_LIBAV_DIR}/lib/libavfilter.a"
+    "${MOON_LIBAV_DIR}/lib/libavformat.a"
+    "${MOON_LIBAV_DIR}/lib/libavcodec.a"
+    "${MOON_LIBAV_DIR}/lib/libswscale.a"
+    "${MOON_LIBAV_DIR}/lib/libavutil.a")
+  set(MOON_LIBAV_FOUND ON)
+  foreach(archive IN LISTS MOON_LIBAV_ARCHIVES)
+    if(NOT EXISTS "${archive}")
+      set(MOON_LIBAV_FOUND OFF)
+    endif()
+  endforeach()
+endif()
+option(MOON_LINKED_MOVIES "Link libav into the binary (tools/build_libav.sh)"
+  ${MOON_LIBAV_FOUND})
+if(MOON_LINKED_MOVIES)
+  if(NOT MOON_LIBAV_FOUND)
+    message(FATAL_ERROR
+      "MOON_LINKED_MOVIES=ON but the ${MOON_LIBAV_TARGET} archives are missing; "
+      "run tools/build_libav.sh first (or configure with -DMOON_LINKED_MOVIES=OFF).")
+  endif()
+  target_sources(moon_platform_sdl PRIVATE
+    src/platform/switch/movie_ffmpeg.c src/platform/switch/movie_decode.c)
+  target_include_directories(moon_platform_sdl PRIVATE
+    "${MOON_LIBAV_DIR}/../ffmpeg-src" "${MOON_LIBAV_DIR}/build")
+  target_compile_definitions(moon_platform_sdl PUBLIC MOON_LINKED_MOVIES=1)
+  if(MSVC)
+    target_link_libraries(moon_platform_sdl PUBLIC ${MOON_LIBAV_ARCHIVES})
+  else()
+    target_link_libraries(moon_platform_sdl PUBLIC
+      -Wl,--start-group ${MOON_LIBAV_ARCHIVES} -Wl,--end-group)
+  endif()
+  if(ANDROID)
+    target_link_libraries(moon_platform_sdl PUBLIC z)
+  endif()
+  if(WIN32)
+    target_link_libraries(moon_platform_sdl PUBLIC bcrypt) # libavutil random_seed
+  endif()
+  message(STATUS "Movies: in-process libav from ${MOON_LIBAV_DIR}/lib")
+else()
+  if(NOT NINTENDO_SWITCH)
+    message(STATUS "Movies: external ffmpeg (linked libav not found)")
+  endif()
+endif()
 # The race's per-car sound (func_003B5E80/00392640) on the native race's state.
 add_library(moon_race_sound STATIC src/core/race_car_sound.c src/core/sound_driver.c)
 target_link_libraries(moon_race_sound PUBLIC moon_physics ${MOON_CORE_STACK})
@@ -291,6 +353,9 @@ if(NINTENDO_SWITCH)
   set(MOON_LAUNCHER_SOURCES src/app/switch_startup.c src/app/switch_fpu.c src/app/launcher_config.c)
 else()
   set(MOON_LAUNCHER_SOURCES src/app/launcher.c src/app/launcher_ui.c src/app/launcher_text.c src/app/launcher_config.c src/app/launcher_photos.c src/app/launcher_icons.c src/app/launcher_gallery.c src/app/launcher_audio.c src/app/prepare_ffmpeg.c)
+  if(MOON_LINKED_MOVIES)
+    list(REMOVE_ITEM MOON_LAUNCHER_SOURCES src/app/prepare_ffmpeg.c)
+  endif()
 endif()
 if(ANDROID)
   add_library(moonengine SHARED)
