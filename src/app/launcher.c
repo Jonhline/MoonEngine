@@ -5,6 +5,7 @@
    docs/vulcan4/LAUNCHER.md and LAUNCHER-V2.md). */
 #include "launcher.h"
 #include "launcher_ui.h"
+#include "moon_pref.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,7 +31,7 @@ int launcher_bootstrap(int *argc,char ***argv,launcher_startup *start)
         else if(arg[0]!='-' && !disc)disc=arg;else return -1;
     }
     if(file && strlen(file)>=LAUNCHER_PATH-32)return -1;
-    char *pref=SDL_GetPrefPath("MoonEngine","MoonEngine");if(!pref)return -1;
+    char *pref=moon_pref_path();if(!pref)return -1;
     char config[LAUNCHER_PATH];snprintf(config,sizeof config,"%slauncher.ini",pref);
     launcher_preferences_load(&start->preferences,file?file:config);
     snprintf(start->video_file,sizeof start->video_file,file?"%s.video.ini":"%svideo.ini",file?file:pref);

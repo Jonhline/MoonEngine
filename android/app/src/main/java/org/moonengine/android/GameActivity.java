@@ -1,9 +1,19 @@
 package org.moonengine.android;
 
+import android.database.Cursor;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.content.ContentUris;
+import android.content.ContentValues;
 import android.content.pm.ActivityInfo;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.view.KeyEvent;
 import android.view.WindowManager;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.OutputStream;
 import org.libsdl.app.SDLActivity;
 
 /** SDL owns native input, audio and the Vulkan surface lifecycle. */
@@ -45,13 +55,24 @@ public final class GameActivity extends SDLActivity {
         }
         return false; /* a single volume press is Android's, as before */
     }
+
+    /* ONE user root, reachable over MTP/SAF, in the same MoonEngine/MoonEngine
+       layout desktop uses -- native (android_host.c) computes the same path. */
+    private String userRoot() {
+        File external = getExternalFilesDir(null);
+        File base = external != null ? external : getFilesDir();
+        return new File(base, "MoonEngine/MoonEngine").getAbsolutePath();
+    }
+
     @Override protected String[] getArguments() {
-        // No disc yet: start the engine with no arguments. Its own launcher asks for
-        // the disc (DiscActivity, driven from native) before the studio room opens.
+        // The launcher (native) owns the disc picker. If it already obtained a
+        // descriptor this process reuses it -- no second prompt. No disc yet:
+        // start the engine with no arguments and let its own launcher ask.
         if (DiscActivity.disc == null) return new String[0];
+        String root = userRoot();
         return new String[] { "/proc/self/fd/" + DiscActivity.disc.getFd(),
-            "--save-dir", getFilesDir().getAbsolutePath(),
-            "--config-file", getFilesDir().getAbsolutePath() + "/options.ini",
+            "--save-dir", root + "/saves",
+            "--config-file", root + "/options.ini",
             "--renderer", "vulkan" };
     }
     /** Native (android_host.c) starts the document picker in this same process. */
@@ -70,9 +91,10 @@ public final class GameActivity extends SDLActivity {
     @Override public void onCreate(Bundle state) {
         if (DiscActivity.disc == null) {
             String uri=getSharedPreferences("startup",MODE_PRIVATE).getString("discUri",null);
-            if(uri!=null) try { DiscActivity.disc=getContentResolver().openFileDescriptor(android.net.Uri.parse(uri),"r"); }
+            if(uri!=null) try { DiscActivity.disc=getContentResolver().openFileDescriptor(Uri.parse(uri),"r"); }
             catch(Exception ignored) { /* Re-select revoked documents in the bootstrap screen. */ }
         }
+        startLogMirror();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         super.onCreate(state);
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
@@ -81,5 +103,58 @@ public final class GameActivity extends SDLActivity {
         // Send the same Back event as an external keyboard; do not finish the activity.
         dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_ESCAPE));
         dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_ESCAPE));
+    }
+
+    /* The log the captain can attach: native appends <user root>/moonengine.log
+       (never truncated, so a crash line survives the next launch). This small
+       thread mirrors the whole file into the user-visible Download collection,
+       Download/MoonEngine/moonengine.log, through MediaStore -- Android/data is
+       still not reachable by a mail or chat "attach" picker, Download is. The
+       backup runs every few seconds, so after a crash and relaunch the copy
+       already holds the line the fatal handler wrote. */
+    private void startLogMirror() {
+        if (Build.VERSION.SDK_INT < 29) return; /* MediaStore.Downloads is API 29+ */
+        final File log = new File(userRoot(), "moonengine.log");
+        Thread mirror = new Thread(() -> {
+            Uri uri = null;
+            byte[] buffer = new byte[1 << 16];
+            for (;;) {
+                try { Thread.sleep(3000); } catch (InterruptedException stop) { return; }
+                if (!log.isFile()) continue;
+                if (uri == null) uri = downloadEntry();
+                if (uri == null) continue;
+                try (FileInputStream in = new FileInputStream(log);
+                     OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
+                    if (out == null) continue;
+                    int read;
+                    while ((read = in.read(buffer)) > 0) out.write(buffer, 0, read);
+                    out.flush();
+                } catch (Exception ignored) { /* a mirror that misses a beat is not fatal */ }
+            }
+        }, "moonengine-log-mirror");
+        mirror.setDaemon(true);
+        mirror.start();
+    }
+    private Uri downloadEntry() {
+        try {
+            Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+            String relative = Environment.DIRECTORY_DOWNLOADS + "/MoonEngine/";
+            Cursor found = getContentResolver().query(collection,
+                new String[] { MediaStore.Downloads._ID },
+                MediaStore.Downloads.DISPLAY_NAME + "=? AND " + MediaStore.Downloads.RELATIVE_PATH + "=?",
+                new String[] { "moonengine.log", relative }, null);
+            if (found != null) {
+                try {
+                    if (found.moveToFirst()) return ContentUris.withAppendedId(collection, found.getLong(0));
+                } finally { found.close(); }
+            }
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Downloads.DISPLAY_NAME, "moonengine.log");
+            values.put(MediaStore.Downloads.MIME_TYPE, "text/plain");
+            values.put(MediaStore.Downloads.RELATIVE_PATH, relative);
+            return getContentResolver().insert(collection, values);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 }

@@ -4,6 +4,9 @@
    OpenGT4 folder is copied into it (the old one stays as it was). */
 #include "moon_pref.h"
 #include <SDL.h>
+#ifdef __ANDROID__
+#include <SDL_system.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +18,10 @@
 #endif
 
 #define MARKER "migrated_from_opengt4.txt"
+
+/* The desktop OpenGT4-rename adoption only; Android uses android_host.c's
+   internal->external migration instead, so these helpers are compiled there. */
+#ifndef __ANDROID__
 
 static int empty_dir(const char *path)
 {
@@ -140,8 +147,23 @@ static int exists_dir(const char *path)
 #endif
 }
 
+#endif /* !__ANDROID__ */
+
 char *moon_pref_path(void)
 {
+#ifdef __ANDROID__
+    /* Android: one reachable root on EXTERNAL files storage, in the same
+       MoonEngine/MoonEngine layout desktop uses. SDL's own GetPrefPath returns
+       the private internal dir on Android, which no file manager or MTP can
+       see; the migration in android_host.c fills this one from it once. */
+    const char *external = SDL_AndroidGetExternalStoragePath();
+    const char *base = external ? external : SDL_AndroidGetInternalStoragePath();
+    if (!base)
+        return NULL;
+    char buffer[1300];
+    snprintf(buffer, sizeof buffer, "%s/MoonEngine/MoonEngine/", base);
+    return SDL_strdup(buffer);
+#else
     char *path = SDL_GetPrefPath("MoonEngine", "MoonEngine");
     static int checked;
     if (!path || checked)
@@ -160,4 +182,5 @@ char *moon_pref_path(void)
         fprintf(stderr, "player data: copied %s to %s%s\n", old, path, ok ? "" : " (incomplete)");
     }
     return path;
+#endif
 }

@@ -2182,7 +2182,7 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
     snprintf(chosen, sizeof chosen, "%s", code);
 
     {
-        char *pref = SDL_GetPrefPath("MoonEngine", "MoonEngine");
+        char *pref = moon_pref_path();
         if (pref) {
             snprintf(rig_path, sizeof rig_path, "%sstudio-rig.txt", pref);
             SDL_free(pref);
@@ -3026,7 +3026,7 @@ static int preview_run(showroom *cars,const char *code,const char *shot,int colo
     snprintf(chosen,sizeof chosen,"%s",code);
     video_set_fill_window(1);
     {
-        char *pref=SDL_GetPrefPath("MoonEngine","MoonEngine");
+        char *pref=moon_pref_path();
         if(pref){snprintf(rig_path,sizeof rig_path,"%sstudio-rig.txt",pref);SDL_free(pref);}
     }
     rig_defaults(eye,target,car,&angle);
