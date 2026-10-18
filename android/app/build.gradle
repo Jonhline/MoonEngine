@@ -1,0 +1,26 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'org.moonengine.android'
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    compileSdk 36
+    ndkVersion '27.2.12479018'
+    defaultConfig {
+        applicationId 'org.moonengine.android'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '0.2.0-android-dev'
+        ndk { abiFilters 'arm64-v8a' }
+        externalNativeBuild { cmake {
+            arguments '-DANDROID_STL=c++_shared', '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON', '-DCMAKE_BUILD_TYPE=Release',
+                      '-DPython3_EXECUTABLE=' + providers.gradleProperty('moonPython').get(),
+                      '-DFETCHCONTENT_SOURCE_DIR_SDL2=' + providers.gradleProperty('moonSdl').get()
+            targets 'moonengine'
+        } }
+    }
+    externalNativeBuild { cmake { path '../../CMakeLists.txt'; version '3.22.1' } }
+    sourceSets.main.assets.srcDirs += '../../build/android-notices'
+    sourceSets.main.java.srcDirs += providers.gradleProperty('moonSdl').get() + '/android-project/app/src/main/java'
+    buildTypes { debug { debuggable true }; release { minifyEnabled false } }
+    packaging { jniLibs { useLegacyPackaging false } }
+}

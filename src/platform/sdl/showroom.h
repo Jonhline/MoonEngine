@@ -1,5 +1,6 @@
 #ifndef MOON_SHOWROOM_H
 #define MOON_SHOWROOM_H
+#include <stdint.h>
 typedef struct showroom showroom;
 showroom *showroom_open(const char *disc);
 /* The same studio scene with the seamless white room instead of bg.mdl's layers (--studio). */
@@ -55,6 +56,11 @@ void showroom_color(showroom *s, int delta);
 void showroom_set_rig(showroom *s, const float eye[3], const float target[3],
                       const float car_offset[3], float car_angle);
 void showroom_set_color(showroom *s, int index);
+/* P: the car alone over a flat colour (no room, floor shadow or mirror): a mod's dealer
+   picture, matted from a black and a white frame. */
+void showroom_set_picture(showroom *s, int on, const uint8_t bg[3]);
+/* Where the car stands in the studio's world, for a camera aimed at it. */
+void showroom_car_position(showroom *s, float out[3]);
 /* Request a model and its paint together; a second CarFace owns another s. */
 void showroom_set_selection(showroom *s, const char *code, int index);
 const char *showroom_caption(showroom *s);

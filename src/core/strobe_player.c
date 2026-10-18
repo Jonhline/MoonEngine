@@ -1989,6 +1989,11 @@ static void pointer_inst_bounds(strb_player *p, inst *k, float ox,float oy,float
         if(k->kids[i]) pointer_inst_bounds(p,k->kids[i],x,y,ax,ay,r,depth+1);
     }
 }
+void strb_pointer_selection(const strb_player *p, const void **owner, int *place)
+{
+    *owner = p ? p->focus : NULL;
+    *place = p ? p->focus_place : -1;
+}
 int strb_pointer(strb_player *p,float x,float y,int activate)
 {
     if(!p || !p->root || !p->buttons_on) return 0;

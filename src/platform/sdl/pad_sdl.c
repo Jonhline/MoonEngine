@@ -4,6 +4,9 @@
 #include "pad_config.h"
 #include <string.h>
 #include <math.h>
+#ifdef __ANDROID__
+#include "android_state.h"
+#endif
 static SDL_GameController *pads[2];
 static SDL_Joystick *wheels[2];
 static SDL_Haptic *forces[2];
@@ -155,8 +158,13 @@ int plat_input_poll(int index, plat_pad_state *out)
         }
         return 1;
     }
-    if (!pad)
+    if (!pad) {
+#ifdef __ANDROID__
+        if (index == 0)
+            return moon_android_pad(out);
+#endif
         return 0;
+    }
     SDL_GameControllerUpdate();
     static const SDL_GameControllerButton map[16] = {SDL_CONTROLLER_BUTTON_BACK,
                                                      SDL_CONTROLLER_BUTTON_LEFTSTICK,

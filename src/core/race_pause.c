@@ -19,6 +19,12 @@ struct race_pause {
     gt4_vol *volume;
     ui_project *cursor;
     int pointer_active;
+    struct {
+        long long id;
+        int active, dragged, confirm, place, selected_place;
+        float x, y;
+        const void *owner, *selected;
+    } touch;
     float pointer_x,pointer_y;
     int state, retry, screen, confirm;
     int replay;
@@ -157,6 +163,8 @@ void race_pause_close(race_pause *p)
 
 void race_pause_key(race_pause *p, int code)
 {
+    if (p)
+        memset(&p->touch, 0, sizeof p->touch);
     if (p) {
         p->pointer_active=0;
         strb_key(p->movie, code);
@@ -176,6 +184,51 @@ int race_pause_pointer(race_pause *p,int enabled,float x,float y,int action)
     if(!p->cursor) {char error[128];p->cursor=ui_project_load(p->volume,"cursor",error,sizeof error);}
     if(action==2) strb_key(p->movie,27);
     return strb_pointer(p->movie,x,y,action==1);
+}
+int race_pause_touch(race_pause *p, int phase, long long id, float x, float y)
+{
+    if (!p)
+        return 0;
+    p->pointer_active = 0; /* Touch uses the authored selected actor, not a mouse arrow. */
+    if (phase == 4) {
+        memset(&p->touch, 0, sizeof p->touch);
+        return 0;
+    }
+    if (phase == 1 && !p->touch.active) {
+        if (!strb_pointer(p->movie, x, y, 0)) {
+            p->touch.selected = NULL;
+            return 0;
+        }
+        strb_pointer_selection(p->movie, &p->touch.owner, &p->touch.place);
+        p->touch.confirm =
+            p->touch.owner == p->touch.selected && p->touch.place == p->touch.selected_place;
+        p->touch.active = 1;
+        p->touch.dragged = 0;
+        p->touch.id = id;
+        p->touch.x = x;
+        p->touch.y = y;
+        return 1;
+    }
+    if (!p->touch.active || p->touch.id != id)
+        return 0;
+    float dx = x - p->touch.x, dy = y - p->touch.y;
+    if (dx * dx + dy * dy > 144)
+        p->touch.dragged = 1;
+    if (phase == 3) {
+        const void *owner = NULL;
+        int place = -1;
+        int hit = strb_pointer(p->movie, x, y, 0);
+        strb_pointer_selection(p->movie, &owner, &place);
+        int valid = hit && !p->touch.dragged && owner == p->touch.owner && place == p->touch.place;
+        p->touch.selected = valid ? owner : NULL;
+        p->touch.selected_place = place;
+        p->touch.active = 0;
+        if (valid && p->touch.confirm) {
+            p->touch.selected = NULL;
+            strb_pointer(p->movie, x, y, 1);
+        }
+    }
+    return 1;
 }
 void race_pause_draw(race_pause *p)
 {

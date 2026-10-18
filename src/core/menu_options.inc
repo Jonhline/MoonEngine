@@ -282,8 +282,13 @@ const char *menu_option_text(menu *m, const char *name, const char *fallback)
 {
     ah_val option, value;
     const char *s;
-    if (!m)
+    if (!m) {
+        for (unsigned i = 0; i < sizeof saved_options / sizeof saved_options[0]; i++)
+            if (saved_options[i].valid && saved_options[i].type == 1 &&
+                !strcmp(saved_options[i].name, name))
+                return saved_options[i].text;
         return fallback;
+    }
     if (!ah_get_member(m->vm, game_object(m), "option", &option) ||
         !ah_get_member(m->vm, ah_as_obj(option, AO_MODULE), name, &value) || !(s = ah_cstr(value)))
         return fallback;

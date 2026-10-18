@@ -167,6 +167,11 @@ int moon_mods_dir(char *out, size_t cap)
     return 1;
 }
 
+void moon_mod_roots_reload(void)
+{
+    mod_roots_ready = 0;
+}
+
 const char *moon_mod_roots(void)
 {
     if (mod_roots_ready) return mod_roots;

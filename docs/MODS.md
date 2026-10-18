@@ -5,6 +5,17 @@ The mod system is a design for the planned improvements (see
 converter or SDK promised by this document. Mods are optional: without
 them, the game uses only the user's disc content.
 
+## Turning mods on
+
+Each mod is one folder in `%APPDATA%\MoonEngine\MoonEngine\mods\` (a `.zip`
+from the SDK dropped there is unpacked into the folder of its name the next
+time the page opens). The launcher's MODS page lists them; each is On or Off,
+and the last row opens the folder. The page writes the list of the mods that
+are on to `mods.ini` beside the folder, one folder name per line; it is the
+same file the engine reads, so a game started directly reads it too. A change
+counts from the next START. `MOON_OVERLAY` (full paths separated by `;`) wins
+over the list, for tests. Nothing on means the disc alone.
+
 ## Packages
 
 The proposed package contains a manifest with name, version, author and

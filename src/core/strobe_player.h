@@ -66,6 +66,8 @@ void strb_press(strb_player *p);
    buttons active the arrows move the focus between them and enter presses
    the focused one. */
 int strb_pointer(strb_player *p, float x, float y, int activate);
+/* Stable parent/place identity for a touch preselection; no script is executed. */
+void strb_pointer_selection(const strb_player *p, const void **owner, int *place);
 void strb_key(strb_player *p, int code);
 /* The buttons' navigation (the host's NavigateVertical / NavigateAll):
    up/down only, or every arrow; either makes the buttons active again */

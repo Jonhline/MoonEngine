@@ -89,6 +89,8 @@ struct showroom {
     /* White studio (--studio): the studio scene with a seamless near-white
        room instead of bg.mdl's lit layers. Off by default. */
     int white_studio, white_ready;
+    int picture;          /* P: the car alone over a flat colour (a mod's dealer picture) */
+    uint8_t picture_bg[3];
     int room_dark;       /* the launcher room: 0 white, 1 dark */
     float room_mood[3];  /* its light colour; tints the room, the floor and the car's lights */
     /* The camera: eye, right/up/forward axes; yaw turns the car so its
@@ -149,6 +151,23 @@ static void carface_camera(showroom *s)
     memcpy(s->cam_f, f, sizeof f);
     s->yaw = 0;
     s->focal = 1010.48f;
+}
+/* P: the car alone -- no room, floor shadow or mirror -- over a flat colour, so two frames
+   (black, then white) give the dealer picture's exact alpha (moonmod_img --matte). */
+void showroom_set_picture(showroom *s, int on, const uint8_t bg[3])
+{
+    if (!s)
+        return;
+    s->picture = on;
+    if (bg)
+        memcpy(s->picture_bg, bg, 3);
+}
+/* where the car stands in the studio's world (the rig offset and the pose's own depth) */
+void showroom_car_position(showroom *s, float out[3])
+{
+    out[0] = s ? s->rig_car[0] : 0;
+    out[1] = 0;
+    out[2] = s ? -s->car_z + s->rig_car[2] : 0;
 }
 /* The captain's rig: a look-at camera and a car placed by hand. The disc's studio pose
    is only the starting point - main.c's controls and the rig file own these. */
@@ -1272,8 +1291,12 @@ static void draw_gpu(showroom *s)
         int kind = !s->active || !s->active->shadow;
         if (!room && !s->backdrops[kind])
             s->backdrops[kind] = backdrop(s, kind);
-        plat_draw_quad(room ? room : s->backdrops[kind], 0, 0, s->rw, H, 0, 0, 1, 1, tint);
-        if (s->shadow_on && s->active && s->showing) {
+        if (s->picture) {
+            const uint8_t bg[4] = {s->picture_bg[0], s->picture_bg[1], s->picture_bg[2], 255};
+            plat_draw_quad(NULL, 0, 0, s->rw, H, 0, 0, 1, 1, bg);
+        } else
+            plat_draw_quad(room ? room : s->backdrops[kind], 0, 0, s->rw, H, 0, 0, 1, 1, tint);
+        if (s->shadow_on && s->active && s->showing && !s->picture) {
             if (s->shadow_tex)
                 plat_texture_update(s->shadow_tex, s->shadow_px);
             else
@@ -1303,7 +1326,7 @@ static void draw_gpu(showroom *s)
        Then the room is drawn back over it from the contact line down, more opaque further
        down, so the reflection dies away from the tyres. Strength and fall-off are ours;
        the studio camera is one constant pose, so the line is computed, not guessed. */
-    if (s->active && s->showing && s->white_studio) {
+    if (s->active && s->showing && s->white_studio && !s->picture) {
         r3d_view mirror = car;
         mirror.mirror = 1;
         r3d_draw_lit(s->gpu_car, &mirror, s->lit.count ? &s->lit : NULL);
@@ -1344,7 +1367,7 @@ static void draw_gpu(showroom *s)
     }
     if (s->active && s->showing) {
         if (s->gpu && !(getenv("MOON_SHADOW_CPU") || getenv("MOON_SHADOW_CPU")) &&
-            s->studio_count == 4 && s->light) {
+            s->studio_count == 4 && s->light && !s->picture) {
             float L[4] = {0}, darkness = 0, blur = 0, t = gt4_mot1_wrap(s->light, s->light_time);
             if (gt4_mot1_light(s->light, 0x0F, 0, t, L) == 3 &&
                 gt4_mot1_value(s->light, "shadowDarkness0", t, &darkness)) {
@@ -1355,14 +1378,14 @@ static void draw_gpu(showroom *s)
         r3d_view shadow = car;
         shadow.shadow = 1;
         shadow.shadow_alpha = contact_shadow(s);
-        r3d_draw(s->gpu_shadow, &shadow);
+        r3d_draw(s->gpu_shadow, &shadow); /* (a picture keeps it: the disc's car_pict has its soft shadow) */
         if (s->gpu_hull)
             r3d_draw(s->gpu_hull, &car);
         r3d_draw_lit(s->gpu_car, &car, s->lit.count ? &s->lit : NULL);
     }
     r3d_end();
     /* The car appears out of the studio: its backdrop over it, fading away. */
-    if (s->showing && s->fade < 1) {
+    if (s->showing && s->fade < 1 && !s->picture) {
         int kind = !s->active || !s->active->shadow;
         float o = s->fade * s->fade * (3 - 2 * s->fade);
         uint8_t veil[4] = {255, 255, 255, (uint8_t)(255 * (1 - o))};

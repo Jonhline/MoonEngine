@@ -691,6 +691,29 @@ int main(void)
         menu_animate(next, .1f);
         ui_draw_root(next->ui, 1, NULL, NULL);
         CHECK(cursor_draw_x!=x || cursor_draw_y!=y);
+        /* Options exits with its context frozen. A cached pre-race project has
+           already cleared its own fade before receiving the shared cursor. */
+        menu *resumed = menu_open(NULL, "fixture", error, sizeof error);
+        CHECK(resumed);
+        menu_enter(resumed, 1);
+        menu_tick(resumed);
+        ui_fade(resumed->ui, 0, 0, 0);
+        ui_fade(p->ui, 0, 1, .2f);
+        ui_cursor_transfer(resumed->ui, p->ui);
+        ui_widget *resume_button = ui_root_widget(resumed->ui, 1)->kids[0];
+        resume_button->x = 500;
+        resume_button->y = 400;
+        resume_button->w = 40;
+        resume_button->h = 30;
+        resume_button->has_geometry = 1;
+        set_focus(resumed, resume_button);
+        cursor_draws = 0;
+        ui_draw_root(resumed->ui, 1, NULL, NULL);
+        CHECK(cursor_draws == 1);
+        menu_animate(resumed, .1f);
+        ui_draw_root(resumed->ui, 1, NULL, NULL);
+        CHECK(cursor_draw_x != x || cursor_draw_y != y);
+        menu_close(resumed);
         /* Persistence is transition-specific; it cannot leak into an idle
            page with no focus once the fade is cleared. */
         ui_fade(p->ui, 0, 0, 0);

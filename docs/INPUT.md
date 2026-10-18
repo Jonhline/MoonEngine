@@ -12,8 +12,8 @@ setting IDs/defaults and [Fidelity](FIDELITY.md) for bounded evidence.
 | Original controller navigation | Retained | Original script actions, focus, authored cursor and transitions; Classic baseline |
 | PC mouse and keyboard menus | Implemented, optional (P) | Main menus, settings, lists, native confirmations, profile selection and race pause |
 | Switch touch | Implemented input/menu boundary; hardware validation pending | Tap/release, direct lists/map drag, parameter bars and native confirmation/profile dialogs; controller path retained |
-| Android touch | Planned, not implemented/validated by this work | Shared menu gestures after an Android platform/application foundation exists |
-| Touch race controls | Proposed later phase | Separate optional input overlay; no vehicle physics changes |
+| Android touch | ARM64 development foundation; hardware validation pending | Shared menu adapter, viewport mapping and host lifecycle integration; see ANDROID.md |
+| Touch race controls | Android development implementation; hardware validation pending | Optional multitouch pad overlay, fixed mirrored layouts, size/opacity and physical-controller priority; no vehicle physics changes |
 
 Mouse events synthesized by a platform are not proof of deliberate touch
 support. There is currently no finger-contact/gesture adapter in the menu
@@ -325,3 +325,5 @@ artwork/colors remain authoritative. Focused host tests require zero added
 gold draws while retaining eased selection, press/release response and
 equal elapsed-time behavior at 30/60 Hz. Classic/controller behavior stays
 unchanged; the paint-sample overlap negative remains active.
+
+Android implementation and remaining hardware gates are recorded in [Android](ANDROID.md). The historical delivery plan above is not a claim of device validation.

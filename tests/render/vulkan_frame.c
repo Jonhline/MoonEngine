@@ -233,6 +233,52 @@ int main(int argc, char **argv)
     CHECK(abs(upscaled[center]-64)<=1 && abs(upscaled[center+1]-128)<=1 && abs(upscaled[center+2]-191)<=1);
     free(upscaled);
     plat_video_end_frame();
+    CHECK(video_set_upscale(0));
+    int coverage[4] = {0};
+    GLuint aa_vao;
+    glGenVertexArrays(1, &aa_vao);
+    for (int aa = 0; aa < 4; aa++) {
+        video_scene_quality(aa, 2);
+        plat_video_begin_frame();
+        video_begin_scene();
+        GLint viewport[4];
+        glGetIntegerv(GL_VIEWPORT, viewport);
+        int factor = aa == 2 ? 3 : aa == 3 ? 4 : 2;
+        CHECK(viewport[2] == 384 * factor / 2 && viewport[3] == 256 * factor / 2);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_CULL_FACE);
+        glDisable(GL_BLEND);
+        glClearColor(0, 0, 0, 1);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glUseProgram(program);
+        glBindVertexArray(aa_vao);
+        glUniform1f(glGetUniformLocation(program, "depth"), 0);
+        glUniform4f(glGetUniformLocation(program, "color"), 1, 1, 1, 1);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        video_end_scene();
+        uint8_t *aa_pixels = plat_sdl_read_pixels(&width, &height);
+        CHECK(aa_pixels && width == 384 && height == 256);
+        for (int i = 0; i < width * height; i++)
+            if (aa_pixels[i * 4] > 0 && aa_pixels[i * 4] < 255)
+                coverage[aa]++;
+        free(aa_pixels);
+        CHECK(glGetError() == GL_NO_ERROR);
+        plat_video_end_frame();
+    }
+    CHECK(coverage[1] == 0 && coverage[2] > 0 && coverage[3] > 0);
+    for (int scale = 0; scale < 3; scale++) {
+        video_scene_quality(0, scale);
+        plat_video_begin_frame();
+        video_begin_scene();
+        GLint viewport[4];
+        glGetIntegerv(GL_VIEWPORT, viewport);
+        CHECK(viewport[2] == 384 * (scale + 2) / 4);
+        CHECK(viewport[3] == 256 * (scale + 2) / 4);
+        video_end_scene();
+        plat_video_end_frame();
+    }
+    video_scene_quality(0, 2);
+    glDeleteVertexArrays(1, &aa_vao);
     CHECK(!geometry_fixture(desc.backend));
     plat_texture_destroy(capture);
     plat_texture_destroy(image);

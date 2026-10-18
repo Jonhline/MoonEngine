@@ -2351,6 +2351,11 @@ static const ui_widget *feedback_card(const ui_widget *w)
 {
     if (!w || !w->parent || !is_container(w->type) || horizontal_strip(w->parent) ||
         (strcmp(w->parent->type,"SelectBox") && strcmp(w->parent->type,"ListBox"))) return NULL;
+    /* EventHallRoot uses ticket artwork instead of a solid card background.
+       Enlarge its entire composition through the existing optional feedback. */
+    const ui_widget *ticket = ui_widget_child(w, "Ticket");
+    if (ticket && ticket->w > 0 && ticket->h > 0 && ui_widget_child(ticket, "image"))
+        return ticket;
     const ui_widget *bg=ui_widget_child(w,"bg");
     return bg && !strcmp(bg->type,"ColorFace") && bg->w>0 && bg->h>0 ? bg : NULL;
 }
@@ -2768,6 +2773,12 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
                         client_size = 1;
                         break;
                     }
+            /* 002A2608 +0x7C..0xC0 draws in the inherited client area.
+               LicenseDetailRoot.hidden.Corn is 66x82.5; its 88x110 texture
+               must not enlarge the cone or push the bottom row off-screen. */
+            if (!strcmp(p->name, "gtmode") && w->parent && w->parent->name &&
+                !strcmp(w->parent->name, "Corn"))
+                client_size = 1;
             /* The Tune Shop's tuner logo (378x135 .img) fills its 340x121.43
                Logo box: 0.9 of the source, as the user's PCSX2 captures. */
             if (!strcmp(p->name, "gtmode") && w->parent && w->parent->name &&
@@ -4313,7 +4324,8 @@ void ui_cursor_transfer(ui_project *destination, const ui_project *source)
     destination->pointer_y = source->pointer_y;
     memcpy(destination->cursor_icon, source->cursor_icon, sizeof destination->cursor_icon);
     destination->cursor_icon_reset = source->cursor_icon_reset;
-    destination->cursor_frozen = source->cursor_frozen;
+    /* A fade freezes its own render context (0022F6A0). Carrying an outgoing
+       freeze into a revealed cached project leaves its focused cursor invisible. */
     destination->cursor_paused = source->cursor_paused;
     destination->cursor_held = source->cursor_held;
     /* A hidden/unpainted context has no cursor position to transfer. Copying

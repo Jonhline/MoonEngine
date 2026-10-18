@@ -746,6 +746,10 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
     if (!g)
         return 0;
     race_game_stop(g);
+    /* MOption.apply publishes MUnit globally (004365B8 +4C..68), so
+       prepared license/mission/career races use the same applied units. */
+    if (menu_option_text(NULL, "unit_velocity", NULL))
+        race_game_apply_units(g, NULL);
     g->finished = -1;
     if (nothers > 5)
         nothers = 5;
@@ -1462,6 +1466,22 @@ int race_game_quick_grid(const race_game *g, menu_quick_race *grid)
     }
     return 1;
 }
+int race_game_quick_points(const race_game *g, menu_quick_race *grid, const int32_t points[6])
+{
+    if (!g || !g->run || !grid || !points)
+        return 0;
+    /* 00119918 builds quick-work rows in grid order; championship points
+       (003EEFE0/003EF1E8) remain attached to persistent entry identities. */
+    for (int driver = 0; driver < grid->entries; driver++) {
+        gt4_race_hud hud;
+        if (!gt4_race_run_hud(g->run, driver, &hud) || hud.grid_slot < 0 ||
+            hud.grid_slot >= grid->entries)
+            return 0;
+        grid->total_points[hud.grid_slot] = points[driver];
+    }
+    return 1;
+}
+
 int race_game_quick_results(const race_game *g, menu_quick_race *grid)
 {
     menu_quick_race initial;
@@ -2855,6 +2875,14 @@ void race_game_set_power_unit(race_game *g, const char *unit)
             g->power_unit = i;
     if (unit && !strcmp(unit, "kW"))
         g->power_unit = 4; /* previous native files */
+}
+
+void race_game_apply_units(race_game *g, menu *options)
+{
+    /* GranTurismo4Option unit_velocity: KMPH=0, MPH=1 (005A6978).
+       UnitRoot.apply publishes these shared presentation preferences. */
+    race_game_set_unit(g, strcmp(menu_option_text(options, "unit_velocity", "MPH"), "KMPH") != 0);
+    race_game_set_power_unit(g, menu_option_text(options, "unit_power", "HP"));
 }
 
 /* the replay's opening, the tape's seconds in (func_0039BEC8: the mode's

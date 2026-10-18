@@ -1114,6 +1114,9 @@ int gt4_race_run_hud(const gt4_race_run *r, int i, gt4_race_hud *out)
     out->speed = GT4_F32(car + CAR_ABS_SPEED);
     out->rpm = (float)(int32_t)GT4_F32(car + CAR_TACHO);
     out->gear = GT4_U8(car + CAR_GEAR);
+    /* 0039E150/0039E1BC read the inline driver model's signed hint and flash flag. */
+    out->suggested_gear = (int8_t)GT4_U8(car + CAR_FIELD_SUGGESTED_GEAR);
+    out->suggested_gear_flash = GT4_U8(car + CAR_FIELD_SUGGESTED_GEAR_FLASH) != 0;
     out->throttle = GT4_F32(car + CAR_THROTTLE_REQ);
     out->brake = GT4_F32(car + CAR_BRAKE_PEDAL);
     out->side_g = -GT4_F32(car + CAR_LAT_G) * 0.102f;

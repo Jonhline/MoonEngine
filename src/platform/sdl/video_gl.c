@@ -45,7 +45,7 @@ static void graphics_size(SDL_Window *win, int *width, int *height)
 #endif
     SDL_GL_GetDrawableSize(win, width, height);
 }
-static int vsync, upscale;
+static int vsync, upscale, scene_upscale;
 static int menu_pacing = 1, frame_presented;
 static int menu_projection = 1;
 static void layout_view(void);
@@ -866,6 +866,16 @@ int video_fsr_available(void)
     return fsr_available();
 }
 
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+static int scene_antialiasing, scene_render_scale = 2, scene_size_limit;
+void video_scene_quality(int antialiasing, int render_scale)
+{
+    scene_size_limit = 0;
+    scene_antialiasing = antialiasing >= 0 && antialiasing <= 3 ? antialiasing : 0;
+    scene_render_scale = render_scale >= 0 && render_scale <= 2 ? render_scale : 2;
+}
+#endif
+
 void video_begin_scene(void)
 {
     video_flush2d();
@@ -885,7 +895,29 @@ void video_begin_scene(void)
     GLint max_samples = 1;
     glGetIntegerv(GL_MAX_SAMPLES, &max_samples);
     int samples = max_samples >= 4 ? 4 : 1;
+#if !defined(__ANDROID__)
+    if (scene_antialiasing || scene_render_scale != 2) {
+        static const float scales[] = {.5f, .75f, 1.f};
+        float scale = scene_antialiasing == 2   ? 1.5f
+                      : scene_antialiasing == 3 ? 2.f
+                                                : scales[scene_render_scale];
+        if (scene_antialiasing >= 2 || scene_render_scale != 2) {
+            w = (int)(output_w * scale + .5f);
+            h = (int)(output_h * scale + .5f);
+            mode = 0;
+        }
+        if (!scene_size_limit)
+            glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &scene_size_limit);
+        if (scene_size_limit > 0 && (w > scene_size_limit || h > scene_size_limit)) {
+            float fit = fminf((float)scene_size_limit / w, (float)scene_size_limit / h);
+            w = (int)(w * fit);
+            h = (int)(h * fit);
+        }
+        samples = 1;
+    }
 #endif
+#endif
+    scene_upscale = mode;
     if (!scene_fbo) {
         glGenFramebuffers(1, &scene_fbo);
         glGenFramebuffers(1, &scene_resolve);
@@ -900,14 +932,21 @@ void video_begin_scene(void)
            minimum (four on the host fixture); request ordinary storage. */
         glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w, h);
 #else
-        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_RGBA8, w, h);
+        if (samples == 1)
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w, h);
+        else
+            glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_RGBA8, w, h);
 #endif
         glBindRenderbuffer(GL_RENDERBUFFER, scene_depth);
 #if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
         glRenderbufferStorage(GL_RENDERBUFFER, gl_reversed_z ? 0x8CAD : GL_DEPTH24_STENCIL8, w, h);
 #else
-        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples,
-                                         gl_reversed_z ? 0x8CAD : GL_DEPTH24_STENCIL8, w, h);
+        if (samples == 1)
+            glRenderbufferStorage(GL_RENDERBUFFER, gl_reversed_z ? 0x8CAD : GL_DEPTH24_STENCIL8, w,
+                                  h);
+        else
+            glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples,
+                                             gl_reversed_z ? 0x8CAD : GL_DEPTH24_STENCIL8, w, h);
 #endif
         glBindFramebuffer(GL_FRAMEBUFFER, scene_fbo);
         glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER,
@@ -961,7 +1000,7 @@ void video_end_scene(void)
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     GLuint resolved = scene_tex;
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)
-    if (scene_w != output_w || scene_h != output_h) {
+    if (scene_upscale && (scene_w < output_w || scene_h < output_h)) {
         GLuint reconstructed = fsr_resolve(scene_tex, scene_w, scene_h, output_w, output_h);
         if (reconstructed)
             resolved = reconstructed;

@@ -1,3 +1,10 @@
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+static int texture_smoothing;
+void r3d_texture_smoothing(int enabled)
+{
+    texture_smoothing = enabled != 0;
+}
+#endif
 #include "platform/switch_profile.h"
 #include "render3d.h"
 #include "car_service.h"
@@ -1728,7 +1735,11 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
                 glUniform1i(U.cc, t->color_component);
                 glUniform1i(U.tfx, t->texture_function);
                 glUniform1i(U.native, t->native);
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+                glUniform1i(U.nearest, !texture_smoothing && t->nearest ? k : 0);
+#else
                 glUniform1i(U.nearest, t->nearest ? k : 0);
+#endif
                 glUniform1i(U.mip_count, t->mip_count);
                 glUniform1i(U.minify, t->minify);
             }

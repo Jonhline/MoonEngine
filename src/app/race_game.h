@@ -87,10 +87,13 @@ void race_game_return_pregrid(race_game *g);
 void race_game_draw_hud(race_game *g, double dt);
 /* the speed's unit on the display: 0 km/h, 1 mph */
 void race_game_set_unit(race_game *g, int unit);
+/* Refresh presentation units after the shared Options page applies them. */
+void race_game_apply_units(race_game *g, menu *options);
 /* the power's unit on the replay's opening: the unit_power option's text */
 void race_game_set_power_unit(race_game *g, const char *unit);
 /* a key for the pause menu (Escape holds/continues, arrows and Enter in it) */
 int race_game_pause_pointer(race_game *g,int enabled,float x,float y,int action);
+int race_game_pause_touch(race_game *g, int phase, long long id, float x, float y);
 int race_game_is_paused(const race_game *g);
 void race_game_pause_back(race_game *g);
 void race_game_key(race_game *g, int key);
@@ -170,6 +173,7 @@ int race_game_player_hud(const race_game *g, gt4_race_hud *hud);
 int race_game_championship_grid(const race_game *g, gt4_race_desc *desc, uint8_t bodies[6][0x4b8]);
 int race_game_finish_order(const race_game *g, uint8_t order[6]);
 int race_game_quick_grid(const race_game *g, menu_quick_race *grid);
+int race_game_quick_points(const race_game *g, menu_quick_race *grid, const int32_t points[6]);
 int race_game_quick_results(const race_game *g, menu_quick_race *grid);
 int race_game_event_position(const race_game *g);
 

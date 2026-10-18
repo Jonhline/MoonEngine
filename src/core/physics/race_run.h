@@ -141,6 +141,7 @@ typedef struct {
     float speed;           /* m/s (car+0x6C8) */
     float rpm;             /* func_00350F30 (car+0x738) */
     int gear;              /* car+0x624 */
+    int suggested_gear, suggested_gear_flash; /* 0039E150/0039E1BC: driver model's hint */
     float throttle, brake; /* func_00344698, func_003446A0 */
     float side_g;          /* -func_003451B0 * 0.102 (car+0x664) */
     int shift_lamp;        /* func_003F3758 */

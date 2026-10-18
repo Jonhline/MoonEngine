@@ -197,6 +197,9 @@ struct race_hud {
     blinker sign_blink[3];     /* each sign's (+0x18) */
     blinker map_blink;         /* the mini map's player point (+0x48) */
     blinker wrong_blink;       /* the signal's blinker (+0x22C0) for the wrong way */
+    blinker suggested_blink;   /* RaceSuggestedGearDisplay +0x18, 003A6FA8 */
+    float suggested_fade;      /* its +0x38 fader, 003A7048 */
+    int suggested_last;        /* last positive gear, retained during fade-out */
     int signal_last;
     float penalty_shown;  /* how long the penalty message has been up */
     float needle_last[2]; /* the round meters' last needle angles (+0x30), -1 none */
@@ -384,6 +387,8 @@ race_hud *race_hud_open(gt4_vol *vol)
         h->sign_blink[i] = (blinker){1, 0, 0.2f, 0.5f, 3.4e38f, 14.285716f, -1, 0};
     h->map_blink = (blinker){0, 0, 0.5f, 0.5f, 10.000001f, 3.3333335f, -1, 0};
     h->wrong_blink = (blinker){1, 0, 0.2f, 0.3f, 20, 10, 0, 0};
+    h->suggested_blink = (blinker){
+        0, 0, 0x1.333332p-3f, 0x1.51eb84p-2f, 1.f / 0x1.47ae14p-6f, 1.f / 0x1.eb851ep-5f, 0, 1};
     h->fade = 1;
     h->needle_last[0] = h->needle_last[1] = -1;
     {
@@ -429,6 +434,8 @@ void race_hud_set_course(race_hud *h, const char *course)
     h->fade = 1;
     h->fade_rate = 0;
     h->was_counting = h->was_finished = 0;
+    h->suggested_blink.v = h->suggested_blink.t = h->suggested_fade = 0;
+    h->suggested_last = 0;
     h->msg = NULL;
     snprintf(path, sizeof path, "/crs/%s", course);
     d = gt4_vol_read(h->vol, path, &size);
@@ -899,6 +906,43 @@ static void draw_gear(race_hud *h, int gear, int neutral)
     gs_color2(0x80E3B896u, 0, 1, c);
     if (f)
         text(f, x0 + p->w / 2, y0 + p->h - 12, 0xf, c, s);
+}
+
+/* 003A7048: positive model hints rise in 0x3E4CCCCC seconds; the last
+   digit survives the fall. Changing the flash flag does not restart its phase. */
+static void update_suggested_gear(race_hud *h, const race_hud_state *s, float dt)
+{
+    int visible = s->suggested_gear > 0;
+    h->suggested_blink.count = s->suggested_gear_flash || !visible ? -1 : 0;
+    blink(&h->suggested_blink, dt);
+    if (visible)
+        h->suggested_last = s->suggested_gear;
+    float step = dt * (1.f / 0x1.999998p-3f);
+    h->suggested_fade = fminf(fmaxf(h->suggested_fade + (visible ? step : -step), 0), 1);
+}
+
+/* 003A7108: GT4meter#1, red 0x800000F0 with faded alpha, baseline bottom-16.
+   Layouts: 003A7FCC (chase), 003A9274 (onboard); no gear_base background.
+   Chase text anchor (475,435) is left of the current gear's (514,434).
+   Onboard anchor (320,342) is above the current gear's (320,376).
+   These are pre-font-alignment coordinates, from the original element rectangles. */
+static void draw_suggested_gear(race_hud *h, const race_hud_state *s)
+{
+    static const place chase = {497, 419, 44, 32, 13, 0};
+    static const place onboard = {320, 341, 44, 34, 2, 2};
+    place p = s->panel ? onboard : chase;
+    if (s->split && !s->panel)
+        p.ha = 1; /* 003A7C1C: the split panel does not use the wide-screen anchor. */
+    if (s->bspec || h->suggested_fade <= 0 || h->suggested_last <= 0)
+        return;
+    hud_font *f = font(h, "GT4meter#1");
+    float fade = h->suggested_fade * (s->suggested_gear_flash ? h->suggested_blink.v : 1);
+    uint8_t c[4];
+    gs_color(0x800000F0u, fade, c);
+    char digit[2] = {(char)('0' + h->suggested_last), 0};
+    if (f)
+        text(f, align(p.ha, (float)p.x, (float)p.w) + p.w / 2,
+             align(p.va, (float)p.y, (float)p.h) + p.h - 16, 0xf, c, digit);
 }
 
 /* func_003A7360: timing_lamp, red as bright as the lamp is lit times 1.5 */
@@ -2183,6 +2227,8 @@ void race_hud_draw(race_hud *h, const race_hud_state *s, float dt)
         draw_simple_panel(h, s);
     else
         draw_onboard_panel(h, s);
+    update_suggested_gear(h, s, dt);
+    draw_suggested_gear(h, s);
     draw_signal(h, s, dt);
     hud_y_offset = s->split ? gt4_split_layout[SPLIT_LINES].y - 139.f : 0;
     draw_lines(h, dt);

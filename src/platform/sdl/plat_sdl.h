@@ -3,6 +3,9 @@
 #define MOON_PLAT_SDL_H
 
 typedef struct {
+#ifdef __ANDROID__
+    int lifecycle; /* 1 background, 2 foreground; cancel contacts and reset frame timing. */
+#endif
     int touch; /* 1 down, 2 move, 3 up, 4 cancel; normalized display coordinates. */
     long long touch_id;
     float touch_x, touch_y;
