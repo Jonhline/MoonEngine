@@ -132,6 +132,10 @@ struct Context {
     unsigned clear_program = 0;
     moon_vk_render_stats statistics = {};
     bool recording = false, vsync = true, rebuild_swapchain = true;
+    /* Android destroys the surface when the document picker takes the
+       foreground. A known-lost surface is never presented to; the surface and
+       swapchain are rebuilt from the current window on the next frame. */
+    bool surface_lost = false, surface_error_reported = false;
     bool stream_geometry = false, uncached_descriptors = false, split_present = false,
          transient_framebuffers = false;
     std::map<std::array<uint64_t, 17>, VkDescriptorSet> draw_sets;
@@ -200,6 +204,8 @@ struct Context {
     void draw(GLenum topology, int first, int count);
     void present();
     bool resize_swapchain();
+    /* Rebuild the Vulkan surface from the current window after surface loss. */
+    bool recreate_surface();
     void close();
 };
 Context &context();

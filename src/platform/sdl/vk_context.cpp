@@ -399,6 +399,51 @@ void Context::blit(Image &src, Image &dst, int sx0, int sy0, int sx1, int sy1, i
                    VK_IMAGE_LAYOUT_GENERAL, 1, &region,
                    linear && !is_depth ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
 }
+/* The surface is gone (Android backgrounded us, the document picker took the
+   foreground, the window was recreated). Drop the swapchain and the surface,
+   make both again from the window we still own, and carry on. */
+bool Context::recreate_surface()
+{
+    if (!window || !instance)
+        return false;
+    if (device) {
+        drain();
+        VkResult idle = vkDeviceWaitIdle(device);
+        if (idle != VK_SUCCESS) {
+            if (!surface_error_reported)
+                fprintf(stderr, "vulkan: cannot rebuild the surface: device wait %d\n", (int)idle);
+            surface_error_reported = true;
+            return false;
+        }
+    }
+    if (device) {
+        if (swapchain)
+            vkDestroySwapchainKHR(device, swapchain, nullptr);
+        for (auto semaphore : present_ready)
+            vkDestroySemaphore(device, semaphore, nullptr);
+    }
+    swapchain = VK_NULL_HANDLE;
+    swap_images.clear();
+    present_ready.clear();
+    if (surface)
+        vkDestroySurfaceKHR(instance, surface, nullptr);
+    surface = VK_NULL_HANDLE;
+    if (!SDL_Vulkan_CreateSurface(window, instance, &surface)) {
+        if (!surface_error_reported)
+            fprintf(stderr, "vulkan: could not recreate the surface: %s\n", SDL_GetError());
+        surface_error_reported = true;
+        surface = VK_NULL_HANDLE;
+        return false;
+    }
+    int width = 0, height = 0;
+    SDL_Vulkan_GetDrawableSize(window, &width, &height);
+    rebuild_swapchain = true;
+    surface_lost = false;
+    surface_error_reported = false;
+    fprintf(stderr, "vulkan: surface lost, recreated (w=%d h=%d)\n", width, height);
+    return true;
+}
+
 bool Context::resize_swapchain()
 {
     if (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED)
@@ -407,23 +452,59 @@ bool Context::resize_swapchain()
     SDL_Vulkan_GetDrawableSize(window, &w, &h);
     if (w < 1 || h < 1)
         return false;
-    if (!rebuild_swapchain && extent.width == (unsigned)w && extent.height == (unsigned)h)
+    if (!rebuild_swapchain && !surface_lost && extent.width == (unsigned)w &&
+        extent.height == (unsigned)h)
         return true;
+    /* Never touch a surface that is known to be gone. */
+    if (surface_lost && !recreate_surface())
+        return false;
     drain();
-    check(vkDeviceWaitIdle(device), "vkDeviceWaitIdle resize");
+    VkResult result = vkDeviceWaitIdle(device);
+    if (result != VK_SUCCESS) {
+        if (!surface_error_reported)
+            fprintf(stderr, "vulkan: swapchain rebuild skipped: device wait %d\n", (int)result);
+        surface_error_reported = true;
+        return false;
+    }
     VkSurfaceCapabilitiesKHR caps;
-    check(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical, surface, &caps),
-          "surface capabilities");
+    result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical, surface, &caps);
+    if (result == VK_ERROR_SURFACE_LOST_KHR) {
+        if (!recreate_surface())
+            return false;
+        result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical, surface, &caps);
+    }
+    if (result != VK_SUCCESS) {
+        if (!surface_error_reported)
+            fprintf(stderr, "vulkan: surface capabilities: %d\n", (int)result);
+        surface_error_reported = true;
+        surface_lost = result == VK_ERROR_SURFACE_LOST_KHR;
+        return false;
+    }
+    surface_error_reported = false;
     if (!caps.currentExtent.width || !caps.currentExtent.height)
         return false;
-    if (!(caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT))
-        throw std::runtime_error("Surface does not support Vulkan transfer presentation");
+    if (!(caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT)) {
+        fprintf(stderr, "vulkan: the surface cannot present transfer images\n");
+        return false;
+    }
     uint32_t count = 0;
-    check(vkGetPhysicalDeviceSurfaceFormatsKHR(physical, surface, &count, nullptr),
-          "surface format count");
+    result = vkGetPhysicalDeviceSurfaceFormatsKHR(physical, surface, &count, nullptr);
+    if (result == VK_ERROR_SURFACE_LOST_KHR) {
+        if (recreate_surface())
+            surface_lost = false;
+        return false;
+    }
+    check(result, "surface format count");
     std::vector<VkSurfaceFormatKHR> formats(count);
-    check(vkGetPhysicalDeviceSurfaceFormatsKHR(physical, surface, &count, formats.data()),
-          "surface formats");
+    result = vkGetPhysicalDeviceSurfaceFormatsKHR(physical, surface, &count, formats.data());
+    if (result == VK_ERROR_SURFACE_LOST_KHR) {
+        if (recreate_surface())
+            surface_lost = false;
+        return false;
+    }
+    check(result, "surface formats");
+    if (formats.empty())
+        return false;
     auto chosen = formats.front();
     for (auto candidate : formats)
         if (candidate.format == VK_FORMAT_B8G8R8A8_UNORM &&
@@ -437,11 +518,21 @@ bool Context::resize_swapchain()
     extent.height =
         std::clamp(extent.height, caps.minImageExtent.height, caps.maxImageExtent.height);
     VkPresentModeKHR mode = VK_PRESENT_MODE_FIFO_KHR;
-    check(vkGetPhysicalDeviceSurfacePresentModesKHR(physical, surface, &count, nullptr),
-          "present mode count");
+    result = vkGetPhysicalDeviceSurfacePresentModesKHR(physical, surface, &count, nullptr);
+    if (result == VK_ERROR_SURFACE_LOST_KHR) {
+        if (recreate_surface())
+            surface_lost = false;
+        return false;
+    }
+    check(result, "present mode count");
     std::vector<VkPresentModeKHR> modes(count);
-    check(vkGetPhysicalDeviceSurfacePresentModesKHR(physical, surface, &count, modes.data()),
-          "present modes");
+    result = vkGetPhysicalDeviceSurfacePresentModesKHR(physical, surface, &count, modes.data());
+    if (result == VK_ERROR_SURFACE_LOST_KHR) {
+        if (recreate_surface())
+            surface_lost = false;
+        return false;
+    }
+    check(result, "present modes");
     if (!vsync)
         for (auto candidate : modes) {
             if (candidate == VK_PRESENT_MODE_MAILBOX_KHR ||
@@ -469,7 +560,19 @@ bool Context::resize_swapchain()
     info.clipped = VK_TRUE;
     info.oldSwapchain = swapchain;
     VkSwapchainKHR replacement;
-    check(vkCreateSwapchainKHR(device, &info, nullptr, &replacement), "vkCreateSwapchainKHR");
+    result = vkCreateSwapchainKHR(device, &info, nullptr, &replacement);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        rebuild_swapchain = true;
+        return false;
+    }
+    if (result == VK_ERROR_SURFACE_LOST_KHR) {
+        /* The old handle is unusable, and SDL may have replaced the window's
+           native surface under us. Build both again, then skip this frame. */
+        surface_lost = true;
+        recreate_surface();
+        return false;
+    }
+    check(result, "vkCreateSwapchainKHR");
     if (swapchain)
         vkDestroySwapchainKHR(device, swapchain, nullptr);
     swapchain = replacement;
@@ -501,6 +604,11 @@ void Context::present()
     uint32_t index;
     VkResult result =
         vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, acquired, VK_NULL_HANDLE, &index);
+    if (result == VK_ERROR_SURFACE_LOST_KHR) {
+        surface_lost = true;
+        recreate_surface();
+        return;
+    }
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         rebuild_swapchain = true;
         return;
@@ -558,7 +666,12 @@ void Context::present()
     info.pSwapchains = &swapchain;
     info.pImageIndices = &index;
     result = vkQueuePresentKHR(queue, &info);
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+    if (result == VK_ERROR_SURFACE_LOST_KHR) {
+        /* The frame reached a surface Android already took away. Rebuild it
+           now so the next frame has somewhere to go; never throw here. */
+        surface_lost = true;
+        recreate_surface();
+    } else if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
         rebuild_swapchain = true;
     else
         check(result, "vkQueuePresentKHR");
@@ -766,15 +879,32 @@ extern "C" void moon_vk_render_size(SDL_Window *window, int *width, int *height)
 }
 extern "C" void moon_vk_render_present(void)
 {
+    if (!moon::active)
+        return;
     try {
         moon::context().present();
+        moon::context().error.clear();
     } catch (const std::exception &e) {
-        moon::context().error = e.what();
-        SDL_SetError("Vulkan presentation: %s", e.what());
-        fprintf(stderr, "Vulkan presentation failed: %s\n", e.what());
-        SDL_Event quit{};
-        quit.type = SDL_QUIT;
-        SDL_PushEvent(&quit);
+        /* A frame that cannot be presented is skipped, not fatal. The log line
+           says why; the app keeps running so the next frame can recover. */
+        auto &c = moon::context();
+        if (c.error != e.what()) {
+            c.error = e.what();
+            SDL_SetError("Vulkan presentation: %s", e.what());
+            fprintf(stderr, "vulkan: presentation skipped: %s\n", e.what());
+        }
+    }
+}
+extern "C" void moon_vk_render_surface_dirty(void)
+{
+    if (moon::active)
+        moon::active->rebuild_swapchain = true;
+}
+extern "C" void moon_vk_render_surface_lost(void)
+{
+    if (moon::active) {
+        moon::active->surface_lost = true;
+        moon::active->rebuild_swapchain = true;
     }
 }
 extern "C" int moon_vk_render_vsync(int enabled)

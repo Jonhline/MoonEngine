@@ -11,6 +11,10 @@ int moon_vk_render_active(void);
 void *moon_vk_render_proc(const char *name);
 void moon_vk_render_size(SDL_Window *window, int *width, int *height);
 void moon_vk_render_present(void);
+/* The window changed size: rebuild the swapchain, keep the surface. */
+void moon_vk_render_surface_dirty(void);
+/* The window's surface is gone (Android background/picker): rebuild both. */
+void moon_vk_render_surface_lost(void);
 void moon_vk_render_drain(void);
 int moon_vk_render_prepare_geometry(void);
 void moon_vk_render_low_latency(int enabled);

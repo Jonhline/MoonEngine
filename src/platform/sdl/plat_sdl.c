@@ -5,6 +5,9 @@
 #include "platform/switch_profile.h"
 #include "platform/platform.h"
 #include "plat_sdl.h"
+#ifdef MOON_PC_VULKAN
+#include "vk_render.h"
+#endif
 #ifdef __ANDROID__
 #include "video_gl.h"
 #endif
@@ -134,6 +137,14 @@ int plat_sdl_poll(plat_key_event *ev)
 #endif
         if (e.type == SDL_QUIT) {
             quit = 1;
+        } else if (e.type == SDL_WINDOWEVENT &&
+                   (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
+                    e.window.event == SDL_WINDOWEVENT_RESIZED)) {
+#ifdef MOON_PC_VULKAN
+            /* The drawable changed size: rebuild the swapchain, keep the surface. */
+            moon_vk_render_surface_dirty();
+#endif
+            continue;
         } else if (e.type == SDL_AUDIODEVICEADDED && !e.adevice.iscapture) {
             if (audio_unavailable && (Sint32)(e.common.timestamp - audio_failed_at) > 0)
                 audio_unavailable = 0;
@@ -157,6 +168,11 @@ int plat_sdl_poll(plat_key_event *ev)
             return 1;
 #ifdef __ANDROID__
         } else if (e.type == SDL_APP_WILLENTERBACKGROUND || e.type == SDL_APP_DIDENTERFOREGROUND) {
+#ifdef MOON_PC_VULKAN
+            /* Android destroys the surface while another activity (the SAF
+               picker) owns the screen. Never present to the lost surface. */
+            moon_vk_render_surface_lost();
+#endif
             ev->lifecycle = e.type == SDL_APP_WILLENTERBACKGROUND ? 1 : 2;
             ev->touch = 4;
             return 1;
