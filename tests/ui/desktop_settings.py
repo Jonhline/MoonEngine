@@ -38,9 +38,11 @@ with tempfile.TemporaryDirectory(dir=output) as directory:
     assert config.read_bytes()==before
     run('classic_apply',','.join(['up','accept','up','up','accept']+['down']*5+['accept']))
     data=config.read_text()
+    assert 'graphics.antialiasing=0' in data and 'graphics.texture_smoothing=0' in data,data
     assert 'controls.desktop_menu=0' in data and 'preset=Classic' in data and 'modified=0' in data,data
     run('enhanced_apply',','.join(['up','accept','down','accept']+['down']*5+['accept']))
     data=config.read_text()
+    assert 'graphics.antialiasing=2' in data and 'graphics.render_scale=2' in data and 'graphics.texture_smoothing=1' in data,data
     assert 'controls.desktop_menu=1' in data and 'preset=Enhanced' in data and 'modified=0' in data,data
     assert 'controls.gtmode_edge_pan=1' in data and 'interface.input_hints=1' in data,data
     assert 'interface.main_menu_overview=1' in data,data
@@ -56,8 +58,8 @@ with tempfile.TemporaryDirectory(dir=output) as directory:
     data=config.read_text()
     assert 'controls.desktop_menu=1' in data and 'interface.input_hints=0' in data and 'modified=1' in data,data
     run('rendering_layout','r1')
-    for row,key in [(5,'interface.compact_car_strip')]:
-        run('readability_off_'+str(row),','.join(['r1']+['down']*row+['accept','up','accept']+['down']*(6-row)+['accept']))
+    for row,key in [(8,'interface.compact_car_strip')]:
+        run('readability_off_'+str(row),','.join(['r1']+['down']*row+['accept','up','accept']+['down']*(9-row)+['accept']))
         assert key+'=0' in config.read_text(),config.read_text()
     run('map_off',','.join(change(1)))
     data=config.read_text()

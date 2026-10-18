@@ -2,15 +2,53 @@
    judgement has its separate EE oracle; this is C for the profile bridge. */
 #define main pregrid_fixture_main
 #include "../test_process.h"
+#define plat_draw_quad4 fixture_draw_quad4
 #include "../ui/pregrid_menu.c"
+#undef plat_draw_quad4
 #undef main
 #include "career_license_disc.h"
+static int capture_cones, cone_quads, oversized_cones;
+void plat_draw_quad4(const plat_texture *t, float x, float y, float w, float h, float u, float v,
+                     float a, float b, const uint8_t c[4][4])
+{
+    if (capture_cones && t) {
+        if (w == 66 && h == 82.5f)
+            cone_quads++;
+        if (w == 88 && h == 110)
+            oversized_cones++;
+    }
+    fixture_draw_quad4(t, x, y, w, h, u, v, a, b, c);
+}
+
 static ah_val field(ah_vm *vm, ah_obj *obj, const char *name)
 {
     ah_val value;
     CHECK(ah_get_member(vm,obj,name,&value));
     return value;
 }
+static unsigned check_admission(menu *quick, unsigned completed)
+{
+    menu_save_refresh(quick);
+    load_race_tables(quick);
+    uint32_t count;
+    memcpy(&count, quick->race_db + 8, sizeof count);
+    unsigned checked = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        uint8_t row[151];
+        uint32_t id;
+        CHECK(gt4_specdb_row_at(quick->race_db, quick->race_db_size, i, row, sizeof row) ==
+              sizeof row);
+        memcpy(&id, quick->race_db + 16 + i * 8, sizeof id);
+        const char *code = gt4_specdb_label_for_id(quick->race_labels, quick->race_labels_size, id);
+        CHECK(code);
+        unsigned requirement = (unsigned)gt4_career_race_field(row, GT4_RACE_LICENSE);
+        CHECK(menu_career_aspec_available(quick, code) ==
+              (!requirement || (requirement <= 5 && requirement <= completed)));
+        checked++;
+    }
+    return checked;
+}
+
 int main(int argc, char **argv)
 {
     CHECK(argc==2);
@@ -27,6 +65,11 @@ int main(int argc, char **argv)
     CHECK(gt4_save_create(1,"Licence validation"));
     menu *q = menu_open(v, "quick-license", error, sizeof error);
     CHECK(q);
+    menu *championship = menu_open(v, "quick-championship", error, sizeof error);
+    CHECK(championship);
+    menu *event = menu_open(v, "quick-event", error, sizeof error);
+    CHECK(event);
+    unsigned admission_checks = 0;
     ah_set_log(q->vm, log_script, NULL);
     const char *groups[] = {"l0b", "l0a", "lib", "lia", "l0s"};
     unsigned attempts = 0;
@@ -72,6 +115,10 @@ int main(int argc, char **argv)
             CHECK(gt4_save_store() && gt4_save_load_slot(1));
             menu_save_refresh(m);
             menu_save_refresh(q);
+            if (g == 1) {
+                menu_save_refresh(championship);
+                CHECK(menu_career_aspec_available(championship, "jprjapan_0500") == (n == 16));
+            }
             if (n == 15) {
                 ah_val gate, arg = ah_str(q->vm, code);
                 ah_obj *root = field(q->vm, q->project, "LicenseRoot").u.o;
@@ -136,12 +183,34 @@ int main(int argc, char **argv)
         }
         category = ah_str(m->vm, groups[g]);
         CHECK(ah_call_member(m->vm,field(m->vm,game_object(m),"race_record").u.o,"isLicensePerfect",1,&category,&passed)>=0 && ah_truthy(passed));
+        admission_checks += check_admission(championship, g + 1);
+        admission_checks += check_admission(event, g + 1);
     }
     CHECK(ah_num(field(m->vm,field(m->vm,game_object(m),"calendar").u.o,"elapsed_days"))==80);
     CHECK(!errors);
     printf(
         "PASS %u injected attempts, 80 saved medal/ranking/calendar visits, five authored licence pre-race menus.\n",
         attempts);
+    printf("PASS %u event/championship admission checks across all five licence categories.\n",
+           admission_checks);
+    for (unsigned g = 0; g < 5; g++) {
+        ah_set_member(m->vm, m->project, "current_category", ah_str(m->vm, groups[g]));
+        menu_license_return_prepare(m);
+        for (int i = 0; i < ui_root_count(m->ui); i++) {
+            if (strcmp(ui_root_name(m->ui, i), "LicenseDetailRoot"))
+                continue;
+            menu_enter(m, i);
+            advance(m);
+            cone_quads = oversized_cones = 0;
+            capture_cones = 1;
+            ui_draw_root(m->ui, i, NULL, NULL);
+            capture_cones = 0;
+            CHECK(cone_quads == 16 && oversized_cones == 0);
+        }
+    }
+    puts("PASS 80 licence cones use the authored 66 x 82.5 client, not 88 x 110 texture size.");
+    menu_close(event);
+    menu_close(championship);
     menu_close(q);
     menu_close(m);
     gt4_save_shutdown();

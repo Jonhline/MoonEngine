@@ -562,6 +562,10 @@ static void APIENTRY vkglGetIntegerv(GLenum name, GLint *out)
     case GL_MINOR_VERSION:
         *out = 5;
         break;
+    case GL_MAX_RENDERBUFFER_SIZE:
+        *out = (GLint)std::min(context().properties.limits.maxFramebufferWidth,
+                               context().properties.limits.maxFramebufferHeight);
+        break;
     case GL_MAX_SAMPLES:
         *out = 1;
         break;

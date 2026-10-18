@@ -5,6 +5,9 @@
 #include "menu.h"
 #include "options_store.h"
 #include "desktop_input.h"
+#ifdef __ANDROID__
+#include "mobile_controls.h"
+#endif
 
 typedef struct {
     plat_video_desc video;
@@ -13,6 +16,11 @@ typedef struct {
     int desktop, edge_pan, input_hints, main_menu, smooth_cursor, hover_feedback;
     int compact_cars;
     int spatial_visibility, resident_reflections;
+    int antialiasing, render_scale, texture_smoothing;
+#ifdef __ANDROID__
+    int touch_menu;
+    moon_mobile_options mobile;
+#endif
 #ifdef __SWITCH__
     int scene_resolution, touch_menu;
 #endif
@@ -25,9 +33,9 @@ typedef struct {
     touch_back_state touch_back;
     uint64_t touch_back_clock;
     menu *owner;
-    ui_widget *page, *choices[17];
+    ui_widget *page, *choices[20];
 #ifndef __SWITCH__
-    ui_widget *rows[17], *tabs[3];
+    ui_widget *rows[20], *tabs[3];
     int active_tab;
 #endif
     char path[1024], message[128];

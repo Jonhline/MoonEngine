@@ -636,6 +636,11 @@ menu *menu_open_presented(gt4_vol *vol, const char *project, char *err, size_t e
             ah_set_member(m->vm, m->project, "checkGameData",
                           ah_native(m->vm, "checkGameData", nat_pc_check_profile, m));
     }
+    /* the Arcade's car lists are its own CarData.<maker>_carlist (arcade.ad
+       getCurrentCarList L2924), filled by the script just run: a mod's car joins them
+       as it joins the dealership's */
+    if (!strcmp(project, "arcade"))
+        mod_cars_into_catalog(m);
     if (!strcmp(project, "photo_shoot")) {
         ah_val ctx = ah_objv(m->context), result;
         if (ah_call_member(m->vm, m->project, "onLoad", 1, &ctx, &result) < 0)

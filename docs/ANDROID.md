@@ -1,103 +1,132 @@
-# Android
+# Android foundation
 
-Status recorded 18 October 2026. **Planning and measurement only: no Android build exists, nothing here
-has been validated on a device.** It records what the desktop and Switch work already gives us, the route
-we intend to take, and the milestones with the command that decides each one. See
-[Nintendo Switch](SWITCH.md) for the port that this one copies, and [Input support](INPUT.md) whose
-*Android platform foundation and menus* is the third phase of the touch plan.
+This is a private ARM64 development APK, not a validated Android release.
+It shares native physics, Adhoc, career, disc reading and the desktop Vulkan
+renderer. There is no PS2 executable in the APK and no deko3d dependency.
+The proposed first hardware target is the user's Redmi 11; its exact model,
+Android version, GPU, graphics correctness and performance remain unverified.
 
-## Why Android is the next platform
+## Build on Windows
 
-Every hard part of a new platform has already been done once, for the Switch:
+Install Android Studio/SDK, platform 36, build tools, official NDK
+27.2.12479018 (r27c), SDK CMake 3.22.1, Java 17 or newer, Gradle 8.14.3,
+Git and Python with the project's existing build dependencies. The host script
+uses an existing Gradle cache or an explicit `--gradle` path. AGP may install
+missing SDK CMake packages under the configured SDK after accepted licenses.
+No SDK or signing key is stored in the repository.
 
-| what a platform needs | what already exists (measured 2026-10-18) |
-|---|---|
-| a second platform in the build | `if(NINTENDO_SWITCH)` branches in `CMakeLists.txt` + `cmake/SwitchTargets.cmake`; the host tools/tests are marked `EXCLUDE_FROM_ALL` there |
-| a renderer that is not desktop GL | `moon_vk_render` (`src/platform/sdl/vk_*.cpp`) and `moon_vulkan` (`vulkan_device.c`) are already separate targets, selectable at run time (`MOON_RENDERER_VULKAN`, "recommended" in the settings UI) |
-| shaders on a new backend | `vk_pipeline.cpp` compiles GLSL **at run time** through glslang (`EShClientVulkan`, SPIR-V 1.0). glslang is compiled in — no external `glslangValidator`, no pre-baked `.spv` — and desktop GLSL is valid input for a Vulkan target, so the Vulkan path needs **no shader rewrite** |
-| movies without spawning a program | the Switch solved exactly this: `cmake/SwitchTargets.cmake` swaps `movie.c` for `src/platform/switch/movie_ffmpeg.c` + `movie_decode.c` and links **libavformat/libavcodec/libavutil**, gated by `MOON_SWITCH_MOVIES` |
-| a per-platform file and profile layer | `src/platform/common/switch_file.c` + `switch_profile.c` + `plat_pref_dir()` (`file_stdio.c`) |
-| a non-x86 arithmetic environment | `src/core/physics/fpu_env.c` already carries an `__SWITCH__ && __aarch64__` branch next to the x86 `_mm_setcsr` one |
-| a startup path of its own | `MOON_LAUNCHER_SOURCES` already switches to `src/app/switch_startup.c` + `switch_fpu.c` instead of the PC launcher |
-| a private test package | `tools/package_switch.py`, `switch_install.ps1`, `switch_transfer.cs` |
+```
+python tools/build_android.py --sdk C:/path/to/Android/Sdk --gradle C:/path/to/gradle.bat
+```
 
-And the graphics layer is the one part that is *already* platform-neutral: `vk_context.cpp` touches only
-`SDL_Vulkan_GetInstanceExtensions`, `SDL_Vulkan_CreateSurface`, `SDL_Vulkan_GetDrawableSize` and
-`SDL_LoadObject`/`SDL_LoadFunction`. SDL2's Android backend implements all of those, so the Vulkan
-renderer arrives on Android with the surface handed to it.
+The helper uses the official SDL2 release-2.30.9 source already in
+`build/_deps/sdl2-src`, or fetches that tag into `build/android-deps`.
+CMake fetches the same pinned dependencies as the PC. Output:
+`android/app/build/outputs/apk/debug/app-debug.apk`. Java is a debug APK;
+the native game builds Release with the shared arithmetic lowering. APK
+signing uses the local Android debug key, not a distributable release key.
+Minimum Android API 26, ARM64, Vulkan; no compatibility/performance promise
+is made for every device meeting those declarations.
 
-## Devices
+## Bootstrap and storage
 
-| device | what it is | why |
-|---|---|---|
-| **Ayn Odin 2** | Snapdragon 8 Gen 2, Adreno 740, Android 13, 6" 1920×1080 60 Hz IPS, 8/12/16 GB, built-in gamepad, active cooling | the primary target: mature Vulkan drivers with custom-driver support, a real controller, no touch requirement to drive (the Odin 2 **Portal** variant is the same SoC with a 7" 120 Hz OLED) |
-| **Samsung A34 5G** | Exynos 1280, Mali-G68, One UI 7 | the secondary target: an ordinary phone, so it needs the touch/gesture layer and it is the honest performance floor |
+The first screen opens the system document picker for the player's own GT4
+USA v2.00 ISO. It requests only that document's persistent read grant, without
+broad storage permissions or copying the ISO. A retained file descriptor is
+passed as `/proc/self/fd/N`, then duplicated by the Android file adapter without
+reopening a permission-protected filesystem path. Reads use 64-bit `pread`
+so duplicated descriptors cannot interfere through their shared offset. Local
+providers must supply a seekable regular
+file. Native disc loading performs the existing disc-format checks. A
+revoked/unavailable document returns to selection rather than deleting saves.
+Process recreation reopens the saved URI. No game contents are packaged.
 
-Exact Odin 2 variant, installed Vulkan loader/driver version and free storage: **to be read off the device**
-(`adb shell getprop`, `adb shell cmd gpu vkjson`) before any performance claim.
+Saves and the shared `options.ini` are in the app's private files directory.
+Uninstalling the app can delete those files. Import/export/backup UI is not
+implemented by this first foundation. Avoid treating it as a permanent save
+location until hardware validation and export support are complete.
 
-## Route
+## Input and lifecycle
 
-**Vulkan only, arm64-v8a only, through SDL2's own Android project.** The reasons are measured, not
-preferences:
+Touch menus reuse the shared preview/second-tap confirmation, list/map drag,
+parameter controls and original Back artwork. Android touch positions are
+mapped through the actual renderer viewport before shared hit testing; touch
+mouse duplicates stay suppressed. Controls are in Options > Screen Settings >
+Controls, with Classic retaining physical-controller behaviour. See Options
+for stable IDs, defaults and persistence.
 
-- The OpenGL path cannot be reused: `render3d.c` is `#version 330 core` GLSL and `fsr.c` needs GLSL 4.x
-  (it already refuses to run without it). Android would want GLES 3.0 semantics — a rewrite of the desktop
-  renderer, for no gain, since the Vulkan renderer is the recommended one and is already portable.
-- SDL2, not raw `ANativeWindow`: SDL already owns window creation, input, audio, lifecycle and the Vulkan
-  surface on Windows/Linux here, and its `android-project/` is the supported Gradle + NDK path
-  (`SDLActivity` → `SDL_main`). The engine's `main()` keeps working.
-- libav rather than an `ffmpeg` executable: Android will not spawn a bundled binary the way Windows does
-  (`movie.c` uses `CreateProcessW`), and the Switch already proved the linked-decoder route.
+The optional race overlay captures simultaneous fingers independently, offers
+analog/digital steering, pedals, handbrake, reverse, shifts, camera and Pause. Small,
+Medium and Large sizes, five opacity values and mirrored layout are supported;
+free per-button placement is not. Physical SDL controllers take priority.
+Input capture clears on cancellation, disabling, pause and controller takeover.
+Touch pause cards preview on the first tap and confirm on the second using
+the authored actor identity; cancellation, dragging and foreign contacts do
+not activate a card. The pad stream uses the existing bindings and recording path, never a physics
+fork. Replay, demo and pause screens do not receive active driving contacts.
 
-## Milestones
+SDL owns audio/device events and the Vulkan surface. Background/foreground
+events cancel touches, pause an active race and reset frame timing; returning
+does not automatically resume the race. This does not serialize an active race:
+if Android kills the process, unsaved race progress cannot be restored. Android Back routes to the normal
+Escape action. Landscape is fixed, with cutout avoidance requested from the
+host window. Surface replacement, interruptions and insets need real-device
+validation, not just an APK compilation check.
 
-Each milestone is done when its gate passes on a device — not when it compiles.
+## Validation and remaining work
 
-1. **Toolchain.** NDK 27.x, `platforms;android-35`, `build-tools;35.0.0`, SDL2 2.30.9 source with its
-   `android-project`, all under a local SDK root (`/mnt/ssd/android-sdk`; `~/Android/Sdk` is a broken
-   symlink to a drive that is not mounted).
-   *Gate:* `aarch64-linux-android<api>-clang` builds a trivial shared library, and SDL's
-   `android-project` produces an installable APK.
-2. **A window on the screen.** SDL + Vulkan, no game code: open a window, create the swapchain, clear.
-   *Gate:* the APK installs on both devices; the log names the Vulkan device and API version; the surface
-   is cleared; rotating and backgrounding/re-foregrounding does not kill it.
-3. **The engine links for arm64.** Every target that a device needs, `moon_vk_render` linked in, the
-   Android startup path in place, and the launcher's first screen drawn.
-   *Gate:* `MainActivity` start → launcher UI visible; no undefined symbols; no x86-only code left
-   (`fpu_env.c` extended to `__ANDROID__ && __aarch64__`).
-4. **The studio draws.** The real renderer, the real disc data.
-   *Gate:* the studio's white room and the selected car, as a screenshot, on the Odin 2.
-5. **The disc on the device.** Scoped storage, so the disc is read from the app's own files directory
-   (dev: `adb push`), with `plat_pref_dir()` answering Android's files dir for mods/saves/settings.
-   *Gate:* the car survey reports the same 722 cars / 0 failed loads as desktop.
-6. **Input.** The Odin 2's built-in pad first (SDL gamepad), then the touch layer
-   (`src/platform/switch/touch_contact.h` is the existing work) for the A34, including Android Back.
-   *Gate:* a race started and paused with the pad; the same on the A34 by touch.
-7. **Movies.** Link libav for arm64 and reuse the Switch decoder sources, or ship without the menu movie
-   and say so in the UI.
-   *Gate:* `movie frames=N` on device, or one honest "movies unavailable" line.
-8. **Packaging.** Gradle release APK, an install helper, and a README that states the disc requirement.
-   *Gate:* a clean device installs from the artifact alone.
+`mobile_options` checks both presets, shared-store persistence and retained
+unknown keys. `desktop_navigation` exercises touch pause cards and a deliberate
+one-tap-activation negative. `mobile_controls` and its deliberate negative cover Classic/Enhanced,
+simultaneous steering/pedals, outside releases, unknown/duplicate contacts,
+controller takeover, cancellation and layout/size bounds on the host. Existing
+desktop and Switch touch tests remain separate. These checks do not prove
+an entire Android race or a screenshot matches the desktop.
 
-## Hazards to keep in view
+No Android device was connected during initial setup. Hardware gates: install,
+choose a local ISO, reach the menus, exercise touch and controller navigation,
+start a race, steer/brake/shift, background/resume, verify saves across restart,
+and inspect graphics/latency/memory/temperature on the actual phone. Use ADB
+logcat and the native log for diagnosis. Neither 60 FPS nor complete lifecycle
+handling has been certified.
 
-- **Surface loss is the default, not the exception.** Android destroys and recreates the surface on
-  rotate, background and split-screen; the swapchain must be recreated rather than assumed.
-- **Storage.** The captain's disc is a 5.3 GB image (md5 `6e03af5873c30e418021553a8832ca42` is the desktop
-  reference); copying it onto a handheld takes time and the free space must be checked first.
-- **The file layer is not `fopen` anymore.** Scoped storage means either a copied file in the app's own
-  directory (v1, simple, large) or a `content://` descriptor through the platform layer (later).
-- **No 32-bit, no emulated FPU.** arm64-v8a only; `-ffp-contract=off -frounding-math` already applied to
-  the physics targets must be kept, and the frame arithmetic must match the desktop reference, not merely
-  look right.
-- **Performance is a measurement, not a promise.** The Odin 2 is the target where 60 fps is plausible;
-  the A34 is where we find out what the floor is. Publish what the device logs say.
+Movie support currently follows the unavailable non-Windows external-decoder
+path. In-process Android FFmpeg and the dependent IPU image decoding are not
+yet linked. This can affect videos and IPU-backed UI imagery; do not describe
+the build as feature-complete. Additional work: free-position controls, save import/export, gyro/haptics and phone performance
+profiles. PC and Switch implementations remain behind their existing guards.
 
-## Coordination
+Initial host validation: 15 focused CTests passed (mobile controls/options,
+desktop pointer/navigation/events/store, Switch contacts and intentional
+negatives), including the touch pause-card negative. Windows Release and
+Android ARM64 native Release both build. APK v2 signing and the three ARM64
+native libraries were checked; the APK contains no disc, saves or console keys.
+Existing upstream/legacy compiler warnings remain; this is not a zero-warning
+or hardware-validated release.
 
-The Android port is a platform lane, the same shape as the Switch lane: engine/platform code, one
-`cmake/AndroidTargets.cmake`, one `docs/ANDROID.md`. It touches no fidelity rule and changes no game
-behaviour on the existing platforms. As with every other change, nothing is pushed to the shared
-repository without the captain's word, and the port is announced on the issue tracker before it is
-built.
+### Landscape orientation (17/10/2026)
+
+Both app activities retain sensorLandscape in the manifest and explicitly
+request SENSOR_LANDSCAPE after creation and resume. GameActivity also overrides
+SDLActivity.setOrientationBis: SDL window creation/resizing cannot replace the
+app's landscape policy with portrait or FULL_USER. Both landscape rotations
+remain allowed. The external system document picker belongs to its provider
+and may choose its own orientation. This sets orientation, not a forced 16:9
+stretch on phones with other display ratios. APK compilation/signing are
+host checks; physical orientation still needs confirmation on the phone.
+
+### Vulkan content rotation (17/10/2026)
+
+The app can be landscape while the presented game image is rotated. The
+final Vulkan presentation is an unrotated blit, so it now requests IDENTITY
+when supported instead of copying currentTransform into preTransform. This
+leaves surface rotation to Android's compositor, as documented by Khronos:
+https://docs.vulkan.org/samples/latest/samples/performance/surface_rotation/README.html
+Android advertises all transforms; unsupported identity on other platforms
+retains the previous currentTransform selection. Native pre-rotation is a
+future optimization; compositor rotation can add bandwidth/processing cost.
+Host policy tests cover eight rotations/mirrors and a deliberate old-policy
+negative. Vulkan/OpenGL frame comparison and its negative also passed.
+APK builds and v2 signature verifies; image orientation on the phone remains
+pending physical validation. This supersedes treating Java orientation as
+the complete correction for the user's report.

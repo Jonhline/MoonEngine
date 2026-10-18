@@ -368,7 +368,7 @@ static void draw_pages(menu *m, int *drawn, int *skipped)
     ui_draw_root(p, menu_active_root(m), drawn, skipped);
     if (progress_open && dialog_ui && progress_root >= 0)
         ui_draw_root(dialog_ui, progress_root, NULL, NULL);
-#ifdef __SWITCH__
+#if defined(__SWITCH__) || defined(__ANDROID__)
     else if (app_video_settings && dialog_ui) {
         uint64_t now = plat_time_ns();
         float dt = app_video_settings->touch_back_clock
@@ -1018,7 +1018,7 @@ static char *next_scripted_key(void)
 }
 static int desktop_menu_event(menu *m, plat_key_event *ev)
 {
-#ifdef __SWITCH__
+#if defined(__SWITCH__) || defined(__ANDROID__)
     if (ev->touch) {
         int enabled = app_video_settings && app_video_settings->current.touch_menu;
         if (!enabled) ui_touch_mode(menu_ui(m),0);
@@ -1209,7 +1209,7 @@ static int present_dialog(menu *m, const char *title, const char *message, int t
     ui_cursor_select(dialog_ui, confirm ? (selected ? positive : negative) : single);
     ui_cursor_speed(dialog_ui, speed);
     uint64_t last = plat_time_ns();
-#ifdef __SWITCH__
+#if defined(__SWITCH__) || defined(__ANDROID__)
     touch_dialog_state touch = {0};
 
 #endif
@@ -1222,7 +1222,7 @@ static int present_dialog(menu *m, const char *title, const char *message, int t
             int hovered = desktop_dialog_input(dialog_ui,
                 app_video_settings && app_video_settings->current.desktop,
                 mouse_items, confirm ? 2 : 1, &ev, &mouse_action);
-#ifdef __SWITCH__
+#if defined(__SWITCH__) || defined(__ANDROID__)
             int touch_enabled = app_video_settings && app_video_settings->current.touch_menu &&
                                 !closing && motion_time >= .5f;
             hovered = touch_dialog_input(dialog_ui, touch_enabled, mouse_items, confirm ? 2 : 1,
@@ -1296,7 +1296,7 @@ static int present_dialog(menu *m, const char *title, const char *message, int t
         }
         dialog_background(m);
         ui_draw_root(dialog_ui, root, NULL, NULL);
-#ifdef __SWITCH__
+#if defined(__SWITCH__) || defined(__ANDROID__)
         ui_hide_touch_back(dialog_ui);
 #endif
         if (dialog_shot && !closing && motion_time >= .5f) {
@@ -1392,7 +1392,7 @@ static int present_profile_picker(menu *m)
         }
     }
     int selected = 0, result = -1;
-#ifdef __SWITCH__
+#if defined(__SWITCH__) || defined(__ANDROID__)
     touch_dialog_state touch = {0};
     touch_back_state back_touch = {0};
 #endif
@@ -1421,7 +1421,7 @@ static int present_profile_picker(menu *m)
             int hovered = desktop_dialog_input(dialog_ui,
                 app_video_settings && app_video_settings->current.desktop,
                 group->kids, count, &ev, &mouse_action);
-#ifdef __SWITCH__
+#if defined(__SWITCH__) || defined(__ANDROID__)
             int touch_enabled = app_video_settings && app_video_settings->current.touch_menu;
             int back = 0;
             if (touch_back_input(dialog_ui, touch_enabled, group, root, &ev, &back_touch, &back)) {
@@ -1460,7 +1460,7 @@ static int present_profile_picker(menu *m)
         plat_video_begin_frame();
         ui_draw_under(menu_ui(m), menu_active_root(m));
         ui_draw_root(dialog_ui, root, NULL, NULL);
-#ifdef __SWITCH__
+#if defined(__SWITCH__) || defined(__ANDROID__)
         ui_draw_touch_back(dialog_ui,
                            app_video_settings && app_video_settings->current.touch_menu &&
                                ui_touch_active(dialog_ui),

@@ -95,14 +95,16 @@ try {
     $manifest = Get-Content -LiteralPath (Join-Path $PackageRoot 'manifest.json') -Raw | ConvertFrom-Json
     $nro = Join-Path $PackageRoot 'switch/moonengine/moonengine.nro'
     Assert-Hash $nro $manifest.nro_sha256
-    Write-Host '1/3 - Escolha sua copia do GT4 USA v2.00 (SCUS-97328).'
+    Write-Host '1/3 - Escolha sua copia do GT4 USA (SCUS-97328).'
     $choose = New-Object Windows.Forms.OpenFileDialog
-    $choose.Title = 'Escolha sua ISO do Gran Turismo 4 (USA v2.00)'
+    $choose.Title = 'Escolha sua ISO do Gran Turismo 4 (USA / SCUS-97328)'
     $choose.Filter = 'Imagem de disco (*.iso)|*.iso'
     if ($choose.ShowDialog() -ne 'OK') { exit 0 }
     $iso = $choose.FileName
-    Write-Host 'Conferindo a ISO. Isso pode levar alguns minutos...'
-    Assert-Hash $iso $manifest.disc_sha1 'SHA1'
+    Write-Host 'Conferindo o serial SCUS-97328...'
+    $checker = Join-Path $PackageRoot 'MoonEngine-Switch-Setup.exe'
+    $check = Start-Process -FilePath $checker -ArgumentList @('--check-disc', ('"{0}"' -f $iso)) -WindowStyle Hidden -Wait -PassThru
+    if ($check.ExitCode -ne 0) { throw 'Escolha um disco GT4 USA com serial SCUS-97328.' }
     $message = "2/3 - No Switch, abra DBI > Start MTP Connection e conecte o cabo USB.`n`n" +
                'O cartao precisa aceitar um arquivo de mais de 4 GB (exFAT). Clique OK quando estiver conectado.'
     if ([Windows.Forms.MessageBox]::Show($message, $title, 'OKCancel') -ne 'OK') { exit 0 }

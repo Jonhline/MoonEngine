@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Create a private Switch ZIP from an explicitly selected, tested NRO.
 
-No network calls or publication. Game images, player data and SDK binaries
-are never copied. The included source snapshot contains tracked build inputs
+No network calls or publication. Game images, player data and console SDK
+products are never copied; the selected Windows Nxlink host tool is bundled.
+The included source snapshot contains tracked build inputs
 from the working tree; the manifest identifies the actual binary by SHA-256.
 """
 import argparse
@@ -16,54 +17,73 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 README = """MOON ENGINE - SWITCH - {version}
-Pacote privado para teste. Nao publicado como release oficial.
+Private test package. Not an official public release.
 
-Instalacao pelo PC (Windows 10/11)
-1. Extraia TODO este ZIP numa pasta. Abra "Instalar no Switch.cmd".
-2. Escolha sua ISO do GT4 USA v2.00 (SCUS-97328). O assistente confere a copia.
-3. No Switch: DBI > Start MTP Connection. Conecte o cabo USB e siga a janela.
+Windows setup (Windows 10/11)
+1. Extract the ENTIRE ZIP. Open MoonEngine-Switch-Setup.exe.
+2. Choose your own GT4 USA ISO (SCUS-97328, any revision), then Continue.
+3. Select USB / DBI or Network / Nxlink, then Install.
+If retrying after the ISO was copied, keep "Reuse existing same-size ISO" on.
+Failures write MoonEngine-Switch-Setup.log next to the setup app (or show
+its temporary location if this folder is read-only). Nxlink output is kept
+in nxlink.log under the temporary folder identified in the report.
 
-O assistente copia a ISO e o aplicativo para o SD, configura o caminho e
-confere o NRO instalado. Nao precisa Python nem devkitPro no PC do jogador.
-Mantenha o cabo conectado ate aparecer "Pronto". Uma ISO de mais de 4 GB
-precisa de exFAT neste fluxo. O assistente NAO formata o cartao.
+USB / DBI: open DBI > Start MTP Connection and connect USB to the PC.
+Network / Nxlink: enable FTP and Nxlink in Sphaira and leave its home
+screen open in application mode. Enter the Switch IP address and FTP port
+(usually 5000). FTP must allow anonymous access on the same local network.
+FTP transfers the ISO and persistent files; Nxlink sends and launches the
+app afterward. Nxlink alone cannot copy the ISO.
 
-Para jogar
-Encerre o MTP. Segure R ao abrir um jogo para iniciar o Homebrew Menu em
-modo aplicativo (RAM completa). Abra Moon Engine. O modo Album tem pouca RAM.
-No Sphaira, tambem use o modo aplicativo. O pacote e NRO, nao NSP.
+The setup copies your ISO and the app, configures the disc path and verifies
+the installed NRO. It does not open CMD or require PowerShell, .NET, Python
+or devkitPro on the player's PC. Its two-step screen follows the current
+launcher's white room, centered content and lower action bar.
+Keep the connection active until setup reports Done. This single-file ISO
+workflow needs exFAT/large-file support for discs larger than 4 GB.
+Setup NEVER formats the SD card.
 
-Saves e configuracoes
-Saves existentes ficam preservados. Se existir switch/opengt4 e ainda nao
-existir switch/moonengine, o assistente atualiza a pasta antiga, sem criar
-um segundo aplicativo. Backups do NRO anterior ficam em moonengine-backups.
-Nao copie saves/configs de outra pessoa. Cada jogador cria o proprio perfil.
+Playing
+Close MTP. Hold R while opening a game to enter Homebrew Menu with full RAM,
+then open Moon Engine. Album mode has insufficient RAM. Use application
+mode in Sphaira too. This package is an NRO, not an NSP.
 
-Instalacao manual (opcional)
-Copie a pasta switch deste pacote para a raiz do SD e coloque sua ISO como
-switch/moonengine/gt4.iso. Na primeira abertura a configuracao sera criada.
-Em instalacoes antigas com saves em switch/opengt4, prefira o assistente.
+Saves and settings
+Existing saves are preserved. If switch/opengt4 exists and switch/moonengine
+does not, setup updates the old folder without creating a second app.
+Previous NRO/config backups go to moonengine-backups. Do not copy another
+player's saves or config; each player creates their own profile.
 
-Controles: A=Circle, B=Cross, X=Triangle, Y=Square (por posicao).
-Touch: um toque seleciona; outro no mesmo item confirma. Arraste listas/mapa.
-As opcoes de touch ficam em Options > Screen Settings.
+Manual installation (optional)
+Copy this package's switch folder to the SD root and put your ISO at
+switch/moonengine/gt4.iso. Configuration is created on first launch.
+For older installations with saves in switch/opengt4, prefer setup.
 
-Estado desta versao
-Build Release ARM64/deko3d, com videos decodificados no Switch.
-Baseado no build testado no console do desenvolvedor. Ainda e experimental:
-60 FPS constantes em toda pista nao estao comprovados; o erro de retorno
-ao Sphaira apos fechar o aplicativo ainda esta em investigacao.
-O transporte USB do assistente precisa de verificacao no DBI real; o motor
-de copia/renomeacao e a preservacao de pastas foram testados no Windows.
+Controls: A=Circle, B=Cross, X=Triangle, Y=Square (by position).
+Touch: tap to select, then tap the same item to confirm. Drag lists/map.
+Touch options are under Options > Screen Settings.
 
-Este port nao e afiliado a Sony ou Polyphony Digital. Nao inclui o jogo,
-chaves, firmware ou saves. O jogador fornece sua propria copia do disco.
-Gran Turismo e uma marca dos respectivos titulares.
+Build status
+Release ARM64/deko3d, with video decoding on the Switch. Based on a build
+tested on the developer's console. Still experimental: steady 60 FPS on
+all tracks is unproven; an error returning to Sphaira after quitting is
+still being investigated.
+USB transport still needs validation with actual DBI hardware. Local tests
+cover copy/rename/hash and config preservation. Network tests use a local
+FTP fixture for upload, backup, rename, hash and preserving the installed
+file after failed verification. The full ISO-to-console installation still
+needs player confirmation. A reused same-size SD ISO is not rehashed;
+the selected local ISO is always verified.
 
-Licenca: GPL-3.0 com os termos de NOTICE.txt. Codigo do projeto e scripts
-de build: source.zip. Dependencias e fontes: THIRD_PARTY.txt.
-Identificacao do binario e hashes: manifest.json.
+This unofficial port is not affiliated with Sony or Polyphony Digital.
+No game data, console keys, firmware or saves are included. Supply your own
+disc copy. Gran Turismo is a trademark of its respective owners.
+
+License: GPL-3.0 with NOTICE.txt terms. Project source/build scripts:
+source.zip. Dependencies and fonts: THIRD_PARTY.txt.
+Binary identity and hashes: manifest.json.
 """
+
 
 NOTICES = """Moon Engine: LICENSE.txt (GPL-3.0) and NOTICE.txt.
 The project source/build scripts are in source.zip. This is a private
@@ -72,7 +92,7 @@ development package, not a public update feed or an official game release.
 Switch libraries come from the devkitPro packages used by the build:
 https://github.com/devkitPro/pacman-packages
 https://github.com/devkitPro/portlibs
-https://github.com/devkitPro/switch-tools
+https://github.com/switchbrew/switch-tools
 https://github.com/switchbrew/libnx (ISC)
 https://github.com/devkitPro/deko3d (zlib)
 https://github.com/libsdl-org/SDL (zlib)
@@ -84,6 +104,9 @@ miniz 3.0.2: MIT; https://github.com/richgel999/miniz/tree/3.0.2
 The installed FFmpeg configuration reports --enable-gpl and GPL version 2
 or later. See the package recipes for transitive dependencies and licenses.
 The console SDK, commercial game data and keys are not distributed here.
+The Windows Nxlink host tool is included (switch-tools 1.13.1); its ISC
+license is in NXLINK-ISC.txt. Barlow launcher fonts retain SIL OFL 1.1;
+see BARLOW-OFL.txt. These are host tool/font licenses, not game assets.
 """
 
 
@@ -108,12 +131,17 @@ def source_names(root):
                 yield name
 
 
-def build_package(nro, output, version, root=ROOT):
+def build_package(nro, output, version, root=ROOT, setup_exe=None, nxlink=None):
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", version):
         raise ValueError("Invalid version label")
     data = nro.read_bytes()
     if len(data) < 0x20 or data[0x10:0x14] != b"NRO0":
         raise ValueError("Not a Switch NRO")
+    if setup_exe is None or nxlink is None:
+        raise ValueError("Provide the native setup executable and Windows Nxlink host tool")
+    setup_data, nxlink_data = setup_exe.read_bytes(), nxlink.read_bytes()
+    if not setup_data.startswith(b"MZ") or not nxlink_data.startswith(b"MZ"):
+        raise ValueError("Expected Windows PE executables")
     if output.exists():
         raise FileExistsError(f"Refusing to overwrite {output}")
     output.mkdir(parents=True)
@@ -122,26 +150,25 @@ def build_package(nro, output, version, root=ROOT):
     sd.mkdir(parents=True)
     installer.mkdir()
     (sd / "moonengine.nro").write_bytes(data)
-    for name in ("switch_install.ps1", "switch_transfer.cs"):
-        (installer / name).write_bytes((root / "tools" / name).read_bytes())
-    cmd = ('@echo off\r\n'
-           'powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File "%~dp0installer\\switch_install.ps1" -PackageRoot "%~dp0."\r\n'
-           'if errorlevel 1 pause\r\n')
-    (output / "Instalar no Switch.cmd").write_bytes(cmd.encode("ascii"))
+    (output / "MoonEngine-Switch-Setup.exe").write_bytes(setup_data)
+    (installer / "nxlink.exe").write_bytes(nxlink_data)
+    for name in ("BARLOW-OFL.txt", "NXLINK-ISC.txt"):
+        (output / name).write_bytes((root / "tools/licenses" / name).read_bytes())
     for name in ("LICENSE", "NOTICE"):
         (output / (name + ".txt")).write_bytes((root / name).read_bytes())
-    (output / "LEIA-ME.txt").write_text(README.format(version=version), encoding="utf-8", newline="")
+    (output / "README.txt").write_text(README.format(version=version), encoding="utf-8", newline="")
     (output / "THIRD_PARTY.txt").write_text(NOTICES, encoding="utf-8", newline="")
-    discs = json.loads((root / "config/supported_discs.json").read_text())
-    disc = next(d for d in discs["discs"] if d.get("serial") == "SCUS-97328" and d.get("version") == "2.00")
     manifest = {
         "version": version,
         "private": True,
         "nro_sha256": hashlib.sha256(data).hexdigest(),
-        "disc_sha1": disc["sha1"],
+        "setup_sha256": hashlib.sha256(setup_data).hexdigest(),
+        "nxlink_sha256": hashlib.sha256(nxlink_data).hexdigest(),
+        "disc_serial": "SCUS-97328",
         "source_snapshot_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
         "source_snapshot_worktree": True,
         "usb_hardware_validated": False,
+        "network_fixture_validated": True,
     }
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="")
     with zipfile.ZipFile(output / "source.zip", "w", zipfile.ZIP_DEFLATED) as archive:
@@ -162,5 +189,7 @@ if __name__ == "__main__":
     parser.add_argument("version")
     parser.add_argument("--nro", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--setup-exe", required=True, type=Path)
+    parser.add_argument("--nxlink", required=True, type=Path)
     args = parser.parse_args()
-    print(build_package(args.nro, args.out, args.version))
+    print(build_package(args.nro, args.out, args.version, setup_exe=args.setup_exe, nxlink=args.nxlink))

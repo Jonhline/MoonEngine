@@ -34,6 +34,9 @@ void video_set_fill_window(int enabled);
 int video_fill_window(void);
 float video_projection_x(void);
 int video_fsr_available(void);
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+void video_scene_quality(int antialiasing, int render_scale);
+#endif
 void video_begin_scene(void);
 void video_end_scene(void);
 /* UI filtering: 0 linear, 1 sharp cubic, 2 nearest. Text is separate. */

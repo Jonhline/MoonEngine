@@ -35,6 +35,9 @@ size_t moon_mod_added_courses(const char **labels, size_t cap);
    Engine folder. Resolved once -- mods do not change while the game runs -- and
    "" when there are none, which means the disc answers everything (LAW 12). */
 const char *moon_mod_roots(void);
+/* Forget the resolved list: the next moon_mod_roots() reads mods.ini again (the
+   launcher's MODS page, before the game starts). */
+void moon_mod_roots_reload(void);
 
 /* The folder mods are installed into: <prefs>/mods (WITHOUT a trailing
    separator, ready to be joined). Returns 0 when the backend has no pref dir. */

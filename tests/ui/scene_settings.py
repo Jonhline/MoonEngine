@@ -26,22 +26,22 @@ with tempfile.TemporaryDirectory(dir=output) as directory:
     bounds = re.findall(r"^tree +Composite (?:DisplayTab|RenderingTab|ControlsTab) .*rect=(\d+),(\d+),(\d+),(\d+)", log, re.M)
     assert len(bounds) == 3, log
     for x, y, w, h in bounds:
-        assert int(x) >= 0 and int(x) + int(w) <= 400 and int(y) + int(h) <= 60, log
+        assert int(x) >= 0 and int(x) + int(w) <= 560 and int(y) + int(h) <= 60, log
     def tab(index):
-        # The shared preset sits between the first row and the rightmost tab.
-        return ["up", "up"] + ["left"] * (2 - index) + ["accept"]
+        # Use the page action instead of depending on nearest-widget geometry.
+        return ["r1"] * index
     def edit(index, direction="down"):
         return ["down"] * index + ["accept", direction, "accept"]
     def commit(index, count):
         return ["down"] * (count - index) + ["accept"]
     assert "choice SpatialVisibility/OptionMenu index=0" in log and "choice ResidentReflections/OptionMenu index=0" in log, log
-    run("spatial_on", tab(1) + edit(3) + commit(3, 5))
+    run("spatial_on", tab(1) + edit(6) + commit(6, 9))
     data = config.read_text()
     assert "graphics.spatial_visibility=1" in data and "graphics.resident_reflections=0" in data, data
     saved = config.read_bytes()
-    run("cancel", tab(1) + edit(4) + ["back"])
+    run("cancel", tab(1) + edit(7) + ["back"])
     assert config.read_bytes() == saved, "cancel wrote draft"
-    run("resident_on", tab(1) + edit(4) + commit(4, 5))
+    run("resident_on", tab(1) + edit(7) + commit(7, 9))
     data = config.read_text()
     assert "graphics.spatial_visibility=1" in data and "graphics.resident_reflections=1" in data and "modified=1" in data, data
     log = run("reload", ["r1"])
@@ -55,11 +55,11 @@ with tempfile.TemporaryDirectory(dir=output) as directory:
     assert "graphics.spatial_visibility=1" in data and "graphics.resident_reflections=1" in data and "preset=Enhanced" in data, data
     # Move across tabs after editing: neither navigation nor Cancel may lose
     # the shared draft or write it prematurely.
-    cross = ["l1", "r1", "r1"] + edit(3, "up") + ["r1"] + edit(0, "up")
+    cross = ["l1", "r1", "r1"] + edit(6, "up") + ["r1"] + edit(0, "up")
     saved = config.read_bytes()
     run("cross_tabs_cancel", cross + ["back"])
     assert config.read_bytes() == saved, "tab navigation committed cancelled settings"
-    run("cross_tabs_apply", cross + commit(0, 4))
+    run("cross_tabs_apply", cross + commit(0, 6))
     data = config.read_text()
     if negative:
         data = data.replace("graphics.spatial_visibility=0", "graphics.spatial_visibility=1")

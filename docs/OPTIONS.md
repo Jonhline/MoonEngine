@@ -68,11 +68,19 @@ player presets): lowercase, dotted by category, for example
 
 | id | Category | What it changes | Classic | Enhanced | Applies | Recorded in replays | Menu location | Launcher | Commit |
 |---|---|---|---|---|---|---|---|---|---|
-| controls.touch_menu | Controls and input | Switch handheld first tap selects/previews, second tap on the same item confirms, direct list/map drag, parameter bars and native confirmation/profile buttons; ignores duplicate mouse events; hides cursor artwork after touch and restores it on controller input; retains desktop scenario-specific hover between taps, uses second-press compression without added colored overlays or instructional text; original green Exit fallback appears only after touch on screens lacking an existing return control (including pause) | Off; controller navigation | On | After OK, menu input boundary | No; no simulation change | Options > Screen Settings > Touch Menus (Switch) | não | This change |
+| graphics.antialiasing | Graphics | PC scene sampling: Original retains the previous renderer path (OpenGL up to 4x MSAA, Vulkan single sample); Off uses single sample; SSAA 150%/200% renders larger and downsamples | Original (0) | SSAA 150% (2) | After OK, next 3D scene; clears FSR and resets 3D scale | No; presentation only | Options > Screen Settings > Rendering > Anti-Aliasing | Secondary: yes; official: no | This change |
+| graphics.render_scale | Graphics | PC 3D resolution at 50/75/100 percent of output, independent of full-resolution UI/HUD | 100% (2) | 100% (2) | After OK, next scene; selecting clears SSAA and FSR | No | Options > Screen Settings > Rendering > 3D Resolution | Secondary: yes; official: no | This change |
+| graphics.texture_smoothing | Graphics | PC model point-sampling override; smooths formerly nearest-sampled surfaces, retaining mip/wrap rules | Off (0) | On (1) | After OK, next model draw | No | Options > Screen Settings > Rendering > Texture Smoothing | Secondary: yes; official: no | This change |
+| controls.touch_menu | Controls and input | Switch handheld and Android first tap selects/previews, Android pause cards use authored actor identities, second tap on the same item confirms, direct list/map drag, parameter bars and native confirmation/profile buttons; ignores duplicate mouse events; hides cursor artwork after touch and restores it on controller input; retains desktop scenario-specific hover between taps, uses second-press compression without added colored overlays or instructional text; original green Exit fallback appears only after touch on screens lacking an existing return control (including pause) | Off; controller navigation | On | After OK, menu input boundary | No; no simulation change | Options > Screen Settings > Touch Menus (Switch); Controls > Touch Menus (Android) | não | This change |
+| controls.touch_race | Controls and input | Android-only multitouch race overlay routed through the existing pad configuration; external controllers hide and supersede it | Off; physical controller | On | After OK, Android input boundary | Resulting ordinary pad commands are recorded; layout is not simulation state | Options > Screen Settings > Controls > Race Touch Controls (Android) | no | Android foundation |
+| controls.touch_size | Controls and input | Small/Medium/Large Android race buttons and steering area | Medium; overlay off | Medium | After OK, Android input/presentation boundary | No; ordinary commands are recorded | Options > Screen Settings > Controls > Control Size (Android) | no | Android foundation |
+| controls.touch_opacity | Interface | Android race overlay opacity, 20–100 percent | 60%; overlay off | 60% | After OK, Android presentation boundary | No | Options > Screen Settings > Controls > Control Opacity (Android) | no | Android foundation |
+| controls.touch_layout | Controls and input | Steering on the left or mirrored on the right; not a free-position layout editor | Steering left; overlay off | Steering left | After OK, Android input/presentation boundary | No; ordinary commands are recorded | Options > Screen Settings > Controls > Control Layout (Android) | no | Android foundation |
+| controls.touch_steering | Controls and input | Continuous analog drag or digital left/right steering; no solver changes | Analog drag; overlay off | Analog drag | After OK, Android input boundary | Resulting ordinary pad commands are recorded | Options > Screen Settings > Controls > Steering (Android) | no | Android foundation |
 | controls.desktop_menu | Controls and input | Independent hover/previews, manufacturer preselection, full painted-button clicks, viewport/authored-regulation wheel scrolling, pause pointer, slider click/drag with the disc hand and manufacturer-panel edge panning, coalesced hover sounds, fullscreen mouse confinement (released on focus loss) and WASD menu navigation | Off; existing pad-style adapters | On | After OK, menu input boundary | No; menu-only, no simulation change | Options > Screen Settings > Desktop Input | nÃ£o | This change |
 | controls.gtmode_edge_pan | Controls and input | Pan GT Mode map near viewport edges without selecting landmarks; requires Desktop Input | Off | On | After OK, menu input boundary | No; no simulation change | Options > Screen Settings > Map Edge Pan | nÃ£o | This change |
 | interface.smooth_mouse_cursor | Interface | Damped cursor motion, restrained inertial lean and clickable-target feedback; script icon crossfade | Off; direct mouse position when Desktop Input is enabled; original pad cursor with Classic | On | After OK, presentation/input boundary | No | Options > Screen Settings > Controls > Smooth Cursor | nÃ£o | This change |
-| interface.mouse_hover_feedback | Interface | Gently enlarge static Options icons/labels and the green Exit pictogram (including its authored alternate face); whole vertical list-card enlargement (background, text, price and swatch together); light standalone paint-swatch enlargement, varnish and animated reflection; adjustable-bar hover; car-strip mouse hover uses authored blob magnification/interpolation; preserve existing game hovers | Off; authored widget faces only | On | After OK, presentation boundary | No | Options > Screen Settings > Controls > Hover Feedback | nÃ£o | This change |
+| interface.mouse_hover_feedback | Interface | Gently enlarge static Options icons/labels and the green Exit pictogram (including its authored alternate face); whole vertical list-card enlargement (background, text, price and swatch together), including event/championship ticket artwork and labels; light standalone paint-swatch enlargement, varnish and animated reflection; adjustable-bar hover; car-strip mouse hover uses authored blob magnification/interpolation; preserve existing game hovers | Off; authored widget faces only | On | After OK, presentation boundary | No | Options > Screen Settings > Controls > Hover Feedback | nÃ£o | This change |
 | interface.compact_car_strip | Interface | Draw car thumbnails at 80% of their disc dimensions; retain original assets and smoothly selected magnification | Off; disc geometry | On | After OK, presentation boundary | No; menu only | Options > Screen Settings > Rendering > Compact Car Strip | nÃ£o | This change |
 | interface.main_menu_overview | Interface | Show five existing entries in the original vertical style, with mouse prelight, full-row clicks and viewport wheel scrolling | Off; original scrolling three-entry presentation | On | After OK, presentation boundary | No; menu layout only | Options > Screen Settings > Main Menu | nÃ£o | This change |
 | interface.input_hints | Interface | Adapt button legends to the latest keyboard/mouse or controller input | Off; original PS2 symbols | On; automatic keyboard/Xbox/PS labels | After OK, input/presentation boundary | No | Options > Screen Settings > Input Hints | nÃ£o | This change |
@@ -244,3 +252,45 @@ Migration retains Balanced 3D resolution rather than lowering existing quality.
 Classic sets PS2-sized 640x448; Enhanced recommends Performance 640x360. The
 player can select any resolution independently; changes mark the preset modified.
 The original 16:9 output and full-resolution HUD remain active on Switch.
+
+## Android input boundary (17 October 2026)
+
+The Android Controls tab reuses the authored Screen Settings widgets and the
+shared options store selected by the app's `--config-file`. It exposes Touch
+Menus, Race Touch Controls, Control Size, Control Opacity, Control Layout and
+Steering. Apply/Cancel retain their existing shared draft semantics. Classic
+turns touch/menu and race overlays off, keeping controller navigation; a
+physical controller is then needed on a phone. Display/Rendering remain the
+shared pages, with Vulkan/fullscreen required by this Android foundation.
+
+The mobile pad uses the existing DualShock button configuration: Cross gas,
+Square brake, Circle handbrake, L2/R2 shifts and Select camera with defaults.
+Changing original button assignments also changes these virtual buttons.
+Steering supplies the ordinary left analog axis. Replays receive the normal
+recorded commands, with no alternate physics or new replay format. The
+current size and mirrored layouts do not implement per-button dragging,
+gyroscope steering, profile sharing or haptics.
+
+## PC scene quality
+
+Vulkan and OpenGL expose the same SSAA, 3D scale and texture smoothing controls.
+SSAA 200% shades four times as many scene pixels; 150% shades 2.25 times as
+many. UI/HUD are composed after the scene, at display resolution. No temporal
+history or motion vectors are used. Existing configurations retain their
+previous sampling until the player chooses an option or reapplies Enhanced.
+The Original entry preserves each backend's retained path; it does not claim
+that the previous PC MSAA setup reproduces every PS2 GS sampling detail.
+FSR and reduced 3D scale are performance choices; selecting one clears SSAA,
+and selecting SSAA clears those reductions. Switch/Android keep their paths.
+Alt+Enter (including keypad Enter and either Alt key) toggles desktop fullscreen;
+it is consumed before game/menu confirmation. Screen Settings reads the current
+window mode when opened, and OK persists it through the existing shared store.
+
+### Secondary launcher quality controls (17 October 2026)
+
+The current studio launcher exposes Anti-Aliasing, 3D Resolution and Texture
+Smoothing under Options > Quality, using the same `video_setting` API and
+shared store as Screen Settings. Changes apply at Start; the renderer choice
+also remains available under Video. SSAA, reduced resolution and FSR keep
+the same exclusions as the in-game menu. This user-requested secondary
+launcher addition does not implement the planned official launcher.

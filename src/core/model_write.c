@@ -6,6 +6,7 @@
    packet. Nothing here guesses: an unrepresentable model is refused. */
 #include "model_write.h"
 #include "tex1.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -57,6 +58,47 @@ int gt4_model_read_cameras(const uint8_t *bytes, size_t size, gt4_car_cameras *o
         for (int j = 0; j < 8; j++) out->point[k][j] = rd_f32(bytes + at + (size_t)k * 32 + j * 4);
     out->count = k;
     return k;
+}
+
+/* The length of the donor's blob at offsets[idx]: up to whichever other known
+   offset comes next, or to the end of the donor file if none does. Works
+   regardless of the three fields' order in a given car (0 = "none", never
+   dereferenced). */
+static size_t donor_blob_len(const uint32_t offsets[3], int idx, size_t donor_size)
+{
+    uint32_t off = offsets[idx];
+    if (!off || off >= donor_size) return 0;
+    uint32_t best = (uint32_t)donor_size;
+    for (int i = 0; i < 3; i++)
+        if (offsets[i] > off && offsets[i] < best) best = offsets[i];
+    return best - off;
+}
+
+uint8_t *gt4_model_car4_attach_wheels(const uint8_t *car4, size_t car4_size,
+                                      const uint8_t *donor, size_t donor_size, size_t *out_size)
+{
+    if (!car4 || car4_size < 0x40 || memcmp(car4, "CAR4", 4)) return NULL;
+    if (!donor || donor_size < 0x40 || memcmp(donor, "CAR4", 4)) return NULL;
+    uint32_t off[3] = { rd_u32(donor + 0x20), rd_u32(donor + 0x2c), rd_u32(donor + 0x30) };
+    size_t len[3];
+    size_t extra = 0;
+    for (int i = 0; i < 3; i++) { len[i] = donor_blob_len(off, i, donor_size); extra += len[i]; }
+    if (!extra) return NULL;   /* the donor itself has no rim/tyre to borrow */
+
+    buf out = BUF_INIT;
+    b_put(&out, car4, car4_size);
+    if (!out.ok) { free(out.p); return NULL; }
+    size_t at[3];
+    for (int i = 0; i < 3; i++) {
+        at[i] = out.n;
+        if (len[i]) b_put(&out, donor + off[i], len[i]);
+    }
+    if (!out.ok) { free(out.p); return NULL; }
+    const int field[3] = { 0x20, 0x2c, 0x30 };
+    for (int i = 0; i < 3; i++)
+        if (len[i]) put_u32(out.p + field[i], (uint32_t)at[i]);
+    if (out_size) *out_size = out.n;
+    return out.p;
 }
 
 /* ---- Tex1 (PSMCT32, one transfer per image + level) ---------------------- */
@@ -136,6 +178,11 @@ uint8_t *gt4_tex1_encode(const tex1_image *images, int count, size_t *size)
         uint64_t clamp = 2 | (2ull << 2)
                        | ((uint64_t)((im->width - 1) & 0x3ff) << 14)
                        | ((uint64_t)((im->height - 1) & 0x3ff) << 34);
+        /* an authored image that tiles (wrap 0, its own size a power of two): REPEAT,
+           which the reader and both renderers honour; the size is then the texture's */
+        if (im->wrap_u == 0 && im->wrap_v == 0 && (unsigned)im->width == tw &&
+            (unsigned)im->height == th)
+            clamp = 0;
         uint8_t *d = desc + (size_t)0x28 * i;
         put_u64(d + 0, tex0); put_u64(d + 8, tex1); put_u64(d + 16, m1); put_u64(d + 24, m2); put_u64(d + 32, clamp);
     }
@@ -193,6 +240,13 @@ static int same_material(const material *a, const float D[3], const gt4_vertex *
 static void packet_add(buf *b, const gt4_triangle *tris, int first, int count, const float D[3])
 {
     unsigned nv = (unsigned)count * 3, nr = (unsigned)count + 1;
+    if (count && tris[first].blend_enabled) {
+        /* the packet's GIF tag (0xc0c0): PRIM's ABE (bit 21 of its second word) turns the
+           GS's alpha blending on, which is how the disc's glass is see-through
+           (model.c reads only that bit) */
+        b_u16(b, 0xc0c0); b_u8(b, 1); b_u8(b, 0x6c);
+        b_u32(b, 0); b_u32(b, 1u << 21); b_u32(b, 0);
+    }
     b_u16(b, 0xc040); b_u8(b, (unsigned)nr); b_u8(b, 0x62);   /* reset: one strip per triangle */
     b_u8(b, 0); for (int i = 0; i < count; i++) b_u8(b, 3);
     while (b->n & 3) b_u8(b, 0);
@@ -309,7 +363,13 @@ static int pack_definitions(const gt4_model *m, uint8_t *blob[], size_t size[], 
     return nt;
 }
 
-uint8_t *gt4_model_encode_car4_cameras(const gt4_model *m, const gt4_car_cameras *cameras, size_t *size)
+/* The MDLS a CAR4 wraps -- also the exact format gt4_model_decode_part /
+   gt4_model_decode_wheel_part read directly, unwrapped, at a rim/tyre offset
+   (car_model.c:163-164: data+off straight into the decoder, no CAR4 magic
+   expected there). One encoder, two uses: the body goes out through the CAR4
+   wrapper below; a rim or tyre goes out through gt4_model_encode_wheel_part
+   and is appended raw by gt4_model_car4_attach_wheel_parts. */
+static uint8_t *encode_mdls(const gt4_model *m, size_t *size)
 {
     if (!m || m->count <= 0) return NULL;
 
@@ -364,8 +424,16 @@ uint8_t *gt4_model_encode_car4_cameras(const gt4_model *m, const gt4_car_cameras
        texture -2) survive. */
     buf shapes = BUF_INIT, cmd = BUF_INIT;
     size_t sh_off[4096]; int sh_table[4096]; int ns = 0;
-    b_u8(&cmd, 43); b_u8(&cmd, 0);                 /* bind texture table 0 */
-    int table = 0;
+    /* The reader starts every model's own command stream already assuming
+       table 0 is bound (model.c:1405, "table = 0" -- no command required to
+       get there). That is wrong for an untextured model (nt == 0: table 0
+       does not exist, nothing to bind) -- opcode 4/5's own bounds check
+       (model.c:396, "*table >= r->nt") then fails on the very first shape.
+       Measured on a hand-authored, textureless wheel part. Start from
+       whatever table actually exists instead of assuming 0. */
+    if (nt > 0) { b_u8(&cmd, 43); b_u8(&cmd, 0); }     /* bind texture table 0 */
+    else { b_u8(&cmd, 81); b_u8(&cmd, 0); b_u8(&cmd, 0); } /* bind "no table" (-1) */
+    int table = nt > 0 ? 0 : -1;
     for (int i = 0; i < m->count; ) {
         unsigned kind = m->triangles[i].kind & 31;
         int tab1 = (m->triangles[i].texture == -2);
@@ -381,13 +449,19 @@ uint8_t *gt4_model_encode_car4_cameras(const gt4_model *m, const gt4_car_cameras
         if (append_shape(&shapes, m, tri_mat, mats, m->ntextures ? first_of[def] : 0, i, j, kind) < 0) {
             free(tri_mat); free(def_of); free(shapes.p); free(cmd.p); goto fail_blobs;
         }
-        { int want = tab1 ? -1 : def;
+        { int want = (tab1 || !nt) ? -1 : def;   /* no texture at all -> no real table to switch to */
           if (want != table) {
               if (want < 0) { b_u8(&cmd, 81); b_u8(&cmd, 0); b_u8(&cmd, 0); }
               else { b_u8(&cmd, 43); b_u8(&cmd, (unsigned)want); }
               table = want;
           } }
+        /* a reflection layer (kind 2 over the environment slot) draws as the disc's paint
+           does: blend 0x58 (Cs * Ad + Cd, added where the body wrote its alpha), depth not
+           written (measured on bmw_0014's 1431-triangle layer), then the default back */
+        int reflect = kind == 2 && tab1;
+        if (reflect) { b_u8(&cmd, 32); b_u8(&cmd, 0x58); b_u8(&cmd, 0); b_u8(&cmd, 37); }
         b_u8(&cmd, 5); b_u16(&cmd, (unsigned)ns);  /* draw shape ns */
+        if (reflect) { b_u8(&cmd, 32); b_u8(&cmd, 0x44); b_u8(&cmd, 0); b_u8(&cmd, 38); }
         ns++;
         i = j;
     }
@@ -444,6 +518,57 @@ uint8_t *gt4_model_encode_car4_cameras(const gt4_model *m, const gt4_car_cameras
         memcpy(mp + 32, mats[i].spec, 12);
         memcpy(mp + 64, &mats[i].shine, 4);
     }
+    if (size) *size = total;
+    return d.p;
+
+fail_blobs:
+    for (int t = 0; t < nt; t++) free(blob[t]);
+    return NULL;
+}
+
+uint8_t *gt4_model_encode_wheel_part(const gt4_model *m, size_t *size)
+{
+    return encode_mdls(m, size);
+}
+
+/* Give an already-encoded CAR4 its OWN rim and tyre (no donor): each of
+   `rim`/`tyre` is encoded as its own MDLS (encode_mdls, the same format the
+   reader expects raw at +0x20/+0x2c/+0x30 -- car_model.c:163-164) and
+   appended; `tyre` is used for both the front (+0x2c) and rear (+0x30)
+   offset, the common case (the engine stores them twice regardless of
+   whether they differ). Either argument may be NULL to leave that slot as
+   the body-only "none" sentinel. Mirrors gt4_model_car4_attach_wheels (the
+   donor-copy path) field for field; the two are not meant to be combined in
+   one export. */
+uint8_t *gt4_model_car4_attach_wheel_parts(const uint8_t *car4, size_t car4_size,
+                                           const gt4_model *rim, const gt4_model *tyre,
+                                           size_t *out_size)
+{
+    if (!car4 || car4_size < 0x40 || memcmp(car4, "CAR4", 4)) return NULL;
+    if (!rim && !tyre) return NULL;
+    size_t rim_sz = 0, tyre_sz = 0;
+    uint8_t *rim_b = rim ? encode_mdls(rim, &rim_sz) : NULL;
+    uint8_t *tyre_b = tyre ? encode_mdls(tyre, &tyre_sz) : NULL;
+    if ((rim && !rim_b) || (tyre && !tyre_b)) { free(rim_b); free(tyre_b); return NULL; }
+
+    buf out = BUF_INIT;
+    b_put(&out, car4, car4_size);
+    size_t rim_at = 0, tyre_at = 0;
+    if (rim_b) { rim_at = out.n; b_put(&out, rim_b, rim_sz); }
+    if (tyre_b) { tyre_at = out.n; b_put(&out, tyre_b, tyre_sz); }
+    free(rim_b); free(tyre_b);
+    if (!out.ok) { free(out.p); return NULL; }
+    if (rim_b) put_u32(out.p + 0x20, (uint32_t)rim_at);
+    if (tyre_b) { put_u32(out.p + 0x2c, (uint32_t)tyre_at); put_u32(out.p + 0x30, (uint32_t)tyre_at); }
+    if (out_size) *out_size = out.n;
+    return out.p;
+}
+
+uint8_t *gt4_model_encode_car4_cameras(const gt4_model *m, const gt4_car_cameras *cameras, size_t *size)
+{
+    size_t total = 0;
+    uint8_t *mdls = encode_mdls(m, &total);
+    if (!mdls) return NULL;
 
     /* CAR4 container: header, then the MDLS. With a camera table the header
        grows to hold it at the disc's own offset (+0x488, the Ka's), so +0x80/
@@ -476,18 +601,68 @@ uint8_t *gt4_model_encode_car4_cameras(const gt4_model *m, const gt4_car_cameras
                 put_u32(out.p + cam_at + (size_t)i * 32 + j * 4, bits);
             }
     }
-    b_put(&out, d.p, total);
-    free(d.p);
+    b_put(&out, mdls, total);
+    free(mdls);
     if (!out.ok || out.n != car4_size) { free(out.p); return NULL; }
     if (size) *size = out.n;
     return out.p;
-
-fail_blobs:
-    for (int t = 0; t < nt; t++) free(blob[t]);
-    return NULL;
 }
 
 uint8_t *gt4_model_encode_car4(const gt4_model *m, size_t *size)
 {
     return gt4_model_encode_car4_cameras(m, NULL, size);
+}
+
+/* ---- car/hires/<model>: the authored-size textures of a mod car ----------- */
+#include "miniz.h"
+static int pow2(int v) { return v > 0 && !(v & (v - 1)); }
+uint8_t *gt4_hires_encode(const tex1_image *images, const int *index, int count, size_t *size)
+{
+    if (!images || !index || count <= 0 || count > 4096) return NULL;
+    buf b = BUF_INIT;
+    b_put(&b, "MHT1", 4); b_u32(&b, (uint32_t)count);
+    for (int i = 0; i < count && b.ok; i++) {
+        const tex1_image *im = &images[i];
+        if (!im->rgba || im->width <= 0 || im->height <= 0 || im->width > 8192 || im->height > 8192) { b.ok = 0; break; }
+        mz_ulong raw = (mz_ulong)im->width * im->height * 4, packed = mz_compressBound(raw);
+        uint8_t *z = malloc(packed);
+        if (!z || mz_compress2(z, &packed, im->rgba, raw, 6) != MZ_OK) { free(z); b.ok = 0; break; }
+        b_u32(&b, (uint32_t)index[i]); b_u32(&b, (uint32_t)im->width); b_u32(&b, (uint32_t)im->height);
+        b_u32(&b, (uint32_t)packed); b_put(&b, z, packed);
+        free(z);
+    }
+    if (!b.ok) { free(b.p); return NULL; }
+    if (size) *size = b.n;
+    return b.p;
+}
+int gt4_hires_apply(const uint8_t *data, size_t size, tex1_image *images, int count)
+{
+    if (!data || size < 8 || memcmp(data, "MHT1", 4) || !images || count <= 0) return 0;
+    uint32_t n = rd_u32(data + 4), done = 0;
+    size_t at = 8;
+    for (uint32_t i = 0; i < n && at + 16 <= size; i++) {
+        uint32_t idx = rd_u32(data + at), w = rd_u32(data + at + 4), h = rd_u32(data + at + 8),
+                 packed = rd_u32(data + at + 12);
+        at += 16;
+        if (packed > size - at) break;
+        const uint8_t *z = data + at;
+        at += packed;
+        if (idx >= (uint32_t)count || !pow2((int)w) || !pow2((int)h) || w > 8192 || h > 8192) continue;
+        tex1_image *im = &images[idx];
+        if (im->width != im->tex_w || im->height != im->tex_h || !pow2(im->tex_w) || !pow2(im->tex_h)) continue;
+        mz_ulong raw = (mz_ulong)w * h * 4;
+        uint8_t *px = malloc(raw), *na = malloc((size_t)w * h);
+        if (!px || !na || mz_uncompress(px, &raw, z, packed) != MZ_OK || raw != (mz_ulong)w * h * 4) {
+            free(px); free(na); continue;
+        }
+        for (size_t p = 0; p < (size_t)w * h; p++) na[p] = (uint8_t)((px[p * 4 + 3] * 128u + 127u) / 255u);
+        free(im->rgba); free(im->native_alpha);
+        for (int L = 0; L < 6; L++) { free(im->mip_rgba[L]); im->mip_rgba[L] = NULL; }
+        im->mip_count = 0;
+        im->rgba = px; im->native_alpha = na;
+        im->width = im->tex_w = (int)w; im->height = im->tex_h = (int)h;
+        im->min_u = im->min_v = 0; im->max_u = (uint16_t)(w - 1); im->max_v = (uint16_t)(h - 1);
+        done++;
+    }
+    return (int)done;
 }

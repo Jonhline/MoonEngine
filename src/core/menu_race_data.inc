@@ -233,6 +233,13 @@ void menu_save_refresh(menu *m)
            as GT Mode. Native projects have separate VMs, so restore
            its gameplay bindings as well as the saved profile fields. */
         gt4_game_bind(m->vm, game);
+        /* 00110498 -> 004312B0 checks the same indexed licence records
+           as GT Mode. Restored quick projects must resolve those records,
+           rather than create empty per-code units for the admission check. */
+        ah_val race_record;
+        if (ah_get_member(m->vm, game, "race_record", &race_record))
+            ah_set_member(m->vm, ah_as_obj(race_record, AO_MODULE), "_getRecordIndex",
+                          ah_native(m->vm, "_getRecordIndex", nat_race_record_index, m));
         ah_set_member(m->vm, game, "_markDirty", ah_native(m->vm, "_markDirty", nat_need_save, m));
     }
     if (!strcmp(ah_module_name(m->project), "GTmodeProject") ||

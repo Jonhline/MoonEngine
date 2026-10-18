@@ -24,6 +24,148 @@ The inventory was reconciled with source and registered tests on 13/10/2026.
 Aggregate A grades do not override the narrower E/C proofs below; confirmed
 missing subfeatures remain F.
 
+### Championship pre-race score identity (18 October 2026)
+
+**C:** Pre-race championship summaries now map persistent driver scores into
+actual grid slots, as the car/name rows already do. Both initial/resumed
+championship entry and the next-round path use this mapping. Evidence:
+00119918 constructs grid-ordered quick-work rows; 003EEFE0/003EF1E8 retain
+entry identities for championship scores. Previously a player in slot six
+received another driver's displayed score, while the player's score appeared
+on the first car. This changes presentation association, not scoring or saves.
+`championship_grid_points` checks all six rows over three cumulative rounds
+with the player in slot six; its negative restores the old raw copy and fails.
+Full championship screen raster equivalence is not claimed.
+
+### Switch setup host interface (2026-10-17)
+
+**P:** The separate Windows Switch installer follows the desktop first-run
+wizard's generated white room, Barlow face, centered disc/connection steps
+and graphite action/help bar. Setup messages and packaged instructions are
+in English. This changes no game behavior or desktop launcher code. Host
+Shell/config and local FTP replacement/backup/negative tests pass; both
+setup layouts were visually inspected. Full ISO installation through real
+DBI hardware remains unvalidated.
+
+### Android host/input foundation (17 October 2026)
+
+**P:** ARM64 APK bootstrap selects a player-owned document with a persistent
+read grant and retains a seekable descriptor. Android uses the shared native
+Vulkan/game code, touch menu adapter and optional mobile pad overlay. Controls
+are individual shared-store options with Classic Off; ordinary pad bindings
+and replay commands remain the input boundary. Background/foreground cancels
+contacts, pauses active driving and resets presentation timing. Host mobile
+control/negative tests pass; real phone, GPU, lifecycle and end-to-end race
+validation remain pending. Videos/IPU decoding and additional mobile features
+are explicitly incomplete; see ANDROID.md. No Android performance grade is
+claimed and no PC/Switch physics was changed.
+
+### PC scene quality (17 October 2026)
+
+**P:** Optional SSAA 150%/200%, reduced 3D scale and model texture smoothing
+apply only at PC presentation boundaries, through the existing Options store.
+Original retains the previous backend-specific scene path; smoothing Off keeps
+authored shader sampling. Physics/replay commands are unchanged. SSAA increases
+GPU work and is not a performance improvement. Switch/Android are excluded.
+Synthetic OpenGL/Vulkan tests check fractional edge coverage, target dimensions
+and switching back to the retained path. Actual course/material coverage and
+visual quality across all GPUs remain unverified. Alt+Enter is a desktop window
+shortcut; it consumes the confirmation key and leaves game actions untouched.
+Focused validation: 13 tests passed, covering materials and their negatives
+on both backends, scene sampling, desktop events, quality persistence, original
+settings/presets and cancellation. The desktop shortcut pair passed again after
+the final platform guard. No complete-suite or multi-vendor GPU claim is made.
+
+### Suggested gear and launcher quality (17 October 2026)
+
+**C (HUD integration):** `0039E150/0039E1BC` read the inline driver model's
+signed suggested gear and flash flag, already computed by `00469E58`.
+The native race HUD now forwards both for the watched car, including P2.
+`003A6FA8/003A7048/003A7108` supply the font, red alpha fade, retained digit
+and blink parameters; `003A7FCC/003A9274/003A7C1C` supply chase, onboard and
+split anchors. No gear selection, driver model or physics calculation changes.
+Tests check signed -1/0/positive hints for two cars, 0.2-second fade (1e-6
+host tolerance), flash range, layout translations (1e-5), B-Spec suppression,
+course reset and negative controls. Absolute chase text anchors are checked
+against 003A7FCC/003A7108 and the current gear: left in chase, above onboard.
+HUD/font-cache regressions pass; the new
+HUD pair also passes on Vulkan. Native HUD and secondary-launcher captures
+were inspected. Full original-code animation/pixel comparison remains pending;
+this is not an exact PS2 raster or whole-physics grade.
+
+**P (secondary launcher):** Options > Quality exposes the same optional PC
+AA, resolution scale and texture smoothing as Screen Settings. The shared
+store/API, mutual exclusions and Classic/Enhanced values are tested for both
+renderer choices, including persistence and a negative control. Values apply
+at Start; the official launcher is unchanged. Fifteen focused tests passed,
+including in-game quality, cancellation, presets and both renderer settings.
+See the OPTIONS registry.
+
+### Optional event-ticket hover (17 October 2026)
+
+**P:** The existing Hover Feedback option also recognises EventHallRoot ticket
+cards, including EventItem and SimpleEventItem. The complete ticket composition
+uses the existing eased 4.5% enlargement for mouse hover and retained touch
+preview, without added colours or text. Classic/feedback Off retains the authored
+geometry immediately. The used_car_stamp fixture checks both ticket templates,
+intermediate animation, text/art scaling, unchanged neighbouring cards, restored
+authored geometry and touch preview. It fails without the ticket recognition;
+three focused tests pass with the change, including existing negative controls.
+The touch path is checked on the host; no new Switch hardware validation is claimed.
+
+### Licence menu cone dimensions (17 October 2026)
+
+**C (UI integration):** LicenseDetailRoot cone ImageFaces now draw in their
+inherited authored 66 x 82.5 client area, following 002A2608 +0x7C..0xC0
+(00231420/00231440). Drawing the 88 x 110 source texture at native size enlarged
+the cones and clipped the bottom row. The gtmode_license_cycle fixture checks
+all 80 cones across B/A/IB/IA/S; it fails before the fix and passes afterwards.
+Three existing negative controls pass. Native before/after captures were
+inspected: the lower cones are fully visible. This is a geometry/integration
+check, not an exact PS2 pixel comparison.
+
+### Event and championship licence admission (17 October 2026)
+
+**C (profile integration):** Restored RaceEventProject, ChampionshipProject and
+MissionProject contexts now bind the indexed race-record resolver, as GT Mode
+already does. Admission 00110498 -> 004312B0 must query the authoritative saved
+licence records; an unbound quick project instead created empty per-code units
+and rejected completed licences. The extended gtmode_license_cycle fixture
+failed before this fix and passes afterwards. It checks Japan Championship
+blocked after A-1..A-15 and allowed after A-16, then 7,090 admission queries
+across the loaded race catalogue, both event/championship contexts and all five
+completed licence categories. Three existing negative controls also pass.
+No medals are granted or entry requirements relaxed; full visual/hardware
+coverage is not claimed.
+
+### Shared units in prepared races (17 October 2026)
+
+**C (presentation integration):** Race setup now reads the published unit
+preferences for every shared start path, including prepared license, mission
+and career races. Previously these paths retained the last race's presentation
+units, while Arcade explicitly refreshed them. This follows MOption.apply's
+global MUnit publication (004365B8 +4C..68); no physics or replay commands change.
+The disc-backed race_options_units fixture checks both the Options project and
+the published preferences over seven power units and alternating speed units.
+Four focused unit/lifecycle tests pass, including negative controls. Complete
+visual coverage of every race mode remains pending.
+
+### Options return: race units and cursor (17 October 2026)
+
+**C (presentation integration):** UnitRoot.apply publishes unit_velocity
+(KMPH/MPH, 005A6978) and unit_power. Returning to an existing race now refreshes
+both through the same adapter as initial Arcade setup. The race is not rebuilt
+and physics inputs are unchanged. The disc-backed race_options_units test checks
+seven power units and alternating speed units over repeated applies; its negative
+omits the refresh and fails. Existing Options lifecycle checks pass.
+
+**C (cursor context):** A departing context's fade freeze must not overwrite the
+destination's own transition state (0022F6A0). ui_cursor_transfer preserves its
+position/device but keeps the destination freeze. The regression fixture fails
+with the old copy and passes with the fix, including movement after cached-page
+return. Six focused menu/navigation/unit tests passed. Full PS2 pixel comparison
+and all modal/project combinations remain unverified.
+
 ## 1. As notas
 
 Cada item do jogo recebe exatamente uma nota:
@@ -1703,3 +1845,57 @@ e falha. Isso verifica transporte, não prova o comportamento BGM do PS2.
 Quatro testes focados passaram; nada alterado para loads/Used Cars após a
 correção do relato pelo usuário. Principal bloqueado por processo aberto;
 build alternativa pronta em build/Release/MoonEngine-pause-fade.exe.
+
+### 17/10: orientação Android em paisagem
+
+P: após relato de abertura integral em retrato, DiscActivity e GameActivity
+reforçam SENSOR_LANDSCAPE em onCreate/onResume, além do manifest existente.
+GameActivity intercepta SDLActivity.setOrientationBis para preservar essa
+política durante criação/redimensionamento da janela SDL. Ambas as rotações
+paisagem são aceitas; não altera o aspect ratio do conteúdo e não controla
+o seletor externo de documentos. Base SDL release-2.30.9, SDLActivity.java
+setOrientationBis é o ponto de substituição de screenOrientation.
+Compilação Java/native e APK assinado verificados no host; aparelho não
+conectado por ADB, confirmação visual no telefone pendente. Não declarar C/E
+de orientação real com apenas esses checks de empacotamento.
+
+### 17/10: conteúdo Vulkan vertical dentro do app em paisagem
+
+P/C do contrato de apresentação: o blit final não pré-rotaciona os pixels,
+mas vk_context.cpp declarava preTransform=currentTransform. Agora seleciona
+IDENTITY quando suportado, deixando o compositor girar o quadro. Fonte:
+Khronos surface_rotation (https://docs.vulkan.org/samples/latest/samples/performance/surface_rotation/README.html),
+caminho sem pre-rotation; Android anuncia todos os transforms suportados.
+vulkan_surface confere oito rotações/espelhamentos e fallback válido onde
+identity não é suportado; negativo restaura declaração currentTransform e
+falha. vulkan_frame/negative conferem comparação GL/Vulkan no PC. 4/4 passaram.
+APK ARM64 Release recompilado, ZIP e assinatura v2 verificados. Correção de
+orientação visual no celular ainda A até confirmação; não há aparelho ADB.
+Composição pode custar banda/tempo adicional; pre-rotation nativa otimizada
+continua pendente. Artefato: dist/MoonEngine-android-render-landscape.apk.
+
+### 17/10: instalador Switch identifica somente SCUS-97328
+
+P/C do contrato pedido: removidos SHA-1 obrigatório e VER=2.00 do instalador
+nativo, manifesto e instruções do pacote. disc_identity.h lê SYSTEM.CNF via
+ISO9660 e compara apenas o serial de BOOT2 a SCUS-97328; nunca decide pelo
+nome do arquivo ISO. NRO/setup/transferências continuam com hash de integridade.
+test_switch_disc.py executa o leitor real em fixtures independentes: VER 1.00,
+2.00 e 9.99 passam; outro serial/número, lixo e CNF ausente falham. Disco real
+local também passou. Self-test, teste FTP com negativo e dois testes de pacote
+passaram. Confirma aceitação por serial, não execução integral de cada revisão.
+
+### 17/10: falha USB após ISO no instalador Switch
+
+P/C do host: SHCreateItemFromParsingName rejeita o caminho com barras `/`
+que o pacote construía para o NRO. shell_item normaliza com make_preferred.
+O self-test agora executa a transação Shell completa em pastas descartáveis,
+confere ISO reutilizada, backup NRO, hash do substituto e configuração
+preservada; publicação atrasada é aguardada e tamanho errado continua falhando.
+Restaurar o parsing antigo provoca E_INVALIDARG 80070057 no self-test
+(build/switch-usb-path-negative.log). DBI agora atualiza/cache e aguarda até
+10 s a publicação dos arquivos. Sem prova física desse relato no console.
+Logs persistem etapa/HRESULT; Nxlink captura saída e usa cinco tentativas,
+sem declarar corrigida a descoberta real sem teste na rede do usuário.
+Self-test, FTP/hash negativo, sete fixtures de serial + ISO real e dois testes
+de pacote passaram. Mesmo NRO; nenhuma ISO ou save incluído no pacote.

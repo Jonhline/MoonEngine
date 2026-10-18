@@ -549,6 +549,42 @@ int main(int argc,char **argv)
                 found=1;
             }
     CHECK(found);race_pause_close(pause);
+    pause = race_pause_open(vol, 0, 0, 0, NULL, NULL);
+    CHECK(pause);
+    race_pause_update(pause, 1);
+    found = 0;
+    for (int py = 0; py < 480 && !found; py += 8)
+        for (int px = 0; px < 640 && !found; px += 8)
+            if (race_pause_pointer(pause, 1, (float)px, (float)py, 0)) {
+                CHECK(race_pause_touch(pause,1,101,(float)px,(float)py));
+                CHECK(race_pause_touch(pause,3,101,(float)px,(float)py));
+                if (getenv("MOON_PAUSE_TOUCH_NEGATIVE"))
+                    race_pause_pointer(pause, 1, (float)px, (float)py, 1);
+                race_pause_update(pause, 1);
+                CHECK(race_pause_state(pause)==RACE_PAUSE_OPEN);
+                CHECK(!race_pause_touch(pause,3,999,(float)px,(float)py));
+                race_pause_touch(pause, 4, 0, 0, 0);
+                race_pause_touch(pause, 1, 102, (float)px, (float)py);
+                race_pause_touch(pause, 3, 102, (float)px, (float)py);
+                race_pause_update(pause, .1);
+                CHECK(race_pause_state(pause)==RACE_PAUSE_OPEN);
+                race_pause_touch(pause, 1, 103, (float)px, (float)py);
+                race_pause_touch(pause, 2, 103, -100, -100);
+                race_pause_touch(pause, 3, 103, (float)px, (float)py);
+                race_pause_update(pause, .1);
+                CHECK(race_pause_state(pause)==RACE_PAUSE_OPEN);
+                race_pause_touch(pause, 1, 104, (float)px, (float)py);
+                race_pause_touch(pause, 3, 104, (float)px, (float)py);
+                race_pause_update(pause, .1);
+                CHECK(race_pause_state(pause)==RACE_PAUSE_OPEN);
+                race_pause_touch(pause, 1, 105, (float)px, (float)py);
+                race_pause_touch(pause, 3, 105, (float)px, (float)py);
+                race_pause_update(pause, 1);
+                CHECK(race_pause_state(pause)!=RACE_PAUSE_OPEN);
+                found = 1;
+            }
+    CHECK(found);
+    race_pause_close(pause);
     m=menu_open(vol,"option",err,sizeof err);CHECK(m && page(m,"CourseRoot")>=0);
     ticks(m);paint(m);
     ui_widget *course_rows[512];int row_count=0;

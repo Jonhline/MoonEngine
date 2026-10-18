@@ -24,6 +24,7 @@ typedef struct {
     float speed; /* m/s */
     float rpm;
     int gear;
+    int suggested_gear, suggested_gear_flash;
     float throttle, brake, side_g;
     int shift_lamp;
     float fuel, fuel_cap;     /* no tank at 0 */

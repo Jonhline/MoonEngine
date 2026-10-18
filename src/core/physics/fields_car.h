@@ -14,6 +14,8 @@
 #define CAR_BLOCK_ORIENTATION_BASIS_1                                                              \
     0x18 /* func_0035B060 block+0x18: second vector output of gt4_rotation_from_angles */
 #define CAR_FIELD_UNK_55 0x55        /* aids.c: balance, func_003F71E8 */
+#define CAR_FIELD_SUGGESTED_GEAR 0x54       /* signed model+0x40; 00469E58, HUD getter 0039E150 */
+#define CAR_FIELD_SUGGESTED_GEAR_FLASH 0x55 /* model+0x41; 00469E58, HUD getter 0039E1BC */
 #define CAR_FIELD_UNK_83 0x83        /* race_game.c: update_drivers */
 #define CAR_BSPEC_STYLE_SIZE 0x40 /* Original: func_003F1E60 +0x94 */
 #define CAR_FIELD_DRIVING_STYLE 0x8C /* player style copied from race+0x20; func_003F1E60 */

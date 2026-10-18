@@ -76,3 +76,14 @@ update-private.ini
 *.pem
 *.key
 *.ppk
+
+# Android local tools, build output and signing material
+android/.gradle/
+android/.cxx/
+android/local.properties
+android/app/build/
+android/app/.cxx/
+*.apk
+*.aab
+*.jks
+*.keystore

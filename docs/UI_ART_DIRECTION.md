@@ -66,7 +66,7 @@ mouse; with a controller or the keyboard it parks under the chosen item.
 back/exit, louder than the music. Music: the game's menu sets, shuffled, with
 crossfades between tracks.
 
-**Pages** (OPTIONS and later MODS). See-through panels inside the room, never an
+**Pages** (OPTIONS, MODS). See-through panels inside the room, never an
 opaque screen or a second window: near black (12, 13, 16) at alpha about 175,
 a fine light top edge, full width above the bar. Tabs in the disc's face, the
 open one underlined, hover lit. Rows: name left, `<  value  >` right; the arrow

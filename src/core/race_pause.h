@@ -26,6 +26,8 @@ void race_pause_close(race_pause *p);
 void race_pause_key(race_pause *p, int code);
 void race_pause_update(race_pause *p, double dt);
 int race_pause_pointer(race_pause *p, int enabled, float x, float y, int action);
+/* P: first contact selects, second on the same authored actor confirms. */
+int race_pause_touch(race_pause *p, int phase, long long id, float x, float y);
 void race_pause_draw(race_pause *p);
 int race_pause_state(const race_pause *p);
 

@@ -1,4 +1,7 @@
 #include "options_store.h"
+#ifdef __ANDROID__
+#include "mobile_options.h"
+#endif
 #include "platform/switch_scene.h"
 #ifdef __SWITCH__
 #include "platform/switch_file.h"
@@ -155,6 +158,9 @@ void moon_options_preset(moon_options *s, int enhanced)
 #if defined(__SWITCH__) || defined(MOON_SWITCH_OPTIONS_TEST)
     moon_options_set(s, MOON_SWITCH_SCENE_KEY, enhanced ? "2" : "0");
     moon_options_set(s, "controls.touch_menu", enhanced ? "1" : "0");
+#endif
+#ifdef __ANDROID__
+    moon_mobile_options_preset(s, enhanced);
 #endif
     /* Only registered improvements belong to presets. Display/device selection
        is a host requirement; the original in-game aspect option is unchanged. */

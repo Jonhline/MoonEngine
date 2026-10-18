@@ -1,5 +1,6 @@
 #include "vk_internal.hpp"
 #include "vk_render.h"
+#include "vk_surface.h"
 #include <SDL_vulkan.h>
 #include <cstdio>
 #include <cmath>
@@ -459,7 +460,7 @@ bool Context::resize_swapchain()
     info.imageExtent = extent;
     info.imageArrayLayers = 1;
     info.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    info.preTransform = caps.currentTransform;
+    info.preTransform = moon_vk_surface_transform(caps.supportedTransforms, caps.currentTransform);
     info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     if (!(caps.supportedCompositeAlpha & info.compositeAlpha))
         info.compositeAlpha = (VkCompositeAlphaFlagBitsKHR)(caps.supportedCompositeAlpha &

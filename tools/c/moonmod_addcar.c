@@ -22,6 +22,7 @@
  */
 #include "specdb.h"
 #include "vol.h"
+#include "adhoc/adhoc_vm.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -193,6 +194,42 @@ int main(int argc, char **argv)
         price = (long)(v + 0.5);
         int32_t p = (int32_t)price; memcpy(gen_row + 8, &p, 4);
     } else memcpy(&price, gen_row + 8, 4);       /* the source car's own price (an int32) */
+
+    /* The maker the manifest files it under is also the car's own: GENERIC_CAR +14 the
+       country, +15/+16 the maker (Ka/Focus 03 0d 0d, M5/M3 05 06 06 -- the flag and the
+       logo the menus draw). Copied from the first car the disc's own dealership lists
+       for that maker (/projects/gtmode/US_carlist.adc NewCarData.<maker>_carlist), so a
+       Ford built on a BMW donor no longer shows the BMW badge and the German flag. */
+    if (maker) {
+        size_t cs = 0;
+        uint8_t *cat = gt4_vol_read(v, "/projects/gtmode/US_carlist.adc", &cs);
+        char e[256];
+        ah_code *code = cat ? ah_load(cat, cs, e, sizeof e) : NULL;
+        free(cat);
+        ah_vm *vm = code ? ah_vm_new() : NULL;
+        const char *first = NULL;
+        if (vm && ah_run_script(vm, code) >= 0) {
+            static const char *const stores[] = {"NewCarData", "CompleteCarData", "CarData"};
+            char key[160];
+            snprintf(key, sizeof key, "%s_carlist", maker);
+            for (size_t k = 0; k < 3 && !first; k++) {
+                ah_val store, list;
+                if (ah_get_member(vm, ah_root(vm), stores[k], &store) && store.t == AV_OBJ &&
+                    ah_get_member(vm, store.u.o, key, &list) && list.t == AV_OBJ &&
+                    ah_array_size(list.u.o) > 0)
+                    first = ah_cstr(ah_array_get(list.u.o, 0));
+            }
+        }
+        uint32_t ref_id;
+        uint8_t ref_row[256];
+        if (first && gt4_specdb_label(idi, idi_size, first, &ref_id) &&
+            gt4_specdb_row(generic, gen_size, ref_id, ref_row, sizeof ref_row) == 24) {
+            memcpy(gen_row + 14, ref_row + 14, 3);
+            printf("maker \"%s\": country %u, maker %u (from %s)\n", maker, ref_row[14], ref_row[15], first);
+        } else
+            fprintf(stderr, "maker \"%s\": not in the disc's dealership lists; the donor's badge stays\n", maker);
+        if (vm) ah_vm_free(vm);
+    }
 
     char sub[1024];
     snprintf(sub, sizeof sub, "%s/specdb/GT4_US2560", argv[4]);

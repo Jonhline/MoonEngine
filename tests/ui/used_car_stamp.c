@@ -49,10 +49,85 @@ void plat_draw_rotated_uv(const plat_texture *t, float x, float y, float w, floa
     }
     if(c[0]==221 && c[1]==67 && c[2]==35) {
         license_stamps++;
-        if(angle!=-20 || fabsf(cx-license_x)>.001f || fabsf(cy-license_y)>.001f ||
-           y<license_y-32) license_bad++;
+        if (angle != -20 || fabsf(cx - license_x) > .001f || fabsf(cy - license_y) > .001f ||
+            y < license_y - 32)
+            license_bad++;
     }
-    plat_draw_glyph(t,x,y,w,h,y,0,u0,v0,u1,v1,c);
+    plat_draw_glyph(t, x, y, w, h, y, 0, u0, v0, u1, v1, c);
+}
+
+static int ticket_hover(gt4_vol *vol)
+{
+    char msg[256];
+    menu *m = menu_open(vol, "gtmode", msg, sizeof msg);
+    CHECK(m);
+    menu_enter(m, 0);
+    ticks(m);
+    ah_obj *garage = get(m->vm, game_object(m), "garage").u.o;
+    ah_val buy[] = {ah_str(m->vm, "ka_01"), ah_int(0)}, result, index = ah_int(0);
+    CHECK(ah_call_member(m->vm, garage, "addNewCar", 2, buy, &result) == 1);
+    CHECK(ah_call_member(m->vm, garage, "setRidingCar", 1, &index, &result) == 1);
+    const menu_input keys[] = {MENU_UP,     MENU_UP,    MENU_ACCEPT, MENU_RIGHT, MENU_RIGHT,
+                               MENU_ACCEPT, MENU_RIGHT, MENU_RIGHT,  MENU_RIGHT, MENU_ACCEPT};
+    for (unsigned i = 0; i < sizeof keys / sizeof *keys; i++) {
+        menu_send_input(m, keys[i]);
+        ticks(m);
+    }
+    CHECK(!strcmp(ui_root_name(m->ui, menu_active_root(m)), "EventHallRoot"));
+    ui_widget *root = ui_root_widget(m->ui, menu_active_root(m));
+    ui_widget *list = kid(kid(root, "ScrollBox"), "SelectBox");
+    CHECK(list && list->nkids >= 2);
+    for (int variant = 0; variant < 2; variant++) {
+        if (variant) {
+            ui_widget *full = ui_widget_copy(m->ui, kid(kid(root, "hidden"), "EventItem"));
+            CHECK(full);
+            ui_widget_set_image(kid(kid(full, "Ticket"), "image"),
+                                kid(kid(list->kids[0], "Ticket"), "image")->image_path);
+            ui_widget_append(list, full);
+            ui_widget *first = list->kids[0];
+            list->kids[0] = full;
+            list->kids[list->nkids - 1] = first;
+        }
+        ui_widget *card = list->kids[0], *ticket = kid(card, "Ticket");
+        CHECK(ticket);
+        ui_widget *label = kid(ticket, "label"), *neighbor = kid(list->kids[1], "Ticket");
+        if (!label)
+            label = kid(ticket, "level");
+        CHECK(label && neighbor);
+        ui_pointer(m->ui, 1, 200, 180);
+        ui_pointer_feedback(m->ui, 0);
+        ui_pointer_hover(m->ui, card);
+        for (int i = 0; i < 60; i++)
+            ui_animate(m->ui, menu_active_root(m), 1.f / 60);
+        ui_draw_root(m->ui, menu_active_root(m), NULL, NULL);
+        float width = ticket->pointer_rect[2], other = neighbor->pointer_rect[2];
+        float text_width = label->pointer_rect[2], authored = ticket->w;
+        ui_pointer_feedback(m->ui, 1);
+        ui_animate(m->ui, menu_active_root(m), 1.f / 60);
+        ui_draw_root(m->ui, menu_active_root(m), NULL, NULL);
+        CHECK(ticket->pointer_rect[2] > width && ticket->pointer_rect[2] < width * 1.045f);
+        for (int i = 0; i < 60; i++)
+            ui_animate(m->ui, menu_active_root(m), 1.f / 60);
+        ui_draw_root(m->ui, menu_active_root(m), NULL, NULL);
+        CHECK(ticket->pointer_rect[2] > width * 1.04f);
+        CHECK(label->pointer_rect[2] > text_width * 1.04f);
+        CHECK(fabsf(neighbor->pointer_rect[2] - other) < .001f && ticket->w == authored);
+        ui_pointer(m->ui, 0, 0, 0);
+        ui_touch_mode(m->ui, 1);
+        ui_touch_preview(m->ui, card);
+        for (int i = 0; i < 60; i++)
+            ui_animate(m->ui, menu_active_root(m), 1.f / 60);
+        ui_draw_root(m->ui, menu_active_root(m), NULL, NULL);
+        CHECK(ticket->pointer_rect[2] > width * 1.04f);
+        ui_touch_mode(m->ui, 0);
+        ui_pointer_feedback(m->ui, 0);
+        ui_draw_root(m->ui, menu_active_root(m), NULL, NULL);
+        CHECK(fabsf(ticket->pointer_rect[2] - width) < .001f);
+    }
+    menu_close(m);
+    puts(
+        "PASS event/championship tickets: eased whole-card mouse/touch feedback, Classic unchanged");
+    return 0;
 }
 
 int main(int argc, char **argv)
@@ -165,6 +240,7 @@ int main(int argc, char **argv)
         CHECK(license_stamps==6 && !license_bad);
     }
     printf("PASS five license stamps: centered client, inherited -20 rotation\n");
+    CHECK(ticket_hover(vol) == 0);
     menu_close(m); gt4_save_shutdown();
     gt4_career_vehicle_close(factory); gt4_vol_close(vol);
     return 0;

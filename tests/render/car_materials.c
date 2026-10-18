@@ -70,6 +70,61 @@ static int sample(int kind, float specular, float vertex_limit, int reflection,
     return 1;
 }
 
+static int smoothing_fixture(void)
+{
+    gt4_triangle triangles[2] = {0};
+    const float positions[6][3] = {{-1, -1, 3}, {1, -1, 3}, {1, 1, 3},
+                                   {-1, -1, 3}, {1, 1, 3},  {-1, 1, 3}};
+    for (int i = 0; i < 2; i++) {
+        triangles[i].state.depth_func = 1;
+        for (int j = 0; j < 3; j++) {
+            gt4_vertex *v = &triangles[i].v[j];
+            memcpy(v->p, positions[i * 3 + j], sizeof v->p);
+            v->uv[0] = v->uv[1] = .5f;
+            v->alpha = 1;
+            v->rgb[0] = v->rgb[1] = v->rgb[2] = 1;
+        }
+    }
+    uint8_t checker[] = {0, 0, 0, 128, 255, 255, 255, 128, 255, 255, 255, 128, 0, 0, 0, 128};
+    tex1_image image = {0};
+    image.width = image.height = image.tex_w = image.tex_h = 2;
+    image.rgba = checker;
+    gt4_model model = {0};
+    model.triangles = triangles;
+    model.count = 2;
+    model.textures = &image;
+    model.ntextures = 1;
+    r3d_mesh *mesh = r3d_mesh_create(&model);
+    if (!mesh)
+        return 0;
+    r3d_view view = {0};
+    view.rot[0] = view.rot[4] = view.rot[8] = 1;
+    view.r[0] = view.u[1] = view.f[2] = 1;
+    view.focal = 320;
+    view.focal_y = 224;
+    view.unlit = 1;
+    int ok = 1;
+    for (int step = 0; step < 3; step++) {
+        r3d_texture_smoothing(step == 1);
+        r3d_begin(0, 0, 640, 448, NULL);
+        if (!r3d_begin_target(32)) {
+            ok = 0;
+            break;
+        }
+        r3d_draw(mesh, &view);
+        r3d_end();
+        uint8_t pixels[32 * 32 * 4];
+        r3d_end_target(pixels);
+        int value = pixels[(16 * 32 + 16) * 4];
+        printf("texture smoothing %d: %d\n", step == 1, value);
+        if (step == 1 ? abs(value - 128) > 2 : value != 0)
+            ok = 0;
+    }
+    r3d_texture_smoothing(0);
+    r3d_mesh_destroy(mesh);
+    return ok;
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 2)
@@ -123,6 +178,8 @@ int main(int argc, char **argv)
                     ok = 0;
         }
     }
+    if (!smoothing_fixture())
+        ok = 0;
     plat_video_shutdown();
     return ok ? 0 : 1;
 }

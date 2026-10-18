@@ -13,6 +13,9 @@
 #include "tex1.h"
 
 typedef struct r3d_mesh r3d_mesh;
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+void r3d_texture_smoothing(int enabled);
+#endif
 
 /* An object placement and camera: world = rot * p + pos; the camera at cam
    with right/up/forward axes; focal in pixels of the 640x448 view. */

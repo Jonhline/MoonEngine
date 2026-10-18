@@ -122,6 +122,8 @@ static void split_hud(race_game *g, double dt)
         s.speed = r.speed;
         s.rpm = r.rpm;
         s.gear = r.gear;
+        s.suggested_gear = r.suggested_gear;
+        s.suggested_gear_flash = r.suggested_gear_flash;
         s.throttle = r.throttle;
         s.brake = r.brake;
         s.replay = g->replaying;
@@ -248,6 +250,8 @@ void race_game_draw_hud(race_game *g, double dt)
     s.speed = r.speed;
     s.rpm = r.rpm;
     s.gear = r.gear;
+    s.suggested_gear = r.suggested_gear;
+    s.suggested_gear_flash = r.suggested_gear_flash;
     s.throttle = r.throttle;
     s.brake = r.brake;
     s.replay = g->replaying;

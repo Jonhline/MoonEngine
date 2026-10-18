@@ -5,6 +5,9 @@
 #include "platform/switch_profile.h"
 #include "platform/platform.h"
 #include "plat_sdl.h"
+#ifdef __ANDROID__
+#include "video_gl.h"
+#endif
 
 #include <SDL.h>
 #include <stdlib.h>
@@ -107,6 +110,9 @@ int plat_sdl_poll(plat_key_event *ev)
 {
     plat_sdl_confine_mouse(confine_mouse);
     SDL_Event e;
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+    static SDL_Keycode fullscreen_enter;
+#endif
     memset(ev, 0, sizeof *ev);
     plat_sdl_pad(0);
 #if defined(__SWITCH__) && defined(MOON_DEKO3D)
@@ -114,6 +120,18 @@ int plat_sdl_poll(plat_key_event *ev)
         return 1;
 #endif
     while (SDL_PollEvent(&e)) {
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+        if (fullscreen_enter && (e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) &&
+            e.key.keysym.sym == fullscreen_enter) {
+            if (e.type == SDL_KEYUP)
+                fullscreen_enter = 0;
+            continue;
+        }
+#endif
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+        if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_FOCUS_LOST)
+            fullscreen_enter = 0;
+#endif
         if (e.type == SDL_QUIT) {
             quit = 1;
         } else if (e.type == SDL_AUDIODEVICEADDED && !e.adevice.iscapture) {
@@ -128,7 +146,21 @@ int plat_sdl_poll(plat_key_event *ev)
             ev->touch_id = e.tfinger.fingerId;
             ev->touch_x = e.tfinger.x;
             ev->touch_y = e.tfinger.y;
+#ifdef __ANDROID__
+            int width = 0, height = 0;
+            SDL_GetWindowSize(plat_sdl_window(), &width, &height);
+            float x = -1, y = -1;
+            video_window_to_ui((int)(e.tfinger.x * width), (int)(e.tfinger.y * height), &x, &y);
+            ev->touch_x = x / 640.f;
+            ev->touch_y = y / video_view_height();
+#endif
             return 1;
+#ifdef __ANDROID__
+        } else if (e.type == SDL_APP_WILLENTERBACKGROUND || e.type == SDL_APP_DIDENTERFOREGROUND) {
+            ev->lifecycle = e.type == SDL_APP_WILLENTERBACKGROUND ? 1 : 2;
+            ev->touch = 4;
+            return 1;
+#endif
         } else if ((e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) ||
                    e.type == SDL_APP_WILLENTERBACKGROUND || e.type == SDL_DISPLAYEVENT) {
             ev->touch = 4;
@@ -171,6 +203,23 @@ int plat_sdl_poll(plat_key_event *ev)
             ev->key = 0;
             snprintf(ev->text, sizeof ev->text, "%s", e.text.text);
             return 1;
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+        } else if (e.type == SDL_KEYDOWN &&
+                   (e.key.keysym.sym == SDLK_RETURN || e.key.keysym.sym == SDLK_KP_ENTER) &&
+                   (e.key.keysym.mod & KMOD_ALT)) {
+            fullscreen_enter = e.key.keysym.sym;
+            if (!e.key.repeat) {
+                SDL_Window *window = SDL_GetWindowFromID(e.key.windowID);
+                if (window) {
+                    Uint32 mode = SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN
+                                      ? 0
+                                      : SDL_WINDOW_FULLSCREEN_DESKTOP;
+                    SDL_SetWindowFullscreen(window, mode);
+                }
+            }
+            /* Consume the shortcut: Enter must not also activate a menu item. */
+            continue;
+#endif
         } else if (e.type == SDL_KEYDOWN && !e.key.repeat) {
             ev->key = e.key.keysym.sym;
             ev->ps2key = plat_sdl_ps2_key(&e, &ev->release);

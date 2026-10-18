@@ -230,6 +230,10 @@ int race_game_pause_pointer(race_game *g,int enabled,float x,float y,int action)
     return g && g->pause ? race_pause_pointer(g->pause,enabled,x,y,action) : 0;
 }
 
+int race_game_pause_touch(race_game *g, int phase, long long id, float x, float y)
+{
+    return g && g->pause ? race_pause_touch(g->pause, phase, id, x, y) : 0;
+}
 int race_game_is_paused(const race_game *g)
 {
     return g && g->pause;

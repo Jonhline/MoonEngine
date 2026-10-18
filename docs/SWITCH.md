@@ -1,40 +1,68 @@
 # Nintendo Switch
 
-## Private test package and Windows USB helper (2026-10-17)
+## Private test package and Windows setup window (2026-10-17)
 
-`tools/package_switch.py VERSION --nro TESTED_NRO --out NEW_DIRECTORY`
-creates a local ZIP; it never publishes or downloads anything. The package
-contains one NRO at `switch/moonengine/moonengine.nro`, Portuguese instructions,
-license notices, a source snapshot and a binary hash manifest. No ISO, saves,
-configuration copied from a player, keys or console firmware are included.
-Use an explicitly archived, hardware-tested NRO rather than silently rebuilding
-unrelated development changes. The source snapshot is the current tracked
-working tree and its commit is recorded separately from binary identity.
+The separate `tools/switch_setup` C++/Win32 application uses the existing
+launcher's first-run layout: a generated white room, centered content,
+a graphite lower action bar and a black help strip, with embedded Barlow fonts.
+Disc and connection steps use text actions with smooth hover lift/underlines;
+there are no gold cards or boxed primary actions. All setup text, errors and
+packaged player instructions are in English. It never changes
+the desktop launcher or the game. Build it with:
 
-`Instalar no Switch.cmd` starts Windows PowerShell in STA mode and runs the
-included `switch_install.ps1` and `switch_transfer.cs`. The player selects
-their own supported NTSC-U v2.00 ISO, then connects DBI's MTP responder.
-Only `1: SD Card` is considered; NAND/install endpoints are never selected.
-The helper copies through the Windows Shell's synchronous `IFileOperation`
-API, with native progress/cancellation, rather than assuming asynchronous
-`Folder.CopyHere` has completed. The installed NRO is read back and hashed.
-ISO input is checked against the locally recorded supported-disc SHA-1;
-the completed destination is checked for expected size, not read back in full.
-This single-file workflow requires a card accepting files larger than 4 GiB.
+```sh
+python tools/build_switch_setup.py --out build/switch-setup/gui/MoonEngine-Switch-Setup.exe
+python tools/package_switch.py VERSION --nro TESTED_NRO --out NEW_DIRECTORY --setup-exe SETUP_EXE --nxlink WINDOWS_NXLINK_EXE
+```
 
-The destination follows startup precedence: existing `moonengine`, otherwise
+The package is a local ZIP, never a publication/update feed. It contains one
+NRO at `switch/moonengine/moonengine.nro`, the native Windows setup executable,
+the existing Nxlink Windows host tool (with its ISC notice), font licenses,
+English instructions (`README.txt`), a source snapshot and SHA-256 manifest. No game disc,
+player saves/config, keys, firmware or console SDK is included. Use an archived,
+hardware-tested NRO; packaging does not rebuild unrelated game changes. The
+source snapshot records the current tracked working tree separately from
+binary identity. No CMD/PowerShell/.NET runtime is needed by the graphical app.
+
+The player chooses their supported NTSC-U v2.00 ISO and either:
+
+- **USB / DBI:** open Start MTP Connection and connect USB. The app considers
+  only `1: SD Card`; NAND/install endpoints are never selected. Typed Windows
+  `IFileOperation` calls provide completion/error reporting and native copy
+  progress/cancellation. The installed NRO is read back and hashed.
+- **Network / Nxlink:** enable anonymous FTP and Nxlink in Sphaira, leave its
+  menu open in application mode, and enter IPv4/FTP port. FTP copies the ISO,
+  persistent NRO and config; Nxlink sends/starts the app afterward. Nxlink
+  alone does not transfer the ISO. The FTP connection closes before Nxlink.
+  The host tool has only standard Windows DLL dependencies and is bundled.
+
+The destination matches startup precedence: existing `moonengine`, otherwise
 existing `opengt4`, otherwise a new `moonengine` directory. Saves stay in place.
-Before replacing an NRO/config, backups go to `moonengine-backups` with disabled
-extensions. The selected ISO path is updated; other configuration fields remain.
-No global execution-policy setting, launcher, firmware or console-key changes
-are made. Extract the entire ZIP before running the helper.
+Before NRO/config replacement, backups go to `moonengine-backups` with disabled
+extensions. The ISO path changes to the selected destination; other preferences
+are preserved. An existing same-size ISO is retained when its checkbox is on;
+its contents are not rehashed. Disc identity is checked only by boot serial SCUS-97328 in ISO9660 SYSTEM.CNF;
+revision VER and whole-image SHA-1 are not acceptance criteria.
+This single-file ISO workflow requires exFAT/large-file support; no formatting
+is performed. Extract the entire ZIP before running the application.
 
-Package-content/invalid-input tests run with
-`python tests/tools/test_switch_package.py`. The Shell adapter's local file
-copy/rename, hash, invalid-path and save/config-preservation fixture runs with
-`powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File tools/switch_install.ps1 -SelfTest`.
-These checks passed; real USB/MTP installation remains unvalidated. The package
-marks that limit in its README and manifest. Manual SD copying remains available.
+Network uploads use unique staging names, size checks, and NRO/config hashes
+before replacement. The previous destination is renamed to a backup; a failed
+installation rename restores it. A failed hash leaves the installed file in
+place. Download reads disable WinINet caching: otherwise a verification after
+replacement can observe old content. Incomplete staging uploads remain for
+inspection; no saves or game-data directories are deleted.
+
+Tests (area only): package contents/invalid inputs in
+`tests/tools/test_switch_package.py`; the executable's `--self-test` exercises
+native Shell copy/rename/hash, child lookup, argument quoting and config
+preservation. `python tests/tools/test_switch_setup.py SETUP_EXE` runs a local,
+disposable FTP server and checks actual upload/rename/read-back/hash, retained
+backup and a wrong-hash negative preserving the original. `--preview` and
+`--preview-network` render both window layouts for visual inspection.
+The native program runs locally and both window layouts were inspected. Full
+DBI hardware installation and the complete ISO-to-console workflow are still
+unvalidated; the README/manifest say so. Manual SD copying remains available.
 
 MoonEngine runs as a native ARM64 homebrew application. The user has reached
 menus and races on hardware; native deko3d improves performance but has reported
@@ -1730,3 +1758,35 @@ The Switch build omits the host-added Exit Game entry from the Arcade main
 menu. New Career remains present and desktop builds retain Exit Game. This is
 an explicit console UI adaptation requested by the user; system HOME remains
 available. Native Release compilation checks the console branch.
+
+### Installer accepts SCUS-97328 revisions (17/10/2026)
+
+The setup window and manifest no longer require USA v2.00 or one ISO hash.
+The native reader locates SYSTEM.CNF in ISO9660 and checks its BOOT2 serial,
+SCUS-97328. Version fields and unrelated ISO bytes do not affect acceptance.
+Hashes still protect the distributed NRO/setup/Nxlink files and transfers.
+The legacy PowerShell entry delegates its disc check to the same native reader.
+Tests exercise revision 1.00, 2.00 and another VER value, wrong serial/number,
+junk and missing SYSTEM.CNF, plus the local real disc. Installer self-test,
+FTP backup/hash negative and package tests passed. This is serial acceptance,
+not a claim that every revision's entire game/rendering is hardware verified.
+
+### DBI post-ISO failure and diagnostics (17/10/2026)
+
+A full local Shell-transaction test reproduced E_INVALIDARG (0x80070057)
+when a packaged NRO path containing forward slashes reached
+SHCreateItemFromParsingName. All filesystem paths now use Windows preferred
+separators at that API boundary. Restoring the old call fails self-test.
+DBI lookups additionally refresh metadata and poll publication/size for up
+to ten seconds after copy rather than assuming immediate enumeration. Wrong
+size still fails; it is not accepted or silently recopied with reuse enabled.
+The transaction fixture checks ISO reuse, old-NRO backup, replacement hash,
+config preservation, delayed file visibility and a wrong-size negative.
+This uses local Shell folders, not a connected DBI console.
+
+Failures include their stage and HRESULT, and save setup.log to the job's
+temporary directory with a copy named MoonEngine-Switch-Setup.log next to the
+installer. A read-only package folder falls back to the temporary log path.
+Nxlink now retries discovery five times and captures its stdout/stderr to
+nxlink.log; a failed launch reports its exit status and retains installed
+files. Actual Sphaira discovery on the user's network remains unverified.

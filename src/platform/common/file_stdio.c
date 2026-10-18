@@ -4,6 +4,13 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#ifdef __ANDROID__
+#include <unistd.h>
+#include <errno.h>
+#include <limits.h>
+#include <string.h>
+#include <sys/stat.h>
+#endif
 #ifdef __SWITCH__
 #include <sys/types.h>
 _Static_assert(sizeof(off_t) >= 8, "Switch disc I/O requires 64-bit offsets");
@@ -69,6 +76,18 @@ plat_file *plat_file_open(const char *path)
     f->fp = path && MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, wide, 32768)
                 ? _wfopen(wide, L"rb")
                 : NULL;
+#elif defined(__ANDROID__)
+    /* P: SAF grants a descriptor, not permission to reopen its underlying path.
+       Duplicate it without taking ownership of the Java activity's handle. */
+    const char *prefix="/proc/self/fd/";
+    if(path && !strncmp(path,prefix,strlen(prefix))) {
+        char *end=NULL;
+        long descriptor=strtol(path+strlen(prefix),&end,10);
+        if(end!=path+strlen(prefix) && !*end && descriptor>=0 && descriptor<=INT_MAX) {
+            int owned=dup((int)descriptor);
+            if(owned>=0) { f->fp=fdopen(owned,"rb");if(!f->fp) close(owned); }
+        }
+    } else f->fp=path?fopen(path,"rb"):NULL;
 #else
     f->fp = path ? fopen(path, "rb") : NULL;
 #endif
@@ -76,8 +95,14 @@ plat_file *plat_file_open(const char *path)
         free(f);
         return NULL;
     }
+#ifdef __ANDROID__
+    struct stat info;
+    if(fstat(fileno(f->fp),&info) || info.st_size<0) {fclose(f->fp);free(f);return NULL;}
+    f->size=(uint64_t)info.st_size;
+#else
     END64(f->fp);
     f->size = TELL64(f->fp);
+#endif
     return f;
 }
 
@@ -88,7 +113,20 @@ uint64_t plat_file_size(plat_file *f)
 
 size_t plat_file_read_at(plat_file *f, uint64_t offset, void *dst, size_t n)
 {
-#ifdef __SWITCH__
+#ifdef __ANDROID__
+    /* Duplicated SAF descriptors share an open-file offset. pread keeps
+       concurrent disc/cache readers independent, including beyond 4 GiB. */
+    if(offset>f->size) return 0;
+    if(n>f->size-offset) n=(size_t)(f->size-offset);
+    size_t total=0;
+    while(total<n) {
+        ssize_t result=pread(fileno(f->fp),(char *)dst+total,n-total,(off_t)(offset+total));
+        if(result<0 && errno==EINTR) continue;
+        if(result<=0) break;
+        total+=(size_t)result;
+    }
+    return total;
+#elif defined(__SWITCH__)
     SWP_PUSH(SWP_DISC);
     if (offset > f->size || SEEK64(f->fp, offset)) {
         SWP_POP();

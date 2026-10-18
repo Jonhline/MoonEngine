@@ -132,7 +132,11 @@ moon_vk_device *moon_vk_open(const char *loader, char *error, size_t capacity)
 #ifdef _WIN32
     const char *default_loader = "vulkan-1.dll";
 #else
+#ifdef __ANDROID__
+    const char *default_loader = "libvulkan.so";
+#else
     const char *default_loader = "libvulkan.so.1";
+#endif
 #endif
     v->library = SDL_LoadObject(loader ? loader : default_loader);
     if (!v->library) {

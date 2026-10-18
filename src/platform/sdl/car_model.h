@@ -70,4 +70,6 @@ car_model *car_model_load_film_parts(gt4_vol *v, const car_model_tables *t, cons
                                      int choice, int cars, unsigned entry, const char *wheel,
                                      const char *wing, const float recorded[4][3]);
 void car_model_free(car_model *a);
+/* P: degrees the front wheels are turned at load (0 = straight; a dealer picture) */
+extern float car_model_picture_steer;
 #endif

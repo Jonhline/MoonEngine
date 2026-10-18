@@ -1,4 +1,7 @@
 #include "moon_pref.h"
+#ifdef __ANDROID__
+#include "mobile_options.h"
+#endif
 #include "platform/switch_file.h"
 #include "video_settings.h"
 #include "platform/renderer_backend.h"
@@ -24,6 +27,10 @@ static const int sizes[][2] = {{1280, 720},  {1280, 960},  {1600, 900},
 static void quality(const pc_video_options *v)
 {
     video_ui_quality(v->filter, v->text / 100.f);
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+    video_scene_quality(v->antialiasing, v->render_scale);
+    r3d_texture_smoothing(v->texture_smoothing);
+#endif
 }
 
 void video_settings_init(video_settings *s, int persist, const char *config_file)
@@ -44,10 +51,19 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
        PC sharpening remains available and existing preferences still load. */
     s->current.filter = 0;
     s->current.text = 0;
+    s->current.render_scale = 2;
 #ifndef __SWITCH__
     s->current.desktop = s->current.edge_pan = s->current.input_hints = s->current.main_menu = s->current.smooth_cursor = s->current.hover_feedback = 1;
     s->current.compact_cars = 1;
     s->current.spatial_visibility = s->current.resident_reflections = 1;
+#endif
+#ifdef __ANDROID__
+    s->current.renderer = 1;
+    s->current.video = (plat_video_desc){1280, 720, 1, 1, 0};
+    s->current.aspect = 1;
+    s->current.desktop = s->current.edge_pan = 0;
+    s->current.touch_menu = 1;
+    s->current.mobile = (moon_mobile_options){1, 1, 2, 0, 0};
 #endif
     if (!persist)
         return;
@@ -75,6 +91,12 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     s->current.smooth_cursor = moon_options_int(&s->store, "interface.smooth_mouse_cursor", strcmp(s->store.preset,"Classic")!=0, 0, 1);
     s->current.hover_feedback = moon_options_int(&s->store, "interface.mouse_hover_feedback", strcmp(s->store.preset,"Classic")!=0, 0, 1);
     int enhanced = strcmp(s->store.preset, "Classic") != 0;
+#if !defined(__ANDROID__)
+    s->current.antialiasing = moon_options_int(&s->store, "graphics.antialiasing", 0, 0, 3);
+    s->current.render_scale = moon_options_int(&s->store, "graphics.render_scale", 2, 0, 2);
+    s->current.texture_smoothing =
+        moon_options_int(&s->store, "graphics.texture_smoothing", 0, 0, 1);
+#endif
     s->current.compact_cars = moon_options_int(&s->store,"interface.compact_car_strip",enhanced,0,1);
     s->current.spatial_visibility = moon_options_int(&s->store, "graphics.spatial_visibility", enhanced, 0, 1);
     s->current.resident_reflections = moon_options_int(&s->store, "graphics.resident_reflections", enhanced, 0, 1);
@@ -87,6 +109,12 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     s->current.scene_resolution=moon_options_int(&s->store,MOON_SWITCH_SCENE_KEY,1,0,2);
     s->current.touch_menu = moon_options_int(&s->store, "controls.touch_menu",
                                              strcmp(s->store.preset, "Classic") != 0, 0, 1);
+#endif
+#ifdef __ANDROID__
+    moon_mobile_options_load(&s->store, &s->current.mobile, &s->current.touch_menu);
+    s->current.renderer = 1;
+    s->current.desktop = s->current.edge_pan = 0;
+    s->current.video.fullscreen = 1;
 #endif
     FILE *f = fopen(s->path, "r");
     if (!f)
@@ -129,6 +157,11 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
         }
     }
     fclose(f);
+#ifdef __ANDROID__
+    s->current.renderer = 1;
+    s->current.desktop = s->current.edge_pan = 0;
+    s->current.video.fullscreen = 1;
+#endif
 }
 
 static void save(video_settings *s)
@@ -143,12 +176,25 @@ static void save(video_settings *s)
         snprintf(value, sizeof value, "%d", values[i]);
         moon_options_set(&s->store, keys[i], value);
     }
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+    const char *quality_keys[] = {"graphics.antialiasing", "graphics.render_scale",
+                                  "graphics.texture_smoothing"};
+    const int quality_values[] = {v->antialiasing, v->render_scale, v->texture_smoothing};
+    for (int i = 0; i < 3; i++) {
+        char value[16];
+        snprintf(value, sizeof value, "%d", quality_values[i]);
+        moon_options_set(&s->store, quality_keys[i], value);
+    }
+#endif
     moon_options_set(&s->store, "graphics.renderer", moon_renderer_name(v->renderer));
 #ifdef __SWITCH__
     char scene_value[8];
     snprintf(scene_value,sizeof scene_value,"%d",v->scene_resolution);
     moon_options_set(&s->store,MOON_SWITCH_SCENE_KEY,scene_value);
     moon_options_set(&s->store, "controls.touch_menu", v->touch_menu ? "1" : "0");
+#endif
+#ifdef __ANDROID__
+    moon_mobile_options_save(&s->store, &v->mobile, v->touch_menu);
 #endif
     if (s->preset_draft >= 0) {
         snprintf(s->store.preset, sizeof s->store.preset, "%s", s->preset_draft ? "Enhanced" : "Classic");
@@ -160,9 +206,30 @@ static void save(video_settings *s)
 
 /* ---- the launcher's view of the same settings (P) ---- */
 enum {
-    VS_RENDERER, VS_FULLSCREEN, VS_RESOLUTION, VS_ASPECT, VS_VSYNC, VS_UPSCALE, VS_FILTER,
-    VS_TEXT, VS_LOW_LATENCY, VS_SPATIAL, VS_REFLECTIONS, VS_DESKTOP, VS_EDGE_PAN, VS_HINTS,
-    VS_MAIN_MENU, VS_SMOOTH_CURSOR, VS_HOVER, VS_COMPACT, VS_PRESET, VS_FPS, VS_COUNT
+    VS_RENDERER,
+    VS_FULLSCREEN,
+    VS_RESOLUTION,
+    VS_ASPECT,
+    VS_VSYNC,
+    VS_UPSCALE,
+    VS_FILTER,
+    VS_TEXT,
+    VS_LOW_LATENCY,
+    VS_SPATIAL,
+    VS_REFLECTIONS,
+    VS_DESKTOP,
+    VS_EDGE_PAN,
+    VS_HINTS,
+    VS_MAIN_MENU,
+    VS_SMOOTH_CURSOR,
+    VS_HOVER,
+    VS_COMPACT,
+    VS_PRESET,
+    VS_FPS,
+    VS_AA,
+    VS_SCALE,
+    VS_TEXTURE_SMOOTH,
+    VS_COUNT
 };
 static const char *const vs_preset[] = {"Classic", "Enhanced", "Modified"};
 static const char *const vs_fps[] = {"Unlimited", "60 FPS",  "90 FPS", "120 FPS",
@@ -177,6 +244,8 @@ static const char *const vs_ratio[] = {"4:3", "16:9"};
 static const char *const vs_fsr[] = {"Native", "FSR Ultra Quality", "FSR Quality", "FSR Balanced",
                                      "FSR Performance"};
 static const char *const vs_filter[] = {"Smooth", "Sharp", "Original"};
+static const char *const vs_aa[] = {"Original", "Off", "SSAA 150%", "SSAA 200%"};
+static const char *const vs_scale[] = {"50%", "75%", "100%"};
 static const char *const vs_text[] = {"0%", "25%", "50%", "75%", "100%"};
 static const video_setting_info vs_info[VS_COUNT] = {
     {"Video", "Graphics API", "The renderer. Applies the next time Moon Engine opens.", 2, vs_api},
@@ -202,6 +271,11 @@ static const video_setting_info vs_info[VS_COUNT] = {
      "Classic: the PS2 game. Enhanced: the recommended improvements. Any change makes it Modified.",
      2, vs_preset},
     {"Video", "Frame Limit", "The most frames drawn a second.", 7, vs_fps},
+    {"Quality", "Anti-Aliasing", "SSAA smooths 3D edges and increases GPU work.", 4, vs_aa},
+    {"Quality", "3D Resolution", "Scene resolution; menus and HUD keep their output resolution.", 3,
+     vs_scale},
+    {"Quality", "Texture Smoothing", "Smooth model surfaces that use point sampling.", 2,
+     vs_off_on},
 };
 int video_setting_count(void)
 {
@@ -237,6 +311,12 @@ int video_setting_get(const video_settings *s, int i)
     case VS_SMOOTH_CURSOR: return v->smooth_cursor != 0;
     case VS_HOVER: return v->hover_feedback != 0;
     case VS_COMPACT: return v->compact_cars != 0;
+    case VS_AA:
+        return v->antialiasing;
+    case VS_SCALE:
+        return v->render_scale;
+    case VS_TEXTURE_SMOOTH:
+        return v->texture_smoothing;
     case VS_PRESET: return s->store.modified ? 2 : strcmp(s->store.preset, "Classic") != 0;
     case VS_FPS:
         for (int k = 0; k < 7; k++)
@@ -262,7 +342,11 @@ void video_setting_set(video_settings *s, int i, int value)
         break;
     case VS_ASPECT: v->aspect = value; break;
     case VS_VSYNC: v->video.vsync = value; break;
-    case VS_UPSCALE: v->video.upscale = value; break;
+    case VS_UPSCALE:
+        v->video.upscale = value;
+        v->antialiasing = 0;
+        v->render_scale = 2;
+        break;
     case VS_FILTER: v->filter = value; break;
     case VS_TEXT: v->text = value * 25; break;
     case VS_LOW_LATENCY: v->low_latency = value; break;
@@ -276,10 +360,26 @@ void video_setting_set(video_settings *s, int i, int value)
     case VS_HOVER: v->hover_feedback = value; break;
     case VS_COMPACT: v->compact_cars = value; break;
     case VS_FPS: v->fps_limit = vs_fps_values[value]; break;
+    case VS_AA:
+        v->antialiasing = value;
+        v->render_scale = 2;
+        v->video.upscale = 0;
+        break;
+    case VS_SCALE:
+        v->render_scale = value;
+        v->antialiasing = 0;
+        v->video.upscale = 0;
+        break;
+    case VS_TEXTURE_SMOOTH:
+        v->texture_smoothing = value;
+        break;
     case VS_PRESET: {
         /* as the Screen Settings page applies it: the registered PC options at the
            preset's values; host size, mode and the API are kept */
         int enhanced = value == 1;
+        v->antialiasing = enhanced ? 2 : 0;
+        v->render_scale = 2;
+        v->texture_smoothing = enhanced;
         v->filter = enhanced ? 0 : 2;
         v->text = 0;
         v->video.upscale = 0;
@@ -384,15 +484,31 @@ static void read_draft(video_settings *s)
     v->touch_menu = s->choices[9]->focus_index;
 #endif
 #ifndef __SWITCH__
+#ifndef __ANDROID__
     v->desktop = s->choices[7]->focus_index;
     v->edge_pan = s->choices[9]->focus_index;
     v->input_hints = s->choices[10]->focus_index;
     v->main_menu = s->choices[13]->focus_index;
     v->smooth_cursor = s->choices[14]->focus_index;
     v->hover_feedback = s->choices[15]->focus_index;
+#endif
+#ifndef __ANDROID__
+    v->antialiasing = s->choices[17]->focus_index;
+    v->render_scale = s->choices[18]->focus_index;
+    v->texture_smoothing = s->choices[19]->focus_index;
+#endif
     v->compact_cars = s->choices[16]->focus_index;
     v->spatial_visibility = s->choices[11]->focus_index;
     v->resident_reflections = s->choices[12]->focus_index;
+#endif
+#ifdef __ANDROID__
+    v->touch_menu = s->choices[7]->focus_index;
+    v->mobile = (moon_mobile_options){s->choices[9]->focus_index, s->choices[10]->focus_index,
+                                      s->choices[13]->focus_index, s->choices[14]->focus_index,
+                                      s->choices[15]->focus_index};
+    v->desktop = v->edge_pan = 0;
+    v->renderer = 1;
+    v->video.fullscreen = 1;
 #endif
 }
 static int idle(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv, ah_val *ret)
@@ -418,6 +534,11 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
     if (sender == s->choices[8] && s->choices[8]->focus_index < 2) {
         int enhanced = s->choices[8]->focus_index;
         s->preset_draft = enhanced;
+#ifndef __ANDROID__
+        s->choices[17]->focus_index = enhanced ? 2 : 0;
+        s->choices[18]->focus_index = 2;
+        s->choices[19]->focus_index = enhanced;
+#endif
         s->choices[3]->focus_index = enhanced ? 0 : 2;
         s->choices[4]->focus_index = 0;
         s->choices[6]->focus_index = 0;
@@ -430,8 +551,29 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
         s->choices[16]->focus_index = enhanced;
         s->choices[11]->focus_index = enhanced;
         s->choices[12]->focus_index = enhanced;
+#ifdef __ANDROID__
+        s->draft.input_hints = s->draft.main_menu = enhanced;
+        s->draft.smooth_cursor = s->draft.hover_feedback = enhanced;
+        s->choices[10]->focus_index = 1;
+        s->choices[13]->focus_index = 2;
+        s->choices[14]->focus_index = 0;
+        s->choices[15]->focus_index = 0;
+#endif
         read_draft(s);
     } else {
+#ifndef __ANDROID__
+        if (sender == s->choices[17]) {
+            s->choices[18]->focus_index = 2;
+            s->choices[6]->focus_index = 0;
+        } else if (sender == s->choices[18] || sender == s->choices[6]) {
+            s->choices[17]->focus_index = 0;
+            if (sender == s->choices[18])
+                s->choices[6]->focus_index = 0;
+            else
+                s->choices[18]->focus_index = 2;
+        }
+        read_draft(s);
+#endif
         s->preset_draft = -1;
         s->choices[8]->focus_index = 2;
         ui_set_tooltips(s->page, "Custom settings (modified preset). Apply with OK.");
@@ -474,9 +616,10 @@ static const char *hints[] = {
     "Show five main menu entries in the original vertical style. Use the wheel to scroll. Off restores the original layout.",
     "Add brief mouse position/angle easing and smooth cursor icon changes. Off follows the mouse immediately.",
     "Gently enlarge otherwise-static Options icons and labels. Existing game hover animations are preserved.",
-    "Use smaller car thumbnails inspired by the supplied Spec II reference. Off retains disc geometry.",
-    "Separate regulation row backgrounds with gaps taken from the authored bottom padding. Off retains original backgrounds."
-};
+    "Use smaller car thumbnails in garage and dealer lists. Off retains the original layout.",
+    "Original retains the previous renderer. Off disables MSAA. SSAA smooths edges at 150% or 200% 3D resolution; costs GPU time and disables FSR.",
+    "Lower only the 3D resolution for performance. HUD and menus stay sharp. Selecting this disables SSAA and FSR.",
+    "Smooth point-sampled model textures. Off keeps the authored texture sampling."};
 static int focus(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv, ah_val *ret)
 {
     (void)vm;
@@ -501,7 +644,23 @@ static int focus(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
         *ret=ah_int(2);return 0;
     }
 #endif
-    for (int i = 0; i < 17; i++)
+#ifdef __ANDROID__
+    const int mobile_rows[] = {7, 9, 10, 13, 14, 15};
+    const char *mobile_hints[] = {
+        "Touch Menus: first tap previews, second tap confirms; drag lists and the GT Mode map.",
+        "Optional race buttons. External controllers take priority and hide the touch controls.",
+        "Size of the on-screen race controls.",
+        "Opacity of the on-screen race controls.",
+        "Place steering on the left or mirror the layout.",
+        "Analog drag steering or digital left/right steering. Vehicle physics is unchanged."};
+    for (int i = 0; i < 6; i++)
+        if (w == s->choices[mobile_rows[i]]) {
+            ui_set_tooltips(s->page, mobile_hints[i]);
+            *ret = ah_int(2);
+            return 0;
+        }
+#endif
+    for (int i = 0; i < (int)(sizeof s->choices / sizeof s->choices[0]); i++)
         if (s->choices[i] == w)
             ui_set_tooltips(s->page, hints[i]);
     *ret = ah_int(2);
@@ -510,16 +669,23 @@ static int focus(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
 #ifndef __SWITCH__
 /* P: PC settings use three compact pages with a shared, uncommitted draft.
    Stable choice indices belong to the store, not to their visible positions. */
-static const int tab_rows[3][6] = {{0, 1, 2, 5, -1, -1}, {3, 4, 6, 11, 12, 16}, {7, 9, 10, 13, 14, 15}};
+#ifdef __ANDROID__
+static const int tab_rows[3][9] = {
+    {0, 1, 2, 5, -1}, {3, 4, 6, 11, 12, 16, -1}, {7, 9, 10, 13, 14, 15, -1}};
+#else
+static const int tab_rows[3][9] = {
+    {0, 1, 2, 5, -1}, {17, 18, 19, 3, 4, 6, 11, 12, 16}, {7, 9, 10, 13, 14, 15, -1}};
+#endif
 static void select_tab(video_settings *s, int tab)
 {
     s->active_tab = tab;
-    for (int i = 0; i < 17; i++)
-        s->rows[i]->visible = i == 8;
-    for (int row = 0; row < 6 && tab_rows[tab][row] >= 0; row++) {
+    for (int i = 0; i < (int)(sizeof s->choices / sizeof s->choices[0]); i++)
+        if (s->rows[i])
+            s->rows[i]->visible = i == 8;
+    for (int row = 0; row < 9 && tab_rows[tab][row] >= 0; row++) {
         ui_widget *w = s->rows[tab_rows[tab][row]];
         w->visible = 1;
-        w->y = 100 + row * (tab == 2 ? 28 : 32);
+        w->y = 100 + row * (tab == 1 ? 24 : tab == 2 ? 28 : 32);
     }
     for (int i = 0; i < 3; i++) {
         s->tabs[i]->active = i == tab;
@@ -558,8 +724,8 @@ static int tab_key(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
     if (key.u.i != 0xffc8 && key.u.i != 0xffd2)
         return 0;
     /* Leave open dropdown navigation with its original widget handler. */
-    for (int i = 0; i < 17; i++)
-        if (s->choices[i]->option_open)
+    for (int i = 0; i < (int)(sizeof s->choices / sizeof s->choices[0]); i++)
+        if (s->choices[i] && s->choices[i]->option_open)
             return 0;
     select_tab(s, (s->active_tab + (key.u.i == 0xffc8 ? 2 : 1)) % 3);
     menu_play_effect(s->owner, "cursor");
@@ -574,6 +740,11 @@ static int enter(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     (void)argc;
     (void)argv;
     video_settings *s = data;
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+    SDL_Window *window = plat_sdl_window();
+    if (window)
+        s->current.video.fullscreen = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
+#endif
     s->draft = s->current;
     s->preset_draft = -1;
     s->message[0] = 0;
@@ -595,6 +766,11 @@ static int enter(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     s->choices[5]->focus_index = s->current.video.vsync;
     s->choices[6]->focus_index = s->current.video.upscale;
 #ifndef __SWITCH__
+#ifndef __ANDROID__
+    s->choices[17]->focus_index = s->current.antialiasing;
+    s->choices[18]->focus_index = s->current.render_scale;
+    s->choices[19]->focus_index = s->current.texture_smoothing;
+#endif
     s->choices[7]->focus_index = s->current.desktop;
     s->choices[9]->focus_index = s->current.edge_pan;
     s->choices[10]->focus_index = s->current.input_hints;
@@ -610,6 +786,14 @@ static int enter(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     s->choices[7]->focus_index=s->current.scene_resolution;
     s->choices[9]->focus_index = s->current.touch_menu;
     s->choices[8]->focus_index=s->store.modified?2:strcmp(s->store.preset,"Classic")!=0;
+#endif
+#ifdef __ANDROID__
+    s->choices[7]->focus_index = s->current.touch_menu;
+    s->choices[9]->focus_index = s->current.mobile.enabled;
+    s->choices[10]->focus_index = s->current.mobile.size;
+    s->choices[13]->focus_index = s->current.mobile.opacity;
+    s->choices[14]->focus_index = s->current.mobile.layout;
+    s->choices[15]->focus_index = s->current.mobile.steering;
 #endif
     quality(&s->current);
 #ifndef __SWITCH__
@@ -653,6 +837,13 @@ static int apply(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     video_settings *s = data;
     read_draft(s);
     SDL_Window *window = plat_sdl_window();
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+    /* Alt+Enter can change the host while this draft is open. Preserve it
+       unless the player explicitly edited Window Mode in this page. */
+    if (window && s->draft.video.fullscreen == s->current.video.fullscreen)
+        s->draft.video.fullscreen = s->current.video.fullscreen =
+            (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
+#endif
     int mode_changed = s->draft.video.fullscreen != s->current.video.fullscreen;
     int size_changed = s->draft.video.width != s->current.video.width ||
                        s->draft.video.height != s->current.video.height;
@@ -721,7 +912,11 @@ void video_settings_attach(video_settings *s, menu *m)
 #ifdef __SWITCH__
     const int rows = 10;
 #else
+#ifdef __ANDROID__
     const int rows = 17;
+#else
+    const int rows = 20;
+#endif
 #endif
 #ifndef __SWITCH__
     /* The PC page owns its row positions. Authored VBox/FBox packing would
@@ -749,10 +944,32 @@ void video_settings_attach(video_settings *s, menu *m)
         bg->h = pane->h;
         bg->w = pane->w;
     }
-    const char *names[] = {"AspectRatio",   "WindowMode", "Resolution", "UIFilter",
-                           "TextSharpness", "VSync",      "Upscaling", "DesktopInput", "PCPreset", "MapEdgePan", "InputHints", "SpatialVisibility", "ResidentReflections", "MainMenuOverview", "SmoothCursor", "HoverFeedback", "CompactCars"};
-    const char *titles[] = {"Aspect Ratio", "Window Mode", "Resolution", "UI Filter",
-                            "Text Clarity", "VSync",       "Upscaling", "Desktop Input", "PC Preset", "Map Edge Pan", "Input Hints", "Spatial Visibility", "GPU Reflections", "Main Menu", "Smooth Cursor", "Hover Feedback", "Compact Car Strip"};
+    const char *names[] = {"AspectRatio",
+                           "WindowMode",
+                           "Resolution",
+                           "UIFilter",
+                           "TextSharpness",
+                           "VSync",
+                           "Upscaling",
+                           "DesktopInput",
+                           "PCPreset",
+                           "MapEdgePan",
+                           "InputHints",
+                           "SpatialVisibility",
+                           "ResidentReflections",
+                           "MainMenuOverview",
+                           "SmoothCursor",
+                           "HoverFeedback",
+                           "CompactCars",
+                           "AntiAliasing",
+                           "RenderScale",
+                           "TextureSmoothing"};
+    const char *titles[] = {
+        "Aspect Ratio",      "Window Mode",   "Resolution",    "UI Filter",
+        "Text Clarity",      "VSync",         "Upscaling",     "Desktop Input",
+        "PC Preset",         "Map Edge Pan",  "Input Hints",   "Spatial Visibility",
+        "GPU Reflections",   "Main Menu",     "Smooth Cursor", "Hover Feedback",
+        "Compact Car Strip", "Anti-Aliasing", "3D Resolution", "Texture Smoothing"};
     ui_widget *sample = ui_widget_copy(ui, row);
     for (int i = pane->nkids - 1; i >= 0; i--) {
         ui_widget *w = pane->kids[i];
@@ -774,14 +991,35 @@ void video_settings_attach(video_settings *s, menu *m)
     const char *upscalers[] = {"Native", "FSR Ultra Quality", "FSR Quality", "FSR Balanced",
                                "FSR Performance"};
     const char *presets[] = {"Classic", "Enhanced", "Modified"};
-    const char *const *lists[] = {ratios, modes, resolutions, filters, clarity, toggle, upscalers, toggle, presets, toggle, toggle, toggle, toggle, toggle, toggle, toggle, toggle};
-    int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2};
+    const char *const *lists[] = {
+        ratios, modes,  resolutions, filters, clarity, toggle, upscalers, toggle, presets,  toggle,
+        toggle, toggle, toggle,      toggle,  toggle,  toggle, toggle,    vs_aa,  vs_scale, toggle};
+    int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 4, 3, 2};
 #ifdef __SWITCH__
     const char *scene_sizes[]={"Classic","Balanced","Performance"};
     names[7]="SceneResolution"; titles[7]="3D Resolution"; titles[8]="Preset";
     lists[7]=scene_sizes;counts[7]=3;
     names[9] = "TouchMenus";
     titles[9] = "Touch Menus";
+#endif
+#ifdef __ANDROID__
+    const char *mobile_sizes[] = {"Small", "Medium", "Large"};
+    const char *mobile_opacity[] = {"20%", "40%", "60%", "80%", "100%"};
+    const char *mobile_layout[] = {"Steering left", "Steering right"};
+    const char *mobile_steer[] = {"Analog drag", "Digital"};
+    titles[7] = "Touch Menus";
+    titles[9] = "Race Touch Controls";
+    titles[10] = "Control Size";
+    titles[13] = "Control Opacity";
+    titles[14] = "Control Layout";
+    titles[15] = "Steering";
+    titles[8] = "Preset";
+    lists[10] = mobile_sizes;
+    counts[10] = 3;
+    lists[13] = mobile_opacity;
+    counts[13] = 5;
+    lists[14] = mobile_layout;
+    lists[15] = mobile_steer;
 #endif
     for (int i = 0; i < rows; i++) {
         ui_widget *w = ui_widget_copy(ui, sample);

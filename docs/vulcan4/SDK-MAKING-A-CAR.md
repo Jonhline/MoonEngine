@@ -59,6 +59,33 @@ moonmod_glbcar banana.glb out/car/open/moonbanana --length 4.4
   the banana has no wheels by the captain's own call. Wheel-less means `wheel_parts=0` in the survey, and the
   physics still drives it.
 
+### What the converter does to a modern source (measured on a 199,757-triangle Escort, 2026-10-17)
+
+- **Facing:** the parts' names (lights, tyres, bumpers) say where the front is; the model is turned to the
+  engine's −Z (a disc car's front hubs sit at z < 0). `--forward` or the rig's `forward` only decide when the
+  names do not, and a rig that contradicts the names is reported.
+- **Textures:** glTF's V is used as it is (no `1 − v`: that drew every image upside down); each triangle is
+  moved into [0,1) whole; power-of-two images repeat. Alpha follows the material (OPAQUE ignores it, MASK cuts,
+  BLEND keeps) and is written in the GS's 0..0x80 range (255 read as 2.0 and drew the body black).
+- **Wheels:** without rig wheel lines, tyre/rim/hub/brake parts are found by name and given their corner. With
+  `--wheels-from` they are left out (the donor's rim/tyre take their place) and measured: the body is centred on
+  its axles and `car/wheels/<model>` (wheelbase, tread, radius, width) is written beside the model. The engine
+  draws the wheels there; the physics keeps the donor's tables.
+- **Cabin:** kept (it shows through the glass); `--no-interior` leaves it out.
+- **Glass:** window materials are drawn as the disc's cars draw theirs, dark (the cabin a silhouette), with the
+  GS's alpha blending on (the packet's PRIM ABE bit; without it nothing a mod drew was ever see-through) and after
+  every opaque part. Lenses and gauge glass keep their own colour.
+- **Textures at their own size:** the CAR4 keeps the PS2-sized copies (4 MB of GS memory, 1024 a side) as the
+  fallback; `car/hires/<model>` carries every texture the GS had to shrink at its authored size (power-of-two
+  sides, zlib-packed), and the engine swaps them in on PC (not on Switch). The Escort: 23 textures, 50 MB unpacked,
+  5.7 MB on disk.
+- **Decimation is optional, and the cabin goes first.** The whole car loads (222k in the engine with the cabin and
+  the borrowed wheels; the disc's cars are 9-12k). Measured on the Escort, 2026-10-17, front-three-quarter
+  pictures side by side: `--no-interior` alone gives 105k and looks the same; then `gltfpack -si R -sv -kn -noq`
+  gives 41k at 0.35 (the same), 27k at 0.2, 21k at 0.12 (a few bumper-chrome specks). Without `-sv` the chrome and
+  door frames tear; with `-slb` it stops at 49k with the bumper dented; `-sa` (the SDK's old 2 %) tore the UVs
+  across the atlas. The SDK's "Compression" and "Cabin" fields drive this.
+
 ## 3. The pictures
 
 ```sh
@@ -94,11 +121,20 @@ Drop the folder (or a zip) into the player's own mod folder and tick it in the l
 - Windows: `%APPDATA%\MoonEngine\MoonEngine\mods\<name>` (+ `mods.ini`)
 - Linux: `~/.local/share/MoonEngine/MoonEngine/mods/<name>`
 
-## 6. What is NOT solved yet (do not promise these)
+## 6. Solved since (2026-10-17, photographed in the Arcade's Ford list)
 
-- **A pretty title in the list.** The car's display name needs a `CAR_NAME_american.dbt` row and that table's
-  key scheme is **not decoded**. Today the list shows the label.
-- **The icon on screen.** The loader reads both pictures; nobody has photographed it in the dealer yet.
+- **The title:** `--name` writes the `CAR_NAME_american.dbt` row (keyed by the car id, +0 name, +8 short name);
+  the list shows "Banana".
+- **The maker's badge and flag:** `addcar <maker>` copies GENERIC_CAR +14 (country) and +15/+16 (maker) from the
+  first car the disc's dealership lists for that maker; a Ford on a BMW donor no longer shows the BMW roundel.
+- **The Arcade:** the car joins `CarData.<maker>_carlist` there too, not only the dealership's.
+- **The pictures:** render them from the car itself --
+  `MOON_PICTURE=<prefix> MoonEngine <disc> --preview <label>` writes `<prefix>-black.png` and `<prefix>-white.png`
+  (the car alone, front three-quarter), and `moonmod_img --matte <prefix>-black.png <prefix>-white.png
+  out/piece/car_pict/<label>.img 160 100` (and `car_mini ... 50 30`) mattes, crops and fits them.
+
+## 7. What is NOT solved yet (do not promise these)
+
 - **Paint.** How an authored car should take the game's colours is undecided.
 - **Wheel markers.** Intended design is markers in the model rather than hardcoded object names; not built.
 - **Tracks.** `moonmod_addtrack` adds a label and copies a course's bytes — collision, timing and driving

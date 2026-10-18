@@ -3,6 +3,7 @@
 #include "car_model.h"
 #include "showroom_math.h"
 #include "wheel_geometry.h"
+#include "model_write.h"
 #include "specdb.h"
 #include <math.h>
 #include <stdio.h>
@@ -52,6 +53,48 @@ static void fit_tire(gt4_model *part, float width, float rim, float radius, cons
         for (int k = 0; k < 3; k++)
             gt4_tire_fit_position(part->triangles[i].v[k].p, fit);
 }
+/* P: a mod car's wheels where its own model has them (car/wheels/<model>, written by
+   moonmod_glbcar; the disc has no such file). Drawing only: the physics reads its own
+   tables. Returns 1 with wheelbase, tread[2], radius[2], width[2]. */
+static int mod_wheels(gt4_vol *v, const char *model, float *wheelbase, float tread[2],
+                      float radius[2], float width[2])
+{
+    char path[160];
+    if (!model || !*model || strchr(model, '/') || strchr(model, '\\'))
+        return 0;
+    snprintf(path, sizeof path, "/car/wheels/%s", model);
+    size_t n = 0;
+    char *text = (char *)gt4_vol_read(v, path, &n);
+    if (!text)
+        return 0;
+    char *t = realloc(text, n + 1);
+    if (!t) {
+        free(text);
+        return 0;
+    }
+    t[n] = 0;
+    int got = 0;
+    for (char *line = t; line && *line;) {
+        char *nl = strchr(line, '\n');
+        if (nl)
+            *nl = 0;
+        float a = 0, b = 0;
+        if (sscanf(line, "wheelbase %f", &a) == 1 && a > .5f && a < 8)
+            *wheelbase = a, got |= 1;
+        else if (sscanf(line, "tread %f %f", &a, &b) == 2 && a >= 0 && a < 4 && b >= 0 && b < 4)
+            tread[0] = a, tread[1] = b, got |= 2;
+        else if (sscanf(line, "radius %f %f", &a, &b) == 2 && a > .1f && a < 1.5f && b > .1f && b < 1.5f)
+            radius[0] = a, radius[1] = b, got |= 4;
+        else if (sscanf(line, "width %f %f", &a, &b) == 2 && a > .05f && a < 1 && b > .05f && b < 1)
+            width[0] = a, width[1] = b, got |= 8;
+        line = nl ? nl + 1 : NULL;
+    }
+    free(t);
+    if (got == 15)
+        fprintf(stderr, "showroom: %s wheels from the mod: wheelbase %.3f, tread %.3f/%.3f, radius %.3f/%.3f\n",
+                model, *wheelbase, tread[0], tread[1], radius[0], radius[1]);
+    return got == 15;
+}
 static void add_wheels(gt4_vol *v, unsigned id, car_model *a, const uint8_t *data, size_t size,
                        const uint8_t *custom, size_t custom_size, const float recorded[4][3])
 {
@@ -89,6 +132,13 @@ static void add_wheels(gt4_vol *v, unsigned id, car_model *a, const uint8_t *dat
     if (disc_row(v, "RACINGMODIFY.dbt", u32(parts + 48), r) < 6)
         return;
     float tread[2] = {u16(r + 2) * .001f, u16(r + 4) * .001f};
+    float mod_wb = 0, mod_tread[2], mod_radius[2], mod_width[2];
+    int modded = mod_wheels(v, a->model, &mod_wb, mod_tread, mod_radius, mod_width);
+    if (modded) {
+        wheelbase = mod_wb;
+        tread[0] = mod_tread[0];
+        tread[1] = mod_tread[1];
+    }
     a->body_count = a->car->count;
     for (int axle = 0; axle < 2; axle++) {
         if (disc_row(v, axle ? "REARTIRE.dbt" : "FRONTTIRE.dbt", u32(parts + 192 + axle * 8), r) <
@@ -100,6 +150,12 @@ static void add_wheels(gt4_vol *v, unsigned id, car_model *a, const uint8_t *dat
         showroom_tire_size(r, &width, &rim, &radius);
         if (!(rim > 0 && radius > 0 && width > 0))
             continue;
+        if (modded) { /* the model's tyre: the table's proportions, at its size */
+            float k = mod_radius[axle] / radius;
+            rim *= k;
+            radius = mod_radius[axle];
+            width = mod_width[axle];
+        }
         for (int side = 0; side < 2; side++) {
             int slot = axle * 2 + side, native = slot ^ 1, count = 0;
             float sign = side ? -1 : 1;
@@ -259,7 +315,37 @@ static void add_wheels(gt4_vol *v, unsigned id, car_model *a, const uint8_t *dat
             gt4_model_free(part);
         }
     }
+    /* P: a dealer picture's front wheels turned, as the disc's car_pict shows them: every
+       front wheel and brake triangle about its hub's vertical axis */
+    if (car_model_picture_steer != 0 && !recorded) {
+        float a_ = car_model_picture_steer * 3.14159265f / 180, c = cosf(a_), sn = sinf(a_);
+        int steered = 0, wheelish = 0;
+        for (int i = 0; i < a->car->count; i++) {
+            gt4_triangle *t = &a->car->triangles[i];
+            int wheel_tri = i >= a->body_count || t->attachment == 1 || t->attachment == 2;
+            if (!wheel_tri)
+                continue;
+            wheelish++;
+            float cz = (t->v[0].p[2] + t->v[1].p[2] + t->v[2].p[2]) / 3,
+                  cx = (t->v[0].p[0] + t->v[1].p[0] + t->v[2].p[0]) / 3;
+            const float *h = a->hub[cx > 0 ? 0 : 1];
+            if (fabsf(cz - h[2]) > .6f || fabsf(cx - h[0]) > .6f)
+                continue; /* a rear wheel */
+            steered++;
+            for (int k = 0; k < 3; k++) {
+                float *q = t->v[k].p, *n = t->v[k].normal, x = q[0] - h[0], z = q[2] - h[2];
+                q[0] = h[0] + c * x + sn * z;
+                q[2] = h[2] - sn * x + c * z;
+                x = n[0], z = n[2];
+                n[0] = c * x + sn * z;
+                n[2] = -sn * x + c * z;
+            }
+        }
+        fprintf(stderr, "showroom: front wheels turned %.0f degrees (%d of %d wheel triangles)\n",
+                car_model_picture_steer, steered, wheelish);
+    }
 }
+float car_model_picture_steer;
 struct car_model_tables {
     blob labels, links, variants, strings;
 };
@@ -452,6 +538,20 @@ static car_model *load_car(gt4_vol *v, const car_model_tables *t, const char *co
                      ? gt4_model_decode_car_wing(data, size, (int)a->colors[a->choice].order - 1, 1)
                      : gt4_model_decode(data, size, (int)a->colors[a->choice].order - 1);
         if (a->car) {
+#ifndef __SWITCH__
+            {   /* P: a mod car's textures at their authored size (car/hires/<model>; the disc
+                   has none). The CAR4's PS2-sized copies stay as the fallback. */
+                char hires_path[160];
+                size_t hires_size = 0;
+                snprintf(hires_path, sizeof hires_path, "/car/hires/%s", a->model);
+                uint8_t *hires = gt4_vol_read(v, hires_path, &hires_size);
+                if (hires) {
+                    int swapped = gt4_hires_apply(hires, hires_size, a->car->textures, a->car->ntextures);
+                    fprintf(stderr, "showroom: %s: %d texture(s) at the mod's own size\n", a->model, swapped);
+                    free(hires);
+                }
+            }
+#endif
             if (cars > 0)
                 for (unsigned i = 0; i < a->car->steering_count; i++)
                     a->steering[i] = gt4_model_steering_part(a->car, i);
