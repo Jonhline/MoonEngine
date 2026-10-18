@@ -1607,3 +1607,64 @@ ultimate racing sim"* — is registered there: the logger, the race engineer, an
   the captain's instruction *"Write this shi down."* This entry stays the ledger record; the document is what
   anyone reads before touching the renderer.
 - **STATUS:** ⬜ registered, **not scheduled** — tier 1 is mostly existing work, tier 3 is a project of its own.
+
+### 🆕 G6.40 — **THE DEBUG OVERLAY** *(on-screen performance, the captain's ask, 2026-10-18)*
+
+- **What was asked for, in the captain's words:** *"debug overlay. Showing performance for testing."*
+- **What it is:** a toggleable on-screen readout for testing — frames per second and frame time (including the
+  worst frame, not just the average), the simulation tick's own cost, draw submissions and triangles, GPU/VRAM
+  pressure, the renderer in use (`opengl` / `vulkan`), the platform and the device name. It is the *screen*
+  half of `G6.20` (THE LOGGER), which writes to a file: same information, different consumer — his eyes, on a
+  handheld in a race, not a spreadsheet afterwards.
+- **The fence is G6.20's fence, verbatim:** off by default (law 12), and it must not perturb the tick. The
+  physics sets round-toward-zero + FTZ/DAZ every frame inside `fegetenv`/`fesetenv` (`race_run.c:753-779`), so an
+  overlay that changes arithmetic ordering is measuring something else. **Gate:** with the overlay hidden, the
+  reference frame is byte-identical (`md5 68d8eb83dc75b6fe6e03cc2372ca186d`), and with it shown the frame cost is
+  printed so it can be subtracted.
+- **Why it matters now, not later:** the Android port and the Switch port both live or die on numbers nobody can
+  currently see on the device. Every "it feels slow" argument ends the moment the overlay can be switched on.
+- **STATUS:** ⬜ registered, **not scheduled.**
+
+### 🆕 G6.41 — **THE MOVIES WITHOUT THE SPARE PROGRAM** *(kill the 161 MB ffmpeg.exe, the captain's ask, 2026-10-18)*
+
+- **What was asked for, in the captain's words:** *"Finding an alternative to ffmpeg.exe. It's literally 13x~
+  times bigger than our exe. We need to figure out a different way to display the videos."* — measured and true:
+  the BtbN static `ffmpeg.exe` is **168,964,608 B** against a **13,319,343 B** `MoonEngine.exe`, i.e. **12.7×**.
+- **What the movies actually are:** the menu's MPEG-2 program-stream pictures the engine plays by **spawning an
+  external program** (`src/platform/sdl/movie.c`, Windows `CreateProcessW`). Two consequences: the install ships a
+  second huge binary, and on any platform that cannot spawn a program (Android) the movies have no route at all.
+- **The route already exists in this tree — on the Switch.** `cmake/SwitchTargets.cmake` drops `movie.c` for
+  `src/platform/switch/movie_ffmpeg.c` + `movie_decode.c`, links **libavformat/libavcodec/libavutil** through
+  pkg-config and sets `MOON_SWITCH_MOVIES=1`. So the work is not "find a decoder", it is **make the linked-av
+  route the route on every platform** and retire the spawned binary.
+- **Options, cheapest first:** (1) link libav on Windows as well (a handful of DLLs beside the exe, or a static
+  build) and delete the search-order machinery from `movie.c`; (2) ship a **minimal** ffmpeg build — mpegps demuxer
+  + mpeg2video decoder only, no filters, no CLI — which is a few megabytes instead of 161; (3) a small standalone
+  MPEG-2 decoder library, if it can be proven frame-identical against the current output.
+- **Gate:** the same menu frame decoded by the new path must be **byte-identical** to the frame the spawned
+  ffmpeg produces today (the comparison harness from the ffmpeg work already exists), and the log must lose
+  `movie: using ffmpeg from <path>` because there is no path any more. One file delivered to the player is the
+  point; a 161 MB download dressed as a dependency is not.
+- **STATUS:** ⬜ registered, **not scheduled.**
+
+## 📱 ANDROID-ONLY
+
+### A1 — **TOUCH THAT DRIVES** *(the captain's ask, 2026-10-18)*
+
+- **What was asked for, in the captain's words:** *"Full touch screen buttons support for controlling the car
+  but. Not just emulating a controllers button. I want full on native touch controls buttons (unless controller
+  emulation is easier)."*
+- **Answer to the parenthesis, measured:** controller **emulation is not needed and is not what is there**. The
+  engine has one input abstraction — the pad state — and `src/platform/android/mobile_controls.c` is native touch
+  code that fills it: `moon_mobile_contact(phase, id, x, y)` tracks each finger independently,
+  `moon_mobile_bounds()` is the control geometry, and `moon_mobile_pad()` publishes the result as the pad state
+  the race already reads. Same path as a physical pad, so **no physics fork** (law 3) and no emulated device.
+  Presets live in Options → Screen Settings → Controls (`mobile_options.c`, *Classic* keeps pad-only behaviour).
+- **What is still missing, and it is measured:** (1) the overlay has not been validated on real hardware — that
+  needs the Odin 2, and it is the only judge; (2) **the launcher takes no touch at all**: SDL delivers
+  `SDL_FINGER` events with touch-mouse synthesis disabled, while the launcher reads mouse events only (reported by
+  the launcher-on-Android job, 2026-10-18, with no second input stack invented). So a phone with no controller can
+  currently pick a disc but not press a dock button.
+- **The design law for this entry:** touch is a first-class input source feeding the engine's own pad state — never
+  a simulated DualShock, never a parallel control path, never a second copy of the layout logic.
+- **STATUS:** ⬜ registered — the driving half exists, the device proof and the launcher half do not.
