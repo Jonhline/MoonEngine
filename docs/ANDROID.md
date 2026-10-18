@@ -28,11 +28,47 @@ signing uses the local Android debug key, not a distributable release key.
 Minimum Android API 26, ARM64, Vulkan; no compatibility/performance promise
 is made for every device meeting those declarations.
 
+## Build on Linux
+
+The same helper builds the same APK on Linux; only the environment differs. No
+Android Studio is needed — the command-line tools, the NDK and a JDK 17 are
+enough, and all of them can live outside the system path.
+
+```
+export ANDROID_HOME=/path/to/android-sdk        # cmdline-tools, platform-tools,
+                                                # platforms;android-36, build-tools,
+                                                # NDK 27.2.12479018, cmake;3.22.1
+export JAVA_HOME=/path/to/jdk-17                # AGP 8.13 needs 17, not 21+
+python3 tools/build_android.py --sdk "$ANDROID_HOME" --gradle /path/to/gradle-8.14.3/bin/gradle
+```
+
+Measured on this project's Linux host (2026-10-18): SDK at `/mnt/ssd/android-sdk`
+(`platforms;android-36`, `build-tools;34.0.0`/`35.0.0`, `cmake;3.22.1`,
+`ndk;27.2.12479018`), JDK 17, Gradle 8.14.3 unpacked beside it. A cold run takes
+about **1 m 24 s** and produces the same `app-debug.apk`; a rebuild after one
+commit is faster than that.
+
+Two Linux notes the Windows path does not hit:
+
+- The helper uses an existing `build/_deps/sdl2-src`, and otherwise fetches SDL
+  2.30.9 into `build/android-deps`. **If `build/android-deps/sdl2-src` already
+  exists while `build/_deps/sdl2-src` does not, the helper refuses to run** —
+  point it at a source or remove the stale directory, rather than deleting the
+  checkout you actually want.
+- Run it with a Python that has `pycparser`; CMake forwards that interpreter as
+  `Python3_EXECUTABLE` to the engine's own dependency checks.
+
 ## Bootstrap and storage
 
-The first screen opens the system document picker for the player's own GT4
-USA v2.00 ISO. It requests only that document's persistent read grant, without
-broad storage permissions or copying the ISO. A retained file descriptor is
+The front door is **the engine's own launcher** (`src/app/launcher.c`). On a
+first run with no document chosen it opens on the disc step; choosing one
+stores the document's persistent read grant and the launcher then runs the
+studio front-end — the same room, dock, mods page and options the desktop build
+opens on. Once a disc is saved, a later start may go straight into the game;
+the launcher's own screen still owns the disc, mods and options.
+
+The document is used where it lies: nothing is copied, and no broad storage
+permission is requested. A retained file descriptor is
 passed as `/proc/self/fd/N`, then duplicated by the Android file adapter without
 reopening a permission-protected filesystem path. Reads use 64-bit `pread`
 so duplicated descriptors cannot interfere through their shared offset. Local
