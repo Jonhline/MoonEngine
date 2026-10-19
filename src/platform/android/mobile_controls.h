@@ -20,6 +20,8 @@ typedef struct {
 } moon_mobile_rect;
 typedef struct {
     int enabled, size, opacity, layout, steering;
+    /* Android 3D scene render-scale: 0 full, 1 = 75%, 2 = 50%, 3 = 35%. */
+    int render_scale;
 } moon_mobile_options;
 typedef struct {
     moon_mobile_options options;

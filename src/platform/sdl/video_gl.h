@@ -37,6 +37,9 @@ void video_set_fill_window(int enabled);
 int video_fill_window(void);
 float video_projection_x(void);
 int video_fsr_available(void);
+/* Android-only: shrink the 3D scene target (0 = full, 1 = 75%, 2 = 50%,
+   3 = 35%). The existing end-of-scene blit scales it back; UI stays native. */
+void video_set_scene_render_scale(int level);
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
 void video_scene_quality(int antialiasing, int render_scale);
 #endif

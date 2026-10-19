@@ -27,6 +27,9 @@ static const int sizes[][2] = {{1280, 720},  {1280, 960},  {1600, 900},
 static void quality(const pc_video_options *v)
 {
     video_ui_quality(v->filter, v->text / 100.f);
+#ifdef __ANDROID__
+    video_set_scene_render_scale(v->mobile.render_scale);
+#endif
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
     video_scene_quality(v->antialiasing, v->render_scale);
     r3d_texture_smoothing(v->texture_smoothing);
@@ -506,6 +509,7 @@ static void read_draft(video_settings *s)
     v->mobile = (moon_mobile_options){s->choices[9]->focus_index, s->choices[10]->focus_index,
                                       s->choices[13]->focus_index, s->choices[14]->focus_index,
                                       s->choices[15]->focus_index};
+    v->mobile.render_scale = s->choices[17]->focus_index;
     v->desktop = v->edge_pan = 0;
     v->renderer = 1;
     v->video.fullscreen = 1;
@@ -558,6 +562,7 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
         s->choices[13]->focus_index = 2;
         s->choices[14]->focus_index = 0;
         s->choices[15]->focus_index = 0;
+        s->choices[17]->focus_index = 0;
 #endif
         read_draft(s);
     } else {
@@ -645,6 +650,12 @@ static int focus(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     }
 #endif
 #ifdef __ANDROID__
+    if (w == s->choices[17]) {
+        ui_set_tooltips(s->page, "Lower only the 3D scene resolution to save fill rate. Menus and "
+                                 "HUD stay at full resolution.");
+        *ret = ah_int(2);
+        return 0;
+    }
     const int mobile_rows[] = {7, 9, 10, 13, 14, 15};
     const char *mobile_hints[] = {
         "Touch Menus: first tap previews, second tap confirms; drag lists and the GT Mode map.",
@@ -671,7 +682,7 @@ static int focus(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
    Stable choice indices belong to the store, not to their visible positions. */
 #ifdef __ANDROID__
 static const int tab_rows[3][9] = {
-    {0, 1, 2, 5, -1}, {3, 4, 6, 11, 12, 16, -1}, {7, 9, 10, 13, 14, 15, -1}};
+    {0, 1, 2, 5, -1}, {3, 4, 6, 17, 11, 12, 16, -1}, {7, 9, 10, 13, 14, 15, -1}};
 #else
 static const int tab_rows[3][9] = {
     {0, 1, 2, 5, -1}, {17, 18, 19, 3, 4, 6, 11, 12, 16}, {7, 9, 10, 13, 14, 15, -1}};
@@ -794,6 +805,7 @@ static int enter(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     s->choices[13]->focus_index = s->current.mobile.opacity;
     s->choices[14]->focus_index = s->current.mobile.layout;
     s->choices[15]->focus_index = s->current.mobile.steering;
+    s->choices[17]->focus_index = s->current.mobile.render_scale;
 #endif
     quality(&s->current);
 #ifndef __SWITCH__
@@ -913,7 +925,7 @@ void video_settings_attach(video_settings *s, menu *m)
     const int rows = 10;
 #else
 #ifdef __ANDROID__
-    const int rows = 17;
+    const int rows = 18;
 #else
     const int rows = 20;
 #endif
@@ -1007,6 +1019,11 @@ void video_settings_attach(video_settings *s, menu *m)
     const char *mobile_opacity[] = {"20%", "40%", "60%", "80%", "100%"};
     const char *mobile_layout[] = {"Steering left", "Steering right"};
     const char *mobile_steer[] = {"Analog drag", "Digital"};
+    const char *android_scales[] = {"100%", "75%", "50%", "35%"};
+    names[17] = "AndroidRenderScale";
+    titles[17] = "3D Resolution";
+    lists[17] = android_scales;
+    counts[17] = 4;
     titles[7] = "Touch Menus";
     titles[9] = "Race Touch Controls";
     titles[10] = "Control Size";

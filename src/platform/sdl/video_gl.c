@@ -46,6 +46,14 @@ static void graphics_size(SDL_Window *win, int *width, int *height)
     SDL_GL_GetDrawableSize(win, width, height);
 }
 static int vsync, upscale, scene_upscale;
+#ifdef __ANDROID__
+/* Android render-scale: 0 full output, 1 = 75%, 2 = 50%, 3 = 35%. */
+static int android_scene_scale;
+void video_set_scene_render_scale(int level)
+{
+    android_scene_scale = level >= 0 && level <= 3 ? level : 0;
+}
+#endif
 static int menu_pacing = 1, frame_presented;
 static int menu_projection = 1;
 static void layout_view(void);
@@ -981,6 +989,20 @@ void video_begin_scene(void)
             h = (int)(h * fit);
         }
         samples = 1;
+    }
+#endif
+#ifdef __ANDROID__
+    /* Android render-scale (P): shrink only the 3D scene target; the existing
+       linear blit in video_end_scene scales it back to the output size and the
+       UI is drawn at native size afterwards. Level 0 keeps the scene full. */
+    if (android_scene_scale > 0) {
+        static const float android_scales[] = {1.f, .75f, .5f, .35f};
+        w = (int)(output_w * android_scales[android_scene_scale] + .5f);
+        h = (int)(output_h * android_scales[android_scene_scale] + .5f);
+        if (w < 1)
+            w = 1;
+        if (h < 1)
+            h = 1;
     }
 #endif
 #endif

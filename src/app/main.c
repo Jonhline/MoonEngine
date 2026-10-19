@@ -3612,6 +3612,9 @@ int main(int argc, char **argv)
     r3d_scene_options(settings.current.spatial_visibility, settings.current.resident_reflections);
 #endif
     video_ui_quality(settings.current.filter, settings.current.text / 100.f);
+#ifdef __ANDROID__
+    video_set_scene_render_scale(settings.current.mobile.render_scale);
+#endif
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
     video_scene_quality(settings.current.antialiasing, settings.current.render_scale);
     r3d_texture_smoothing(settings.current.texture_smoothing);
