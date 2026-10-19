@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-feature android:name="android.hardware.vulkan.level" android:version="1" android:required="true" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
-    <application android:label="Moon Engine" android:theme="@style/MoonTheme" android:allowBackup="false" android:hasCode="true">
+    <application android:label="Moon Engine OpenGL" android:theme="@style/MoonTheme" android:allowBackup="false" android:hasCode="true">
         <!-- The engine is the front door: no arguments starts its own launcher. The
              disc picker is started from native (same process) when the launcher asks. -->
         <activity android:name=".GameActivity" android:exported="true" android:screenOrientation="sensorLandscape" android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode|density">
