@@ -180,16 +180,7 @@ std::shared_ptr<Image> Context::image(int w, int h, VkFormat format, int levels)
     view.subresourceRange.levelCount = levels;
     end_pass();
     begin();
-    VkImageMemoryBarrier transition{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-    transition.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    transition.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    transition.srcQueueFamilyIndex = transition.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    transition.image = im->handle;
-    transition.subresourceRange = view.subresourceRange;
-    transition.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
-    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                         VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr, 1,
-                         &transition);
+    im->layout = VK_IMAGE_LAYOUT_UNDEFINED;
     return im;
 }
 void Context::begin()
@@ -258,6 +249,48 @@ void Context::reset_submission()
     draw_sets.clear();
     recording = false;
 }
+static VkPipelineStageFlags layout_stage(VkImageLayout layout)
+{
+    switch (layout) {
+    case VK_IMAGE_LAYOUT_UNDEFINED:
+        return VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+        return VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+        return VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+               VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+        return VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+    case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+        return VK_PIPELINE_STAGE_TRANSFER_BIT;
+    case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+        return VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+    default:
+        return VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    }
+}
+static VkAccessFlags layout_access(VkImageLayout layout)
+{
+    switch (layout) {
+    case VK_IMAGE_LAYOUT_UNDEFINED:
+    case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+        return 0;
+    case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+        return VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+        return VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+        return VK_ACCESS_SHADER_READ_BIT;
+    case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+        return VK_ACCESS_TRANSFER_READ_BIT;
+    case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+        return VK_ACCESS_TRANSFER_WRITE_BIT;
+    default:
+        return VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+    }
+}
 void Context::barrier()
 {
     end_pass();
@@ -267,6 +300,23 @@ void Context::barrier()
     memory.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                          VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &memory, 0, nullptr, 0, nullptr);
+}
+void Context::transition(Image &im, VkImageLayout layout)
+{
+    if (im.layout == layout)
+        return;
+    begin();
+    VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    barrier.oldLayout = im.layout;
+    barrier.newLayout = layout;
+    barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = im.handle;
+    barrier.subresourceRange = {im.aspect, 0, (uint32_t)im.levels, 0, 1};
+    barrier.srcAccessMask = layout_access(im.layout);
+    barrier.dstAccessMask = layout_access(layout);
+    vkCmdPipelineBarrier(command, layout_stage(im.layout), layout_stage(layout), 0, 0, nullptr, 0,
+                         nullptr, 1, &barrier);
+    im.layout = layout;
 }
 void Context::end_pass()
 {
@@ -332,12 +382,15 @@ void Context::upload(Image &im, int level, int x, int y, int w, int h, GLenum fo
             q[3] = channels == 4 ? p[3] : 255;
         }
     barrier();
+    transition(im, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     VkBufferImageCopy copy{};
     copy.bufferOffset = offset;
     copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, (uint32_t)level, 0, 1};
     copy.imageOffset = {x, y, 0};
     copy.imageExtent = {(uint32_t)w, (uint32_t)h, 1};
-    vkCmdCopyBufferToImage(command, arena.handle, im.handle, VK_IMAGE_LAYOUT_GENERAL, 1, &copy);
+    vkCmdCopyBufferToImage(command, arena.handle, im.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                           &copy);
+    transition(im, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 void Context::read(Image &im, int x, int y, int w, int h, GLenum format, void *pixels)
 {
@@ -350,6 +403,7 @@ void Context::read(Image &im, int x, int y, int w, int h, GLenum format, void *p
         readback = buffer(bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true, true);
     }
     barrier();
+    transition(im, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     VkBufferImageCopy copy{};
     copy.bufferOffset = 0;
     copy.imageSubresource = {(VkImageAspectFlags)(format == GL_DEPTH_COMPONENT
@@ -358,7 +412,8 @@ void Context::read(Image &im, int x, int y, int w, int h, GLenum format, void *p
                              0, 0, 1};
     copy.imageOffset = {x, y, 0};
     copy.imageExtent = {(uint32_t)w, (uint32_t)h, 1};
-    vkCmdCopyImageToBuffer(command, im.handle, VK_IMAGE_LAYOUT_GENERAL, readback.handle, 1, &copy);
+    vkCmdCopyImageToBuffer(command, im.handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback.handle,
+                           1, &copy);
     VkMemoryBarrier host{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     host.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     host.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
@@ -395,9 +450,17 @@ void Context::blit(Image &src, Image &dst, int sx0, int sy0, int sx1, int sy1, i
     region.srcOffsets[1] = {sx1, sy1, 1};
     region.dstOffsets[0] = {dx0, dy0, 0};
     region.dstOffsets[1] = {dx1, dy1, 1};
-    vkCmdBlitImage(command, src.handle, VK_IMAGE_LAYOUT_GENERAL, dst.handle,
-                   VK_IMAGE_LAYOUT_GENERAL, 1, &region,
-                   linear && !is_depth ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
+    VkFilter filter = linear && !is_depth ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+    if (src.handle == dst.handle) {
+        transition(src, VK_IMAGE_LAYOUT_GENERAL);
+        vkCmdBlitImage(command, src.handle, VK_IMAGE_LAYOUT_GENERAL, dst.handle,
+                       VK_IMAGE_LAYOUT_GENERAL, 1, &region, filter);
+        return;
+    }
+    transition(src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    transition(dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    vkCmdBlitImage(command, src.handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst.handle,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, filter);
 }
 /* The surface is gone (Android backgrounded us, the document picker took the
    foreground, the window was recreated). Drop the swapchain and the surface,
@@ -483,7 +546,8 @@ bool Context::resize_swapchain()
     surface_error_reported = false;
     if (!caps.currentExtent.width || !caps.currentExtent.height)
         return false;
-    if (!(caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT)) {
+    if (!(caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) ||
+        !(caps.supportedUsageFlags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)) {
         fprintf(stderr, "vulkan: the surface cannot present transfer images\n");
         return false;
     }
@@ -550,7 +614,8 @@ bool Context::resize_swapchain()
     info.imageColorSpace = chosen.colorSpace;
     info.imageExtent = extent;
     info.imageArrayLayers = 1;
-    info.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    info.imageUsage =
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     info.preTransform = moon_vk_surface_transform(caps.supportedTransforms, caps.currentTransform);
     info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     if (!(caps.supportedCompositeAlpha & info.compositeAlpha))
@@ -629,14 +694,16 @@ void Context::present()
     image_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                          0, 0, nullptr, 0, nullptr, 1, &image_barrier);
+    transition(*source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     VkImageBlit blit{};
     blit.srcSubresource = blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     /* Internal rows retain the original bottom-up framebuffer convention. */
     blit.srcOffsets[0] = {0, source->height, 0};
     blit.srcOffsets[1] = {source->width, 0, 1};
     blit.dstOffsets[1] = {(int)extent.width, (int)extent.height, 1};
-    vkCmdBlitImage(command, source->handle, VK_IMAGE_LAYOUT_GENERAL, swap_images[index],
-                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
+    vkCmdBlitImage(command, source->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   swap_images[index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
+                   VK_FILTER_NEAREST);
     image_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     image_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
     image_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;

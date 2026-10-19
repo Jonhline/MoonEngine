@@ -27,6 +27,7 @@ struct Image {
     VkImageView view = VK_NULL_HANDLE;
     VkImageView attachment = VK_NULL_HANDLE;
     VkFormat format = VK_FORMAT_R8G8B8A8_UNORM;
+    VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
     VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT;
     int width = 0, height = 0, levels = 1;
     int min_filter = GL_NEAREST_MIPMAP_LINEAR, mag_filter = GL_LINEAR;
@@ -186,6 +187,7 @@ struct Context {
     void write_timestamp_end();
     void close_submission();
     void barrier();
+    void transition(Image &image, VkImageLayout layout);
     size_t reserve(size_t bytes, size_t alignment = 16);
     Image *color(unsigned framebuffer);
     Image *depth(unsigned framebuffer);

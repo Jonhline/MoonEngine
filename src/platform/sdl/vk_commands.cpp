@@ -132,6 +132,8 @@ static void APIENTRY vkglGenerateMipmap(GLenum)
     if (!im)
         return;
     auto &c = context();
+    c.barrier();
+    c.transition(*im, VK_IMAGE_LAYOUT_GENERAL);
     for (int level = 1; level < im->levels; level++) {
         c.barrier();
         VkImageBlit region{};
@@ -144,6 +146,7 @@ static void APIENTRY vkglGenerateMipmap(GLenum)
         vkCmdBlitImage(c.command, im->handle, VK_IMAGE_LAYOUT_GENERAL, im->handle,
                        VK_IMAGE_LAYOUT_GENERAL, 1, &region, VK_FILTER_LINEAR);
     }
+    c.transition(*im, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 static void APIENTRY vkglGenBuffers(GLsizei n, GLuint *ids)
 {
@@ -337,14 +340,22 @@ static void APIENTRY vkglCopyTexSubImage2D(GLenum, GLint level, GLint dx, GLint 
     if (!src || !dst)
         return;
     c.barrier();
+    VkImageLayout src_layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                  dst_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    if (src->handle == dst->handle) {
+        c.transition(*src, VK_IMAGE_LAYOUT_GENERAL);
+        src_layout = dst_layout = VK_IMAGE_LAYOUT_GENERAL;
+    } else {
+        c.transition(*src, src_layout);
+        c.transition(*dst, dst_layout);
+    }
     VkImageCopy copy{};
     copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, (uint32_t)level, 0, 1};
     copy.srcOffset = {x, y, 0};
     copy.dstOffset = {dx, dy, 0};
     copy.extent = {(uint32_t)w, (uint32_t)h, 1};
-    vkCmdCopyImage(c.command, src->handle, VK_IMAGE_LAYOUT_GENERAL, dst->handle,
-                   VK_IMAGE_LAYOUT_GENERAL, 1, &copy);
+    vkCmdCopyImage(c.command, src->handle, src_layout, dst->handle, dst_layout, 1, &copy);
 }
 static void APIENTRY vkglReadPixels(GLint x, GLint y, GLsizei w, GLsizei h, GLenum format, GLenum,
                                     void *pixels)
@@ -377,6 +388,8 @@ static void APIENTRY vkglClear(GLbitfield mask)
             aspect |= VK_IMAGE_ASPECT_STENCIL_BIT;
         if (aspect) {
             c.barrier();
+            c.transition(*color, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            c.transition(*depth, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
             VkRenderPass pass = c.render_pass(color->format, depth->format);
             VkFramebuffer fb = c.target_framebuffer(*color, depth, pass);
             VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};

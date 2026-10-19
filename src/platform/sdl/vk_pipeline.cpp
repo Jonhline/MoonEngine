@@ -228,10 +228,12 @@ VkRenderPass Context::render_pass(VkFormat color, VkFormat depth)
         attachments[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         attachments[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
         attachments[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-        attachments[i].initialLayout = attachments[i].finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+        attachments[i].initialLayout = attachments[i].finalLayout =
+            i ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+              : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     }
-    VkAttachmentReference color_ref{0, VK_IMAGE_LAYOUT_GENERAL},
-        depth_ref{1, VK_IMAGE_LAYOUT_GENERAL};
+    VkAttachmentReference color_ref{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
+        depth_ref{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
     VkSubpassDescription subpass{};
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     subpass.colorAttachmentCount = 1;
@@ -432,7 +434,12 @@ VkDescriptorSet Context::draw_descriptors(const Program &p)
             unsigned texture = u.unit >= 0 && u.unit < 16 ? state.textures[u.unit] : 0;
             auto found = textures.find(texture);
             auto *im = found != textures.end() && found->second ? found->second.get() : white.get();
-            images[u.sampler] = {sampler(*im), im->view, VK_IMAGE_LAYOUT_GENERAL};
+            if (im->layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+                if (pass_color || pass_depth)
+                    barrier();
+                transition(*im, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            }
+            images[u.sampler] = {sampler(*im), im->view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         }
     /* Descriptor contents depend on textures and uniform range, not on the
        draw's uniform slice. Dynamic offsets keep each draw's values distinct. */
@@ -613,6 +620,9 @@ void Context::draw(GLenum topology, int first, int count)
        every course material. Transfers and clears end the pass via barrier(). */
     if (pass_color != views[0] || pass_depth != views[1]) {
         barrier();
+        transition(*target, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        if (z)
+            transition(*z, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
         VkFramebuffer fb = target_framebuffer(*target, z, pass);
         VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
         begin.renderPass = pass;
