@@ -32,6 +32,30 @@ static void *graphics_proc(const char *name)
 }
 #endif
 
+#ifdef __ANDROID__
+/* GLES 3.0 has no glClearDepth (it has glClearDepthf) and no glGetTexImage.
+   Both are optional here: depth clearing is remapped, the texture readback
+   simply reports itself unavailable. */
+static void (APIENTRY *moon_clear_depthf)(GLfloat);
+static void APIENTRY moon_clear_depth_from_float(GLclampd depth)
+{
+    if (moon_clear_depthf)
+        moon_clear_depthf((GLfloat)depth);
+}
+#endif
+
+static void moon_gl_load_missing(const char *name, int *ok)
+{
+#ifdef __ANDROID__
+    if (!strcmp(name, "moon_glClearDepth") || !strcmp(name, "moon_glGetTexImage")) {
+        fprintf(stderr, "OpenGL: optional %s unavailable on GLES\n", name + 5);
+        return;
+    }
+#endif
+    fprintf(stderr, "OpenGL: missing %s\n", name);
+    *ok = 0;
+}
+
 int gl_load(void)
 {
 #ifdef __SWITCH__
@@ -40,13 +64,23 @@ int gl_load(void)
     int ok = 1;
 #define MOON_GL_LOAD(type, name)                                                                \
     name = (type)graphics_proc(strncmp(#name, "moon_", 5) ? #name : #name + 5);         \
-    if (!name) {                                                                                   \
-        fprintf(stderr, "OpenGL: missing %s\n", #name);                                            \
-        ok = 0;                                                                                    \
-    }
+    if (!name)                                                                                   \
+        moon_gl_load_missing(#name, &ok);
     MOON_GL_FUNCS(MOON_GL_LOAD)
     MOON_GL_BASE_FUNCS(MOON_GL_LOAD)
 #undef MOON_GL_LOAD
+#ifdef __ANDROID__
+    if (!moon_glClearDepth) {
+        moon_clear_depthf = (void (APIENTRY *)(GLfloat))SDL_GL_GetProcAddress("glClearDepthf");
+        if (moon_clear_depthf) {
+            moon_glClearDepth = moon_clear_depth_from_float;
+            fprintf(stderr, "OpenGL: glClearDepth -> glClearDepthf\n");
+        } else {
+            fprintf(stderr, "OpenGL: glClearDepthf missing too\n");
+            ok = 0;
+        }
+    }
+#endif
     return ok;
 #endif
 }

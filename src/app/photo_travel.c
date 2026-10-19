@@ -229,6 +229,11 @@ static int save_image(photo_travel *p)
 #ifdef MOON_DEKO3D
     if (!video_read_texture(p->image, rgba)) { free(rgba); return 0; }
 #else
+    if (!glGetTexImage) {
+        /* GLES has no glGetTexImage; photo export is unavailable there. */
+        free(rgba);
+        return 0;
+    }
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, video_texture_id(p->image));
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
