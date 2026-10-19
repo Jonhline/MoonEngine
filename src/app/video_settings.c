@@ -658,7 +658,7 @@ static int focus(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     }
     const int mobile_rows[] = {7, 9, 10, 13, 14, 15};
     const char *mobile_hints[] = {
-        "Touch Menus: first tap previews, second tap confirms; drag lists and the GT Mode map.",
+        "Touch Menus: tap a row to select it; drag the lists and the GT Mode map.",
         "Optional race buttons. External controllers take priority and hide the touch controls.",
         "Size of the on-screen race controls.",
         "Opacity of the on-screen race controls.",
@@ -681,22 +681,58 @@ static int focus(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
 /* P: PC settings use three compact pages with a shared, uncommitted draft.
    Stable choice indices belong to the store, not to their visible positions. */
 #ifdef __ANDROID__
+/* Six rows of 44 units fit between the tabs and the authored footer. The
+   preset row joins Display so every tab has room for the thumb. */
 static const int tab_rows[3][9] = {
-    {0, 1, 2, 5, -1}, {3, 4, 6, 17, 11, 12, 16, -1}, {7, 9, 10, 13, 14, 15, -1}};
+    {8, 0, 1, 2, 3, 5, -1}, {4, 6, 17, 11, 12, 16, -1}, {7, 9, 10, 13, 14, 15, -1}};
 #else
 static const int tab_rows[3][9] = {
     {0, 1, 2, 5, -1}, {17, 18, 19, 3, 4, 6, 11, 12, 16}, {7, 9, 10, 13, 14, 15, -1}};
+#endif
+#ifdef __ANDROID__
+static float widget_abs_y(const ui_widget *w)
+{
+    float y = 0;
+    for (; w; w = w->parent)
+        y += w->y;
+    return y;
+}
+/* 44 engine units against the old 24/28/32 row boxes. The authored footer
+   starts at 332 and the shared Android gesture-bar floor caps the bottom. */
+static float android_row_pitch(const ui_widget *row, int count)
+{
+    const float top = 64.f, footer = 332.f;
+    float safe = MOON_MOBILE_SAFE_FLOOR * video_view_height() - widget_abs_y(row->parent);
+    float bottom = fminf(footer, safe);
+    float pitch = count > 0 ? (bottom - top) / (float)count : 44.f;
+    return fminf(44.f, pitch);
+}
 #endif
 static void select_tab(video_settings *s, int tab)
 {
     s->active_tab = tab;
     for (int i = 0; i < (int)(sizeof s->choices / sizeof s->choices[0]); i++)
         if (s->rows[i])
+#ifdef __ANDROID__
+            s->rows[i]->visible = 0;
+#else
             s->rows[i]->visible = i == 8;
+#endif
+    int count = 0;
+    while (count < 9 && tab_rows[tab][count] >= 0)
+        count++;
+#ifdef __ANDROID__
+    float pitch = android_row_pitch(s->rows[tab_rows[tab][0]], count);
+#endif
     for (int row = 0; row < 9 && tab_rows[tab][row] >= 0; row++) {
         ui_widget *w = s->rows[tab_rows[tab][row]];
         w->visible = 1;
+#ifdef __ANDROID__
+        w->h = pitch;
+        w->y = 64.f + row * pitch;
+#else
         w->y = 100 + row * (tab == 1 ? 24 : tab == 2 ? 28 : 32);
+#endif
     }
     for (int i = 0; i < 3; i++) {
         s->tabs[i]->active = i == tab;
@@ -946,6 +982,9 @@ void video_settings_attach(video_settings *s, menu *m)
 #ifdef __SWITCH__
     int pitch = 29;
     pane->type = "Composite";
+#elif defined(__ANDROID__)
+    int pitch = 44;
+    pane->type = "Composite";
 #else
     int pitch = 32;
 #endif
@@ -1082,7 +1121,11 @@ void video_settings_attach(video_settings *s, menu *m)
         menu_native_method(m, choice, "onFocusEnter", focus, s);
     }
 #ifndef __SWITCH__
+#ifdef __ANDROID__
+    s->rows[8]->y = 64;
+#else
     s->rows[8]->y = 60;
+#endif
     const char *tab_names[] = {"DisplayTab", "RenderingTab", "ControlsTab"};
     const char *tab_titles[] = {"Display", "Rendering", "Controls"};
     ui_widget *button_sample = ui_widget_child(buttons, "OK");

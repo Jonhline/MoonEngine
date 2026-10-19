@@ -71,7 +71,7 @@ int main(int argc, char **argv)
             for (int c = 0; c < MOON_MOBILE_COUNT; c++) {
                 r = moon_mobile_bounds(&s, c);
                 assert(r.x >= 0 && r.y >= 0 && r.x + r.w <= 1 && r.y + r.h <= 1);
-                assert(r.y + r.h <= .93f + 1e-4f); // clear of the gesture bar
+                assert(r.y + r.h <= MOON_MOBILE_SAFE_FLOOR + 1e-4f); // clear of the gesture bar
             }
         }
     /* Digital mode: two separate round steering buttons, both directions. */

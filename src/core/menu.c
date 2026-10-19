@@ -1247,7 +1247,16 @@ static int pointer_hit(menu *m, ui_widget *w, float x, float y)
     if (strcmp(w->type,"OptionMenu") && strcmp(w->type,"SliderBar") &&
         strcmp(w->type,"ScaleBar")) return 0;
     ui_widget *label = w->parent ? ui_widget_child(w->parent,"label") : NULL;
-    return label && ui_pointer_contains(m->ui,label,x,y);
+    if (label && ui_pointer_contains(m->ui,label,x,y)) return 1;
+#ifdef __ANDROID__
+    /* A thumb aims at the row, not at the painted value field or its label.
+       The authored row box is the target; the panel and its art do not move. */
+    if (!strcmp(w->type,"OptionMenu") && w->parent && !strcmp(w->parent->type,"Composite") &&
+        w->parent->h > 0 && w->parent->h <= 64.f &&
+        ui_pointer_contains(m->ui,w->parent,x,y))
+        return 1;
+#endif
+    return 0;
 }
 static void pointer_wheel(menu *m, ui_widget *hit, float x, float y, int wheel)
 {
@@ -1554,6 +1563,21 @@ int menu_touch(menu *m, int enabled, int phase, long long id, float x, float y)
             if (m->touch_slider) {
                 m->touch_selected = NULL;
                 menu_pointer(m, 1, x, y, 1, 0);
+#ifdef __ANDROID__
+            } else if (accept) {
+                /* One tap on a row or button commits. Sliders and drags keep
+                   their continuous preview above; nothing fires twice. */
+                static int single_tap_logged;
+                if (!single_tap_logged && root >= 0 &&
+                    !strcmp(ui_root_name(m->ui, root), "ScreenRoot")) {
+                    single_tap_logged = 1;
+                    fprintf(stderr, "touch: settings tap commits (single)\n");
+                }
+                m->touch_selected = NULL;
+                menu_pointer(m, 1, x, y, 1, 0);
+            } else
+                m->touch_selected = NULL;
+#else
             } else if (accept && m->touch_selected == m->touch_target) {
                 m->touch_selected = NULL;
                 menu_pointer(m, 1, x, y, 1, 0);
@@ -1579,6 +1603,7 @@ int menu_touch(menu *m, int enabled, int phase, long long id, float x, float y)
                 }
             } else
                 m->touch_selected = NULL;
+#endif
             m->touch_target = NULL;
             menu_pointer(m, 0, 0, 0, 0, 0);
         }
