@@ -20,18 +20,37 @@ int gt4_state_replace(ah_vm *vm, ah_obj *game, const uint8_t *data, size_t size)
 int gt4_state_merge(ah_vm *vm, ah_obj *game, const uint8_t *data, size_t size);
 /* One session shared across cached menu VMs, independent of UI/callback state. */
 void gt4_save_init(const char *directory);
+/* Game startup: inspect the active index now, read the profile with its visible load screen. */
+void gt4_save_init_pending(const char *directory);
+int gt4_save_pending_slot(void);
 void gt4_save_shutdown(void);
 int gt4_save_active(void);
 int gt4_save_dirty(void);
 void gt4_save_mark_dirty(void);
 const char *gt4_save_error(void);
+void gt4_save_report_error(const char *message);
+int gt4_save_export_destination(const char *path);
 int gt4_save_info_get(int slot, gt4_save_info *info);
 int gt4_save_valid_name(const char *name);
+typedef int (*gt4_save_writer)(const char *, const uint8_t *, size_t, void *);
 int gt4_save_create(int slot, const char *name);
+int gt4_save_create_with_writer(int slot, const char *name, gt4_save_writer write, void *user);
+int gt4_save_rename_with_writer(const char *name, gt4_save_writer write, void *user);
+int gt4_save_import_ps2_with_writer(int slot, const char *path, gt4_save_writer write, void *user);
 int gt4_save_load_slot(int slot);
+int gt4_save_load_slot_with_reader(int slot,
+                                   int (*read)(const char *, uint8_t **, size_t *, void *),
+                                   void *user);
+int gt4_save_load_slot_with_io(int slot, int (*read)(const char *, uint8_t **, size_t *, void *),
+                               gt4_save_writer write, void *user);
 /* Read another profile without changing the active player or its dirty state. */
+/* Export the persisted profile without changing active player or dirty state. */
+int gt4_save_export_profile(int slot, const char *destination);
 int gt4_save_read_profile(ah_vm *vm, ah_obj *game, int slot);
 int gt4_save_store(void);
+/* Serialization remains on the caller; only the immutable file write is presented. */
+int gt4_save_store_with_writer(int (*write)(const char *, const uint8_t *, size_t, void *),
+                               void *user);
 int gt4_save_delete_slot(int slot);
 int gt4_save_rename(const char *name);
 int gt4_save_capture(ah_vm *vm, ah_obj *game, int dirty);

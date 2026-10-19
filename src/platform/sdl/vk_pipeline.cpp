@@ -181,8 +181,8 @@ bool compile(Program &p)
 }
 VkSampler Context::sampler(const Image &im)
 {
-    std::array<int, 6> key = {im.min_filter, im.mag_filter, im.wrap_s,
-                              im.wrap_t,     im.max_level,  im.levels};
+    std::array<int, 7> key = {im.min_filter, im.mag_filter, im.wrap_s,
+                              im.wrap_t,     im.max_level,  im.levels, im.anisotropy};
     auto found = samplers.find(key);
     if (found != samplers.end())
         return found->second;
@@ -202,6 +202,9 @@ VkSampler Context::sampler(const Image &im)
                : wrap == GL_CLAMP_TO_BORDER ? VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER
                                             : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     };
+    info.anisotropyEnable = sampler_anisotropy && im.anisotropy > 1;
+    info.maxAnisotropy = info.anisotropyEnable
+        ? std::min((float)im.anisotropy, properties.limits.maxSamplerAnisotropy) : 1.f;
     info.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
     info.addressModeU = address(im.wrap_s);
     info.addressModeV = address(im.wrap_t);

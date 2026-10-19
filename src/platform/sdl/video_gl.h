@@ -43,6 +43,17 @@ void video_set_scene_render_scale(int level);
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
 void video_scene_quality(int antialiasing, int render_scale);
 #endif
+typedef struct {
+    float camera[3], right[3], up[3], forward[3], sun[3];
+    float focal[2], clip[2], shadow_projection[16];
+    GLuint shadow;
+    int valid;
+} video_light_volume;
+void video_light_volume_view(const video_light_volume *view);
+void video_ambient_occlusion(int enabled);
+void video_hdr_options(int enabled, int rays);
+int video_hdr_active(void);
+void video_solar_projection(float x,float y,float visible,const float color[3]);
 void video_begin_scene(void);
 void video_end_scene(void);
 /* UI filtering: 0 linear, 1 sharp cubic, 2 nearest. Text is separate. */

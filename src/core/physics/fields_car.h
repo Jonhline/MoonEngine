@@ -4,6 +4,12 @@
 #ifndef MOON_FIELDS_CAR_H
 #define MOON_FIELDS_CAR_H
 
+#define CAR_HUD_STEERING 0x560u /* 00344680 returns the display steering; driver.c CAR_STEER_SHOWN */
+#define CAR_HUD_STEERING_KIND 0x569u /* 00344680 copies kind: 0 none, 1 digital, 2 pad, 3 wheel */
+
+
+#define CAR_FIELD_BOOST_SMOOTH 0x60Cu /* smoothed pressure; 003446B0, HUD 0039E104 */
+
 #define CAR_BLOCK_UNK_4 0x4 /* car+0x104 relative; ai.c: gt4_ai_model, func_00465078 */
 #define CAR_BLOCK_UNK_8 0x8 /* car+0x104 relative; chassis.c: jack_hold, func_0036A318 */
 #define CAR_BLOCK_ORIENTATION_BASIS_0                                                              \

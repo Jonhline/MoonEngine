@@ -737,6 +737,8 @@ static void pump_loading_work(void *user)
     presentation_clock = plat_time_ns();
 }
 
+#include "storage_present.inc"
+
 static menu *load(gt4_vol *v, int k)
 {
     SWP_LOAD_BEGIN(projects[k]);
@@ -745,17 +747,23 @@ static menu *load(gt4_vol *v, int k)
                                   pump_loading_work, NULL);
     if (!m)
         fprintf(stderr, "project %s: %s\n", projects[k], err);
-    if (m && k == 7)
+    if (m && k == 7) {
         save_ui_attach(&save_screen, m);
+        save_ui_transfer_tools(&save_screen, app_video_settings && app_video_settings->current.save_tools);
+    }
     if (m) {
         ui_set_capture_renderer(menu_ui(m), video_grab);
         menu_set_profile_picker(m, present_profile_picker);
     }
+    if (m && k == 17) app_jukebox_attach(m);
     menu_set_presenter(m, present_wait, NULL);
     menu_set_music_fader(m, fade_menu_music);
     menu_set_audio_preparer(m, prepare_menu_audio, NULL);
     menu_set_dialog_presenter(m, present_dialog);
     menu_set_progress_presenter(m, present_progress);
+    menu_set_save_presenter(m, present_save);
+    menu_set_load_presenter(m, present_load);
+    menu_set_profile_change_presenter(m, present_profile_change);
     menu_set_event_presenter(m, present_event, NULL);
     if (app_car_ratings)
         menu_set_car_rater(m, rate_cars, app_car_ratings);
@@ -930,13 +938,19 @@ static void switch_to(gt4_vol *vol, menu **cache, menu **mn, int *proj, char *ne
                 menu_take_labo_arg(*mn, labo_arg, sizeof labo_arg);
             if (i == 7)
                 save_screen.enter_gtmode = menu_take_gtmode_save_entry(*mn);
+            if (*proj == 17 && i != 17) {
+                app_jukebox_leave();
+                menu_jukebox_finish(*mn);
+            }
             menu_set_origin(cache[i], projects[*proj]);
             if (i == 4)
                 menu_setting_context(cache[i], *mn);
             if (!strcmp(projects[i], "option"))
                 menu_option_context(cache[i], *mn);
-            if (i == 17)
+            if (i == 17) {
                 menu_jukebox_context(cache[i], *mn);
+                app_jukebox_attach(cache[i]);
+            }
             if (i == 18 || i == 19)
                 menu_setting_context(cache[i],
                                      *mn); /* FreeRun/Practice exits read major_menu_project/page */

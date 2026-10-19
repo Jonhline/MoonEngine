@@ -12,6 +12,18 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif
+/* All app paths are UTF-8, including Windows account and music-library folders. */
+static FILE *options_file(const char *path,const char *mode)
+{
+#ifdef _WIN32
+    wchar_t wide[2048],flags[16];
+    if(!MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path,-1,wide,2048) ||
+       !MultiByteToWideChar(CP_UTF8,0,mode,-1,flags,16))return NULL;
+    return _wfopen(wide,flags);
+#else
+    return fopen(path,mode);
+#endif
+}
 const char *moon_options_config_path(const char *config, const char *launcher_owned)
 {
     if (!config || config != launcher_owned || !*config)
@@ -61,7 +73,7 @@ int moon_options_save(const moon_options *s)
         return 1;
     char tmp[1040];
     snprintf(tmp, sizeof tmp, "%s.tmp", s->path);
-    FILE *f = fopen(tmp, "wb");
+    FILE *f = options_file(tmp, "wb");
     if (!f)
         return 0;
     int ok = fprintf(f, "preset=%s\nmodified=%d\n", s->preset, s->modified) > 0;
@@ -71,8 +83,12 @@ int moon_options_save(const moon_options *s)
     if (fclose(f))
         ok = 0;
 #ifdef _WIN32
-    if (ok)
-        ok = MoveFileExA(tmp, s->path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+    if (ok) {
+        wchar_t source[2048],destination[2048];
+        ok=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,tmp,-1,source,2048)>0 &&
+           MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,s->path,-1,destination,2048)>0 &&
+           MoveFileExW(source,destination,MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=0;
+    }
 #elif defined(__SWITCH__)
     if (ok)
         ok = plat_switch_replace_file(tmp, s->path);
@@ -80,8 +96,13 @@ int moon_options_save(const moon_options *s)
     if (ok)
         ok = rename(tmp, s->path) == 0;
 #endif
-    if (!ok)
+    if (!ok) {
+#ifdef _WIN32
+        wchar_t wide[2048];if(MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,tmp,-1,wide,2048))DeleteFileW(wide);
+#else
         remove(tmp);
+#endif
+    }
     return ok;
 }
 static const char *canonical_key(const char *key, char out[64])
@@ -104,10 +125,10 @@ int moon_options_load(moon_options *s, const char *path, const char *legacy)
         snprintf(s->path, sizeof s->path, "%s", path);
     if (!path || !*path)
         return 1;
-    FILE *f = fopen(path, "rb");
+    FILE *f = options_file(path, "rb");
     int migrated = !f && legacy && *legacy;
     if (migrated)
-        f = fopen(legacy, "rb");
+        f = options_file(legacy, "rb");
     if (!f)
         return 1;
     char line[512];
@@ -166,11 +187,14 @@ void moon_options_preset(moon_options *s, int enhanced)
        is a host requirement; the original in-game aspect option is unchanged. */
     moon_options_set(s, "controls.desktop_menu", enhanced ? "1" : "0");
     moon_options_set(s, "controls.gtmode_edge_pan", enhanced ? "1" : "0");
+    moon_options_set(s, "interface.preset_tools", enhanced ? "1" : "0");
+    moon_options_set(s, "interface.save_transfer_tools", enhanced ? "1" : "0");
     moon_options_set(s, "interface.input_hints", enhanced ? "1" : "0");
     moon_options_set(s, "interface.main_menu_overview", enhanced ? "1" : "0");
     moon_options_set(s, "interface.smooth_mouse_cursor", enhanced ? "1" : "0");
     moon_options_set(s, "interface.mouse_hover_feedback", enhanced ? "1" : "0");
     moon_options_set(s, "interface.compact_car_strip", enhanced ? "1" : "0");
+    moon_options_set(s, "interface.graphics_swap_key", enhanced ? "1" : "0");
     moon_options_set(s, "graphics.spatial_visibility", enhanced ? "1" : "0");
     moon_options_set(s, "graphics.resident_reflections", enhanced ? "1" : "0");
     moon_options_set(s, "graphics.upscaling", "0");
@@ -179,3 +203,5 @@ void moon_options_preset(moon_options *s, int enhanced)
     snprintf(s->preset, sizeof s->preset, "%s", enhanced ? "Enhanced" : "Classic");
     s->modified = 0;
 }
+
+#include "options_presets.inc"

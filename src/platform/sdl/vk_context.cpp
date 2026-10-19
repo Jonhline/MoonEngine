@@ -8,6 +8,14 @@
 
 namespace moon {
 static std::unique_ptr<Context> active;
+Context::~Context()
+{
+    /* Preview/command-line paths can return without explicit video shutdown.
+       Image deleters consult target_cache: release GPU owners while every
+       Context member is still alive, before reverse-order member destruction. */
+    if (instance)
+        close();
+}
 Context &context()
 {
     return *active;
@@ -157,7 +165,7 @@ std::shared_ptr<Image> Context::image(int w, int h, VkFormat format, int levels)
     info.samples = VK_SAMPLE_COUNT_1_BIT;
     info.tiling = VK_IMAGE_TILING_OPTIMAL;
     info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                 (depth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+                 (depth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
                         : VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
     check(vkCreateImage(device, &info, nullptr, &im->handle), "vkCreateImage");
     VkMemoryRequirements requirements;
@@ -172,8 +180,9 @@ std::shared_ptr<Image> Context::image(int w, int h, VkFormat format, int levels)
     view.image = im->handle;
     view.viewType = VK_IMAGE_VIEW_TYPE_2D;
     view.format = format;
-    view.subresourceRange = {im->aspect, 0, (uint32_t)levels, 0, 1};
+    view.subresourceRange = {depth ? VK_IMAGE_ASPECT_DEPTH_BIT : im->aspect, 0, (uint32_t)levels, 0, 1};
     check(vkCreateImageView(device, &view, nullptr, &im->view), "vkCreateImageView");
+    view.subresourceRange.aspectMask=im->aspect;
     view.subresourceRange.levelCount = 1;
     check(vkCreateImageView(device, &view, nullptr, &im->attachment),
           "vkCreateImageView attachment");
@@ -358,8 +367,9 @@ Image *Context::color(unsigned fb)
 }
 Image *Context::depth(unsigned fb)
 {
-    auto found = renderbuffers.find(framebuffers[fb].depth);
-    return found == renderbuffers.end() ? nullptr : found->second.get();
+    auto &images=framebuffers[fb].depth_texture?textures:renderbuffers;
+    auto found = images.find(framebuffers[fb].depth);
+    return found == images.end() ? nullptr : found->second.get();
 }
 void Context::upload(Image &im, int level, int x, int y, int w, int h, GLenum format,
                      const void *pixels)
@@ -897,6 +907,8 @@ extern "C" int moon_vk_render_open(SDL_Window *window, int vsync)
         queue.pQueuePriorities = &priority;
         VkPhysicalDeviceFeatures features{};
         features.independentBlend = VK_TRUE;
+        features.samplerAnisotropy = available.samplerAnisotropy;
+        c.sampler_anisotropy = available.samplerAnisotropy != VK_FALSE;
         const char *swapchain = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
         VkDeviceCreateInfo device{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
         device.queueCreateInfoCount = 1;

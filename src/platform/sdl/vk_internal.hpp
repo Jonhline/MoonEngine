@@ -32,7 +32,7 @@ struct Image {
     int width = 0, height = 0, levels = 1;
     int min_filter = GL_NEAREST_MIPMAP_LINEAR, mag_filter = GL_LINEAR;
     int wrap_s = GL_REPEAT, wrap_t = GL_REPEAT;
-    int max_level = 1000;
+    int max_level = 1000, anisotropy = 1;
 };
 struct Uniform {
     std::string name, type;
@@ -61,7 +61,7 @@ struct VertexArray {
 };
 struct Framebuffer {
     unsigned color = 0, depth = 0;
-    bool color_texture = false;
+    bool color_texture = false, depth_texture = false;
 };
 struct State {
     unsigned texture_unit = 0, array_buffer = 0, vao = 0, program = 0, renderbuffer = 0;
@@ -104,6 +104,7 @@ struct DrawCommands {
     bool dynamic_valid = false;
 };
 struct Context {
+    ~Context();
     SDL_Window *window = nullptr;
     VkInstance instance = VK_NULL_HANDLE;
     VkPhysicalDevice physical = VK_NULL_HANDLE;
@@ -133,6 +134,7 @@ struct Context {
     unsigned clear_program = 0;
     moon_vk_render_stats statistics = {};
     bool recording = false, vsync = true, rebuild_swapchain = true;
+    bool sampler_anisotropy = false;
     /* Android destroys the surface when the document picker takes the
        foreground. A known-lost surface is never presented to; the surface and
        swapchain are rebuilt from the current window on the next frame. */
@@ -152,7 +154,7 @@ struct Context {
     std::map<unsigned, Framebuffer> framebuffers;
     std::map<unsigned, Program> programs;
     std::map<unsigned, std::pair<GLenum, std::string>> shaders;
-    std::map<std::array<int, 6>, VkSampler> samplers;
+    std::map<std::array<int, 7>, VkSampler> samplers;
     std::map<std::array<int, 3>, VkRenderPass> passes;
     std::vector<VkFramebuffer> transient_targets;
     std::map<std::array<VkImageView, 2>, VkFramebuffer> target_cache;

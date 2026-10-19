@@ -709,34 +709,169 @@ static int nat_array_push(ah_vm *vm, ah_obj *self, void *d, int argc, const ah_v
     *ret = ah_objv(self);
     return 0;
 }
-
-/* array.sort(): in place, ascending (labomode.ad sortSelection orders the
-   chosen list indices); numbers by value, strings by their bytes */
-static int sort_before(ah_val a, ah_val b)
+/* Array.move registration 002EE834 -> 002ED8C0 -> 002F0138:
+   keep the source value, shift intervening entries, place it at destination.
+   musiccontrol.h:37 uses this operation for the original insertion shuffle. */
+static int nat_array_move(ah_vm *vm,ah_obj *self,void *data,int argc,const ah_val *argv,ah_val *ret)
 {
+    (void)vm;(void)data;*ret=ah_nil();
+    if(argc!=2)return 0;
+    double a=ah_num(argv[0]),b=ah_num(argv[1]);
+    if(!isfinite(a) || !isfinite(b) || a<0 || b<0 || a>=self->n || b>=self->n)return 0;
+    int from=(int)a,to=(int)b;
+    ah_val value=self->v[from];
+    if(from<to)memmove(self->v+from,self->v+from+1,(size_t)(to-from)*sizeof value);
+    else if(from>to)memmove(self->v+to+1,self->v+to,(size_t)(from-to)*sizeof value);
+    self->v[to]=value;
+    return 0;
+}
+/* 002EE984 -> 002EE0C8 -> 002F02E8: erase one valid index, close the gap.
+   Out-of-range indices leave the original array unchanged. */
+static int nat_array_erase(ah_vm *vm,ah_obj *self,void *data,int argc,const ah_val *argv,ah_val *ret)
+{
+    (void)vm;(void)data;*ret=ah_nil();
+    if(argc!=1)return 0;
+    double index=ah_num(argv[0]);
+    if(!isfinite(index) || index<0 || index>=self->n)return 0;
+    int at=(int)index;
+    memmove(self->v+at,self->v+at+1,(size_t)(self->n-at-1)*sizeof *self->v);
+    self->v[--self->n]=ah_nil();return 0;
+}
+
+/* array.sort([less]) 002EE884 -> 002ED7A0 -> 002F03C8: the library's std::sort
+   over the 4-byte values, introsort 005EC8D0 (16-element threshold, depth
+   2*lg(n), heap sort 005ECE38 past it, median-of-three pivot, unguarded
+   partition 005ECCE8) then final insertion 005ECB28 (005ED000/005ED1C8).
+   Without an argument the values compare themselves: numbers by value, strings
+   by their bytes (labomode.ad sortSelection). With one, the script's function
+   is the less-than (musiccontrol.h sortfunc_playlist_dispno). Not stable. */
+typedef struct {
+    ah_vm *vm;
+    ah_val less;
+    int custom, failed;
+} sort_order;
+static int sort_before(sort_order *o, ah_val a, ah_val b)
+{
+    if (o->failed)
+        return 0;
+    if (o->custom) {
+        ah_val args[2] = {a, b}, result;
+        if (ah_call(o->vm, o->less, 2, args, &result) < 0) {
+            o->failed = 1;
+            return 0;
+        }
+        return ah_truthy(result);
+    }
     const char *x = ah_cstr(a), *y = ah_cstr(b);
     if (x && y)
         return strcmp(x, y) < 0;
     return ah_num(a) < ah_num(b);
 }
+static void sort_adjust_heap(sort_order *o, ah_val *v, int hole, int len, ah_val value)
+{
+    int top = hole, child = 2 * hole + 2;
+    for (; child < len; child = 2 * child + 2) {
+        if (sort_before(o, v[child], v[child - 1]))
+            child--;
+        v[hole] = v[child];
+        hole = child;
+    }
+    if (child == len) {
+        v[hole] = v[child - 1];
+        hole = child - 1;
+    }
+    for (int parent = (hole - 1) / 2; hole > top && sort_before(o, v[parent], value);
+         parent = (hole - 1) / 2) {
+        v[hole] = v[parent];
+        hole = parent;
+    }
+    v[hole] = value;
+}
+static void sort_heap(sort_order *o, ah_val *v, int n)
+{
+    if (n >= 2)
+        for (int parent = (n - 2) / 2;; parent--) {
+            sort_adjust_heap(o, v, parent, n, v[parent]);
+            if (!parent)
+                break;
+        }
+    for (; n > 1; n--) {
+        ah_val value = v[n - 1];
+        v[n - 1] = v[0];
+        sort_adjust_heap(o, v, 0, n - 1, value);
+    }
+}
+static ah_val sort_median(sort_order *o, ah_val a, ah_val b, ah_val c)
+{
+    if (sort_before(o, a, b))
+        return sort_before(o, b, c) ? b : sort_before(o, a, c) ? c : a;
+    return sort_before(o, a, c) ? a : sort_before(o, b, c) ? c : b;
+}
+static void sort_linear_insert(sort_order *o, ah_val *v, int last, ah_val value)
+{
+    while (sort_before(o, value, v[last - 1])) {
+        v[last] = v[last - 1];
+        last--;
+    }
+    v[last] = value;
+}
+static void sort_insertion(sort_order *o, ah_val *v, int first, int last)
+{
+    for (int i = first + 1; i < last; i++) {
+        ah_val value = v[i];
+        if (sort_before(o, value, v[first])) {
+            memmove(v + first + 1, v + first, (size_t)(i - first) * sizeof value);
+            v[first] = value;
+        } else
+            sort_linear_insert(o, v, i, value);
+    }
+}
+static void sort_loop(sort_order *o, ah_val *v, int first, int last, int depth)
+{
+    while (last - first > 16) {
+        if (!depth) {
+            sort_heap(o, v + first, last - first);
+            return;
+        }
+        depth--;
+        ah_val pivot = sort_median(o, v[first], v[first + (last - first) / 2], v[last - 1]);
+        int lo = first, hi = last;
+        for (;;) {
+            while (sort_before(o, v[lo], pivot))
+                lo++;
+            hi--;
+            while (sort_before(o, pivot, v[hi]))
+                hi--;
+            if (lo >= hi)
+                break;
+            ah_val t = v[lo];
+            v[lo] = v[hi];
+            v[hi] = t;
+            lo++;
+        }
+        sort_loop(o, v, lo, last, depth);
+        last = lo;
+    }
+}
 static int nat_array_sort(ah_vm *vm, ah_obj *self, void *d, int argc, const ah_val *argv,
                           ah_val *ret)
 {
-    (void)vm;
     (void)d;
-    (void)argc;
-    (void)argv;
-    for (int i = 1; i < self->n; i++) { /* stable: equal ones keep their order */
-        ah_val v = self->v[i];
-        int j = i;
-        while (j > 0 && sort_before(v, self->v[j - 1])) {
-            self->v[j] = self->v[j - 1];
-            j--;
-        }
-        self->v[j] = v;
+    sort_order o = {vm, argc ? argv[0] : ah_nil(), argc && argv[0].t == AV_OBJ, 0};
+    int n = self->n, depth = 0;
+    for (int k = n; k > 1; k >>= 1)
+        depth++;
+    if (n > 1) {
+        sort_loop(&o, self->v, 0, n, depth * 2);
+        if (n > 16) {
+            sort_insertion(&o, self->v, 0, 16);
+            for (int i = 16; i < n; i++)
+                sort_linear_insert(&o, self->v, i, self->v[i]);
+        } else
+            sort_insertion(&o, self->v, 0, n);
     }
     *ret = ah_objv(self);
-    return 0;
+    return o.failed ? -1 : 0;
 }
 
 /* Scalar conversion methods are called by the authored attract timer. */
@@ -954,6 +1089,12 @@ static int builtin_member(ah_vm *vm, ah_obj *o, const char *sym, ah_val *out)
     if (o->kind == AO_ARRAY && !strcmp(sym, "push")) {
         *out = ah_bind(vm, o, ah_native(vm, "push", nat_array_push, NULL));
         return 1;
+    }
+    if(o->kind==AO_ARRAY && !strcmp(sym,"move")) {
+        *out=ah_bind(vm,o,ah_native(vm,"move",nat_array_move,NULL));return 1;
+    }
+    if(o->kind==AO_ARRAY && !strcmp(sym,"erase")) {
+        *out=ah_bind(vm,o,ah_native(vm,"erase",nat_array_erase,NULL));return 1;
     }
     return 0;
 }

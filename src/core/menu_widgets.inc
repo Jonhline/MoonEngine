@@ -10,6 +10,7 @@ static int album_draw(void *, const ui_widget *, float, float, float, float, flo
 
 static ah_obj *widget_module(menu *m, ui_widget *w);
 static void set_focus(menu *m, ui_widget *w);
+static void deliver_held_focus(menu *m);
 static int available(ui_widget *w);
 static void set_tooltip(menu *m, int root, const ui_widget *w);
 static void apply_pages(menu *m);
@@ -20,6 +21,20 @@ static int logger_draw(void *user, const ui_widget *w, float x, float y, float w
                        float opacity);
 static void finalize_page(menu *m, int root);
 static const char *car_name(menu *m, const char *code);
+/* MOptionMenu Count/getItem: 002C7970/002C7840 ->002C9B50/002C9AF8.
+   Logical entries are the popup choices, including hidden choices, not frames. */
+static int nat_option_item(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
+                           ah_val *ret)
+{
+    ui_widget *w = ah_host_data(self);
+    if (!data)
+        *ret = ah_int(ui_option_count(w));
+    else {
+        ui_widget *item = argc ? ui_option_item(w, (int)ah_num(argv[0])) : NULL;
+        *ret = item ? ah_objv(widget_module(ah_user(vm), item)) : ah_nil();
+    }
+    return 0;
+}
 static int nat_car_name(ah_vm *, ah_obj *, void *, int, const ah_val *, ah_val *);
 static int nat_car_paints(ah_vm *vm, ah_obj *self, void *d, int argc, const ah_val *argv,
                           ah_val *ret);
@@ -320,8 +335,16 @@ static int nat_pad_buttons(ah_vm *vm, ah_obj *self, void *data, int argc, const 
 }
 void menu_set_pad_held(menu *m, unsigned buttons)
 {
-    if (m)
+    if (m) {
+        for (int i = 0; i < 4; i++) {
+            unsigned bit = 1u << i;
+            if (!(buttons & bit))
+                m->direction_repeat[i] = 0;
+            else if (!(m->pad_held & bit))
+                m->direction_repeat[i] = 1;
+        }
         m->pad_held = buttons;
+    }
 }
 static int nat_pad_analog(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
                           ah_val *ret)
@@ -452,7 +475,10 @@ static int nat_car_option_motion(ah_vm *vm, ah_obj *self, void *d, int argc, con
     w->car_camera = ui_load_camera(m->ui, w->resource_root, ah_cstr(argv[0]));
     w->car_camera_time = 0;
     w->car_camera_loop = 1;
-    w->car_camera_playing = 1;
+    /* 001391D0 -> 0013A678 -> 00154290 only swaps the +88 handle; it plays
+       from 001525F0 -> 00153E20 (playModelMotion). Wheel and wing shops never
+       call it (gtmode.ad L11480, L11595, L12261), so their camera holds frame 0. */
+    w->car_camera_playing = 0;
     if (!w->car_camera)
         return ah_error(vm, "original option camera unavailable: %s", ah_cstr(argv[0]));
     *ret = ah_nil();
@@ -1592,6 +1618,10 @@ static int widget_get(ah_vm *vm, ah_obj *self, const char *s, ah_val *out)
         *out = maybe_module(m, ui_option_item(w, w->focus_index));
         return 1;
     }
+    if (!strcmp(s, "repeat") && (!strcmp(w->type, "ListBox") || !strcmp(w->type, "OptionMenu"))) {
+        *out = ah_bool(w->list_repeat);
+        return 1;
+    }
     if (!strcmp(s, "focus_index") || !strcmp(s, "index")) {
         *out = ah_int(w->focus_index);
         return 1;
@@ -1626,6 +1656,11 @@ static int widget_get(ah_vm *vm, ah_obj *self, const char *s, ah_val *out)
     }
     if (!strcmp(s, "applyAppend") && !strcmp(w->type, "OptionMenu")) {
         *out = ah_bind(vm, self, ah_native(vm, s, nat_noop, m));
+        return 1;
+    }
+    if (!strcmp(w->type, "OptionMenu") && (!strcmp(s, "Count") || !strcmp(s, "getItem"))) {
+        *out = ah_bind(vm, self,
+                       ah_native(vm, s, nat_option_item, !strcmp(s, "getItem") ? (void *)1 : NULL));
         return 1;
     }
     if (!strcmp(s, "setIndex")) {
@@ -2166,6 +2201,10 @@ static int widget_set(ah_vm *vm, ah_obj *self, const char *s, ah_val v)
     }
     if (!strcmp(s, "focus_index") || !strcmp(s, "index")) {
         assign_index(w, (int)ah_num(v));
+        return 1;
+    }
+    if (!strcmp(s, "repeat") && (!strcmp(w->type, "ListBox") || !strcmp(w->type, "OptionMenu"))) {
+        w->list_repeat = ah_truthy(v);
         return 1;
     }
     if (!strcmp(s, "insensitive")) {

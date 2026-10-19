@@ -1,0 +1,45 @@
+"""Options > PC Settings: each tile opens its own page; back returns to that tile.
+Disposable options file; no player data."""
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+exe, disc, output = map(Path, sys.argv[1:4])
+negative = "--negative" in sys.argv[4:]
+output.mkdir(parents=True, exist_ok=True)
+with tempfile.TemporaryDirectory(dir=output) as temporary:
+    config = Path(temporary) / "options.ini"
+    config.write_text("graphics.renderer=opengl\n", encoding="utf-8", newline="")
+    env = dict(os.environ, MOON_WINDOW_HIDDEN="1", SDL_AUDIODRIVER="dummy",
+               MOON_OVERLAY=str(Path(temporary) / "no-mods"))
+    env.pop("MOON_SETTINGS_PAGE", None)
+
+    def run(name, keys):
+        command = [str(exe.resolve()), str(disc.resolve()), "option", "OptionRoot",
+                   "--config-file", str(config), "--shot", str(output / (name + ".png")),
+                   "--input", ",".join(keys)]
+        result = subprocess.run(command, env=env, capture_output=True, text=True,
+                                encoding="utf-8", errors="replace", timeout=90)
+        log = result.stdout + result.stderr
+        (output / (name + ".log")).write_text(log, encoding="utf-8", newline="")
+        assert result.returncode == 0 and "call of nil" not in log, log
+        return log
+
+    # General's row, then PC Settings' tiles under it, left to right
+    tiles = [("PcGraphics", "Graphics"), ("PcLighting", "Light & Shadow"),
+             ("PcControls", "Controls"), ("PcMusic", "Music"), ("PcPresets", "Presets")]
+    for k, (tile, title) in enumerate(tiles):
+        log = run(tile, ["down"] + ["right"] * k + ["accept"])
+        if negative and k == 3:
+            title = "Screen Settings"
+        assert f"focus={tile}\n" in log, log
+        assert f"video settings: page {title}\n" in log, log
+    log = run("screen", ["right", "right", "accept"])
+    assert "video settings: page Screen Settings\n" in log, log
+    # back from a PC page lands on its tile, not on Screen (the script's own item)
+    log = run("back", ["down", "right", "accept", "back", "right", "accept"])
+    assert "back -> option/OptionRoot focus=PcLighting\n" in log, log
+    assert "video settings: page Controls\n" in log, log
+print("PC Settings section: five tiles open their pages, Screen keeps the display, back returns to the tile")

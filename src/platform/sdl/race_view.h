@@ -40,6 +40,7 @@ int race_view_poll(race_view *v, int cancel);
 /* Drops the installed course and car. */
 void race_view_clear(race_view *v);
 /* Draws the 640x448 view; 1 when the course and the car were drawn. */
+void race_view_daylight_time(race_view *v, double seconds);
 int race_view_draw(race_view *v);
 /* Arcade's SceneViewFace: 640x480, empty course, no car reflection work. */
 int race_view_draw_pregrid(race_view *v);
@@ -86,6 +87,8 @@ void race_view_set_pose(race_view *v, const float pos[3], const float rot[9]);
 void race_view_set_wheels(race_view *v, const float wheels[4][3]);
 /* Recorded current/previous wheel radians in the same slots as above;
    original interpolation and course exposure select each rim's blur bank. */
+/* wheel brake heat 0..1 (car wheel +A4) in render slots; NULL clears */
+void race_view_set_brake_heat(race_view *v, unsigned entry, const float heat[4]);
 void race_view_set_wheel_motion(race_view *v, unsigned entry, const float current[4],
                                 const float previous[4], float interpolation);
 /* Borrowed authored service state; meshes remain resident and shared. */
@@ -119,6 +122,7 @@ void race_view_set_shadow(race_view *v, int entry, const float pos[3], const flo
    (x, y, w, h) of the current 2D view */
 void race_view_draw_icon(race_view *v, int i, float x, float y, float w, float h);
 /* the icon maker's perspective picture (B-Spec's current car, 96x64) */
+void race_view_draw_icon_front_alpha(race_view *v, int i, float x, float y, float w, float h, float opacity);
 void race_view_draw_icon_front(race_view *v, int i, float x, float y, float w, float h);
 /* the tyres' smoke drawn over the scene (borrowed; NULL none) */
 struct race_smoke;

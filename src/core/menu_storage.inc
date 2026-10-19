@@ -15,9 +15,9 @@ static int nat_save_auto(ah_vm *vm, ah_obj *self, void *data, int argc, const ah
     (void)argc;
     (void)argv;
     menu *m = data;
-    gt4_save_capture(vm, game_object(m), gt4_save_dirty());
-    int ok =
-        !gt4_save_dirty() || !gt4_save_auto_enabled() || !gt4_save_active() || gt4_save_store();
+    int ok = gt4_save_capture(vm, game_object(m), gt4_save_dirty());
+    if (ok && gt4_save_dirty() && gt4_save_auto_enabled() && gt4_save_active())
+        ok = menu_save_store(m);
     *ret = ah_str(vm, ok ? "NO_ERROR" : "IO_ERROR");
     return 0;
 }
@@ -46,7 +46,7 @@ static int nat_pc_file(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_v
     int index = (int)ah_num(slot);
     gt4_save_info info;
     if (op && !strcmp(op, "load")) {
-        int ok = gt4_save_load_slot(index);
+        int ok = menu_save_load(ah_user(vm), index);
         if (ok)
             menu_save_refresh(ah_user(vm));
         *ret = ah_str(vm, ok ? "OK" : "FILE_NOT_FOUND");
@@ -54,7 +54,7 @@ static int nat_pc_file(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_v
     }
     if (op && !strcmp(op, "saveNew")) {
         menu *m = ah_user(vm);
-        int ok = gt4_save_capture(vm, game_object(m), 1) && gt4_save_store();
+        int ok = gt4_save_capture(vm, game_object(m), 1) && menu_save_store(m);
         *ret = ah_str(vm, ok ? "OK" : "DEVICE_ERROR");
         return 0;
     }
@@ -703,4 +703,11 @@ static int nat_pc_change_car(ah_vm *vm, ah_obj *self, void *data, int argc, cons
         return -1;
     *ret = ah_str(vm, "OK");
     return 0;
+}
+
+/* Complete player imports may add lists at the same directory path. */
+void menu_storage_library_changed(void)
+{
+    playlist_read=0;
+    photo_playlist_read=0;
 }

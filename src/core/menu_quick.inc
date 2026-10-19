@@ -1156,9 +1156,26 @@ static int nat_car_name(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_
                         ah_val *ret)
 {
     (void)self;
-    (void)data;
     const char *code = argc ? ah_cstr(argv[0]) : NULL;
-    const char *name = code ? car_name(ah_user(vm), code) : NULL;
+    menu *m = ah_user(vm);
+    const char *name = code ? car_name(m, code) : NULL;
+    if (data) { /* 0012DFC8 ->00448280: CAR_NAME's short string, field +8. */
+        uint32_t id;
+        uint8_t row[16];
+        name = NULL;
+        if (code && gt4_specdb_label(m->car_labels, m->car_labels_size, code, &id) &&
+            gt4_specdb_row(m->car_names, m->car_names_size, id, row, sizeof row) == 16)
+            name = gt4_specdb_string(m->car_strings, m->car_strings_size, car_u32(row + 8));
+    }
     *ret = ah_str(vm, name ? name : "");
+    return 0;
+}
+
+/* Retail US 001AD528 constructs false; 001AF928 returns D_00693048 ("kg"). */
+static int nat_ui_constant(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
+                           ah_val *ret)
+{
+    (void)self; (void)argc; (void)argv;
+    *ret = data ? ah_str(vm, "kg") : ah_int(0);
     return 0;
 }

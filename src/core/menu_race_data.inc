@@ -200,7 +200,7 @@ static int nat_game_suspended(ah_vm *vm, ah_obj *self, void *data, int argc, con
 }
 void menu_save_refresh(menu *m)
 {
-    if (!m)
+    if (!m || m->jukebox_external)
         return;
     ah_obj *game = game_object(m);
     gt4_save_restore(m->vm, game);
@@ -304,6 +304,8 @@ void menu_save_refresh(menu *m)
 }
 void menu_save_capture(menu *m)
 {
+    if (m && m->jukebox_external)
+        return;
     if (!m)
         return;
     album_music_store(m);

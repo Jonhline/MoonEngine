@@ -9,6 +9,7 @@
 #include "career_license_disc.h"
 #include "car_model.h"
 #include "vk_render.h"
+#include "daylight.h"
 static Uint8 fixture_key[SDL_NUM_SCANCODES];
 static const Uint8 *fixture_keys(int *n)
 {
@@ -37,8 +38,10 @@ static Uint32 fixture_window_flags(SDL_Window *w)
 static int shot(race_game *g, const char *prefix, const char *name)
 {
     plat_video_begin_frame();
+    if(getenv("PROBE_SOLAR_HOUR"))video_begin_scene();
     if (!race_game_draw(g))
         return 0;
+    if(getenv("PROBE_SOLAR_HOUR"))video_end_scene();
     int w, h;
     size_t len;
     uint8_t *p = plat_sdl_read_pixels(&w, &h);
@@ -104,12 +107,17 @@ static int benchmark_race(race_game *g, const char *prefix)
             const int cameras[] = {1, 0, 6};
             g->camera = cameras[(i / 240) % 3];
         }
+        if (getenv("PROBE_REFLECTION_CYCLE") && i >= 0)
+            r3d_reflection_quality(i < frames / 3 ? 0 : i < frames * 2 / 3 ? 1 : 2);
         if (getenv("PROBE_SCENE_SWITCH") && i == frames / 2)
             r3d_scene_options(0, 0);
         race_game_update(g, 1. / 60);
         Uint64 updated = SDL_GetPerformanceCounter();
         plat_video_begin_frame();
+        if(getenv("PROBE_SOLAR_HOUR"))video_begin_scene();
         CHECK(race_game_draw(g));
+        if(getenv("PROBE_SOLAR_HOUR"))video_end_scene();
+    if(getenv("PROBE_SOLAR_HOUR"))video_end_scene();
         Uint64 drawn = SDL_GetPerformanceCounter();
         plat_video_end_frame();
         if (i >= 0) {
@@ -202,6 +210,21 @@ static int benchmark_race(race_game *g, const char *prefix)
     CHECK(state);
     CHECK(fwrite(gt4_phys_mem, 1, 0x2000000, state) == 0x2000000);
     CHECK(!fclose(state));
+    if (getenv("PROBE_REFLECTION_CYCLE"))
+        r3d_reflection_quality(0);
+    if (getenv("PROBE_SUN_VIEW")) {
+        /* Deterministic presentation-only camera facing the low sun. */
+        moon_daylight sun=moon_daylight_at(getenv("PROBE_SOLAR_HOUR")?atoi(getenv("PROBE_SOLAR_HOUR")):7);
+        float pos[3],rot[9],wheels[4][3];
+        CHECK(gt4_race_run_pose(g->run,0,pos,rot,wheels));
+        float f[3]={sun.sun[0],.25f,sun.sun[2]};
+        float norm=sqrtf(f[0]*f[0]+f[1]*f[1]+f[2]*f[2]);for(int k=0;k<3;k++)f[k]/=norm;
+        float r[3]={-f[2],0,f[0]};norm=sqrtf(r[0]*r[0]+r[1]*r[1]+r[2]*r[2]);for(int k=0;k<3;k++)r[k]/=norm;
+        float u[3]={r[1]*f[2]-r[2]*f[1],r[2]*f[0]-r[0]*f[2],r[0]*f[1]-r[1]*f[0]};
+        float rows[9]={r[0],r[1],r[2],u[0],u[1],u[2],-f[0],-f[1],-f[2]};
+        pos[1]+=1.2f;race_view_set_camera(g->view,pos,rows,1.3f,1.69f,.1f);
+        race_view_show_car(g->view,0);
+    }
     CHECK(shot(g, prefix, "benchmark"));
     race_game_close(g);
     plat_video_shutdown();
@@ -219,6 +242,23 @@ int main(int argc, char **argv)
     CHECK(!plat_video_init(&desc));
     SDL_HideWindow(SDL_GetWindowFromID(1));
     plat_video_set_view(640, 448);
+    if(getenv("PROBE_WIDE"))video_set_aspect(1);
+    if(getenv("PROBE_SOLAR_HOUR")){r3d_daylight_options(1,atoi(getenv("PROBE_SOLAR_HOUR")),0);video_hdr_options(!getenv("PROBE_NO_HDR"),!getenv("PROBE_NO_RAYS"));}
+    if (getenv("PROBE_MODERN_LIGHTING"))
+        r3d_modern_lighting(atoi(getenv("PROBE_MODERN_LIGHTING")));
+    if (getenv("PROBE_SHADOW_MAPS"))
+        r3d_shadow_map_quality(atoi(getenv("PROBE_SHADOW_MAPS")));
+    if (getenv("PROBE_REFLECTION_QUALITY"))
+        r3d_reflection_quality(atoi(getenv("PROBE_REFLECTION_QUALITY")));
+    if (getenv("PROBE_MATERIAL_SHADING"))
+        r3d_material_shading(atoi(getenv("PROBE_MATERIAL_SHADING")));
+    if(getenv("PROBE_VOLUME"))video_hdr_options(1,2);
+    video_ambient_occlusion(getenv("PROBE_AO")!=NULL);
+    if(getenv("PROBE_AA"))video_scene_quality(atoi(getenv("PROBE_AA")),2);
+    if (getenv("PROBE_CAR_SHADOWS"))
+        r3d_car_shadows(atoi(getenv("PROBE_CAR_SHADOWS")));
+    if (getenv("PROBE_TEXTURE_FILTER"))
+        r3d_texture_filtering(atoi(getenv("PROBE_TEXTURE_FILTER")));
     race_game *g = race_game_open(argv[1]);
     char msg[256];
     CHECK(g);
@@ -242,6 +282,10 @@ int main(int argc, char **argv)
         ready = race_game_poll(g);
     }
     CHECK(ready==1);
+    if (getenv("PROBE_CAMERA")) {
+        g->camera = atoi(getenv("PROBE_CAMERA"));
+        CHECK(g->camera == 0 || g->camera == 1 || g->camera == 6);
+    }
     if (getenv("PROBE_BENCHMARK"))
         return benchmark_race(g, argv[2]);
     if (getenv("PROBE_CINEMA_TEST")) {
@@ -519,8 +563,12 @@ int main(int argc, char **argv)
             float target[3];
             for (int k = 0; k < 3; k++) {
                 eye[k] = target[k] = pos[k];
-                for (int j = 0; j < 3; j++)
-                    eye[k] += rot[k * 3 + j] * camera[a][j] * camera_scale;
+                for (int j = 0; j < 3; j++) {
+                    float component=camera[a][j];
+                    if(getenv("PROBE_PHOTO") && j==1)component=.95f;
+                    if(getenv("PROBE_PHOTO_FLIP") && j==0)component=-component;
+                    eye[k] += rot[k * 3 + j] * component * camera_scale;
+                }
                 target[k] += rot[k * 3 + 1] * .6f;
             }
             float f[3], r[3], u[3], length = 0;
@@ -553,6 +601,7 @@ int main(int argc, char **argv)
                                             !atoi(getenv("PROBE_ENTRY")));
             CHECK(shot(g,argv[2],label));
         }
+    if(getenv("PROBE_PHOTO")){race_game_close(g);plat_video_shutdown();return 0;}
     if (getenv(
             "PROBE_DIST")) { /* tests: the course seen from 3 m over its line at that distance, 20 m ahead */
         float d = (float)atof(getenv("PROBE_DIST")), p0[3], p1[3];
@@ -588,6 +637,9 @@ int main(int argc, char **argv)
     if (argc > 3 && (!strcmp(argv[3], "--wheel-test") || !strcmp(argv[3], "--wheel-negative"))) {
         /* Same camera/body/pose, synthetic angular exposure only. The player
            rim uses GPU accumulation; no physics state is written. */
+        uint8_t *wheel_state = malloc(0x2000000);
+        CHECK(wheel_state);
+        memcpy(wheel_state, gt4_phys_mem, 0x2000000);
         race_view_set_wheel_motion(g->view, 0, NULL, NULL, 0);
         CHECK(shot(g,argv[2],"sharp"));
         int w, h, w2, h2;
@@ -619,6 +671,8 @@ int main(int argc, char **argv)
         r3d_stats reused = r3d_frame_stats();
         CHECK(!reused.wheel_passes && reused.wheel_cache_hits>0);
         CHECK(glGetError()==GL_NO_ERROR);
+        CHECK(!memcmp(wheel_state, gt4_phys_mem, 0x2000000));
+        free(wheel_state);
         printf(
             "wheel accumulation: %u changed pixels, %u GPU passes, cached redraw 0 passes, unchanged scene draws/triangles.\n",
             changed, after.wheel_passes);

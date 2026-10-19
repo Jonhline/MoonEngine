@@ -28,7 +28,9 @@ struct menu {
     int nwatchers;
     int pages[32], depth;
     ui_widget **focus;
+    char (*last_focus)[64]; /* P: per root, the last widget the player focused there */
     ui_widget *pointer_hover;
+    ui_widget *focus_dimmed; /* the focus whose prelight the mouse hover turned off */
     int hover_dispatch;
     int project_fade_prepared;
     float pointer_sound_delay; /* P: coalesce rapid mouse preselection sounds. */
@@ -56,6 +58,7 @@ struct menu {
     } item_updates[64];
     int nitem_updates;
     unsigned pad_held; /* the pad buttons held (getPadButtonState) */
+    uint16_t direction_repeat[4]; /* up/down/left/right, 002517E0 */
     unsigned idle_frames;
     double tick_remainder, animation_ticks;
     uint32_t loading_seed;
@@ -98,6 +101,9 @@ struct menu {
     void *present_user;
     int (*present_dialog)(menu *, const char *, const char *, int, const char *, const char *);
     void (*present_progress)(menu *, int, const char *, int, float);
+    int (*present_save)(menu *);
+    int (*present_load)(menu *, int);
+    int (*present_profile_change)(menu *, int, int, const char *);
     int (*present_event)(menu *, void *);
     void *event_user;
     int (*load_car)(menu *, const ui_widget *, void *);
@@ -106,6 +112,9 @@ struct menu {
     int event_depth;
     int render_context_count;
     int initializing;
+    /* focus events held while a page initializes (0022FE6C delivers them on the next update) */
+    int focus_held;
+    ui_widget *focus_held_from;
     float pending_fade_in;
     gt4_photo_mode photo;
     float photo_apertures[17];
@@ -116,6 +125,11 @@ struct menu {
     uint32_t album_random;
     int album_preview_w, album_preview_h;
     int album_music_ready;
+    int jukebox_external; /* P: local source, never serialized into PS2 playlists. */
+    /* P: Jukebox Menu/Replay folders (menu_album.inc), Library indices per folder. */
+    int jukebox_folders, jukebox_folder_count[2];
+    short jukebox_folder_ids[2][256];
+    ah_obj *jukebox_root;
     gt4_music_playlist album_music_snapshot;
 };
 

@@ -12,6 +12,7 @@
 #include "career_license.h"
 
 #include "ui.h"
+#include "race_display.h"
 #include "vol.h"
 #include "ps2_media.h"
 #include "adhoc/adhoc_vm.h"
@@ -60,6 +61,8 @@ int menu_photo_drive_rules(menu *m, uint8_t row[151]);
 int menu_take_gtmode_save_entry(menu *m);
 int menu_confirm(menu *m, const char *title, const char *message);
 void menu_options_storage(const char *path);
+/* Original RaceDisplay option word, read at the presentation boundary. */
+uint32_t menu_race_display_flags(menu *m);
 double menu_option_number(menu *m, const char *name, double fallback);
 int menu_driving_manual(menu *m);
 void menu_pad_configuration(menu *m, int port, gt4_pad_config *out);
@@ -87,6 +90,17 @@ typedef enum {
 } menu_input;
 void menu_set_photo_saver(menu *m, int (*fn)(void *), void *user);
 void menu_set_profile_picker(menu *m, int (*fn)(menu *));
+enum { MENU_PROFILE_CREATE, MENU_PROFILE_RENAME, MENU_PROFILE_IMPORT,
+       MENU_PROFILE_EXPORT_PACKAGE, MENU_PROFILE_IMPORT_PACKAGE };
+void menu_set_profile_change_presenter(menu *m, int (*fn)(menu *, int, int, const char *));
+int menu_save_profile_change(menu *m, int operation, int slot, const char *value);
+void menu_storage_library_changed(void);
+void menu_set_save_presenter(menu *m, int (*fn)(menu *));
+void menu_set_load_presenter(menu *m, int (*fn)(menu *, int slot));
+int menu_save_load(menu *m, int slot);
+int menu_save_store(menu *m);
+/* 0 stops access, 1 saves, 2 loads; uses the authored 0.1-second blink. */
+void menu_save_access(menu *m, int mode);
 void menu_set_dialog_presenter(menu *m, int (*fn)(menu *, const char *, const char *, int,
                                                   const char *, const char *));
 /* the common ProgressDialog: state 1 opens it (message, an OK button),
@@ -124,6 +138,8 @@ int menu_active_root(const menu *m);
 int menu_page_depth(const menu *m);
 int menu_page_at(const menu *m, int i);
 const char *menu_focus_name(const menu *m);
+/* the widget a page last had in focus, kept after it is left for another page */
+const char *menu_root_focus_name(const menu *m, int root);
 /* Consumes a script request to open another project; empty means none. */
 int menu_take_project(menu *m, char *name, size_t capacity);
 int menu_take_photo_film(menu *, char *path, size_t capacity);
@@ -252,6 +268,26 @@ int menu_take_logger_load(void);
 int menu_pcm_paused(menu *m);
 /* the slide project (Jukebox) given its page and way back */
 void menu_jukebox_context(menu *m, menu *source);
+/* P: adapt the authored Jukebox to an app-owned local playlist before entry.
+   The native scripts retain their list, playback, ordering and shuffle controls. */
+int menu_jukebox_external(menu *m, const char *const *titles, const int *enabled,
+                          int count, int shuffle);
+typedef struct {
+    const char *title, *artist, *genre;
+    int order[2]; /* race/slideshow position, -1 when absent */
+} menu_music_entry;
+int menu_jukebox_catalog(menu *m,const menu_music_entry *entries,int count,const int shuffle[2]);
+int menu_jukebox_playlist_result(menu *m,int playlist,int *order,int *enabled,int capacity,int *shuffle);
+int menu_jukebox_external_result(menu *m, int *order, int *enabled, int capacity,
+                                 int *shuffle);
+void menu_jukebox_finish(menu *m);
+/* P: Menu and Replay folders under the Jukebox's race and slideshow ones,
+   given their Library indices before MusicRoot is entered; counts NULL
+   leaves the authored three folders. The result reads one folder back. */
+int menu_jukebox_folders(menu *m, const int *const ids[2], const int counts[2]);
+int menu_jukebox_folder_result(menu *m, int folder, int *ids, int capacity);
+/* P: the Library's rows in this order (main::default_library_playlist). */
+int menu_jukebox_library_order(menu *m, const int *order, int count);
 /* The Arcade's QuickTune at Start (quick work +0x3AC..+0x3C4, +0x488),
    IsQuickTuned consumed as 00111DC0 does */
 typedef struct {

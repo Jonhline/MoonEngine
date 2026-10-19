@@ -46,14 +46,20 @@ static void APIENTRY vkglDeleteTextures(GLsizei count, const GLuint *ids)
         }
     }
 }
-static void APIENTRY vkglTexImage2D(GLenum, GLint level, GLint, GLsizei w, GLsizei h, GLint,
+static void APIENTRY vkglTexImage2D(GLenum, GLint level, GLint internal, GLsizei w, GLsizei h, GLint,
                                     GLenum format, GLenum type, const void *pixels)
 {
     auto &c = context();
     auto &im = c.textures[s().textures[s().texture_unit]];
-    if (type != GL_UNSIGNED_BYTE)
+    bool packed_depth_target = !pixels && format == GL_DEPTH_STENCIL &&
+        ((internal == 0x8CAD && type == 0x8DAD) ||
+         (internal == GL_DEPTH24_STENCIL8 && type == 0x84FA));
+    if (type != GL_UNSIGNED_BYTE && !packed_depth_target)
         throw std::runtime_error("Unsupported Vulkan texture input type");
-    if (!im || (level == 0 && (im->width != w || im->height != h))) {
+    VkFormat desired=internal==0x881A ? VK_FORMAT_R16G16B16A16_SFLOAT :
+                     (internal==0x8CAC || internal==0x8CAD) ? VK_FORMAT_D32_SFLOAT_S8_UINT :
+                     internal==GL_DEPTH24_STENCIL8 ? VK_FORMAT_D24_UNORM_S8_UINT : VK_FORMAT_R8G8B8A8_UNORM;
+    if (!im || (level == 0 && (im->width != w || im->height != h || im->format!=desired))) {
         int min = im ? im->min_filter : GL_NEAREST_MIPMAP_LINEAR,
             mag = im ? im->mag_filter : GL_LINEAR;
         int wrap_s = im ? im->wrap_s : GL_REPEAT, wrap_t = im ? im->wrap_t : GL_REPEAT;
@@ -61,12 +67,13 @@ static void APIENTRY vkglTexImage2D(GLenum, GLint level, GLint, GLsizei w, GLsiz
         int levels = 1;
         for (int size = std::max(w, h); size > 1; size /= 2)
             levels++;
-        im = c.image(w, h, VK_FORMAT_R8G8B8A8_UNORM, levels);
+        im = c.image(w, h, desired,desired==VK_FORMAT_R8G8B8A8_UNORM?levels:1);
         im->min_filter = min;
         im->mag_filter = mag;
         im->wrap_s = wrap_s;
         im->wrap_t = wrap_t;
     }
+    if(pixels && desired!=VK_FORMAT_R8G8B8A8_UNORM)throw std::runtime_error("HDR/depth textures are GPU-only targets");
     c.upload(*im, level, 0, 0, w, h, format, pixels);
 }
 static void APIENTRY vkglTexSubImage2D(GLenum, GLint level, GLint x, GLint y, GLsizei w, GLsizei h,
@@ -90,6 +97,8 @@ static void APIENTRY vkglTexParameteri(GLenum, GLenum name, GLint value)
         im->wrap_t = value;
     if (name == GL_TEXTURE_MAX_LEVEL)
         im->max_level = value;
+    if (name == 0x84FE)
+        im->anisotropy = std::max(1, value);
 }
 static void APIENTRY vkglTexParameterf(GLenum target, GLenum name, GLfloat value)
 {
@@ -111,6 +120,8 @@ static void APIENTRY vkglGetTexParameteriv(GLenum, GLenum name, GLint *out)
         *out = im->wrap_t;
     if (name == GL_TEXTURE_MAX_LEVEL)
         *out = im->max_level;
+    if (name == 0x84FE)
+        *out = im->anisotropy;
 }
 static void APIENTRY vkglGetTexLevelParameteriv(GLenum, GLint level, GLenum name, GLint *out)
 {
@@ -118,6 +129,12 @@ static void APIENTRY vkglGetTexLevelParameteriv(GLenum, GLint level, GLenum name
     *out = 0;
     if (!im)
         return;
+    if (name == GL_TEXTURE_INTERNAL_FORMAT) {
+        *out = im->format == VK_FORMAT_D32_SFLOAT_S8_UINT ? 0x8CAD :
+               im->format == VK_FORMAT_D24_UNORM_S8_UINT ? GL_DEPTH24_STENCIL8 :
+               im->format == VK_FORMAT_R16G16B16A16_SFLOAT ? 0x881A : GL_RGBA8;
+        return;
+    }
     *out = name == GL_TEXTURE_WIDTH ? std::max(1, im->width >> level)
                                     : std::max(1, im->height >> level);
 }
@@ -284,6 +301,8 @@ static void APIENTRY vkglRenderbufferStorage(GLenum, GLenum format, GLsizei w, G
     else if (format == 0x8CAD /* GL_DEPTH32F_STENCIL8 */ ||
              format == 0x8CAC /* GL_DEPTH_COMPONENT32F */)
         vkformat = VK_FORMAT_D32_SFLOAT_S8_UINT;
+    else if (format == 0x881A)
+        vkformat=VK_FORMAT_R16G16B16A16_SFLOAT;
     else if (format == GL_RGBA8 || format == GL_RGB8)
         vkformat = VK_FORMAT_R8G8B8A8_UNORM;
     else
@@ -304,8 +323,10 @@ static void APIENTRY vkglFramebufferRenderbuffer(GLenum which, GLenum attachment
     if (attachment == GL_COLOR_ATTACHMENT0) {
         fb.color = id;
         fb.color_texture = false;
-    } else
+    } else {
         fb.depth = id;
+        fb.depth_texture = false;
+    }
 }
 static void APIENTRY vkglFramebufferTexture2D(GLenum which, GLenum attachment, GLenum, GLuint id,
                                               GLint)
@@ -314,7 +335,7 @@ static void APIENTRY vkglFramebufferTexture2D(GLenum which, GLenum attachment, G
     if (attachment == GL_COLOR_ATTACHMENT0) {
         fb.color = id;
         fb.color_texture = true;
-    }
+    } else if(attachment==GL_DEPTH_ATTACHMENT||attachment==GL_DEPTH_STENCIL_ATTACHMENT){fb.depth=id;fb.depth_texture=true;}
 }
 static GLenum APIENTRY vkglCheckFramebufferStatus(GLenum which)
 {
@@ -339,6 +360,13 @@ static void APIENTRY vkglCopyTexSubImage2D(GLenum, GLint level, GLint dx, GLint 
     auto *src = c.color(s().read_fb), *dst = texture();
     if (!src || !dst)
         return;
+    if(src->format!=dst->format) {
+        if(level!=0)throw std::runtime_error("Converted framebuffer copy requires base mip");
+        /* HDR scene -> retained GS destination-alpha/UI snapshots requires
+           numeric conversion, not a byte-compatible Vulkan image copy. */
+        c.blit(*src,*dst,x,y,x+w,y+h,dx,dy,dx+w,dy+h,false,false);
+        return;
+    }
     c.barrier();
     VkImageLayout src_layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                   dst_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -539,6 +567,8 @@ static void APIENTRY vkglGetFloatv(GLenum name, GLfloat *out)
 {
     if (name == GL_COLOR_CLEAR_VALUE)
         memcpy(out, s().clear_color, sizeof s().clear_color);
+    else if (name == 0x84FF)
+        *out = context().sampler_anisotropy ? context().properties.limits.maxSamplerAnisotropy : 1.f;
     else
         *out = 1;
 }

@@ -1,6 +1,7 @@
 /* PCM stream bridge: quick-arcade.ad L159, 0023E740 and 0045FFF8.
    Keep it independent of the menu MIDI worker: these files live in /bgm. */
 #include "pregrid_audio.h"
+#include "music_override.h"
 #include "pcm_music.h"
 #include "platform/platform.h"
 #include <SDL.h>
@@ -12,7 +13,7 @@ struct pregrid_audio {
     const char *disc;
     gt4_pcm_music *pcm;
     SDL_Thread *thread;
-    SDL_atomic_t ready, volume, ended, paused;
+    SDL_atomic_t ready, volume, ended, paused, custom_context;
     char group[64], worker_group[64], loaded_group[64];
     int selected, repeat, worker_selected, worker_repeat;
     unsigned serial;
@@ -23,6 +24,7 @@ struct pregrid_audio {
 static void render(int16_t *out, int frames, void *user)
 {
     pregrid_audio *p = user;
+    if((p->repeat || SDL_AtomicGet(&p->custom_context)==3 || !strcmp(p->group,"racing") || !strcmp(p->group,"replay_theater")) && moon_music_override_render(SDL_AtomicGet(&p->custom_context),out,frames,SDL_AtomicGet(&p->volume),SDL_AtomicGet(&p->paused)))return;
     if (SDL_AtomicGet(&p->paused)) {
         memset(out, 0, (size_t)frames * 4);
         return;
@@ -74,6 +76,8 @@ void pregrid_audio_update(pregrid_audio *p, const char *group, int volume, uint3
 {
     pregrid_audio_update_ex(p, group, volume, clock, -1, 1, 0);
 }
+void pregrid_audio_context(pregrid_audio *p,int context)
+{if(p)SDL_AtomicSet(&p->custom_context,context);}
 void pregrid_audio_pause(pregrid_audio *p, int paused)
 {
     if (p)

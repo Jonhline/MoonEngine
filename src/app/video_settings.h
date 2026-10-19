@@ -14,9 +14,9 @@ typedef struct {
     int filter, text, aspect;
     int renderer, low_latency, fps_limit;
     int desktop, edge_pan, input_hints, main_menu, smooth_cursor, hover_feedback;
-    int compact_cars;
+    int compact_cars, preset_tools, save_tools, graphics_swap;
     int spatial_visibility, resident_reflections;
-    int antialiasing, render_scale, texture_smoothing;
+    int antialiasing, render_scale, texture_smoothing, texture_filtering, car_shadows, material_shading, reflection_quality, shadow_maps, modern_lighting, daylight, solar_hour, solar_cycle, hdr, sun_rays, ambient_occlusion;
 #ifdef __ANDROID__
     int touch_menu;
     moon_mobile_options mobile;
@@ -29,13 +29,15 @@ typedef struct {
     pc_video_options current, draft;
     moon_options store;
     int preset_draft;
+    char personal_preset[64];
+    int personal_modified;
     int persist, root, option_root;
     touch_back_state touch_back;
     uint64_t touch_back_clock;
     menu *owner;
-    ui_widget *page, *choices[20];
+    ui_widget *page, *choices[38];
 #ifndef __SWITCH__
-    ui_widget *rows[20], *tabs[3];
+    ui_widget *rows[38], *tabs[6];
     int active_tab;
 #endif
     char path[1024], message[128];
@@ -58,4 +60,13 @@ void video_setting_set(video_settings *s, int i, int value);
 /* Applies what can change on a running window (vsync, upscaling, filters, performance,
    scene options); the window mode and the API are applied by their own owners. */
 void video_settings_apply_current(video_settings *s);
+/* Transient studio comparison: graphics only, never writes preferences. */
+void video_settings_preview_graphics(const video_settings *s, int classic);
+void video_settings_preview_options(const pc_video_options *v);
+/* The Classic (0) or Enhanced (1) preset's values, written into v only. */
+void video_settings_preset_values(pc_video_options *v, int enhanced);
+/* P: shared named-preset interchange. draft=1 waits for the in-game OK. */
+int video_settings_preset_import(video_settings *s, const char *path, int draft);
+int video_settings_preset_export(video_settings *s, const char *path, const char *name, int draft);
+int video_settings_preset_dialog(video_settings *s, int exporting, int draft);
 #endif

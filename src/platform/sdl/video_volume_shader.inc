@@ -1,0 +1,11 @@
+/* P: depth reconstruction, screen-space ambient occlusion and single-scattering
+   world-space integration. Metres, extinction and phase parameters are artistic;
+   no weather, multiple scattering or unbounded/cascaded shadow volume. */
+"uniform int world_on,ao_on,volume_on,light_on;uniform vec3 camera,right_axis,up_axis,forward_axis,light_direction;uniform vec2 focal,clip;uniform mat4 light_projection;uniform sampler2D light_depth;\n"
+"float sceneDistance(vec2 at){float d=texture(z,at).r;float ndc=reverse==1?d:d*2.-1.;return min(20000.,abs(clip.y/max(abs(ndc-clip.x),1e-9)));}\n"
+"vec3 cameraRay(vec2 at){vec2 p=(at*2.-1.)/focal;return forward_axis+right_axis*p.x+up_axis*p.y;}\n"
+"vec3 surfacePoint(vec2 at){return camera+cameraRay(at)*sceneDistance(at);}\n"
+"float ambientVisibility(){vec3 p=surfacePoint(uv);vec3 n=cross(dFdx(p),dFdy(p));if(openSky(uv)>.5)return 1.;n/=max(length(n),1e-6);if(dot(n,camera-p)<0.)n=-n;float depth=sceneDistance(uv);float radius=min(.12,.6*abs(focal.y)/max(depth,.1));float sum=0.;\n"
+" for(int i=0;i<8;i++){float angle=(float(i)+.5)*.7853981634;vec2 axis=vec2(cos(angle)*extent.y/extent.x,sin(angle));float horizon=0.;for(int j=1;j<=2;j++){vec2 at=uv+axis*radius*float(j)*.5;if(any(lessThan(at,vec2(0)))||any(greaterThan(at,vec2(1)))||openSky(at)>.5)continue;vec3 delta=surfacePoint(at)-p;float distance=length(delta);float facing=max(dot(n,delta/max(distance,1e-6))-.08,0.);horizon=max(horizon,facing*(1.-smoothstep(.2,1.5,distance)));}sum+=horizon;}return clamp(1.-sum*.16,.25,1.); }\n"
+"float sunVisibility(vec3 p){if(light_on==0)return 1.;vec3 q=(light_projection*vec4(p,1.)).xyz;if(any(lessThan(q,vec3(0)))||any(greaterThan(q,vec3(1))))return 1.;vec4 t=texture(light_depth,q.xy);vec3 b=floor(t.rgb*255.+.5);float d=dot(b,vec3(65536.,256.,1.))/16777215.;return q.z-.00005>d?1.-t.a:1.;}\n"
+"vec3 worldScatter(){vec3 ray=cameraRay(uv);float rayLength=length(ray);ray/=rayLength;float distance=min(sceneDistance(uv)*rayLength,80.);float stepLength=distance/32.,sum=0.;for(int i=0;i<32;i++){float t=(float(i)+.5)*stepLength;vec3 p=camera+ray*t;float density=exp(-max(p.y-camera.y,0.)*.04);sum+=sunVisibility(p)*density*exp(-t*.0015)*stepLength*.0015;}float mu=dot(ray,light_direction);const float g=.6;float phase=(1.-g*g)/pow(max(1.+g*g-2.*g*mu,1e-4),1.5);return sun_color*sum*phase*.15;}\n"

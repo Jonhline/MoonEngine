@@ -11,12 +11,16 @@
 
 #include <stdint.h>
 #include "vol.h"
+#include "race_display.h"
 
 typedef struct race_hud race_hud;
 
 /* What the display shows of the watched car (the RaceDisplay's update,
    func_0039DBB8, func_0039ECD0). Times in ms, 0x157529FF none. */
 typedef struct {
+    /* Inverted option word at the presentation boundary; zero keeps every
+       existing element visible for callers that do not supply options. */
+    uint32_t display_hidden;
     int rank, cars;
     int split, player; /* horizontal Battle2P mode 8; watched entry 0/1 */
     int lap, laps;
@@ -26,9 +30,13 @@ typedef struct {
     int gear;
     int suggested_gear, suggested_gear_flash;
     float throttle, brake, side_g;
+    float steering; /* 00344680: displayed controller steering, not road-wheel angle */
+    int steering_kind; /* 00344680: 0 none, 1 digital, 2 pad, 3 wheel */
     int shift_lamp;
     float fuel, fuel_cap;     /* no tank at 0 */
     int refueling;            /* 0039E790..0039E7C8: 0035BEB0 == 1 */
+    int has_boost;
+    float boost;
     float rev_limit;          /* the tachometer's top */
     int aid, brake_lock;      /* the signs' sources */
     int driving;              /* the player drives: the signs and fuel shown */
@@ -101,6 +109,9 @@ void race_hud_draw_music(race_hud *h, float dt);
 /* the replay's plate (rtext key `label`, faded by alpha; NULL none) and,
    with logo, the GT4 logo of the modes without the race's display */
 void race_hud_draw_replay(race_hud *h, const char *label, float alpha, int logo);
+/* Original watched-car caption; mode 0 race, 2 instruments, 3 Dive, 4 Normal. */
+void race_hud_draw_car_name(race_hud *h, const char *name, int watched, int mode,
+                            unsigned flags, int panel, float dt);
 /* the replay's opening: the course's logo, the car's name and its power,
    tyres and mode, `elapsed` seconds into the replay */
 typedef struct {
@@ -123,7 +134,7 @@ void race_hud_gap(race_hud *h, int32_t ms, int field, int car);
 /* laps behind (func_003A0E40): the player's, or the second's when leading (negative) */
 void race_hud_laps_behind(race_hud *h, int laps, int car);
 void race_hud_set_icon(race_hud *h,
-                       void (*icon)(void *user, int car, float x, float y, float w, float h),
+                       void (*icon)(void *user, int car, float x, float y, float w, float h, float opacity),
                        void *user);
 
 #endif

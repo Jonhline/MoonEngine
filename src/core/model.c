@@ -36,7 +36,7 @@ typedef struct {
     float fixed;
     int human;
     unsigned hand_tween, hand_branch;
-    int tween_active, wheel, wheel_table, wing, branch;
+    int tween_active, wheel, wheel_table, wing, branch, time_zone;
     float *radial_bounds;
 } reader;
 static int append(gt4_model *m, const gt4_vertex *a, const gt4_vertex *b, const gt4_vertex *c,
@@ -617,6 +617,19 @@ static int commands(reader *r, size_t p, int *table)
                 lamp_pressed = pressed + u16(r->d + pressed);
                 p = entry + u16(r->d + entry);
                 LAMP_SAVE(lamp_entry);
+                continue;
+            }
+            /* 00453698 callback 7 ("timezone") returns the draw object's +0x7C, the course's
+               time of day (00387FB0: Env0 +0x10 bit 0x8000 night 1, bit 0x80000 2, else 0;
+               00390C90 copies the car's +0x1680 each frame). Branch 0 is daytime, handled
+               below; past the table is the fall-through. */
+            if (r->car && op == 6 && u16(r->d + p) == 7 && r->time_zone > 0) {
+                if ((unsigned)r->time_zone >= r->d[p + 2])
+                    break;
+                size_t entry = p + 3 + (size_t)r->time_zone * 2, offset = u16(r->d + entry);
+                if (offset < skip - (entry - p) || !span(r->n, entry, offset + 1))
+                    FAIL;
+                p = entry + offset;
                 continue;
             }
             if (!r->car && op == 6 && r->branch >= 0 &&
@@ -1269,9 +1282,18 @@ gt4_model *gt4_model_decode_world(const uint8_t *bytes, size_t size, gt4_model_s
 {
     return decode(bytes, size, -1, -1, stats, WORLD_FIXED, 0, 0, 0, -1);
 }
+static gt4_model *decode_zone(const uint8_t *bytes, size_t size, int color, int model_index,
+                              gt4_model_stats *stats, float fixed, int human, int wheel, int wing,
+                              int branch, int time_zone);
 static gt4_model *decode(const uint8_t *bytes, size_t size, int color, int model_index,
                          gt4_model_stats *stats, float fixed, int human, int wheel, int wing,
                          int branch)
+{
+    return decode_zone(bytes, size, color, model_index, stats, fixed, human, wheel, wing, branch, 0);
+}
+static gt4_model *decode_zone(const uint8_t *bytes, size_t size, int color, int model_index,
+                              gt4_model_stats *stats, float fixed, int human, int wheel, int wing,
+                              int branch, int time_zone)
 {
     if (stats) {
         memset(stats, 0, sizeof *stats);
@@ -1330,6 +1352,7 @@ static gt4_model *decode(const uint8_t *bytes, size_t size, int color, int model
     r.wheel = wheel;
     r.wing = wing;
     r.branch = branch;
+    r.time_zone = time_zone;
     r.wheel_table = -1;
     r.ns = u16(d + 24);
     r.nm = u16(d + 26);
@@ -1548,4 +1571,10 @@ int gt4_model_attach(gt4_model *m, gt4_model *part, const float tr[][6], int cou
 gt4_model *gt4_model_decode_car_wing(const uint8_t *bytes, size_t size, int color, int installed)
 {
     return decode(bytes, size, color, 0, NULL, 1 / 4096.f, 0, 0, installed ? 1 : 0, -1);
+}
+gt4_model *gt4_model_decode_car_zone(const uint8_t *bytes, size_t size, int color, int installed,
+                                     int time_zone)
+{
+    return decode_zone(bytes, size, color, 0, NULL, 1 / 4096.f, 0, 0, installed ? 1 : 0, -1,
+                       time_zone);
 }

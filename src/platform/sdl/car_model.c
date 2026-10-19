@@ -178,6 +178,13 @@ static void add_wheels(gt4_vol *v, unsigned id, car_model *a, const uint8_t *dat
             }
             a->brake[slot] = brake;
             brake->capacity = count;
+            gt4_model *glow = calloc(1, sizeof *glow);
+            if (glow && !(glow->triangles = malloc((size_t)count * sizeof *glow->triangles))) {
+                free(glow);
+                glow = NULL;
+            }
+            if (glow)
+                glow->capacity = count;
             for (int i = 0; i < a->body_count; i++) {
                 gt4_triangle *tr = &a->car->triangles[i];
                 if (tr->attachment != native + 1)
@@ -194,11 +201,20 @@ static void add_wheels(gt4_vol *v, unsigned id, car_model *a, const uint8_t *dat
                 /* 00453798: each brake drawn under a colour multiplier whose
                    alpha is its wheel's block +0x28 (004A60E0); the blended
                    layers (the hot disc's glow, additive 0x48, and its tint,
-                   0x44) scale with it and vanish while it is 0. A: its writer
-                   (the brake's heat) is not found; the brakes are drawn cold. */
-                if (local->blend_enabled)
+                   0x44) scale with it and vanish while it is 0. The race
+                   writes it (00390C90 -> 00451550 from 003D75F0): race_view
+                   draws these apart; the showroom leaves it 0 (004540E0). */
+                if (local->blend_enabled) {
+                    if (glow)
+                        glow->triangles[glow->count++] = *local;
                     brake->count--;
+                }
             }
+            if (glow && !glow->count) {
+                gt4_model_free(glow);
+                glow = NULL;
+            }
+            a->brake_glow[slot] = glow;
         }
         /* 00453028+0x16C draws the tire before +0x198 draws the rim.
            Race body MDLS likewise calls 15..18 before nested 36..39.
@@ -348,7 +364,13 @@ static void add_wheels(gt4_vol *v, unsigned id, car_model *a, const uint8_t *dat
 float car_model_picture_steer;
 struct car_model_tables {
     blob labels, links, variants, strings;
+    int time_zone; /* the course's, for callback 7 (car_model_tables_time_zone) */
 };
+void car_model_tables_time_zone(car_model_tables *t, int zone)
+{
+    if (t)
+        t->time_zone = zone;
+}
 car_model_tables *car_model_tables_open(gt4_vol *v)
 {
     car_model_tables *t = calloc(1, sizeof *t);
@@ -401,9 +423,11 @@ void car_model_free(car_model *a)
         gt4_model_free(a->shadow);
         gt4_model_free(a->hull);
         gt4_model_free(a->cast);
+        gt4_model_free(a->glow);
         for (int i = 0; i < 4; i++) {
             gt4_model_free(a->wheel[i]);
             gt4_model_free(a->brake[i]);
+            gt4_model_free(a->brake_glow[i]);
         }
         for (int i = 0; i < GT4_MODEL_STEERING_MAX; i++)
             gt4_model_free(a->steering[i]);
@@ -534,9 +558,8 @@ static car_model *load_car(gt4_vol *v, const car_model_tables *t, const char *co
        model 1 requires its separate pass context (004528A4). */
     if (data) {
         int installed = wing && *wing && strcmp(wing, "p000");
-        a->car = installed
-                     ? gt4_model_decode_car_wing(data, size, (int)a->colors[a->choice].order - 1, 1)
-                     : gt4_model_decode(data, size, (int)a->colors[a->choice].order - 1);
+        a->car = gt4_model_decode_car_zone(data, size, (int)a->colors[a->choice].order - 1,
+                                           installed, t->time_zone);
         if (a->car) {
 #ifndef __SWITCH__
             {   /* P: a mod car's textures at their authored size (car/hires/<model>; the disc
@@ -618,6 +641,7 @@ static car_model *load_car(gt4_vol *v, const car_model_tables *t, const char *co
             free(wheel_data);
             a->shadow = gt4_model_decode_part(data, size, (int)a->colors[a->choice].order - 1, 2);
             a->cast = gt4_model_decode_part(data, size, (int)a->colors[a->choice].order - 1, 1);
+            a->glow = gt4_model_decode_part(data, size, (int)a->colors[a->choice].order - 1, 3);
         }
         free(data);
     }

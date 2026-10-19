@@ -39,7 +39,8 @@ static void draw_result(race_game *g, int cars, double dt)
         rs.finished[i] = c.finished;
         rs.time[i] = c.line_time;
         rs.laps[i] = c.lap;
-        rs.name[i] = g->names[i];
+        /* 003DFC50 copies the entry short name (+0x350C), not CAR_NAME +0. */
+        rs.name[i] = g->hud_names[i];
         /* 003BE060..: RaceMachineTest's board, mode 4 for the top speed
            (car +0x6CC), else 5: the entry's laps added up (+0x1B0) */
         if (g->world_mode == 15) {

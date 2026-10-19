@@ -48,6 +48,8 @@ int main(int argc, char **argv)
     char msg[256], directory[240];
     snprintf(directory, sizeof directory, "build/profile-storage-%llu-%llu-%lu",
              (unsigned long long)time(NULL), (unsigned long long)clock(), test_process_id());
+    const char *fixture_directory=getenv("MOON_PROFILE_STORAGE_FIXTURE_DIR");
+    if (fixture_directory) snprintf(directory,sizeof directory,"%s",fixture_directory);
     gt4_save_init(directory);
     CHECK(gt4_game_load_disc(argv[1]));
     gt4_vol *vol = gt4_vol_open(argv[1], &error);
@@ -94,7 +96,7 @@ int main(int argc, char **argv)
     ah_obj *other = ah_array_get(pair, 1).u.o;
     ah_val money, cars;
     CHECK(ah_get_member(m->vm,other,"money",&money));
-    if (argc == 3)
+    if (argc == 3 && !strcmp(argv[2],"--negative"))
         ah_set_member(m->vm, other, "money", ah_int(67890));
     CHECK(ah_get_member(m->vm,other,"money",&money) && ah_num(money)==12345);
     CHECK(gt4_save_active()==1 && gt4_save_dirty());
@@ -156,6 +158,38 @@ int main(int argc, char **argv)
     CHECK(ah_get_member(m->vm,unchanged,"garage",&original_garage) && ah_get_member(m->vm,original_garage.u.o,"cars",&original_cars));
     CHECK(ah_array_size(original_cars.u.o)==1);
     CHECK(gt4_game_car_body(m->vm,ah_array_get(original_cars.u.o,0).u.o,actual_body) && !memcmp(actual_body,expected_body,sizeof actual_body));
+    /* Native profile transfer must preserve active/dirty state during export. */
+    char portable[320]; snprintf(portable,sizeof portable,"%s-transfer.ogt4",directory);
+    menu_save_capture(m);
+    CHECK(gt4_save_store());
+    gt4_save_mark_dirty();
+    CHECK(gt4_save_export_profile(1,portable));
+#ifdef _WIN32
+    char unsafe[320]; snprintf(unsafe,sizeof unsafe,"%s/slot02.ogt4",directory);
+    CHECK(!gt4_save_export_profile(1,unsafe));
+#endif
+    CHECK(gt4_save_active()==1 && gt4_save_dirty());
+    uint8_t *exported=NULL; size_t exported_size=0;
+    CHECK(gt4_save_read(portable,&exported,&exported_size,NULL)==1);
+    CHECK(gt4_save_import_ps2_with_writer(8,portable,NULL,NULL));
+    CHECK(gt4_save_active()==8 && !gt4_save_dirty());
+    gt4_save_info imported_info;
+    CHECK(gt4_save_info_get(8,&imported_info)>0 && !strcmp(imported_info.name,"Active player"));
+    char imported_path[320]; snprintf(imported_path,sizeof imported_path,"%s/slot08.ogt4",directory);
+    uint8_t *roundtrip=NULL; size_t roundtrip_size=0;
+    CHECK(gt4_save_read(imported_path,&roundtrip,&roundtrip_size,NULL)==1);
+    if (argc==3 && !strcmp(argv[2],"--transfer-negative")) roundtrip[0]^=1;
+    CHECK(roundtrip_size==exported_size && !memcmp(roundtrip,exported,exported_size));
+    free(roundtrip); free(exported);
+    CHECK(!gt4_save_import_ps2_with_writer(8,portable,NULL,NULL)); /* occupied destination */
+    CHECK(gt4_save_active()==8);
+    FILE *damaged=fopen(portable,"r+b"); CHECK(damaged);
+    CHECK(!fseek(damaged,32,SEEK_SET)); int byte=fgetc(damaged); CHECK(byte!=EOF);
+    CHECK(!fseek(damaged,32,SEEK_SET)); CHECK(fputc(byte^1,damaged)!=EOF); CHECK(!fclose(damaged));
+    CHECK(!gt4_save_import_ps2_with_writer(7,portable,NULL,NULL));
+    CHECK(gt4_save_active()==8 && gt4_save_info_get(7,&imported_info)==0);
+    CHECK(gt4_save_load_slot(1));
+    remove(portable);
     menu_close(m);
     m = menu_open(vol, "arcade", msg, sizeof msg);
     CHECK(m);

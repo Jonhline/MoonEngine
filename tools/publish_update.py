@@ -48,11 +48,11 @@ def main():
     generate(a.version,str(a.config),str(a.build/"generated"/"launcher_release.h"))
     subprocess.run(["cmake","-S",str(ROOT),"-B",str(a.build),"-DMOON_VERSION="+a.version,
                     "-DMOON_UPDATE_CONFIG="+str(a.config),"-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded",
-                    "-DSDL_FORCE_STATIC_VCRT=ON"],check=True)
+                    "-DSDL_FORCE_STATIC_VCRT=ON","-DMOON_LINKED_MOVIES=ON"],check=True)
     subprocess.run(["cmake","--build",str(a.build),"--config","Release","--target","moonengine"],check=True)
     command=[sys.executable,str(ROOT/"tools/package_release.py"),a.version,"--build",str(a.build/"Release"),
              "--repo",c.get("package","page",fallback=c["update"]["url"])]
-    for option in ["icons","ffmpeg","ffmpeg-license"]:
+    for option in ["icons"]:
         value=c.get("package",option,fallback="")
         if value:command +=["--"+option,value]
     subprocess.run(command,check=True)

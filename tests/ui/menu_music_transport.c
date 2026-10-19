@@ -104,6 +104,15 @@ int pregrid_audio_playing(pregrid_audio *p)
 {
     return 0;
 }
+/* no local music and no Jukebox page: the original transport alone */
+int moon_music_override_render(int context, int16_t *out, int frames, int gain, int paused)
+{
+    return 0;
+}
+static int app_jukebox_pcm(menu *m, int allowed)
+{
+    return 0;
+}
 #include "../../src/app/main_audio.inc"
 static void ready(music_job *job, gt4_vol *vol, const char *name)
 {

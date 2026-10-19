@@ -72,6 +72,9 @@ typedef struct {
 } gt4_model_stats;
 /* Static menu geometry, converted once; not a VU/GS execution backend. */
 gt4_model *gt4_model_decode_car_wing(const uint8_t *bytes, size_t size, int color, int installed);
+/* the same in a course's time of day (callback 7: 0 day, 1 night; 00387FB0) */
+gt4_model *gt4_model_decode_car_zone(const uint8_t *bytes, size_t size, int color, int installed,
+                                     int time_zone);
 gt4_model *gt4_model_decode(const uint8_t *bytes, size_t size, int color);
 gt4_model *gt4_model_decode_part(const uint8_t *bytes, size_t size, int color, int model_index);
 gt4_model *gt4_model_decode_stats(const uint8_t *bytes, size_t size, int color, int model_index,

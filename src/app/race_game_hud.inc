@@ -2,10 +2,10 @@
    car's 96x64 picture (func_004997B0 2, 0x60, 0x40), CarIconMaker's first
    per car (00393B70: 00393D20 mode 0, in perspective from the front
    three-quarter), not the results' 64x32 side view (mode 1) */
-static void hud_icon(void *user, int car, float x, float y, float w, float h)
+static void hud_icon(void *user, int car, float x, float y, float w, float h, float opacity)
 {
     race_game *g = user;
-    race_view_draw_icon_front(g->view, car, x, y, w, h);
+    race_view_draw_icon_front_alpha(g->view, car, x, y, w, h, opacity);
 }
 
 static int prepare_hud(race_game *g)
@@ -112,6 +112,7 @@ static void split_hud(race_game *g, double dt)
         race_hud_state s = {0};
         if (!*h || !gt4_race_run_hud(g->run, i, &r))
             continue;
+        s.display_hidden = ~menu_race_display_flags(NULL);
         s.rank = r.rank;
         s.cars = 2;
         s.lap = r.lap;
@@ -131,6 +132,9 @@ static void split_hud(race_game *g, double dt)
         s.shift_lamp = r.shift_lamp;
         s.fuel = r.fuel;
         s.fuel_cap = r.fuel_cap;
+        s.has_boost = r.has_boost;
+        s.boost = r.boost;
+        memcpy(s.tire_rgb, r.tire_rgb, sizeof s.tire_rgb);
         s.rev_limit = r.rev_limit;
         s.aid = r.aid;
         s.brake_lock = r.brake_lock;
@@ -220,6 +224,14 @@ void race_game_draw_hud(race_game *g, double dt)
         race_hud_set_course(g->hud, g->hud_course);
         g->hud_course[0] = 0;
     }
+    /* 0039CDF0/0039EC40: a change of watched entry queues the replay name.
+       Presentation alone reads the option word; the simulation is untouched. */
+    if (g->hud) {
+        int watched = watched_car(g);
+        race_hud_draw_car_name(g->hud, watched >= 0 && watched < 6 ? g->hud_names[watched] : "",
+                               watched, g->replaying ? (g->rmode == 0 ? 4 : g->rmode == 1 ? 3 : 2) : 0,
+                               menu_race_display_flags(NULL), g->car_cam, g->held ? 0 : (float)dt);
+    }
     if (g->replaying && g->rmode != 2) { /* Normal and Dive: no display, the logo */
         race_hud_draw_replay(g->hud, NULL, 0, 1);
         race_hud_draw_music(g->hud, g->held ? 0.f : (float)dt);
@@ -240,6 +252,7 @@ void race_game_draw_hud(race_game *g, double dt)
     if (!gt4_race_run_hud(g->run, watched_car(g), &r))
         return;
     memset(&s, 0, sizeof s);
+    s.display_hidden = ~menu_race_display_flags(NULL);
     s.rank = r.rank;
     s.cars = gt4_race_run_cars(g->run);
     s.lap = r.lap;
@@ -256,9 +269,17 @@ void race_game_draw_hud(race_game *g, double dt)
     s.brake = r.brake;
     s.replay = g->replaying;
     s.side_g = r.side_g;
+    { /* 0039E7CC..0039E818: presentation reads 00344680, angle multiplied by -90. */
+        uint32_t car = gt4_race_run_car(g->run, watched_car(g));
+        s.steering = GT4_F32(car + CAR_HUD_STEERING);
+        s.steering_kind = GT4_U8(car + CAR_HUD_STEERING_KIND);
+    }
     s.shift_lamp = r.shift_lamp;
     s.fuel = r.fuel;
     s.fuel_cap = r.fuel_cap;
+        s.has_boost = r.has_boost;
+    s.boost = r.boost;
+    memcpy(s.tire_rgb, r.tire_rgb, sizeof s.tire_rgb);
     { /* 0039E790..0039E7C8: meter follows service state, not camera. */
         uint32_t car = gt4_race_run_car(g->run, watched_car(g));
         s.refueling = gt4_pit_refueling(GT4_U16(car + CAR_FIELD_UNK_5BC), GT4_U16(car + CAR_5BE));
@@ -313,44 +334,10 @@ void race_game_draw_hud(race_game *g, double dt)
                  car = gt4_race_run_car(g->run, watched_car(g));
         s.panel = 0;
         s.bspec = 1;
+        if (watched_car(g) != 0)
+            memset(s.tire_rgb, 0, sizeof s.tire_rgb);
         s.total_time = GT4_U32(cond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3; /* func_00358440 */
-        /* 003D80A8: each tyre's colour by the car's wheel layout (00359538:
-           D_00620478 + params+0x30 * 0x54, kind 0..3) from its wheel's
-           heat (003446D8: car + wheel * 0xEC + 0x215) through 003677F8 */
-        int kind = GT4_U8(0x00620478u + GT4_U8(GT4_U32(car + CAR_PARAMS) + 0x30) * 0x54u);
-        /* 003D80A8 +0x10..0x58: black unless the race wears its tyres
-           (00367D40: cond+4 +0x68 or +0x69) and the player's car is watched */
-        int shown = (GT4_U8(cond + CONDUCTOR_FIELD_TYRE_STATE + 0x68) ||
-                     GT4_U8(cond + CONDUCTOR_FIELD_TYRE_STATE + 0x69)) &&
-                    watched_car(g) == 0;
-        for (int i = 0; i < 4; i++) {
-            if (!shown) {
-                memset(s.tire_rgb[i], 0, 3);
-                continue;
-            }
-            int k = kind == 1   ? (i < 2 ? 0 : i - 1)
-                    : kind == 2 ? (i < 3 ? i : 2)
-                    : kind == 3 ? i >> 1
-                                : i;
-            int t = (int8_t)GT4_U8(car + (uint32_t)k * 0xec + 0x215);
-            uint8_t r = 0, gg = 0, b = 0;
-            if (t >= 0x40) {
-                r = 0xfc;
-                gg = (uint8_t)((0x7f - t) * 2);
-            } else if (t >= 0x20) {
-                r = 0xfc;
-                gg = (uint8_t)((0x5f - t) * 4);
-            } else if (t >= 0) {
-                r = (uint8_t)(t * 8);
-                gg = 0xfc;
-            } else if (t >= -0x3f) {
-                b = (uint8_t)(-t * 4);
-                gg = (uint8_t)(0xfc + t * 4);
-            }
-            s.tire_rgb[i][0] = r;
-            s.tire_rgb[i][1] = gg;
-            s.tire_rgb[i][2] = b;
-        }
+
     }
     int license_failed = 0;
     if (s.license && r.finished) {

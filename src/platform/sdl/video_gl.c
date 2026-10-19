@@ -385,6 +385,10 @@ SDL_Window *plat_video_acquire_window(const plat_video_desc *d)
 
 int plat_video_init(const plat_video_desc *d)
 {
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+    /* Keep the desktop-fullscreen window mode across Alt+Tab. */
+    SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");
+#endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) != 0)
         return -1;
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
@@ -750,6 +754,8 @@ void plat_video_begin_frame(void)
     glDisable(GL_SCISSOR_TEST);
     glViewport(0, 0, fb_w, fb_h);
     glClearColor(0, 0, 0, 1);
+    /* A prior transparent draw may leave writes disabled; glClear respects it. */
+    glDepthMask(GL_TRUE);
     glClearDepth(GL_DEPTH_FAR);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     SWP_POP();
@@ -861,6 +867,10 @@ unsigned char *plat_sdl_read_view(int *width, int *height)
     return out;
 }
 
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+static void daylight_post_destroy(void);
+static void edge_aa_destroy(void);
+#endif
 void plat_video_shutdown(void)
 {
     if (capture_stream)
@@ -874,6 +884,10 @@ void plat_video_shutdown(void)
     capture_attempted = 0;
     capture_pipe = capture_gate = capture_times_path = NULL;
     capture_w = capture_h = 0;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    edge_aa_destroy();
+    daylight_post_destroy();
+#endif
     plat_audio_shutdown();
     plat_input_shutdown();
     if (license_lut)
@@ -948,11 +962,21 @@ static int scene_antialiasing, scene_render_scale = 2, scene_size_limit;
 void video_scene_quality(int antialiasing, int render_scale)
 {
     scene_size_limit = 0;
-    scene_antialiasing = antialiasing >= 0 && antialiasing <= 3 ? antialiasing : 0;
+    scene_antialiasing = antialiasing >= 0 && antialiasing <= 4 ? antialiasing : 0;
     scene_render_scale = render_scale >= 0 && render_scale <= 2 ? render_scale : 2;
 }
 #endif
 
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+#include "video_daylight_post.inc"
+#include "video_edge_aa.inc"
+#else
+void video_light_volume_view(const video_light_volume *view){(void)view;}
+void video_ambient_occlusion(int enabled){(void)enabled;}
+void video_hdr_options(int enabled,int rays){(void)enabled;(void)rays;}
+int video_hdr_active(void){return 0;}
+void video_solar_projection(float x,float y,float visible,const float color[3]){(void)x;(void)y;(void)visible;(void)color;}
+#endif
 void video_begin_scene(void)
 {
     video_flush2d();
@@ -978,7 +1002,7 @@ void video_begin_scene(void)
         float scale = scene_antialiasing == 2   ? 1.5f
                       : scene_antialiasing == 3 ? 2.f
                                                 : scales[scene_render_scale];
-        if (scene_antialiasing >= 2 || scene_render_scale != 2) {
+        if (scene_antialiasing == 2 || scene_antialiasing == 3 || scene_render_scale != 2) {
             w = (int)(output_w * scale + .5f);
             h = (int)(output_h * scale + .5f);
             mode = 0;
@@ -1009,6 +1033,12 @@ void video_begin_scene(void)
 #endif
 #endif
     scene_upscale = mode;
+    int hdr=0;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    hdr=daylight_post.enabled;
+    if(hdr)samples=1;
+#endif
+    GLenum color_format=hdr?0x881A:GL_RGBA8;
     if (!scene_fbo) {
         glGenFramebuffers(1, &scene_fbo);
         glGenFramebuffers(1, &scene_resolve);
@@ -1016,17 +1046,21 @@ void video_begin_scene(void)
         glGenRenderbuffers(1, &scene_depth);
         glGenTextures(1, &scene_tex);
     }
-    if (w != scene_w || h != scene_h || samples != scene_samples) {
+    if (w != scene_w || h != scene_h || samples != scene_samples
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+        || hdr!=daylight_post.allocated_hdr
+#endif
+    ) {
         glBindRenderbuffer(GL_RENDERBUFFER, scene_color);
 #if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
         /* Multisample storage with samples=1 may round up to the driver's
            minimum (four on the host fixture); request ordinary storage. */
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w, h);
+        glRenderbufferStorage(GL_RENDERBUFFER, color_format, w, h);
 #else
         if (samples == 1)
-            glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w, h);
+            glRenderbufferStorage(GL_RENDERBUFFER, color_format, w, h);
         else
-            glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_RGBA8, w, h);
+            glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, color_format, w, h);
 #endif
         glBindRenderbuffer(GL_RENDERBUFFER, scene_depth);
 #if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
@@ -1049,7 +1083,7 @@ void video_begin_scene(void)
             return;
         }
         glBindTexture(GL_TEXTURE_2D, scene_tex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, color_format, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -1057,6 +1091,9 @@ void video_begin_scene(void)
         scene_w = w;
         scene_h = h;
         scene_samples = samples;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+        daylight_post.allocated_hdr=hdr;
+#endif
         printf("scene: %dx%d -> %dx%d, MSAA %dx, %s\n", w, h, output_w, output_h, samples,
                mode ? "FSR 1" : "native");
 #ifdef __SWITCH__
@@ -1073,6 +1110,8 @@ void video_begin_scene(void)
     glEnable(GL_MULTISAMPLE);
     glViewport(0, 0, w, h);
     glClearColor(0, 0, 0, 1);
+    /* A prior transparent draw may leave writes disabled; glClear respects it. */
+    glDepthMask(GL_TRUE);
     glClearDepth(GL_DEPTH_FAR);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     fb_w = w;
@@ -1094,9 +1133,13 @@ void video_end_scene(void)
                       GL_NEAREST);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     GLuint resolved = scene_tex;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    if(daylight_post.allocated_hdr)resolved=daylight_post_resolve(scene_tex,scene_fbo,scene_w,scene_h);
+    if(scene_antialiasing==4)resolved=edge_aa_resolve(resolved,scene_w,scene_h);
+#endif
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)
     if (scene_upscale && (scene_w < output_w || scene_h < output_h)) {
-        GLuint reconstructed = fsr_resolve(scene_tex, scene_w, scene_h, output_w, output_h);
+        GLuint reconstructed = fsr_resolve(resolved, scene_w, scene_h, output_w, output_h);
         if (reconstructed)
             resolved = reconstructed;
     }
@@ -1104,13 +1147,18 @@ void video_end_scene(void)
     glBindFramebuffer(GL_READ_FRAMEBUFFER, scene_resolve);
     glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, resolved, 0);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbo);
-    int source_w = resolved == scene_tex ? scene_w : output_w,
-        source_h = resolved == scene_tex ? scene_h : output_h;
+    int source_w = resolved == scene_tex || !scene_upscale ? scene_w : output_w,
+        source_h = resolved == scene_tex || !scene_upscale ? scene_h : output_h;
     glBlitFramebuffer(0, 0, source_w, source_h, 0, 0, output_w, output_h, GL_COLOR_BUFFER_BIT,
                       GL_LINEAR);
     fb_w = output_w;
     fb_h = output_h;
     scene_active = 0;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    /* A menu without a solar scene must not reuse the previous race camera. */
+    daylight_post.solar[2] = 0;
+    daylight_post.world.valid=0;
+#endif
     scene_frame_has_content = 1;
     layout_view();
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);

@@ -480,6 +480,8 @@ static void jukebox_bind(menu *m)
 /* the race playlist as the Jukebox left it, back into the save */
 static void jukebox_store(menu *m)
 {
+    if (m->jukebox_external)
+        return;
     ah_vm *vm = m->vm;
     ah_val option, playlist, rows, shuffle;
     if (!jukebox_loaded || !ah_get_member(vm, game_object(m), "option", &option) ||
@@ -505,6 +507,494 @@ static void jukebox_store(menu *m)
                              sizeof jukebox_playlist.bytes);
 }
 
+static int jukebox_external_list(ah_vm *vm, ah_obj *self, void *data, int argc,
+                                  const ah_val *argv, ah_val *ret)
+{
+    (void)self; (void)data; (void)argc; (void)argv;
+    *ret = ah_nil();
+    ah_get_member(vm, game_object(ah_user(vm)), "_local_music", ret);
+    return 0;
+}
+int menu_jukebox_catalog(menu *m,const menu_music_entry *entries,int count,const int shuffle[2])
+{
+    /* Before MusicRoot is entered: a cached slide project is bound again on each visit. */
+    int root=menu_active_root(m);
+    if(!m || count<0 || count>256 || (count && !entries) || (root>=0 && m->entered[root]))return 0;
+    ah_vm *vm=m->vm;ah_obj *game=game_object(m),*library=ah_array_new(vm),*indices=ah_array_new(vm);
+    ah_val option,main_;ah_get_member(vm,game,"option",&option);
+    for(int i=0;i<count;i++){
+        ah_obj *row=ah_array_new(vm);
+        ah_array_push(vm,row,ah_str(vm,entries[i].title?entries[i].title:""));
+        ah_array_push(vm,row,ah_str(vm,entries[i].artist?entries[i].artist:""));
+        ah_array_push(vm,row,ah_str(vm,entries[i].genre?entries[i].genre:""));
+        ah_array_push(vm,row,ah_int(i));ah_array_push(vm,library,ah_objv(row));
+        ah_array_push(vm,indices,ah_int(i));
+    }
+    ah_set_member(vm,game,"_local_music",ah_objv(library));
+    ah_set_member(vm,game,"getAllMusicList",ah_native(vm,"getAllMusicList",jukebox_external_list,NULL));
+    if(ah_get_member(vm,ah_root(vm),"main",&main_))
+        ah_set_member(vm,ah_as_obj(main_,AO_MODULE),"default_library_playlist",ah_objv(indices));
+    const char *keys[]={"bgm_playlist","slide_playlist"};
+    for(int k=0;k<2;k++){
+        ah_obj *playlist=ah_module_new(vm,keys[k],NULL,NULL,NULL),*rows=ah_array_new(vm);
+        for(int i=0;i<count;i++){
+            ah_obj *row=ah_array_new(vm);int at=entries[i].order[k];
+            ah_array_push(vm,row,ah_int(at));ah_array_push(vm,row,ah_int(0));
+            ah_array_push(vm,row,ah_int(at>=0));ah_array_push(vm,row,ah_int(at));
+            ah_array_push(vm,rows,ah_objv(row));
+        }
+        ah_set_member(vm,playlist,"play_data",ah_objv(rows));
+        ah_set_member(vm,playlist,"shuffle",ah_int(shuffle?!!shuffle[k]:0));
+        ah_set_member(vm,ah_as_obj(option,AO_MODULE),keys[k],ah_objv(playlist));
+    }
+    m->jukebox_external=1;return 1;
+}
+int menu_jukebox_external(menu *m,const char *const *titles,const int *enabled,int count,int shuffle)
+{
+    if(count<0 || count>256 || (count && (!titles || !enabled)))return 0;
+    menu_music_entry entries[256];int shuffles[2]={shuffle,shuffle};
+    for(int i=0;i<count;i++)entries[i]=(menu_music_entry){titles[i],"Local music","",{enabled[i]?i:-1,enabled[i]?i:-1}};
+    return menu_jukebox_catalog(m,entries,count,shuffles);
+}
+int menu_jukebox_playlist_result(menu *m,int selection,int *order,int *enabled,int capacity,int *shuffle)
+{
+    if (!m || !m->jukebox_external || selection<0 || selection>1 || capacity < 0 || !order || !enabled)
+        return -1;
+    /* Finalize through the authored script: applies live music_map/list edits. */
+    if (menu_active_root(m) >= 0 && m->entered[menu_active_root(m)] &&
+        !strcmp(ui_root_name(m->ui, menu_active_root(m)), "MusicRoot"))
+        finalize_page(m, menu_active_root(m));
+    ah_val option, playlist, rows, value;
+    ah_vm *vm = m->vm;
+    if (!ah_get_member(vm, game_object(m), "option", &option) ||
+        !ah_get_member(vm, ah_as_obj(option, AO_MODULE), selection?"slide_playlist":"bgm_playlist", &playlist) ||
+        !ah_get_member(vm, ah_as_obj(playlist, AO_MODULE), "play_data", &rows))
+        return -1;
+    ah_obj *array = ah_as_obj(rows, AO_ARRAY);
+    if (!array) return -1;
+    int n = ah_array_size(array);
+    if (n > capacity || n>256) return -1;
+    for (int i = 0; i < n; i++) {
+        ah_obj *row = ah_as_obj(ah_array_get(array, i), AO_ARRAY);
+        if (!row || ah_array_size(row) != 4) return -1;
+        enabled[i] = ah_truthy(ah_array_get(row, 2));
+        order[i] = -1;
+    }
+    int used[256] = {0}, out = 0;
+    for (int at = 0; at < n; at++)
+        for (int i = 0; i < n; i++) {
+            ah_obj *row = ah_as_obj(ah_array_get(array, i), AO_ARRAY);
+            if (enabled[i] && (int)ah_num(ah_array_get(row, 0)) == at && !used[i]) {
+                order[out++] = i;
+                used[i] = 1;
+            }
+        }
+    for (int i = 0; i < n; i++)
+        if (!used[i]) order[out++] = i;
+    if (shuffle && ah_get_member(vm, ah_as_obj(playlist, AO_MODULE), "shuffle", &value))
+        *shuffle = ah_truthy(value);
+    return n;
+}
+
+int menu_jukebox_external_result(menu *m,int *order,int *enabled,int capacity,int *shuffle)
+{return menu_jukebox_playlist_result(m,0,order,enabled,capacity,shuffle);}
+
+/* P: Menu and Replay folders (docs/OPTIONS.md audio.jukebox_folders). Two
+   more rows in MusicRoot's own folder column, run by the authored playlist
+   code: music_list/music_map gain modes 3 and 4, and every add, remove and
+   reorder goes through append_music_list(mode,..), list_box.append_playlist
+   (mode) and remove_playlist(context,mode) as for the race and slideshow
+   folders. Only set_mode_icons (mode_table_list has three rows) and
+   mselect_callback (Append1/Append2/Trash) name the three folders; they run
+   as authored for those and are extended for the two new ones. Pictures are
+   the disc's: gtmode HomeRoot's option.png and labomode's folder_replay.png
+   for the folders, labomode's to_list_mov for adding to replays, and
+   to_list_slide_bgm with the note replaced by four squares, in the button's
+   own two colours, for adding to the menu. */
+static const char *const jukebox_folder_row[2] = {"PlayList3", "PlayList4"};
+static const char *const jukebox_folder_add[2] = {"Append3", "Append4"};
+static const char *const jukebox_folder_label[2] = {"Menu", "Replay"};
+/* sidebar and button column, authored and with the two folders */
+static const char *const jukebox_moved[] = {"PlayList1", "PlayList2", "VisualEffect_library"};
+static const float jukebox_moved_y[2][3] = {{147, 227, 273}, {135, 203, 317}};
+
+static void jukebox_menu_icon(menu *m, int root, const char *from, const char *to)
+{
+    size_t size;
+    uint8_t *data = ui_load_asset(m->ui, root, from, &size);
+    tex1_image *im = NULL;
+    int n = data ? tex1_decode(data, size, &im) : -1;
+    free(data);
+    if (n > 0 && im[0].width >= 30 && im[0].height >= 31) {
+        int w = im[0].width;
+        uint8_t *px = im[0].rgba, dark[4], light[4];
+        static const int tiles[4][4] = {
+            {17, 22, 21, 25}, {24, 29, 21, 25}, {17, 22, 27, 30}, {24, 29, 27, 30}};
+        memcpy(dark, px + (22 * w + 15) * 4, 4);
+        memcpy(light, px + (28 * w + 12) * 4, 4);
+        for (int y = 20; y < 31; y++)
+            for (int x = 16; x < 30; x++)
+                memcpy(px + (y * w + x) * 4, light, 4);
+        for (int t = 0; t < 4; t++)
+            for (int y = tiles[t][2]; y < tiles[t][3]; y++)
+                for (int x = tiles[t][0]; x < tiles[t][1]; x++)
+                    memcpy(px + (y * w + x) * 4, dark, 4);
+        ui_image_put(m->ui, to, w, im[0].height, px);
+    }
+    tex1_free(im, n);
+}
+
+static void jukebox_folder_images(ui_widget *w, const char *normal, const char *over)
+{
+    if (w->image_path)
+        ui_widget_set_image(w, strstr(w->image_path, "_over") ? over : normal);
+    for (int i = 0; i < w->nkids; i++)
+        jukebox_folder_images(w->kids[i], normal, over);
+}
+
+/* the two rows and buttons, cloned once into the cached page */
+static void jukebox_folder_widgets(menu *m, ui_widget *page)
+{
+    ui_widget *row = ui_widget_child(page, "PlayList2"), *add = ui_widget_child(page, "Append2");
+    if (!row || !add || ui_widget_child(page, jukebox_folder_row[0]))
+        return;
+    ui_load_package(m->ui, "/projects/labomode", "SaveReplayRoot");
+    ui_load_package(m->ui, "/projects/labomode", "Template");
+    ui_load_package(m->ui, "/projects/gtmode", "HomeRoot");
+    jukebox_menu_icon(m, page->root, "image/labo/to_list_slide_bgm.png",
+                      "moon/jukebox/to_list_menu.png");
+    jukebox_menu_icon(m, page->root, "image/labo/to_list_slide__bgm_over.png",
+                      "moon/jukebox/to_list_menu_over.png");
+    static const char *const bg[2] = {"image/gtmode/home/option.png",
+                                      "image/labo/folder_replay.png"};
+    static const char *const icon[2][2] = {
+        {"moon/jukebox/to_list_menu.png", "moon/jukebox/to_list_menu_over.png"},
+        {"image/labo/to_list_mov.png", "image/labo/to_list_mov_over.png"}};
+    for (int k = 0; k < 2; k++) {
+        ui_widget *r = ui_widget_copy(m->ui, row), *a = ui_widget_copy(m->ui, add);
+        if (!r || !a)
+            return;
+        r->name = jukebox_folder_row[k];
+        a->name = jukebox_folder_add[k];
+        /* no TOOLTIP| entry: the help line is only the one onFocusEnter writes */
+        r->tooltip_key = jukebox_folder_row[k];
+        a->tooltip_key = jukebox_folder_add[k];
+        r->y = 271 + 68 * k;
+        a->y = 233 + 42 * k;
+        ui_widget *face = ui_widget_child(r, "bg"), *label = ui_widget_child(r, "label");
+        if (face) {
+            ui_widget_set_image(face, bg[k]);
+            if (k == 0) { /* 94x88, fitted to the folder's height */
+                float w = face->h * 94 / 88;
+                face->x += (face->w - w) / 2;
+                face->w = w;
+            }
+        }
+        if (label) {
+            free(label->text);
+            free(label->text_key);
+            label->text = strdup(jukebox_folder_label[k]);
+            label->text_key = NULL;
+        }
+        jukebox_folder_images(a, icon[k][0], icon[k][1]);
+        ui_widget_append(page, r);
+        ui_widget_append(page, a);
+        bind_tree(m, r);
+        bind_tree(m, a);
+    }
+}
+
+static ui_widget *jukebox_page_child(menu *m, const char *name)
+{
+    return ui_widget_child(ah_host_data(m->jukebox_root), name);
+}
+static void jukebox_attr(menu *m, ui_widget *w, const char *attr, int v)
+{
+    if (w)
+        ah_set_member(m->vm, widget_module(m, w), attr, ah_bool(v));
+}
+static int jukebox_mode(menu *m)
+{
+    ah_val v;
+    return ah_call_member(m->vm, m->jukebox_root, "get_mode", 0, NULL, &v) == 1 ? (int)ah_num(v) : 0;
+}
+
+/* set_mode_icons (slide.ad L353..375): mode_table_list's rows, a fourth for
+   the new folders as for a playlist folder with no cursor of its own */
+static int jukebox_mode_icons(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
+                              ah_val *ret)
+{
+    (void)self;
+    menu *m = data;
+    int mode = jukebox_mode(m);
+    *ret = ah_nil();
+    if (mode < 3) {
+        ah_val authored;
+        if (ah_get_own_member(vm, m->jukebox_root, "_set_mode_icons_ps2", &authored) &&
+            ah_call(vm, authored, argc, argv, ret) < 0)
+            return -1;
+    } else {
+        static const char *const names[] = {"Append1", "Append2", "Trash", "Library", "PlayList1",
+                                            "PlayList2", "VisualEffect", "VisualEffect_library",
+                                            "Dot0"};
+        static const int row[] = {0, 0, 1, 0, 0, 0, 1, 0, 1};
+        for (int i = 0; i < 9; i++) {
+            ui_widget *w = jukebox_page_child(m, names[i]);
+            jukebox_attr(m, i >= 3 && i <= 5 && w ? ui_widget_child(w, "cursor") : w, "visible",
+                         row[i]);
+        }
+        for (int i = 0; i < 2; i++) {
+            ui_widget *w = jukebox_page_child(m, names[4 + i]);
+            jukebox_attr(m, w ? ui_widget_child(w, "to_race_arrow") : NULL, "visible", 0);
+        }
+    }
+    /* Dot1 fills the fourth button place, Append3's in the Library */
+    jukebox_attr(m, jukebox_page_child(m, "Dot1"), "visible", mode != 0);
+    for (int k = 0; k < 2; k++) {
+        ui_widget *r = jukebox_page_child(m, jukebox_folder_row[k]);
+        jukebox_attr(m, jukebox_page_child(m, jukebox_folder_add[k]), "visible", mode == 0);
+        jukebox_attr(m, r ? ui_widget_child(r, "cursor") : NULL, "visible", mode == 3 + k);
+        jukebox_attr(m, r ? ui_widget_child(r, "to_race_arrow") : NULL, "visible", mode == 0);
+    }
+    return 0;
+}
+
+/* mselect_callback (L400..402): the add buttons follow the selection */
+static int jukebox_mselect(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
+                           ah_val *ret)
+{
+    (void)self;
+    menu *m = data;
+    ah_val authored;
+    *ret = ah_nil();
+    if (ah_get_own_member(vm, m->jukebox_root, "_mselect_callback_ps2", &authored) &&
+        ah_call(vm, authored, argc, argv, ret) < 0)
+        return -1;
+    int on = argc > 0 && ah_truthy(argv[0]);
+    for (int k = 0; k < 2; k++) {
+        ui_widget *w = jukebox_page_child(m, jukebox_folder_add[k]);
+        jukebox_attr(m, w, "active", on);
+        jukebox_attr(m, w, "can_focus", on);
+    }
+    return 0;
+}
+
+static int jukebox_folder_index(menu *m, ah_obj *self, const char *const names[2])
+{
+    for (int k = 0; k < 2; k++)
+        if (ah_host_data(self) == jukebox_page_child(m, names[k]))
+            return k;
+    return 0;
+}
+
+/* The Racing folder's own text with the folder's name in place of "Racing"
+   ("Racing playlist/No. of songs:" -> "Menu playlist/No. of songs:") */
+static void jukebox_folder_text(menu *m, const char *key, int k, char *out, size_t size)
+{
+    const char *text = ui_translate(m->ui, ((ui_widget *)ah_host_data(m->jukebox_root))->root,
+                                    NULL, key),
+               *word = text ? strstr(text, "Racing") : NULL;
+    if (word)
+        snprintf(out, size, "%.*s%s%s", (int)(word - text), text, jukebox_folder_label[k],
+                 word + strlen("Racing"));
+    else
+        snprintf(out, size, "%s playlist", jukebox_folder_label[k]);
+}
+
+/* PlayList1.onFocusEnter (L1421): "%s%d" of the folder's text and its count */
+static int jukebox_folder_focus(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
+                                ah_val *ret)
+{
+    (void)argc; (void)argv;
+    menu *m = data;
+    int k = jukebox_folder_index(m, self, jukebox_folder_row);
+    ah_val lists;
+    char text[160], line[176];
+    *ret = ah_nil();
+    ah_get_member(vm, m->jukebox_root, "music_list", &lists);
+    jukebox_folder_text(m, "TOOLTIP|FolderRace", k, text, sizeof text);
+    snprintf(line, sizeof line, "%s%d", text,
+             ah_array_size(ah_as_obj(ah_array_get(ah_as_obj(lists, AO_ARRAY), 3 + k), AO_ARRAY)));
+    ah_val arg = ah_str(vm, line), r;
+    return ah_call_member(vm, m->jukebox_root, "set_tooltip", 1, &arg, &r) < 0 ? -1 : 0;
+}
+
+/* PlayList1.onActivate (L1426) */
+static int jukebox_folder_open(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
+                               ah_val *ret)
+{
+    menu *m = data;
+    ah_val args[2] = {argc ? argv[0] : ah_nil(),
+                      ah_int(3 + jukebox_folder_index(m, self, jukebox_folder_row))};
+    *ret = ah_int(1);
+    return ah_call_member(vm, m->jukebox_root, "set_mode", 2, args, ret) < 0 ? -1 : 0;
+}
+
+/* Append1.onActivate (L1451..1459) */
+static int jukebox_folder_add_activate(ah_vm *vm, ah_obj *self, void *data, int argc,
+                                       const ah_val *argv, ah_val *ret)
+{
+    (void)argc; (void)argv;
+    menu *m = data;
+    ah_val active, sound, list, box, r;
+    *ret = ah_int(2);
+    int ok = ah_get_member(vm, self, "active", &active) && ah_truthy(active);
+    sound = ah_str(vm, ok ? "ok" : "disable");
+    if (ah_call_member(vm, m->jukebox_root, "seplay", 1, &sound, &r) < 0)
+        return -1;
+    if (ok && ah_get_member(vm, m->jukebox_root, "List", &list) &&
+        ah_get_member(vm, ah_as_obj(list, AO_MODULE), "list_box", &box)) {
+        ah_val mode = ah_int(3 + jukebox_folder_index(m, self, jukebox_folder_add));
+        if (ah_call_member(vm, ah_as_obj(box, AO_MODULE), "append_playlist", 1, &mode, &r) < 0)
+            return -1;
+    }
+    return 0;
+}
+
+/* Append1's TOOLTIP line ("Add to Racing playlist") for the folder */
+static int jukebox_folder_add_focus(ah_vm *vm, ah_obj *self, void *data, int argc,
+                                    const ah_val *argv, ah_val *ret)
+{
+    (void)argc; (void)argv;
+    menu *m = data;
+    char line[160];
+    jukebox_folder_text(m, "TOOLTIP|Append1", jukebox_folder_index(m, self, jukebox_folder_add),
+                        line, sizeof line);
+    ah_val arg = ah_str(vm, line), r;
+    *ret = ah_nil();
+    return ah_call_member(vm, m->jukebox_root, "set_tooltip", 1, &arg, &r) < 0 ? -1 : 0;
+}
+
+static void jukebox_replace(menu *m, ah_obj *page, const char *name, const char *keep,
+                            ah_native_fn fn)
+{
+    ah_val authored;
+    if (!ah_get_own_member(m->vm, page, keep, &authored) &&
+        ah_get_own_member(m->vm, page, name, &authored))
+        ah_set_member(m->vm, page, keep, authored);
+    if (fn)
+        ah_set_member(m->vm, page, name, ah_native(m->vm, name, fn, m));
+    else if (ah_get_own_member(m->vm, page, keep, &authored))
+        ah_set_member(m->vm, page, name, authored);
+}
+
+/* Before MusicRoot.onInitialize: the folders shown or the authored page back */
+static void jukebox_folders_layout(menu *m, ui_widget *page)
+{
+    int on = m->jukebox_folders;
+    if (on)
+        jukebox_folder_widgets(m, page);
+    if (!ui_widget_child(page, jukebox_folder_row[0]))
+        return;
+    m->jukebox_root = widget_module(m, page);
+    for (int i = 0; i < 3; i++) {
+        ui_widget *w = ui_widget_child(page, jukebox_moved[i]);
+        if (w)
+            w->y = jukebox_moved_y[on][i];
+    }
+    for (int k = 0; k < 2; k++) {
+        ui_widget *r = ui_widget_child(page, jukebox_folder_row[k]),
+                  *a = ui_widget_child(page, jukebox_folder_add[k]);
+        r->visible = a->visible = on;
+        if (on) {
+            menu_native_method(m, r, "onActivate", jukebox_folder_open, m);
+            menu_native_method(m, r, "onFocusEnter", jukebox_folder_focus, m);
+            menu_native_method(m, a, "onActivate", jukebox_folder_add_activate, m);
+            menu_native_method(m, a, "onFocusEnter", jukebox_folder_add_focus, m);
+        }
+    }
+    jukebox_attr(m, ui_widget_child(page, "Dot1"), "visible", 1);
+    jukebox_replace(m, m->jukebox_root, "set_mode_icons", "_set_mode_icons_ps2",
+                    on ? jukebox_mode_icons : NULL);
+    jukebox_replace(m, m->jukebox_root, "mselect_callback", "_mselect_callback_ps2",
+                    on ? jukebox_mselect : NULL);
+}
+
+/* After onInitialize's init_music_list (L311..329): the folders' lists */
+static void jukebox_folders_fill(menu *m)
+{
+    ah_vm *vm = m->vm;
+    ah_val lists, maps;
+    if (!m->jukebox_folders || !m->jukebox_root ||
+        !ah_get_member(vm, m->jukebox_root, "music_list", &lists) ||
+        !ah_get_member(vm, m->jukebox_root, "music_map", &maps))
+        return;
+    ah_obj *list = ah_as_obj(lists, AO_ARRAY), *map = ah_as_obj(maps, AO_ARRAY),
+           *base = map ? ah_as_obj(ah_array_get(map, 0), AO_ARRAY) : NULL;
+    if (!list || !base || ah_array_size(list) != 3)
+        return;
+    for (int k = 0; k < 2; k++) {
+        ah_obj *zero = ah_array_new(vm);
+        for (int i = 0; i < ah_array_size(base); i++)
+            ah_array_push(vm, zero, ah_int(0));
+        ah_array_push(vm, list, ah_objv(ah_array_new(vm)));
+        ah_array_push(vm, map, ah_objv(zero));
+    }
+    for (int k = 0; k < 2; k++)
+        for (int i = 0; i < m->jukebox_folder_count[k]; i++) {
+            ah_val args[2] = {ah_int(3 + k), ah_int(m->jukebox_folder_ids[k][i])}, r;
+            ah_call_member(vm, m->jukebox_root, "append_music_list", 2, args, &r);
+        }
+}
+
+int menu_jukebox_folders(menu *m, const int *const ids[2], const int counts[2])
+{
+    int root = m ? menu_active_root(m) : -1;
+    if (!m || (root >= 0 && m->entered[root]))
+        return 0;
+    m->jukebox_folders = ids && counts;
+    for (int k = 0; k < 2; k++) {
+        m->jukebox_folder_count[k] = 0;
+        for (int i = 0; m->jukebox_folders && i < counts[k] && i < 256; i++)
+            m->jukebox_folder_ids[k][m->jukebox_folder_count[k]++] = (short)ids[k][i];
+    }
+    return 1;
+}
+
+/* init_music_list (L327..329) fills the Library from default_library_playlist */
+int menu_jukebox_library_order(menu *m, const int *order, int count)
+{
+    ah_val main_;
+    if (!m || !m->jukebox_external || count < 0 || (count && !order) ||
+        !ah_get_member(m->vm, ah_root(m->vm), "main", &main_))
+        return 0;
+    ah_obj *list = ah_array_new(m->vm);
+    for (int i = 0; i < count; i++)
+        ah_array_push(m->vm, list, ah_int(order[i]));
+    ah_set_member(m->vm, ah_as_obj(main_, AO_MODULE), "default_library_playlist", ah_objv(list));
+    return 1;
+}
+
+int menu_jukebox_folder_result(menu *m, int folder, int *ids, int capacity)
+{
+    ah_val lists;
+    if (!m || !m->jukebox_folders || !m->jukebox_root || folder < 0 || folder > 1 || !ids ||
+        !ah_get_member(m->vm, m->jukebox_root, "music_list", &lists))
+        return -1;
+    ah_obj *list = ah_as_obj(ah_array_get(ah_as_obj(lists, AO_ARRAY), 3 + folder), AO_ARRAY);
+    int n = list ? ah_array_size(list) : -1;
+    if (n > capacity)
+        return -1;
+    for (int i = 0; i < n; i++)
+        ids[i] = (int)ah_num(ah_array_get(ah_as_obj(ah_array_get(list, i), AO_ARRAY), 3));
+    return n;
+}
+
+/* Leaving the slide project: on the PS2 exit_kick_project destroys the project
+   and its pages finalize, so MusicRoot.onFinalize (apply_bgm_playlist /
+   apply_slide_playlist, slide.ad L245..252) runs before the save. The cached
+   project here finalizes its stack instead, once; the next visit starts anew. */
+void menu_jukebox_finish(menu *m)
+{
+    if (!m || strcmp(ah_module_name(m->project), "SlideProject")) return;
+    while (m->depth) {
+        int root = m->pages[--m->depth];
+        if (m->entered[root])
+            finalize_page(m, root);
+    }
+    jukebox_store(m);
+    album_music_store(m);
+}
 static void album_music_bind(menu *m)
 {
     /* ../slide/musiccontrol.h uses the original config-main init_slideplaylist
@@ -544,7 +1034,7 @@ static void album_music_bind(menu *m)
    selection/order/shuffle separately from the race Jukebox. */
 static void album_music_store(menu *m)
 {
-    if (!m || !m->album_music_ready)
+    if (!m || !m->album_music_ready || m->jukebox_external)
         return;
     ah_vm *vm = m->vm;
     ah_val option, playlist, rows, shuffle;

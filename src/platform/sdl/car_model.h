@@ -16,6 +16,8 @@ typedef struct car_model_tag {
     /* cast: model 1 for the race's shadow alone, which lays it flat on the
        ground along the sun (func_004524B8). */
     gt4_model *cast;
+    /* glow: model 3, the lamps' light, drawn at night in the shadow's frame (func_00452998) */
+    gt4_model *glow;
     char code[96], model[32];
     car_color colors[128];
     int count, choice;
@@ -28,6 +30,9 @@ typedef struct car_model_tag {
     /* Brake vertices about the hub, texture indices into car's texture set.
        Steer/travel with the wheel; the calipers do not spin with the tire. */
     gt4_model *brake[4];
+    /* The brake's blended layers (hot disc glow, additive 0x48, and tint
+       0x44): drawn under its wheel block +0x28 alpha (00453798, 004A60E0). */
+    gt4_model *brake_glow[4];
     gt4_model *steering[GT4_MODEL_STEERING_MAX]; /* local meshes; parent textures */
     /* The race cameras' points on the car (CAR4 header +0x80 count, +0x84
        offset; 32 bytes each: x, y, z, then values the camera reads): where
@@ -49,6 +54,8 @@ typedef struct car_model_tag {
 typedef struct car_model_tables car_model_tables;
 car_model_tables *car_model_tables_open(gt4_vol *v);
 void car_model_tables_close(car_model_tables *t);
+/* the course's time of day for the cars loaded next (00387FB0; 0 day, the showroom's) */
+void car_model_tables_time_zone(car_model_tables *t, int zone);
 /* CARINFO geometry only, without decoding or uploading a second car mesh. */
 int car_model_race_driver(gt4_vol *v, const car_model_tables *t, const char *code, int cars,
                           gt4_driver_car *out);

@@ -29,6 +29,7 @@ struct ui_widget {
     const mp_node *src; /* description in the .mproject */
     const char *type;   /* "ImageFace", "Composite", ... */
     const char *name;
+    const char *tooltip_key; /* P: replaces src's tooltip_key (a widget cloned from another) */
     ui_widget *parent;
     ui_widget **kids;
     int nkids, kcap;
@@ -79,6 +80,8 @@ struct ui_widget {
     float photo_value, photo_min, photo_max, photo_step, photo_current, photo_repeat;
     float photo_saved; /* ScaleBar value kept while its popup is open (00238BE0), back on Cancel */
     int focus_index; /* SelectBox */
+    int hover_shown; /* P: index + 1 a mouse preview left showing over focus_index */
+    int list_repeat; /* authored ListBox/OptionMenu repeat property */
     int slider_range_set, slider_min, slider_max, slider_display_set;
     double slider_display_min, slider_display_max;
     float (*graph_points)[2], graph_line_width;
@@ -143,6 +146,9 @@ void ui_prepare_root_states(ui_project *p, int root, void (*progress)(void *), v
 /* Deep copy of a widget (detached, same screen); owned by the project. */
 /* Parse a native widget description; project owns its source and runtime. */
 ui_widget *ui_widget_from_text(ui_project *p, int resource_root, const char *description);
+/* Load an authored root into this project's ownership and resource cache. */
+ui_widget *ui_widget_from_project(ui_project *p, int resource_root, const char *project,
+                                  const char *root_name);
 ui_widget *ui_widget_copy(ui_project *p, const ui_widget *w);
 void ui_widget_append(ui_widget *parent, ui_widget *child);
 void ui_widget_detach(ui_widget *w);
@@ -163,6 +169,9 @@ ui_widget *ui_option_item(const ui_widget *w, int index);
 struct gt4_mot1 *ui_load_camera(ui_project *p, int root, const char *path);
 struct gt4_mot1 *ui_load_motion(ui_project *p, int root, const char *path);
 const uint8_t *ui_load_model_bytes(ui_project *p, int root, const char *path, size_t *size);
+/* Any packaged asset's bytes (root's package, the others, then loaded extras);
+   the caller frees them. */
+uint8_t *ui_load_asset(ui_project *p, int root, const char *path, size_t *size);
 int ui_load_package(ui_project *p, const char *directory, const char *name);
 void ui_adjust_size(ui_project *p, ui_widget *w);
 void ui_text_adjust_scale(ui_project *p, ui_widget *w);
@@ -180,6 +189,7 @@ int ui_pointer_position(const ui_project *p, float *x, float *y);
 void ui_main_menu_layout(ui_project *p, int expanded); /* P: optional main menu overview. */
 void ui_input_hints(ui_project *p, int device); /* 0 original, 1 keyboard/mouse */
 int ui_pointer_scroll(ui_project *p, int root, float x, float y, int wheel);
+void ui_pointer_pan_direction(ui_project *p, float dx, float dy);
 void ui_pointer_edge_scroll(ui_project *p, int root, float seconds);
 void ui_pointer_scroll_clear(ui_project *p);
 int ui_touch_drag(ui_project *p, int root, float x, float y, float dx, float dy);

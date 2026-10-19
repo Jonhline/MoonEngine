@@ -147,6 +147,9 @@ typedef struct {
     int shift_lamp;        /* func_003F3758 */
     int finished;          /* car+0x5B6 */
     float fuel, fuel_cap;  /* car+0x5D4, +0x5D0 (func_00354E60, func_00354E58); no tank at 0 */
+    int has_boost; /* 003F3790: engine turbo parameter is nonzero */
+    float boost;   /* 003446B0: live smoothed pressure */
+    uint8_t tire_rgb[4][3]; /* 003446D8 / 003677F8: live wheel condition */
     float rev_limit;       /* the tachometer's top: params+0x1074 * 100 (func_0036CDF8) */
     int aid;               /* the aids' sign: max(car+0x6FC, +0x6FD) */
     int brake_lock;        /* the brake sign: car+0x594 above 0.25 (func_00344658) */

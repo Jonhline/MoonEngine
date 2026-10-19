@@ -1143,6 +1143,9 @@ int gt4_race_run_hud(const gt4_race_run *r, int i, gt4_race_hud *out)
         out->tacho_scale = (float)(GT4_U8(params + 0x1075) * 1000);
     }
     out->odometer = GT4_U32(car + CAR_ENGINE_WEAR);
+    /* 0039D218 -> 003F3790 enables the onboard boost display. */
+    out->has_boost = GT4_F32(GT4_U32(car + CAR_PARAMS) + PARAMS_ENGINE + ENGINE_TURBO) != 0;
+    out->boost = GT4_F32(car + CAR_FIELD_BOOST_SMOOTH);
     out->fuel = GT4_F32(car + CAR_EXTRA_MASS);
     out->fuel_cap = GT4_F32(car + CAR_FUEL_TANK);
     out->rev_limit = (float)(GT4_U8(GT4_U32(car + CAR_PARAMS) + 0x1074) * 100);
@@ -1152,6 +1155,43 @@ int gt4_race_run_hud(const gt4_race_run *r, int i, gt4_race_hud *out)
     { /* func_003451D8: not held (+0x441), and a player's kind (0, 1) or 4 */
         int8_t kind = (int8_t)GT4_U8(car + CAR_POSITION + 0x466);
         out->driving = !GT4_U8(car + CAR_POSITION + 0x441) && (kind == 0 || kind == 4 || kind == 1);
+    }
+    /* 003D80A8: each tyre's colour by the car's wheel layout (00359538:
+       D_00620478 + params+0x30 * 0x54, kind 0..3) from its wheel's
+       condition (003446D8: car + wheel * 0xEC + 0x215) through 003677F8 */
+    int kind = GT4_U8(0x00620478u + GT4_U8(GT4_U32(car + CAR_PARAMS) + 0x30) * 0x54u);
+    /* 003D80A8 +0x10..0x58: black unless the race wears its tyres
+       (00367D40: cond+4 +0x68 or +0x69) and the player's car is watched */
+    int shown = (GT4_U8(r->cond + CONDUCTOR_FIELD_TYRE_STATE + 0x68) ||
+                 GT4_U8(r->cond + CONDUCTOR_FIELD_TYRE_STATE + 0x69)) &&
+                (i == 0 || out->driving);
+    for (int wheel = 0; wheel < 4; wheel++) {
+        if (!shown) {
+            memset(out->tire_rgb[wheel], 0, 3);
+            continue;
+        }
+        int k = kind == 1   ? (wheel < 2 ? 0 : wheel - 1)
+                : kind == 2 ? (wheel < 3 ? wheel : 2)
+                : kind == 3 ? wheel >> 1
+                            : wheel;
+        int t = (int8_t)GT4_U8(car + (uint32_t)k * 0xec + 0x215);
+        uint8_t r = 0, gg = 0, b = 0;
+        if (t >= 0x40) {
+            r = 0xfc;
+            gg = (uint8_t)((0x7f - t) * 2);
+        } else if (t >= 0x20) {
+            r = 0xfc;
+            gg = (uint8_t)((0x5f - t) * 4);
+        } else if (t >= 0) {
+            r = (uint8_t)(t * 8);
+            gg = 0xfc;
+        } else if (t >= -0x3f) {
+            b = (uint8_t)(-t * 4);
+            gg = (uint8_t)(0xfc + t * 4);
+        }
+        out->tire_rgb[wheel][0] = r;
+        out->tire_rgb[wheel][1] = gg;
+        out->tire_rgb[wheel][2] = b;
     }
     return 1;
 }

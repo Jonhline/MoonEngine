@@ -135,6 +135,7 @@ struct race_game {
     SDL_JoystickID pad_id;
     int pause_keys[7]; /* Start, D-pad and both pause confirmation buttons. */
     int confirm_held;
+    char hud_names[6][128]; /* 003B4D80 -> 00445450: CAR_NAME short string (+8). */
     char names[6][96];          /* each car's name (CAR_NAME, the StrDB's) */
     gt4_motion_bank *start_cam; /* the course's start camera motions (header +0xD0) */
     int start_cam_tried, start_cam_on;
@@ -391,14 +392,18 @@ static int host_write(void *u, uint32_t car, const uint8_t *out)
         return 0;
     /* 00353EE8 writes out[2], 0x80 centred. Publish only that byte;
        the original force calculation and steering response are untouched. */
-    int force_on = playing && !playing->pause && !playing->photo_held && !playing->replaying;
+    int force_on = playing && !playing->pause && !playing->photo_held && !playing->replaying &&
+                   !playing->demonstrating;
     plat_input_set_ffb(port, force_on ? (128.f - out[2]) / 127.f : 0.f);
-    rumble_pad = menu_option_number(NULL, port ? "vibration_2p" : "vibration_1p", 1)
-                     ? plat_sdl_pad(port)
-                     : NULL;
+    int rumble_on =
+        force_on && menu_option_number(NULL, port ? "vibration_2p" : "vibration_1p", 1);
+    rumble_pad = plat_sdl_pad(port);
+    /* Playback is not a driven pad. Send zero as well as gating new output,
+       so a live-race pulse cannot remain active when playback takes over. */
     if (rumble_pad)
-        SDL_GameControllerRumble(rumble_pad, (uint16_t)(out[1] > 127 ? 65535 : out[1] * 516),
-                                 (uint16_t)(out[0] ? 32768 : 0), 100);
+        SDL_GameControllerRumble(rumble_pad,
+                                 rumble_on ? (uint16_t)(out[1] > 127 ? 65535 : out[1] * 516) : 0,
+                                 rumble_on && out[0] ? 32768 : 0, 100);
     return 1;
 }
 
@@ -599,6 +604,11 @@ void race_game_stop(race_game *g)
     memset(&g->cinema, 0, sizeof g->cinema);
     plat_input_set_ffb(0, 0);
     plat_input_set_ffb(1, 0);
+    for (int port = 0; port < 2; port++) {
+        SDL_GameController *pad = plat_sdl_pad(port);
+        if (pad)
+            SDL_GameControllerRumble(pad, 0, 0, 0);
+    }
     if (g->mission_test_pad) {
         fclose(g->mission_test_pad);
         g->mission_test_pad = NULL;
@@ -831,13 +841,20 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
             vol ? gt4_vol_read(vol, "/specdb/GT4_US2560/american_StrDB.sdb", &ns) : NULL;
         for (int i = 0; i < 6; i++) {
             uint8_t row[256];
-            const char *s = NULL;
-            if (i < d.cars && names && strs &&
-                gt4_specdb_row(names, nn, d.car[i], row, sizeof row) >= 4)
+            const char *s = NULL, *short_name = NULL;
+            int row_size = i < d.cars && names && strs
+                               ? gt4_specdb_row(names, nn, d.car[i], row, sizeof row) : 0;
+            if (row_size >= 4)
                 s = gt4_specdb_string(strs, ns,
                                       (uint32_t)row[0] | (uint32_t)row[1] << 8 |
                                           (uint32_t)row[2] << 16 | (uint32_t)row[3] << 24);
             snprintf(g->names[i], sizeof g->names[i], "%s", s ? s : "");
+            /* 00445450 reads CAR_NAME +8; results/full names use +0. */
+            if (row_size >= 12)
+                short_name = gt4_specdb_string(strs, ns,
+                    (uint32_t)row[8] | (uint32_t)row[9] << 8 |
+                    (uint32_t)row[10] << 16 | (uint32_t)row[11] << 24);
+            snprintf(g->hud_names[i], sizeof g->hud_names[i], "%s", short_name ? short_name : "");
         }
         free(names);
         free(strs);
@@ -2045,7 +2062,7 @@ static void update_wheel_motion(race_game *g, int entry, const float rot[9])
     uint32_t car = gt4_race_run_car(g->run, entry);
     if (!car)
         return;
-    float current[4] = {0}, previous[4] = {0};
+    float current[4] = {0}, previous[4] = {0}, heat[4] = {0};
     for (int k = 0; k < gt4_car_wheels(car) && k < 4; k++) {
         uint32_t w = gt4_car_wheel(car, k);
         float rr[3] = {GT4_F32(w + WHEEL_MOUNT), GT4_F32(w + WHEEL_MOUNT + 8),
@@ -2055,7 +2072,9 @@ static void update_wheel_motion(race_game *g, int entry, const float rot[9])
         int slot = (z > 0 ? 2 : 0) + (x > 0 ? 0 : 1); /* same render slots as race_run_pose */
         current[slot] = GT4_F32(w + WHEEL_ROTATION);
         previous[slot] = GT4_F32(car + CAR_WHEEL_TURNS + k * 4);
+        heat[slot] = GT4_F32(w + 0xa4); /* 003F38D8 brake heat; 003D75F0 reads it */
     }
+    race_view_set_brake_heat(g->view, (unsigned)entry, heat);
     race_view_set_wheel_motion(g->view, (unsigned)entry, current, previous,
                                GT4_F32(car + CAR_VIEW_BLEND));
 }
@@ -2723,6 +2742,7 @@ void race_game_update(race_game *g, double dt)
 
 static int race_game_draw_scene(race_game *g)
 {
+    if(g && g->run) race_view_daylight_time(g->view,gt4_race_run_frames(g->run)/60.);
     if (!g || !g->ready)
         return 0;
     if (g->split) {

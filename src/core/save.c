@@ -234,7 +234,7 @@ int gt4_save_write(const char *path, const uint8_t *data, size_t size)
 }
 static struct {
     char dir[1100], error[256];
-    int slot, dirty;
+    int slot, dirty, pending_slot;
     ah_vm *vm;
     ah_obj *game;
 } session;
@@ -312,12 +312,16 @@ static void fresh(const char *name)
             ah_set_member(session.vm, o, "records", ah_objv(ah_array_new(session.vm)));
     }
 }
-static int active_index(int slot)
+static int active_index_with_writer(int slot, gt4_save_writer write, void *user)
 {
     char path[1200];
     snprintf(path, sizeof path, "%s/active.ogt4", session.dir);
     uint8_t b = (uint8_t)slot;
-    return gt4_save_write(path, &b, 1);
+    return write ? write(path, &b, 1, user) : gt4_save_write(path, &b, 1);
+}
+static int active_index(int slot)
+{
+    return active_index_with_writer(slot, NULL, NULL);
 }
 void gt4_save_shutdown(void)
 {
@@ -326,6 +330,16 @@ void gt4_save_shutdown(void)
     memset(&session, 0, sizeof session);
 }
 void gt4_save_init(const char *directory)
+{
+    gt4_save_init_pending(directory);
+    if (session.pending_slot)
+        gt4_save_load_slot(session.pending_slot);
+}
+int gt4_save_pending_slot(void)
+{
+    return session.pending_slot;
+}
+void gt4_save_init_pending(const char *directory)
 {
     gt4_save_shutdown();
     if (directory && strlen(directory) < sizeof session.dir)
@@ -344,8 +358,8 @@ void gt4_save_init(const char *directory)
     if (gt4_save_read(path, &data, &size, NULL) > 0) {
         int slot = size == 1 ? data[0] : 0;
         free(data);
-        if (slot)
-            gt4_save_load_slot(slot);
+        if (slot >= 1 && slot <= GT4_SAVE_SLOTS)
+            session.pending_slot = slot;
     }
 }
 int gt4_save_active(void)
@@ -360,6 +374,10 @@ void gt4_save_mark_dirty(void)
 int gt4_save_dirty(void)
 {
     return session.dirty;
+}
+void gt4_save_report_error(const char *message)
+{
+    error(message ? message : "");
 }
 const char *gt4_save_error(void)
 {
@@ -394,6 +412,17 @@ int gt4_save_info_get(int slot, gt4_save_info *info)
 }
 int gt4_save_load_slot(int slot)
 {
+    return gt4_save_load_slot_with_reader(slot, NULL, NULL);
+}
+int gt4_save_load_slot_with_reader(int slot,
+                                   int (*read)(const char *, uint8_t **, size_t *, void *),
+                                   void *user)
+{
+    return gt4_save_load_slot_with_io(slot, read, NULL, user);
+}
+int gt4_save_load_slot_with_io(int slot, int (*read)(const char *, uint8_t **, size_t *, void *),
+                               gt4_save_writer write, void *user)
+{
     char path[1200];
     if (!slotpath(slot, path, sizeof path)) {
         error("Invalid save slot.");
@@ -401,7 +430,7 @@ int gt4_save_load_slot(int slot)
     }
     uint8_t *data;
     size_t size;
-    int status = gt4_save_read(path, &data, &size, NULL);
+    int status = read ? read(path, &data, &size, user) : gt4_save_read(path, &data, &size, NULL);
     if (status <= 0) {
         error(status == -3 ? "This save requires a newer Moon Engine version."
                            : "The save could not be loaded.");
@@ -419,7 +448,7 @@ int gt4_save_load_slot(int slot)
         error("The save contains invalid game data.");
         return 0;
     }
-    if (!active_index(slot)) {
+    if (!active_index_with_writer(slot, write, user)) {
         ah_vm_free(vm);
         error("The selected profile could not be recorded.");
         return 0;
@@ -428,9 +457,42 @@ int gt4_save_load_slot(int slot)
     session.vm = vm;
     session.game = game;
     session.slot = slot;
+    session.pending_slot = 0;
     session.dirty = 0;
     error(status == 2 ? "Loaded the backup because the main save was damaged." : "");
     return 1;
+}
+int gt4_save_export_destination(const char *destination)
+{
+    if (!destination || !*destination) return 0;
+#ifdef _WIN32
+    wchar_t *input=wide(destination), *directory=wide(session.dir);
+    wchar_t target[1200], root[1200];
+    DWORD a=input ? GetFullPathNameW(input,1200,target,NULL) : 0;
+    DWORD b=directory ? GetFullPathNameW(directory,1200,root,NULL) : 0;
+    free(input); free(directory);
+    if (!a || a>=1200 || !b || b>=1200) return 0;
+    for (wchar_t *p=target;*p;p++) if (*p==L'/') *p=L'\\';
+    for (wchar_t *p=root;*p;p++) if (*p==L'/') *p=L'\\';
+    while (b && root[b-1]==L'\\') root[--b]=0;
+    if (!_wcsnicmp(target,root,b) && (!target[b] || target[b]==L'\\')) return 0;
+#endif
+    return 1;
+}
+int gt4_save_export_profile(int slot, const char *destination)
+{
+    gt4_save_info info;
+    char path[1200];
+    uint8_t *data=NULL; size_t size=0;
+    if (!gt4_save_export_destination(destination) || !slotpath(slot,path,sizeof path) ||
+        gt4_save_info_get(slot,&info)<=0 || gt4_save_read(path,&data,&size,NULL)<=0) {
+        error("Choose a valid saved profile and export outside the live save folder.");
+        return 0;
+    }
+    int ok=gt4_save_write(destination,data,size);
+    free(data);
+    error(ok ? "" : "Could not write the exported profile. Your saved player was kept.");
+    return ok;
 }
 int gt4_save_read_profile(ah_vm *vm, ah_obj *game, int slot)
 {
@@ -447,6 +509,11 @@ int gt4_save_read_profile(ah_vm *vm, ah_obj *game, int slot)
 }
 int gt4_save_store(void)
 {
+    return gt4_save_store_with_writer(NULL, NULL);
+}
+int gt4_save_store_with_writer(int (*write)(const char *, const uint8_t *, size_t, void *),
+                               void *user)
+{
     char path[1200];
     if (!slotpath(session.slot, path, sizeof path)) {
         error("Create or load a player profile first.");
@@ -458,7 +525,7 @@ int gt4_save_store(void)
         error("The current game state could not be serialized.");
         return 0;
     }
-    int ok = gt4_save_write(path, data, size);
+    int ok = write ? write(path, data, size, user) : gt4_save_write(path, data, size);
     free(data);
     if (ok) {
         session.dirty = 0;
@@ -468,6 +535,10 @@ int gt4_save_store(void)
     return ok;
 }
 int gt4_save_create(int slot, const char *name)
+{
+    return gt4_save_create_with_writer(slot, name, NULL, NULL);
+}
+int gt4_save_create_with_writer(int slot, const char *name, gt4_save_writer write, void *user)
 {
     char path[1200];
     gt4_save_info info;
@@ -481,7 +552,7 @@ int gt4_save_create(int slot, const char *name)
     }
     ah_vm *old = session.vm;
     ah_obj *game = session.game;
-    int previous = session.slot;
+    int previous = session.slot, previous_dirty = session.dirty;
     session.vm = NULL;
     fresh(name);
     ah_val options;
@@ -496,19 +567,25 @@ int gt4_save_create(int slot, const char *name)
         }
     }
     session.slot = slot;
-    if (!gt4_save_store() || !active_index(slot)) {
+    if (!gt4_save_store_with_writer(write, user) || !active_index_with_writer(slot, write, user)) {
         ah_vm_free(session.vm);
         session.vm = old;
         session.game = game;
         session.slot = previous;
+        session.dirty = previous_dirty;
         error("The new profile could not be activated.");
         return 0;
     }
     ah_vm_free(old);
     session.dirty = 0;
+    session.pending_slot = 0;
     return 1;
 }
 int gt4_save_rename(const char *name)
+{
+    return gt4_save_rename_with_writer(name, NULL, NULL);
+}
+int gt4_save_rename_with_writer(const char *name, gt4_save_writer write, void *user)
 {
     if (!session.slot || !valid_name(name)) {
         error("Enter a valid player name.");
@@ -517,7 +594,7 @@ int gt4_save_rename(const char *name)
     ah_val old;
     ah_get_member(session.vm, session.game, "username", &old);
     ah_set_member(session.vm, session.game, "username", ah_str(session.vm, name));
-    if (gt4_save_store())
+    if (gt4_save_store_with_writer(write, user))
         return 1;
     ah_set_member(session.vm, session.game, "username", old);
     return 0;
@@ -618,8 +695,10 @@ int gt4_save_capture(ah_vm *vm, ah_obj *game, int dirty)
             keep[k] = gt4_save_option_blob_get(names[k], playlists[k], sizeof playlists[k]);
     uint8_t *data;
     size_t size;
-    if (!gt4_state_pack(vm, game, &data, &size))
+    if (!gt4_state_pack(vm, game, &data, &size)) {
+        error("The current game state could not be serialized.");
         return 0;
+    }
     int ok = gt4_state_merge(session.vm, session.game, data, size);
     free(data);
     unsigned version = playlist_version;
@@ -686,6 +765,10 @@ int gt4_save_auto_enabled(void)
 
 int gt4_save_import_ps2(int slot, const char *path)
 {
+    return gt4_save_import_ps2_with_writer(slot, path, NULL, NULL);
+}
+int gt4_save_import_ps2_with_writer(int slot, const char *path, gt4_save_writer write, void *user)
+{
     gt4_save_info info;
     char native_path[1200];
     if (!slotpath(slot, native_path, sizeof native_path) || gt4_save_info_get(slot, &info) != 0) {
@@ -706,7 +789,27 @@ int gt4_save_import_ps2(int slot, const char *path)
             free(data);
         }
     }
-    if (!gt4_ps2_read(path, vm, game, session.error, sizeof session.error)) {
+    /* Native exports use the existing checksummed OGT4SAVE envelope. Read
+       exactly the selected file: an invalid import must not silently select
+       a neighbouring backup. Other formats retain the PS2 importer. */
+    FILE *source=openfile(path,"rb");
+    uint8_t signature[8]={0};
+    if (source) { fread(signature,1,sizeof signature,source); fclose(source); }
+    int native=!memcmp(signature,"OGT4SAVE",8);
+    int imported=0;
+    if (native) {
+        uint8_t *payload=NULL; size_t payload_size=0;
+        imported=read_one(path,&payload,&payload_size,NULL)==1 &&
+                 gt4_state_merge(vm,game,payload,payload_size);
+        free(payload);
+        ah_val username;
+        imported=imported && ah_get_member(vm,game,"username",&username) &&
+                 valid_name(ah_cstr(username));
+        if (!imported) error("Invalid or unsupported native save. Your current player was kept.");
+    } else {
+        imported=gt4_ps2_read(path, vm, game, session.error, sizeof session.error);
+    }
+    if (!imported) {
         ah_vm_free(vm);
         return 0;
     }
@@ -717,14 +820,14 @@ int gt4_save_import_ps2(int slot, const char *path)
         error("This imported save exceeds the supported size.");
         return 0;
     }
-    int ok = gt4_save_write(native_path, data, size);
+    int ok = write ? write(native_path, data, size, user) : gt4_save_write(native_path, data, size);
     free(data);
     if (!ok) {
         ah_vm_free(vm);
-        error("The imported profile could not be written. The original PS2 save was kept.");
+        error("The imported profile could not be written. The source save was kept.");
         return 0;
     }
-    if (!active_index(slot)) {
+    if (!active_index_with_writer(slot, write, user)) {
         ah_vm_free(vm);
         error("Save imported, but could not be activated. Select its card to load it.");
         return 0;
@@ -734,6 +837,7 @@ int gt4_save_import_ps2(int slot, const char *path)
     session.game = game;
     session.slot = slot;
     session.dirty = 0;
+    session.pending_slot = 0;
     error("");
     return 1;
 }

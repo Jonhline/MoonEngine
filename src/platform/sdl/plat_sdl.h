@@ -20,6 +20,9 @@ typedef struct {
     int mouse_absolute, mouse_button; /* P: 1/2 releases, 3 left press, 4 left-held motion. */
     int mouse, mouse_x, mouse_y, wheel; /* PC camera events, never PS2 pad keys */
 } plat_key_event;
+/* Desktop Input: confine only fullscreen mouse, never keyboard/Alt+Tab. */
+void plat_sdl_confine_mouse(int enabled);
+int plat_sdl_mouse_should_confine(int enabled, unsigned window_flags);
 
 /* Handles window events; returns 1 and fills ev for each key press. */
 int plat_sdl_poll(plat_key_event *ev);
@@ -41,6 +44,7 @@ SDL_GameController *plat_sdl_pad(int index); /* borrowed until disconnect/shutdo
    Delete), 0 none; *release for its letting go */
 int plat_sdl_ps2_key(const SDL_Event *e, int *release);
 unsigned plat_sdl_menu_buttons(void);
+unsigned plat_sdl_menu_directions(int desktop_keys);
 int plat_sdl_controller_key(const SDL_Event *event);
 SDL_Window *plat_sdl_window(void);
 /* RGBA pixels of the current frame (before present), top row first; the

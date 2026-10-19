@@ -1,6 +1,6 @@
 #include "platform/switch_profile.h"
 #include "showroom.h"
-#ifdef __SWITCH__
+#if !defined(__ANDROID__)
 #include "switch_render.h"
 #endif
 #include "showroom_math.h"
@@ -83,6 +83,11 @@ struct showroom {
 #ifdef __SWITCH__
     switch_gpu_image *gpu_studio, *gpu_env;
     int gpu_env_ready;
+#endif
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    switch_gpu_image *pc_env;
+    int reflection_size, pc_env_ready, panel_basis_on;
+    float panel_basis[9];
 #endif
     float light_time;
     int restart_light;
@@ -981,6 +986,16 @@ static float car_rotation(const showroom *s)
 }
 static void render_panels(showroom *s)
 {
+    int env_size = ENV_SIZE;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    if (s->reflection_size) env_size = s->reflection_size;
+    if (!s->panel_basis_on) {
+        memcpy(s->panel_basis, s->cam_r, 12);
+        memcpy(s->panel_basis + 3, s->cam_u, 12);
+        memcpy(s->panel_basis + 6, s->cam_f, 12);
+        s->panel_basis_on = 1;
+    }
+#endif
     static const float ENV_EYE[3] = {0, .8f, 0};
     const float axes[6][2][3] = {{{1, 0, 0}, {0, 1, 0}},  {{-1, 0, 0}, {0, 1, 0}},
                                  {{0, 0, 1}, {0, 1, 0}},  {{0, 0, -1}, {0, 1, 0}},
@@ -994,7 +1009,7 @@ static void render_panels(showroom *s)
     if (faces)
         memset(faces, 0, (size_t)6 * 448 * 448 * 4);
     for (int i = 0; i < 4; i++)
-        if (!(s->panel_maps[i] = malloc((size_t)ENV_SIZE * ENV_SIZE * 4))) {
+        if (!(s->panel_maps[i] = malloc((size_t)env_size * env_size * 4))) {
             free(faces);
             faces = NULL;
             break;
@@ -1028,10 +1043,10 @@ static void render_panels(showroom *s)
                            s->pixels + ((size_t)y * s->rw + ex0) * 4, (size_t)ew * 4);
             }
         }
-        for (int y = 0; y < ENV_SIZE; y++)
-            for (int x = 0; x < ENV_SIZE; x++) {
+        for (int y = 0; y < env_size; y++)
+            for (int x = 0; x < env_size; x++) {
                 /* sphere-map texel -> view-space reflection -> world direction */
-                float mx = ((x + .5f) / ENV_SIZE - .5f) * 2, my = -((y + .5f) / ENV_SIZE - .5f) * 2,
+                float mx = ((x + .5f) / env_size - .5f) * 2, my = -((y + .5f) / env_size - .5f) * 2,
                       m2 = mx * mx + my * my;
                 if (m2 > 1) {
                     float k = 1 / sqrtf(m2);
@@ -1042,7 +1057,11 @@ static void render_panels(showroom *s)
                 float nz = sqrtf(1 - m2), R[3] = {2 * nz * mx, 2 * nz * my, 2 * nz * nz - 1};
                 float D[3];
                 for (int k = 0; k < 3; k++)
+                    #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+                    D[k] = R[0] * s->panel_basis[k] + R[1] * s->panel_basis[3 + k] - R[2] * s->panel_basis[6 + k];
+#else
                     D[k] = R[0] * r[k] + R[1] * u[k] - R[2] * f[k];
+#endif
                 int best = 0;
                 float big = -1;
                 for (int face = 0; face < 6; face++) {
@@ -1060,7 +1079,7 @@ static void render_panels(showroom *s)
                       sy = (D[0] * uu[0] + D[1] * uu[1] + D[2] * uu[2]) / big;
                 int px = (int)fminf(447, fmaxf(0, 224 + sx * 224)),
                     py = (int)fminf(447, fmaxf(0, 224 - sy * 224));
-                memcpy(s->panel_maps[i] + ((size_t)y * ENV_SIZE + x) * 4,
+                memcpy(s->panel_maps[i] + ((size_t)y * env_size + x) * 4,
                        faces + (((size_t)best * 448 + py) * 448 + px) * 4, 4);
             }
     }
@@ -1072,9 +1091,9 @@ static void render_panels(showroom *s)
     s->focal = focal;
     s->yaw = yaw;
     s->studio_env.width = s->studio_env.height = s->studio_env.tex_w = s->studio_env.tex_h =
-        ENV_SIZE;
-    s->studio_env.max_u = s->studio_env.max_v = ENV_SIZE - 1;
-    s->studio_env.rgba = malloc((size_t)ENV_SIZE * ENV_SIZE * 4);
+        env_size;
+    s->studio_env.max_u = s->studio_env.max_v = env_size - 1;
+    s->studio_env.rgba = malloc((size_t)env_size * env_size * 4);
     s->panel_ready = s->studio_env.rgba ? 1 : -1;
 }
 /* The reflections at time t: the panel maps summed with their raw Alpha
@@ -1090,7 +1109,7 @@ static const tex1_image *compose_env(showroom *s, float t)
         if (!gt4_mot1_value(s->light, names[i], t, &w[i]) || w[i] < 0)
             w[i] = 0;
     uint8_t *o = s->studio_env.rgba;
-    for (size_t at = 0; at < (size_t)ENV_SIZE * ENV_SIZE * 4; at += 4) {
+    for (size_t at = 0; at < (size_t)s->studio_env.width * s->studio_env.height * 4; at += 4) {
         for (int c = 0; c < 3; c++) {
             float v = 0;
             for (int i = 0; i < 4; i++)
@@ -1101,6 +1120,10 @@ static const tex1_image *compose_env(showroom *s, float t)
     }
     return &s->studio_env;
 }
+
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+#include "showroom_reflection_quality.inc"
+#endif
 
 /* light.mot's four lights at time t, in scene coordinates. Records 0x0C,
    0x0D, 0x0E, 0x0F read as diffuse, ambient, specular and position (our
@@ -1319,6 +1342,10 @@ static void draw_gpu(showroom *s)
         if (s->gpu_env_ready)
             r3d_gpu_environment(video_texture_id(switch_gpu_image_texture(s->gpu_env)), ENV_SIZE,
                                 ENV_SIZE);
+#elif !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+        if (s->pc_env_ready)
+            r3d_gpu_environment(video_texture_id(switch_gpu_image_texture(s->pc_env)),
+                                s->reflection_size, s->reflection_size);
 #endif
     }
     /* The captain's rule: the floor is a mirror. First layer: the car's mirrored pass
@@ -1363,6 +1390,10 @@ static void draw_gpu(showroom *s)
         if (s->gpu_env_ready)
             r3d_gpu_environment(video_texture_id(switch_gpu_image_texture(s->gpu_env)), ENV_SIZE,
                                 ENV_SIZE);
+#elif !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+        if (s->pc_env_ready)
+            r3d_gpu_environment(video_texture_id(switch_gpu_image_texture(s->pc_env)),
+                                s->reflection_size, s->reflection_size);
 #endif
     }
     if (s->active && s->showing) {
@@ -2042,6 +2073,9 @@ void showroom_close(showroom *s)
     switch_gpu_image_destroy(s->gpu_studio);
     switch_gpu_image_destroy(s->gpu_env);
 #endif
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    switch_gpu_image_destroy(s->pc_env);
+#endif
     plat_texture_destroy(s->shadow_tex);
     plat_texture_destroy(s->face_page);
     if (s->wake)
@@ -2119,6 +2153,10 @@ int showroom_draw(showroom *s, const char *code, float dt)
     SDL_UnlockMutex(s->lock);
     if (studio_loaded && !s->layers_ready && !s->white_studio)
         render_layers(s);
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    if (studio_loaded && panels_loaded)
+        showroom_reflection_resize(s);
+#endif
     if (studio_loaded && panels_loaded && !s->panel_ready)
         render_panels(s);
     /* The light timeline restarts when the showroom is entered (a maker is
@@ -2181,7 +2219,12 @@ int showroom_draw(showroom *s, const char *code, float dt)
         }
         s->env_now = s->face || s->gpu_env_ready ? NULL : compose_env(s, t);
 #else
+#if !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+        s->pc_env_ready = 0;
+        s->env_now = s->face && !s->face->studio_presentation ? NULL : showroom_reflection_compose(s, t);
+#else
         s->env_now = s->face && !s->face->studio_presentation ? NULL : compose_env(s, t);
+#endif
 #endif
         if (s->env_now)
             r3d_environment_changed();

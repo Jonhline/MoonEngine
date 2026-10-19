@@ -1214,6 +1214,41 @@ static int home_garage(const char *disc)
     for (int i = 0; i < rows->nkids; i++)
         visible += rows->kids[i]->visible != 0;
     CHECK(visible==3 && !script_errors);
+    /* Reuse the Home widget across ownership changes, not a fresh project. */
+    arg = ah_int(0);
+    CHECK(ah_call_member(vm, garage, "setRidingCar", 1, &arg, &ret) == 1);
+    menu_save_capture(m);
+    CHECK(enter_named(m, "HomeRoot"));
+    ticks(m);
+    ui_widget *face = kid(kid(ui_root_widget(m->ui, menu_active_root(m)), "Car"), "CarFace");
+    CHECK(face && face->car_code && !strcmp(face->car_code, "ka_01"));
+    CHECK(enter_named(m, "GarageRoot"));
+    ticks(m);
+    garage = get(vm, game_object(m), "garage").u.o;
+    ah_obj *owned = get(vm, garage, "cars").u.o;
+    for (int i = 0; i < ah_array_size(owned); i++) {
+        if (ah_array_get(owned, i).t == AV_NIL)
+            continue;
+        arg = ah_int(i);
+        CHECK(ah_call_member(vm, garage, "delCar", 1, &arg, &ret) == 1);
+    }
+    CHECK(ah_call_member(vm, garage, "getCount", 0, NULL, &ret) == 1 && ret.u.i == 0);
+    menu_save_capture(m);
+    CHECK(enter_named(m, "HomeRoot"));
+    ticks(m);
+    if (getenv("GT4_EMPTY_HOME_NEGATIVE"))
+        face->car_code = strdup("ka_01");
+    CHECK(!face->car_code && !script_errors);
+    garage = get(vm, game_object(m), "garage").u.o;
+    ah_val bought[] = {ah_str(vm, "crx_sir_90"), ah_int(0)};
+    CHECK(ah_call_member(vm, garage, "addNewCar", 2, bought, &arg) == 1);
+    CHECK(ah_call_member(vm, garage, "setRidingCar", 1, &arg, &ret) == 1);
+    menu_save_capture(m);
+    CHECK(enter_named(m, "GarageRoot"));
+    ticks(m);
+    CHECK(enter_named(m, "HomeRoot"));
+    ticks(m);
+    CHECK(face->car_code && !strcmp(face->car_code, "crx_sir_90") && !script_errors);
     puts(
         "PASS authored Home Garage: list, 30 fields, 13 sorts both directions, filters, CarView, Change/Auto Save/reload, sale and 13-car pagination");
     menu_close(m);

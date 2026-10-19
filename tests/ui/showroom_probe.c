@@ -143,6 +143,34 @@ static void benchmark(showroom *s, race_view *v, const char *car)
     fprintf(stderr, "renderer frame: %u draws, %u triangles, %u groups culled\n", stats.draws,
             stats.triangles, stats.culled_groups);
 }
+static int reflection_cycle(showroom *s, const char *car, const char *path)
+{
+    uint8_t *original = NULL;
+    int ok = 1;
+    const int modes[] = {0, 1, 2, 0};
+    for (int i = 0; i < 4; i++) {
+        r3d_reflection_quality(modes[i]);
+        plat_video_begin_frame();
+        showroom_draw(s, car, 0);
+        int width, height;
+        uint8_t *pixels = plat_sdl_read_pixels(&width, &height);
+        if (!pixels) { free(original); return 0; }
+        if (!i) original = pixels;
+        else {
+            if (i == 3) ok = !memcmp(original, pixels, (size_t)width * height * 4);
+            size_t length;
+            void *png = tdefl_write_image_to_png_file_in_memory(pixels, width, height, 4, &length);
+            char name[1024]; snprintf(name, sizeof name, "%s-quality%d.png", path, modes[i]);
+            FILE *f = png ? fopen(name, "wb") : NULL;
+            if (f) { fwrite(png, 1, length, f); fclose(f); }
+            mz_free(png); free(pixels);
+        }
+        plat_video_end_frame();
+    }
+    free(original);
+    fprintf(stderr, "studio reflection cycle: %s Original restoration\n", ok ? "PASS" : "FAIL");
+    return ok;
+}
 int main(int argc, char **argv)
 {
     if (argc < 4) {
@@ -314,6 +342,8 @@ int main(int argc, char **argv)
             ok ? "PASS" : "FAIL");
         return ok ? 0 : 1;
     }
+    if (getenv("PROBE_REFLECTION_QUALITY"))
+        r3d_reflection_quality(atoi(getenv("PROBE_REFLECTION_QUALITY")));
     showroom *s = showroom_open(argv[1]);
     if (!s)
         return 1;
@@ -347,6 +377,9 @@ int main(int argc, char **argv)
            through the race canvas and attribute its stretch to the model. */
         plat_video_set_view(640, 480);
         int wash = !strcmp(getenv("MOON_PROBE_SERVICE"), "wash");
+        /* OilChangeRoot L12050..12077: 4WD enters with the start pair at
+           alignment 9 and leaves with the end pair at alignment 10. */
+        int awd = !wash && getenv("MOON_PROBE_SERVICE_4WD");
         const char *error = NULL;
         size_t bytes = 0;
         gt4_vol *vol = gt4_vol_open(argv[1], &error);
@@ -363,10 +396,16 @@ int main(int argc, char **argv)
             wash ? "image/gtmode/gtauto/carwash_motion2.mot"
                  : "image/gtmode/gtauto/oil_change_cart.mot",
             "image/gtmode/gtauto/carwash_cloth1.mot", "image/gtmode/gtauto/carwash_cloth2.mot"};
+        if (awd) {
+            qpaths[0] = "image/gtmode/gtauto/oil_change_start.mot";
+            qpaths[1] = "image/gtmode/gtauto/oil_change_cart_start.mot";
+            qpaths[2] = "image/gtmode/gtauto/oil_change_end.mot";
+            qpaths[3] = "image/gtmode/gtauto/oil_change_cart_end.mot";
+        }
         uint8_t *models[2] = {0};
         gt4_service_model bank[2] = {0};
         gt4_service_motion tracks[4] = {0};
-        int count = wash ? 4 : 2, ok = ready && package;
+        int count = wash || awd ? 4 : 2, ok = ready && package;
         for (int i = 0; i < 2; i++) {
             size_t n = 0;
             models[i] = package ? gpb_load(package, bytes, mpaths[i], &n) : NULL;
@@ -387,8 +426,10 @@ int main(int argc, char **argv)
             tracks[i] = (gt4_service_motion){q,
                                              service_time,
                                              wash ? 0 : -90,
-                                             wash ? i / 2 : i,
-                                             wash ? (i % 2 ? 1 : 7) : service_alignment,
+                                             wash ? i / 2 : i % 2,
+                                             wash  ? (i % 2 ? 1 : 7)
+                                             : awd ? (i < 2 ? 9 : 10)
+                                                   : service_alignment,
                                              0,
                                              1,
                                              0};
@@ -396,8 +437,9 @@ int main(int argc, char **argv)
         }
         /* OilChangeRoot L12062..12088: equal front/rear service alignment
            (FF or MR/RR) uses f_cam; MR/RR sets car_model.ry to 180. */
-        const char *camera_path = wash ? "image/gtmode/gtauto/car_wash_cam.mot"
-                                       : "image/gtmode/gtauto/oil_change_f_cam.mot";
+        const char *camera_path = wash  ? "image/gtmode/gtauto/car_wash_cam.mot"
+                                  : awd ? "image/gtmode/gtauto/oil_change_cam.mot"
+                                        : "image/gtmode/gtauto/oil_change_f_cam.mot";
         size_t cn = 0;
         uint8_t *cb = package ? gpb_load(package, bytes, camera_path, &cn) : NULL;
         gt4_mot1 *cam = cb ? gt4_mot1_open(cb, cn) : NULL;
@@ -420,6 +462,8 @@ int main(int argc, char **argv)
         gt4_mot1_value(cam, "lift", service_time, &face.service_lift);
         if (!wash && service_alignment == 10)
             face.car_angle = 180.f * .017453292519943295f;
+        if (getenv("MOON_PROBE_SERVICE_CAR_YAW")) /* the wash's spin (CarWashRoot L11864..11887) */
+            face.car_angle = (float)atof(getenv("MOON_PROBE_SERVICE_CAR_YAW")) * .017453292519943295f;
         gt4_career_vehicle *factory = gt4_career_vehicle_open(argv[1]);
         uint8_t unit[32], body[0x4b8];
         face.service_geometry_valid =
@@ -651,6 +695,9 @@ int main(int argc, char **argv)
         showroom_draw(s, argv[2], .05f);
         if (i + 1 < frames)
             plat_video_end_frame();
+    }
+    if (getenv("PROBE_REFLECTION_CYCLE") && !reflection_cycle(s, argv[2], argv[3])) {
+        showroom_close(s); plat_video_shutdown(); return 1;
     }
     benchmark(s, NULL, argv[2]);
     plat_video_begin_frame();
