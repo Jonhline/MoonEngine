@@ -4,7 +4,10 @@
 #include <stdint.h>
 /* P: contact capture in normalized, safe-area coordinates. No physics state. */
 enum {
-    MOON_MOBILE_STEER,
+    /* Analog: STEER_LEFT is the single wide pad, STEER_RIGHT is absent.
+       Digital: STEER_LEFT/STEER_RIGHT are two round buttons. */
+    MOON_MOBILE_STEER_LEFT,
+    MOON_MOBILE_STEER_RIGHT,
     MOON_MOBILE_ACCEL,
     MOON_MOBILE_BRAKE,
     MOON_MOBILE_UP,

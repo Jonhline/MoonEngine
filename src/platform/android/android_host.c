@@ -9,6 +9,7 @@
 #include <jni.h>
 #include <dirent.h>
 #include <errno.h>
+#include <math.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdint.h>
@@ -474,27 +475,79 @@ int moon_android_event(plat_key_event *event)
     }
     return consumed;
 }
+/* Discs are a 24-segment fan and rims a 24-segment ring, all through the
+   existing batched solid-quad path -- no new GPU pipeline. */
+#define MOON_MOBILE_SEGMENTS 24
+
+static void mobile_disc(float cx, float cy, float radius, const uint8_t color[4])
+{
+    for (int i = 0; i < MOON_MOBILE_SEGMENTS; i++) {
+        float a0 = 6.28318530718f * i / MOON_MOBILE_SEGMENTS;
+        float a1 = 6.28318530718f * (i + 1) / MOON_MOBILE_SEGMENTS;
+        float ox0 = cx + cosf(a0) * radius, oy0 = cy + sinf(a0) * radius;
+        float ox1 = cx + cosf(a1) * radius, oy1 = cy + sinf(a1) * radius;
+        float xy[4][2] = {{cx, cy}, {ox0, oy0}, {ox1, oy1}, {ox1, oy1}};
+        plat_draw_solid_quad(xy, color);
+    }
+}
+
+static void mobile_ring(float cx, float cy, float radius, float thickness, const uint8_t color[4])
+{
+    float inner = radius - thickness;
+    if (inner < 0)
+        inner = 0;
+    for (int i = 0; i < MOON_MOBILE_SEGMENTS; i++) {
+        float a0 = 6.28318530718f * i / MOON_MOBILE_SEGMENTS;
+        float a1 = 6.28318530718f * (i + 1) / MOON_MOBILE_SEGMENTS;
+        float xy[4][2] = {{cx + cosf(a0) * radius, cy + sinf(a0) * radius},
+                          {cx + cosf(a1) * radius, cy + sinf(a1) * radius},
+                          {cx + cosf(a0) * inner, cy + sinf(a0) * inner},
+                          {cx + cosf(a1) * inner, cy + sinf(a1) * inner}};
+        plat_draw_solid_quad(xy, color);
+    }
+}
+
+/* Centred label; the zero-alpha pass only measures, the renderer drops it. */
+static void mobile_label(ui_project *ui, const char *text, float cx, float cy, float scale,
+                         const uint8_t ink[4])
+{
+    uint8_t clear[4] = {0, 0, 0, 0};
+    float width = ui_draw_string(ui, NULL, cx, cy, scale, 0, clear, text);
+    float height = ui_string_height(ui, NULL, scale);
+    ui_draw_string(ui, NULL, cx - width * .5f, cy - height * .5f, scale, 0, ink, text);
+}
+
 void moon_android_overlay(ui_project *ui)
 {
     moon_mobile_controls *s = moon_android_controls();
     if (!s->active || !s->options.enabled || s->controller)
         return;
-    static const char *labels[MOON_MOBILE_COUNT] = {"STEER", "GAS",  "BRAKE", "+",  "-",
-                                                    "HAND",  "VIEW", "PAUSE", "REV"};
+    static const char *labels[MOON_MOBILE_COUNT] = {"L",   "R",    "GAS",   "BRAKE", "+",
+                                                    "-",   "HAND", "VIEW",  "PAUSE", "REV"};
     plat_video_set_view(640, 480);
     for (int c = 0; c < MOON_MOBILE_COUNT; c++) {
         moon_mobile_rect r = moon_mobile_bounds(s, c);
+        if (r.w <= 0 || r.h <= 0)
+            continue;
         float x = r.x * 640, y = r.y * 480, w = r.w * 640, h = r.h * 480;
         int pressed = 0;
         for (int i = 0; i < 10; i++)
             pressed |= s->contacts[i].used && s->contacts[i].control == c;
         uint8_t ink[] = {255, 255, 255, (uint8_t)((s->options.opacity + 1) * 51)};
         uint8_t bg[] = {20, 22, 26, (uint8_t)(ink[3] * (pressed ? .65f : .35f))};
-        plat_draw_quad(NULL, x, y, w, h, 0, 0, 1, 1, bg);
-        plat_draw_quad(NULL, x, y, w, 1, 0, 0, 1, 1, ink);
-        plat_draw_quad(NULL, x, y + h - 1, w, 1, 0, 0, 1, 1, ink);
-        plat_draw_quad(NULL, x, y, 1, h, 0, 0, 1, 1, ink);
-        plat_draw_quad(NULL, x + w - 1, y, 1, h, 0, 0, 1, 1, ink);
-        ui_draw_string(ui, NULL, x + 5, y + h * .45f, .65f, 0, ink, labels[c]);
+        if (c == MOON_MOBILE_STEER_LEFT && !s->options.steering) {
+            plat_draw_quad(NULL, x, y, w, h, 0, 0, 1, 1, bg);
+            plat_draw_quad(NULL, x, y, w, 1, 0, 0, 1, 1, ink);
+            plat_draw_quad(NULL, x, y + h - 1, w, 1, 0, 0, 1, 1, ink);
+            plat_draw_quad(NULL, x, y, 1, h, 0, 0, 1, 1, ink);
+            plat_draw_quad(NULL, x + w - 1, y, 1, h, 0, 0, 1, 1, ink);
+            ui_draw_string(ui, NULL, x + 5, y + h * .45f, .65f, 0, ink, "STEER");
+            continue;
+        }
+        float cx = x + w * .5f, cy = y + h * .5f, radius = fminf(w, h) * .5f;
+        mobile_disc(cx, cy, radius, bg);
+        mobile_ring(cx, cy, radius, pressed ? 3.f : 1.5f, ink);
+        float scale = fmaxf(.45f, fminf(.65f, radius / 42.f));
+        mobile_label(ui, labels[c], cx, cy, scale, ink);
     }
 }
