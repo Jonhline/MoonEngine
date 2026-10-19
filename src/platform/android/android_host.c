@@ -14,6 +14,7 @@
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -442,7 +443,12 @@ void moon_android_init(void)
            printed once by main.c -- one line, same shape on every platform. */
         fprintf(stderr, "moonengine: --- session start ---\n");
     }
-    SDL_setenv("MOON_GRAPHICS_API", "vulkan", 1);
+#ifdef __ANDROID__
+    /* Experimental branch: default to native GLES. An externally set value or
+       the renderer key in video.ini still wins (video_settings pushes it). */
+    if (!getenv("MOON_GRAPHICS_API"))
+        SDL_setenv("MOON_GRAPHICS_API", "opengl", 1);
+#endif
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
     SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
     SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");

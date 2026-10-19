@@ -77,10 +77,43 @@ int gl_enable_reversed_z(void)
     return 1;
 }
 
+/* Desktop shaders are GLSL 3.30 core. GLES 3.0 needs the ES version line and
+   explicit precision qualifiers; every program reaches the driver here. */
+static const char *shader_source(const char *source, char **allocated)
+{
+    *allocated = NULL;
+#ifdef __ANDROID__
+    static const char version[] = "#version 330 core";
+    static const char es_head[] = "#version 300 es\nprecision highp float;\nprecision highp int;\n";
+    const char *found = strstr(source, version);
+    if (found) {
+        const char *rest = found + sizeof version - 1;
+        if (*rest == '\r')
+            rest++;
+        if (*rest == '\n')
+            rest++;
+        size_t head = (size_t)(found - source);
+        size_t length = head + sizeof es_head - 1 + strlen(rest) + 1;
+        char *out = malloc(length);
+        if (out) {
+            memcpy(out, source, head);
+            memcpy(out + head, es_head, sizeof es_head - 1);
+            strcpy(out + head + sizeof es_head - 1, rest);
+            *allocated = out;
+            return out;
+        }
+    }
+#endif
+    return source;
+}
+
 static GLuint shader(GLenum kind, const char *source)
 {
+    char *allocated = NULL;
+    const char *mobile = shader_source(source, &allocated);
     GLuint s = glCreateShader(kind);
-    glShaderSource(s, 1, &source, NULL);
+    glShaderSource(s, 1, &mobile, NULL);
+    free(allocated);
     glCompileShader(s);
     GLint ok = 0;
     glGetShaderiv(s, GL_COMPILE_STATUS, &ok);

@@ -61,7 +61,7 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     s->current.spatial_visibility = s->current.resident_reflections = 1;
 #endif
 #ifdef __ANDROID__
-    s->current.renderer = 1;
+    s->current.renderer = 0;
     s->current.video = (plat_video_desc){1280, 720, 1, 1, 0};
     s->current.aspect = 1;
     s->current.desktop = s->current.edge_pan = 0;
@@ -115,7 +115,7 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
 #endif
 #ifdef __ANDROID__
     moon_mobile_options_load(&s->store, &s->current.mobile, &s->current.touch_menu);
-    s->current.renderer = 1;
+    s->current.renderer = 0;
     s->current.desktop = s->current.edge_pan = 0;
     s->current.video.fullscreen = 1;
 #endif
@@ -123,15 +123,17 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     if (!f)
         return;
     char line[128], key[40];
-    int value;
+    int value, renderer_explicit = 0;
     while (fgets(line, sizeof line, f)) {
         char *setting = !strncmp(line, "graphics.", 9) ? line + 9 : line;
 #ifndef __SWITCH__
         if (!strncmp(setting, "renderer=", 9)) {
             line[strcspn(line, "\r\n")] = 0;
             int backend = moon_renderer_parse(setting + 9);
-            if (backend >= 0)
+            if (backend >= 0) {
                 s->current.renderer = backend;
+                renderer_explicit = 1;
+            }
         }
 #endif
         if (sscanf(setting, "%39[^=]=%d", key, &value) == 2) {
@@ -161,7 +163,18 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     }
     fclose(f);
 #ifdef __ANDROID__
-    s->current.renderer = 1;
+    /* video.ini's renderer key flips this experimental build back to Vulkan
+       without a rebuild; otherwise the launcher environment decides. */
+    if (renderer_explicit) {
+        SDL_setenv("MOON_GRAPHICS_API",
+                   s->current.renderer == MOON_RENDERER_VULKAN ? "vulkan" : "opengl", 1);
+    } else {
+        const char *api = getenv("MOON_GRAPHICS_API");
+        if (api && !strcmp(api, "vulkan"))
+            s->current.renderer = MOON_RENDERER_VULKAN;
+        else if (api && !strcmp(api, "opengl"))
+            s->current.renderer = MOON_RENDERER_OPENGL;
+    }
     s->current.desktop = s->current.edge_pan = 0;
     s->current.video.fullscreen = 1;
 #endif
@@ -511,7 +524,7 @@ static void read_draft(video_settings *s)
                                       s->choices[15]->focus_index};
     v->mobile.render_scale = s->choices[17]->focus_index;
     v->desktop = v->edge_pan = 0;
-    v->renderer = 1;
+    v->renderer = s->current.renderer;
     v->video.fullscreen = 1;
 #endif
 }

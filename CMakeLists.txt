@@ -264,6 +264,9 @@ endif()
 target_link_libraries(moon_platform_sdl PUBLIC SDL2::SDL2-static moon_physics)
 if(WIN32)
   target_link_libraries(moon_platform_sdl PUBLIC opengl32)   # GL 1.1 entry points
+elseif(ANDROID)
+  # The experimental GLES path talks to libGLESv3 directly; EGL is SDL's.
+  target_link_libraries(moon_platform_sdl PUBLIC GLESv3 EGL)
 elseif(NOT ANDROID)
   # Linux/macOS: fsr.c calls GL entry points directly (glBindTexture, glEnable...),
   # so the loader needs a GL library at link time even though the rest goes through

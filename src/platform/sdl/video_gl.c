@@ -387,7 +387,11 @@ int plat_video_init(const plat_video_desc *d)
 {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) != 0)
         return -1;
+#ifdef __ANDROID__
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+#else
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+#endif
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     int window_width = d->width, window_height = d->height, fullscreen = d->fullscreen;
 #ifdef __SWITCH__
@@ -409,6 +413,8 @@ int plat_video_init(const plat_video_desc *d)
     /* 4.3 for the FSR shaders; 3.3 is enough for everything else */
 #ifdef __SWITCH__
     static const int versions[1][2] = {{3, 3}};
+#elif defined(__ANDROID__)
+    static const int versions[1][2] = {{3, 0}};
 #else
     static const int versions[2][2] = {{4, 3}, {3, 3}};
 #endif
@@ -431,6 +437,10 @@ int plat_video_init(const plat_video_desc *d)
         return -1;
     if (!gl_load())
         return -1;
+#ifdef __ANDROID__
+    fprintf(stderr, "android: renderer=%s (%s)\n", backend ? "vulkan" : "opengl",
+            backend ? "Vulkan" : "GLES");
+#endif
 #ifdef __SWITCH__
     u32 performance = 0;
     Result performance_result = appletGetCurrentPerformanceConfiguration(&performance);
