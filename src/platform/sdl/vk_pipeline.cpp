@@ -214,9 +214,9 @@ VkSampler Context::sampler(const Image &im)
     samplers[key] = result;
     return result;
 }
-VkRenderPass Context::render_pass(VkFormat color, VkFormat depth)
+VkRenderPass Context::render_pass(VkFormat color, VkFormat depth, bool first)
 {
-    std::array<int, 2> key = {(int)color, (int)depth};
+    std::array<int, 3> key = {(int)color, (int)depth, first ? 1 : 0};
     auto found = passes.find(key);
     if (found != passes.end())
         return found->second;
@@ -224,9 +224,10 @@ VkRenderPass Context::render_pass(VkFormat color, VkFormat depth)
     for (int i = 0; i < 2; i++) {
         attachments[i].format = i ? depth : color;
         attachments[i].samples = VK_SAMPLE_COUNT_1_BIT;
-        attachments[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        attachments[i].loadOp =
+            first ? VK_ATTACHMENT_LOAD_OP_DONT_CARE : VK_ATTACHMENT_LOAD_OP_LOAD;
         attachments[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        attachments[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        attachments[i].stencilLoadOp = attachments[i].loadOp;
         attachments[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
         attachments[i].initialLayout = attachments[i].finalLayout =
             i ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL

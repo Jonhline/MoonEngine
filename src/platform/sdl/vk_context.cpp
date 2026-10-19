@@ -820,6 +820,11 @@ extern "C" moon_vk_render_stats moon_vk_render_statistics(void)
 {
     return moon::active ? moon::active->statistics : moon_vk_render_stats{};
 }
+extern "C" void moon_vk_scene_begin(int first)
+{
+    if (moon::active)
+        moon::active->scene_first_pass = first != 0;
+}
 extern "C" int moon_vk_render_open(SDL_Window *window, int vsync)
 {
     using namespace moon;

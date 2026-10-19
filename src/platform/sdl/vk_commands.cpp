@@ -390,13 +390,15 @@ static void APIENTRY vkglClear(GLbitfield mask)
             c.barrier();
             c.transition(*color, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
             c.transition(*depth, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-            VkRenderPass pass = c.render_pass(color->format, depth->format);
+            bool first = c.scene_first_pass;
+            VkRenderPass pass = c.render_pass(color->format, depth->format, first);
             VkFramebuffer fb = c.target_framebuffer(*color, depth, pass);
             VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
             begin.renderPass = pass;
             begin.framebuffer = fb;
             begin.renderArea.extent = {(uint32_t)color->width, (uint32_t)color->height};
             vkCmdBeginRenderPass(c.command, &begin, VK_SUBPASS_CONTENTS_INLINE);
+            c.scene_first_pass = false;
             VkClearAttachment clear{};
             clear.aspectMask = aspect;
             clear.clearValue.depthStencil = {s().clear_depth, 0};

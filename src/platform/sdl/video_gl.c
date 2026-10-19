@@ -106,6 +106,7 @@ static GLuint fbo, color_rb, depth_rb;
 static int fb_w, fb_h;
 static GLuint scene_fbo, scene_color, scene_depth, scene_tex, scene_resolve;
 static int scene_w, scene_h, scene_samples, scene_active, output_w, output_h;
+static int scene_frame_has_content;
 
 /* virtual screen and its letterbox rectangle in framebuffer pixels */
 static int ui_panel_on, ui_panel_x, ui_panel_y, ui_panel_w, ui_panel_h;
@@ -721,6 +722,7 @@ void plat_set_clip(float x, float y, float w, float h)
 
 void plat_video_begin_frame(void)
 {
+    scene_frame_has_content = 0;
     /* Native UI advances at 60 Hz. A high-refresh display or disabled swap
        interval must not make an idle menu submit unbounded GPU work.
        Sleep before rendering, yield near the deadline, and avoid catch-up bursts. */
@@ -1063,6 +1065,10 @@ void video_begin_scene(void)
 #endif
     }
     glBindFramebuffer(GL_FRAMEBUFFER, scene_fbo);
+#ifdef MOON_PC_VULKAN
+    if (moon_vk_render_active())
+        moon_vk_scene_begin(!scene_frame_has_content);
+#endif
     glDisable(GL_SCISSOR_TEST);
     glEnable(GL_MULTISAMPLE);
     glViewport(0, 0, w, h);
@@ -1105,6 +1111,7 @@ void video_end_scene(void)
     fb_w = output_w;
     fb_h = output_h;
     scene_active = 0;
+    scene_frame_has_content = 1;
     layout_view();
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 }

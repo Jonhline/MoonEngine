@@ -8,6 +8,8 @@ extern "C" {
 int moon_vk_render_open(SDL_Window *window, int vsync);
 void moon_vk_render_close(void);
 int moon_vk_render_active(void);
+/* The scene target is about to be cleared: the next pass may discard its old contents. */
+void moon_vk_scene_begin(int first);
 void *moon_vk_render_proc(const char *name);
 void moon_vk_render_size(SDL_Window *window, int *width, int *height);
 void moon_vk_render_present(void);

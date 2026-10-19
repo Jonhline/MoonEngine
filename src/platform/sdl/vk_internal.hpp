@@ -153,11 +153,12 @@ struct Context {
     std::map<unsigned, Program> programs;
     std::map<unsigned, std::pair<GLenum, std::string>> shaders;
     std::map<std::array<int, 6>, VkSampler> samplers;
-    std::map<std::array<int, 2>, VkRenderPass> passes;
+    std::map<std::array<int, 3>, VkRenderPass> passes;
     std::vector<VkFramebuffer> transient_targets;
     std::map<std::array<VkImageView, 2>, VkFramebuffer> target_cache;
     std::vector<std::shared_ptr<Image>> retired_images;
     VkImageView pass_color = VK_NULL_HANDLE, pass_depth = VK_NULL_HANDLE;
+    bool scene_first_pass = false;
     std::shared_ptr<Image> white, screen;
     std::string error, pipeline_cache_path;
     VkPipelineCache pipeline_cache = VK_NULL_HANDLE;
@@ -195,7 +196,7 @@ struct Context {
                 const void *pixels);
     void read(Image &image, int x, int y, int width, int height, GLenum format, void *pixels);
     VkSampler sampler(const Image &image);
-    VkRenderPass render_pass(VkFormat color, VkFormat depth);
+    VkRenderPass render_pass(VkFormat color, VkFormat depth, bool first = false);
     void blit(Image &source, Image &dest, int sx0, int sy0, int sx1, int sy1, int dx0, int dy0,
               int dx1, int dy1, bool linear, bool depth = false);
     VkDescriptorSet draw_descriptors(const Program &program);
