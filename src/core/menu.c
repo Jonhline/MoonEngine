@@ -2174,6 +2174,32 @@ void menu_setting_context(menu *m, menu *source)
                       ah_str(m->vm, ah_cstr(value) ? ah_cstr(value) : ""));
     }
 }
+void menu_option_context(menu *m, menu *source)
+{
+    if (!m || !source)
+        return;
+    /* option.ad OptionRoot.onCancel L323..327 returns through
+       game.major_menu_project, or setReturnToLastMenuProject() when it is
+       empty. Cached PC VMs have separate game objects, so record the
+       opener here exactly as the shared PS2 context did. */
+    const char *keys[] = {"major_menu_project", "major_menu_page", "major_menu_widget",
+                          "last_menu_project"};
+    for (int i = 0; i < 4; i++) {
+        ah_val value = ah_nil();
+        ah_get_member(source->vm, game_object(source), keys[i], &value);
+        ah_set_member(m->vm, game_object(m), keys[i],
+                      ah_str(m->vm, ah_cstr(value) ? ah_cstr(value) : ""));
+    }
+    ah_val major = ah_nil(), last = ah_nil();
+    ah_get_member(m->vm, game_object(m), "major_menu_project", &major);
+    ah_get_member(m->vm, game_object(m), "last_menu_project", &last);
+    if (!ah_cstr(major) || !*ah_cstr(major))
+        ah_set_member(m->vm, game_object(m), "major_menu_project",
+                      ah_str(m->vm, source->project_label));
+    if (!ah_cstr(last) || !*ah_cstr(last))
+        ah_set_member(m->vm, game_object(m), "last_menu_project",
+                      ah_str(m->vm, source->project_label));
+}
 /* gtmode.ad MusicTheater -> exit_kick_project("slide"): its page
    (next_menu_arg) and the way back (major_menu_*), carried into the
    slide project's own VM */

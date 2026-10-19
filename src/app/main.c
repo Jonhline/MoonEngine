@@ -5722,14 +5722,15 @@ int main(int argc, char **argv)
         if (driving == 2)
             race_game_draw_hud(game, elapsed);
 #if defined(__SWITCH__) || defined(__ANDROID__)
-        if (driving == 2 && settings.current.touch_menu && race_game_is_paused(game)) {
+        if (driving == 2 && settings.current.touch_menu && race_game_is_paused(game) &&
+            !touch_overlay_hidden(mn, NULL)) {
             plat_video_set_view(640, 480);
             ui_draw_touch_back(dialog_ui, ui_touch_active(dialog_ui),
                                settings.touch_back.tap.selected != NULL, (float)elapsed);
         }
 #endif
 #ifdef __ANDROID__
-        if (driving == 2 && !race_game_is_paused(game))
+        if (driving == 2 && !race_game_is_paused(game) && !touch_overlay_hidden(mn, NULL))
             moon_android_overlay(menu_ui(mn));
 #endif
         int drawn = 0, skipped = 0;

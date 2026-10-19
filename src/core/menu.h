@@ -46,6 +46,9 @@ void menu_save_refresh(menu *m);
 void menu_save_capture(menu *m);
 int menu_setting_begin(menu *m);
 void menu_setting_context(menu *m, menu *source);
+/* Options is shared by the title and GT Mode home: carry the opener's
+   major project/page so its green Exit returns to that screen. */
+void menu_option_context(menu *m, menu *source);
 int menu_setting_end(menu *m);
 int menu_riding_car_body(menu *m, uint8_t body[0x4b8]);
 /* GT Mode's Free Run (1) / Practice (2) / Photo Drive (3) asked (next_sequence), 0 none */

@@ -1321,6 +1321,14 @@ static int nat_finish(ah_vm *vm, ah_obj *self, void *d, int argc, const ah_val *
         return ah_error(vm, "sequence '%s' is not implemented", s);
     if (!p || !*p || strlen(p) >= sizeof m->next_project)
         return ah_error(vm, "missing next menu project");
+    if (!strcmp(ah_module_name(m->project), "OptionProject")) {
+        ah_val page = ah_nil();
+        if (ah_get_member(vm, game_object(m), "major_menu_page", &page) && ah_cstr(page) &&
+            *ah_cstr(page))
+            fprintf(stderr, "options: return to %s:%s\n", p, ah_cstr(page));
+        else
+            fprintf(stderr, "options: return to %s\n", p);
+    }
     snprintf(m->next_project, sizeof m->next_project, "%s", p);
     if (!strcmp(
             p,

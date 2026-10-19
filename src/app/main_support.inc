@@ -356,9 +356,43 @@ static void present_progress(menu *m, int state, const char *message, int button
         fill->progress = fminf(1, progress); /* ProgressFace draws its fraction */
 }
 
+/* The green touch Exit belongs to menus. The boot project's splash and its
+   opening MovieRoot have no authored back control, so it must stay away
+   there just as it already does during a race. */
+static int touch_overlay_hidden(menu *m, const char **phase)
+{
+    static const char *logged;
+    ui_project *p = menu_ui(m);
+    const char *project = p ? mp_string(ui_project_tree(p), "name") : NULL;
+    const char *page = p ? ui_root_name(p, menu_active_root(m)) : NULL;
+    const char *state = NULL;
+    if (project && !strcmp(project, "BootProject") && page) {
+        if (!strcmp(page, "LoadRoot"))
+            state = "splash";
+        else if (!strcmp(page, "MovieRoot"))
+            state = "cutscene";
+    }
+    if (phase)
+        *phase = state;
+    if (!state) {
+        logged = NULL;
+        return 0;
+    }
+    if (!logged || strcmp(logged, state)) {
+        fprintf(stderr, "touch overlay: hidden (%s)\n", state);
+        logged = state;
+    }
+    return 1;
+}
+
 static void draw_pages(menu *m, int *drawn, int *skipped)
 {
     ui_project *p = menu_ui(m);
+#ifndef __ANDROID__
+    /* Android's touch Exit is hidden in these phases below; the phase
+       diagnostic is also useful from the desktop and console builds. */
+    (void)touch_overlay_hidden(m, NULL);
+#endif
     ui_set_scene_renderer(p, draw_pregrid_face, NULL);
     int depth = menu_page_depth(m);
     if (depth > 1 && is_popup(ui_root_name(p, menu_active_root(m))))
@@ -376,7 +410,11 @@ static void draw_pages(menu *m, int *drawn, int *skipped)
                        : 1.f / 60;
         app_video_settings->touch_back_clock = now;
         plat_video_set_view(640, 480);
+#if defined(__ANDROID__)
+        if (touch_overlay_hidden(m, NULL) || ui_has_back_control(p, menu_active_root(m))) {
+#else
         if (ui_has_back_control(p, menu_active_root(m))) {
+#endif
             ui_hide_touch_back(dialog_ui);
             app_video_settings->touch_back.tap = (touch_dialog_state){0};
         } else
@@ -895,6 +933,8 @@ static void switch_to(gt4_vol *vol, menu **cache, menu **mn, int *proj, char *ne
             menu_set_origin(cache[i], projects[*proj]);
             if (i == 4)
                 menu_setting_context(cache[i], *mn);
+            if (!strcmp(projects[i], "option"))
+                menu_option_context(cache[i], *mn);
             if (i == 17)
                 menu_jukebox_context(cache[i], *mn);
             if (i == 18 || i == 19)
