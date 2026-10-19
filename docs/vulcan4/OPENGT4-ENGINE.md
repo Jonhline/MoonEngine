@@ -304,9 +304,11 @@ correction first: there is nothing to plug into yet. The honest list, in the ord
    silently does not run.
 7. **The acceptance gate already exists.** The port can capture a frame headlessly
    (`OPENGT4_CAPTURE_*`, `screenshot()` writing a PNG), and we hold a byte-identical reference
-   (`md5 68d8eb83dc75b6fe6e03cc2372ca186d`, 7,277 colours). **A new backend is correct when it draws the
-   byte-identical frame the GL backend draws** — not when it looks right. Keep the GL backend alive as
-   the reference and the A/B control.
+   (`md5 912bdc63bddc791afece574c7475eac8` on GL; `531acb651f5c8552f3540e9a57fdf08f` on Vulkan).
+   **A new backend is correct when it draws its pinned reference frame** — not when it looks right. Keep
+   the GL backend alive as the reference and the A/B control. The gate was re-pinned to the current tree
+   on 2026-10-19; the two backends no longer draw the same bytes, so each is gated against its own capture.
+   See `SESSION-LOG.md` for the exact command.
 
 *Everything in this page is either measured on this box or marked as a plan. Numbers that come from a
 single run say so; numbers whose artefact no longer exists say that too.*

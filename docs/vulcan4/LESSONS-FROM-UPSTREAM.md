@@ -64,7 +64,7 @@ and a number, on a build the reader can make:
 | 6 | Comment lines that admit un-rewritten paths? | 8 x "not rewritten yet / run the original" — must read as *oracle bridges*, not unfinished porting | ⬜ owed |
 | 7 | Can a stranger build it? | `cmake -S . -B /mnt/ssd/... && cmake --build` → `EXIT=0`; 66 tests without a disc, 304 with one (288 pass / 16 fail, 2026-10-13) | ✅ with the 16 honest failures stated |
 | 8 | Is the licence obligation visible to users? | *"Based on OpenGT4"* in docs ✅ — in the **UI still owed** (`grep -rn "Based on OpenGT4" src` = 0) | ⬜ owed |
-| 9 | Is the fidelity gate a measurement, not a vibe? | reference frame byte-identical, `md5 68d8eb83dc75b6fe6e03cc2372ca186d` | ✅ |
+| 9 | Is the fidelity gate a measurement, not a vibe? | reference frame byte-identical, `md5 912bdc63bddc791afece574c7475eac8` (GL) / `531acb651f5c8552f3540e9a57fdf08f` (Vulkan) | ✅ |
 | 10 | Can the captain state §2.2's sentence unaided? | rehearse it once, out loud | ⬜ |
 
 **Two of these are code chores and they are small:** attribute `ASSIGN_OLD` (6 sites — cite Nenkai's

@@ -1255,7 +1255,7 @@ ultimate racing sim"* — is registered there: the logger, the race engineer, an
   The real defect is **density, not formatting**: unnamed struct offsets, magic numbers with no PS2
   address beside them, and long single-purpose functions.
 - **THE FENCE — behaviour never changes, and the gate decides:** every pass keeps the **byte-identical
-  reference frame** (`md5 68d8eb83dc75b6fe6e03cc2372ca186d`) and the disc-gated tests green (66 register
+  reference frame** (`md5 912bdc63bddc791afece574c7475eac8` GL / `531acb651f5c8552f3540e9a57fdf08f` Vulkan) and the disc-gated tests green (66 register
   without a disc, 304 with one — 288 pass / 16 fail as of 2026-10-13, and those 16 stay honest). A
   readability change that moves one pixel is a regression, not progress. Nothing gets rewritten that the
   oracle has not already vouched for (LAW 13), and every pass is committed as the captain.
@@ -1338,7 +1338,7 @@ ultimate racing sim"* — is registered there: the logger, the race engineer, an
   user brings the cars and tracks. Nothing from a mod ever enters the repository (`LAW 1`, `G7.0`), and the
   credits are carried in the manifest rather than lost in a folder.
 - **OFF BY DEFAULT (`LAW 12`):** zero mods loaded must mean the disc, byte-identical — the reference frame
-  (`md5 68d8eb83dc75b6fe6e03cc2372ca186d`) may not move.
+  (`md5 912bdc63bddc791afece574c7475eac8` GL / `531acb651f5c8552f3540e9a57fdf08f` Vulkan) may not move.
 - **THE ROUTE DECISION, 2026-10-15 — the captain weighed two designs and the second one wins:**
   *(1) inject the mods into the disc's own `GT4.VOL` every run*, or *(2) build a second VOL and tell the
   engine to read the original **and** the mod container.* **Route 2 is the architecture.** Route 1 costs a
@@ -1600,7 +1600,7 @@ ultimate racing sim"* — is registered there: the logger, the race engineer, an
     inside a stated threshold. (2) **Any glow, contrast or light the reference does not have is a reject.**
     That kills bloom-everywhere, fake-HDR oversaturation, sharpening halos, chromatic aberration, film grain
     and smeared fake-AO **by rule instead of by argument**.
-  - **The floor:** with everything off, the reference frame (`md5 68d8eb83dc75b6fe6e03cc2372ca186d`) does not
+  - **The floor:** with everything off, the reference frame (`md5 912bdc63bddc791afece574c7475eac8` GL / `531acb651f5c8552f3540e9a57fdf08f` Vulkan) does not
     move a byte.
 - **WRITTEN DOWN PROPERLY:** `docs/vulcan4/GRAPHICS.md` — the full plan (the accuracy/restyle rule, what exists
   already, the three tiers, the no-slop gate with its reject list, the honest ceiling and the sequencing), on
@@ -1619,7 +1619,7 @@ ultimate racing sim"* — is registered there: the logger, the race engineer, an
 - **The fence is G6.20's fence, verbatim:** off by default (law 12), and it must not perturb the tick. The
   physics sets round-toward-zero + FTZ/DAZ every frame inside `fegetenv`/`fesetenv` (`race_run.c:753-779`), so an
   overlay that changes arithmetic ordering is measuring something else. **Gate:** with the overlay hidden, the
-  reference frame is byte-identical (`md5 68d8eb83dc75b6fe6e03cc2372ca186d`), and with it shown the frame cost is
+  reference frame is byte-identical (`md5 912bdc63bddc791afece574c7475eac8` GL / `531acb651f5c8552f3540e9a57fdf08f` Vulkan), and with it shown the frame cost is
   printed so it can be subtracted.
 - **Why it matters now, not later:** the Android port and the Switch port both live or die on numbers nobody can
   currently see on the device. Every "it feels slow" argument ends the moment the overlay can be switched on.

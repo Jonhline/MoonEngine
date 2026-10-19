@@ -177,7 +177,7 @@ DISPLAY=:99 stdbuf -oL -eL /mnt/ssd/vulcan4-build/moonengine --launcher --launch
 - **`stdbuf -oL`** matters: a backgrounded run buffers stdout, so an empty log is not evidence of failure.
 - The **studio animates** (mirror, car, cursor), so two captures are *not* byte-identical — compare a static
   region, or gate on the log lines and a camera print, never on a whole-frame md5. The game's own save screen
-  *is* stable (`68d8eb83…`), which is why the mod gates used it.
+  *is* stable (`912bdc63…` GL, `531acb65…` Vulkan, re-pinned 2026-10-19), which is why the mod gates used it.
 - Keys do not arrive through `xdotool --window` (SDL ignores synthetic X events); use the page/shot flags
   above instead of typing at a window over ssh.
 

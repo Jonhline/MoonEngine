@@ -49,7 +49,7 @@ off by default, drawn by the existing UI path rather than a new one.
 
 **Route:** a `src/core/dev_overlay.c` that the front end and the race both call once per frame, fed by
 `moon_frame_pacer` and the renderer's own counters; a key plus a stored option for the toggle. **Cost:** a day.
-**Gate:** hidden → reference frame byte-identical (`68d8eb83dc75b6fe6e03cc2372ca186d`); shown → the readout's own
+**Gate:** hidden → reference frame byte-identical (`912bdc63bddc791afece574c7475eac8` GL / `531acb651f5c8552f3540e9a57fdf08f` Vulkan); shown → the readout's own
 cost is printed so it can be subtracted. It is also the instrument that makes every later Android/Switch
 performance argument checkable, so it earns its place before them.
 

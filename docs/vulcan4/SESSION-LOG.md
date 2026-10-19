@@ -315,3 +315,40 @@ tree — banked locally as one checkpoint, **not pushed** (the captain's rule: p
 profile/import screen the log calls `save / LoadRoot` still appears on the START path and is part of the
 launched prompt. (d) The capture/`save / LoadRoot` screen was drawn over an **uncleared black frame** — visible
 in the reproduction at `/mnt/ssd/studio/after-start.png`.
+
+## 2026-10-19 — the Vulkan layout dish lands; the frame gate is re-pinned to the current tree
+
+**What was done.** The Vulkan render path stopped using `VK_IMAGE_LAYOUT_GENERAL`/`UNDEFINED`: colour and
+depth attachments, sampled textures, uploads, readbacks, blits and the present source now use their correct
+layouts, with per-image layout tracking and real stage/access transitions. Commit `37faea4`, author as the
+captain, not pushed.
+
+**Why the old reference was stale.** `68d8eb83dc75b6fe6e03cc2372ca186d` is the Oct 13 tree's frame, before
+the shared-material/spatial/reflection work. It is no longer the picture this tree draws, and it was never a
+statement about the Vulkan backend.
+
+**The current frame gate — re-pinned 2026-10-19.** The save screen at 1280x960, captured from the root window:
+
+| backend | md5 |
+|---|---|
+| OpenGL | `912bdc63bddc791afece574c7475eac8` |
+| Vulkan | `531acb651f5c8552f3540e9a57fdf08f` |
+
+The layout change is frame-neutral on both: `base-gl.png` == `post-gl-1.png` (`912bdc63…`) and
+`base-vk.png` == `post-vk-1.png` == `post-vk-2.png` (`531acb65…`).
+
+**Exact command that produced the captures:**
+
+```bash
+cd /mnt/ssd/tmp/framegate
+cap(){ S=$(mktemp -d .g.XXXX); DISPLAY=:99 /mnt/ssd/moon-build/MoonEngine \
+  "/mnt/ssd/gt4/Gran Turismo 4 (USA) (v2.00).iso" save --save-dir "$PWD/$S" \
+  --no-config --first-run --renderer "$1" >/tmp/gateb_$1.log 2>&1 & local P=$!; \
+  sleep 5; DISPLAY=:99 import -window root "/mnt/ssd/tmp/framegate/$2.png" 2>/dev/null; \
+  kill $P 2>/dev/null; wait $P 2>/dev/null; }
+cap opengl base-gl; cap vulkan base-vk
+md5sum base-gl.png base-vk.png
+```
+
+`base-gl.png` and `base-vk.png` are the gate. `--renderer opengl|vulkan` chooses the backend; the save screen
+is stable, unlike the animating studio/launcher (see `LAUNCHER-ARCHITECTURE.md`).

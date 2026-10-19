@@ -68,8 +68,8 @@ oracle:
    histogram distance).
 2. **Any glow, contrast or light the reference does not have is a REJECT.** No effect may invent illumination
    that is not in the source.
-3. **The floor:** with everything off, the reference frame (`md5 68d8eb83dc75b6fe6e03cc2372ca186d`) must not
-   move a byte.
+3. **The floor:** with everything off, the reference frame (`md5 912bdc63bddc791afece574c7475eac8` on GL /
+   `531acb651f5c8552f3540e9a57fdf08f` on Vulkan) must not move a byte.
 
 **By the same rule, these are rejected outright** — they are the ingredients of slop, not of quality:
 bloom-everywhere, fake-HDR oversaturation and crushed blacks, sharpening halos, chromatic aberration, film
