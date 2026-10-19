@@ -49,6 +49,9 @@ static int vsync, upscale, scene_upscale;
 #ifdef __ANDROID__
 /* Android render-scale: 0 full output, 1 = 75%, 2 = 50%, 3 = 35%. */
 static int android_scene_scale;
+/* Full-size scenes render into the default framebuffer when it has depth. */
+static int android_scene_direct_ok = 1;
+static int android_scene_direct;
 void video_set_scene_render_scale(int level)
 {
     android_scene_scale = level >= 0 && level <= 3 ? level : 0;
@@ -83,6 +86,9 @@ void video_set_menu_pacing(int enabled)
         frame_pacer.rate = 0;
     }
 }
+/* 2D work of the current frame for the debug overlay. */
+static unsigned frame_2d_draws, frame_2d_quads;
+
 /* Diagnostic only: synchronize the GPU to measure complete frame work. */
 static int profile_frames, profile_draws, profile_quads;
 static uint64_t profile_start, profile_total, profile_window;
@@ -107,6 +113,25 @@ static int fb_w, fb_h;
 static GLuint scene_fbo, scene_color, scene_depth, scene_tex, scene_resolve;
 static int scene_w, scene_h, scene_samples, scene_active, output_w, output_h;
 static int scene_frame_has_content;
+
+/* The GLES path finishes the frame in the default framebuffer: the 3D scene
+   and the UI are both drawn there, so presenting needs no copy. */
+static GLuint frame_target(void)
+{
+#ifdef __ANDROID__
+    return 0;
+#else
+    return fbo;
+#endif
+}
+
+void video_gl_frame_stats(unsigned *draws, unsigned *quads)
+{
+    if (draws)
+        *draws = frame_2d_draws;
+    if (quads)
+        *quads = frame_2d_quads;
+}
 
 /* virtual screen and its letterbox rectangle in framebuffer pixels */
 static int ui_panel_on, ui_panel_x, ui_panel_y, ui_panel_w, ui_panel_h;
@@ -166,7 +191,7 @@ static void capture_framebuffer(void)
         return;
     }
     uint64_t now = plat_time_ns();
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, frame_target());
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glReadPixels(0, 0, fb_w, fb_h, GL_RGBA, GL_UNSIGNED_BYTE, capture_pixels);
     size_t bytes = (size_t)fb_w * fb_h * 4;
@@ -275,6 +300,13 @@ static int ensure_framebuffer(void)
         w = 1;
     if (h < 1)
         h = 1;
+#ifdef __ANDROID__
+    /* No offscreen output target: the default framebuffer is presented. */
+    fb_w = w;
+    fb_h = h;
+    layout_view();
+    return 1;
+#endif
     if (fbo && w == fb_w && h == fb_h)
         return 1;
     if (!fbo) {
@@ -392,6 +424,12 @@ int plat_video_init(const plat_video_desc *d)
 #else
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
 #endif
+#ifdef __ANDROID__
+    /* The final GLES frame is drawn in the default framebuffer; the 3D scene
+       needs a real depth attachment there. */
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+#endif
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     int window_width = d->width, window_height = d->height, fullscreen = d->fullscreen;
 #ifdef __SWITCH__
@@ -438,6 +476,13 @@ int plat_video_init(const plat_video_desc *d)
     if (!gl_load())
         return -1;
 #ifdef __ANDROID__
+    {
+        GLint depth_bits = 0;
+        glGetIntegerv(0x0D56 /* GL_DEPTH_BITS */, &depth_bits);
+        android_scene_direct_ok = depth_bits >= 16;
+        fprintf(stderr, "video: default framebuffer depth %d bits; scene %s\n", (int)depth_bits,
+                android_scene_direct_ok ? "direct" : "offscreen");
+    }
     fprintf(stderr, "android: renderer=%s (%s)\n", backend ? "vulkan" : "opengl",
             backend ? "Vulkan" : "GLES");
 #endif
@@ -556,6 +601,8 @@ void video_flush2d(void)
     glBindBuffer(GL_ARRAY_BUFFER, vbo2d);
     glBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)(nbatch * sizeof(vertex2d)), batch);
     glDrawArrays(GL_TRIANGLES, 0, nbatch);
+    frame_2d_draws++;
+    frame_2d_quads += (unsigned)nbatch / 6;
     if (profile_frames) {
         profile_draws++;
         profile_quads += nbatch / 6;
@@ -640,6 +687,8 @@ void video_license_image(const plat_texture *t, float x, float y, float w, float
     glBindBuffer(GL_ARRAY_BUFFER, vbo2d);
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof verts, verts);
     glDrawArrays(GL_TRIANGLES, 0, 6);
+    frame_2d_draws++;
+    frame_2d_quads++;
     if (profile_frames) {
         profile_draws++;
         profile_quads++;
@@ -756,7 +805,11 @@ void plat_video_begin_frame(void)
     }
     SWP_PUSH(SWP_GL);
     ensure_framebuffer();
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+#ifdef __ANDROID__
+    moon_gl_state_reset();
+#endif
+    frame_2d_draws = frame_2d_quads = 0;
+    glBindFramebuffer(GL_FRAMEBUFFER, frame_target());
     glDisable(GL_SCISSOR_TEST);
     glViewport(0, 0, fb_w, fb_h);
     glClearColor(0, 0, 0, 1);
@@ -771,12 +824,14 @@ void plat_video_end_frame(void)
     capture_framebuffer();
     SWP_PUSH(SWP_GL);
     glDisable(GL_SCISSOR_TEST);
+#ifndef __ANDROID__
     glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     int preview_w, preview_h;
     graphics_size(window, &preview_w, &preview_h);
     glBlitFramebuffer(0, 0, fb_w, fb_h, 0, 0, preview_w, preview_h, GL_COLOR_BUFFER_BIT,
                       GL_NEAREST);
+#endif
     if (profile_frames) {
         glFinish();
         profile_total += plat_time_ns() - profile_start;
@@ -806,7 +861,7 @@ void plat_video_end_frame(void)
             SWP_VOID(SWP_SWAP, SDL_GL_SwapWindow(window));
     }
     frame_presented = 1;
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, frame_target());
     SWP_FRAME(fb_w, fb_h);
 }
 
@@ -821,7 +876,7 @@ GLuint video_draw_framebuffer(void)
 unsigned char *plat_sdl_read_pixels(int *width, int *height)
 {
     video_flush2d();
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, frame_target());
     unsigned char *px = malloc((size_t)fb_w * fb_h * 4), *row = malloc((size_t)fb_w * 4);
     if (!px || !row) {
         free(px);
@@ -963,6 +1018,60 @@ void video_scene_quality(int antialiasing, int render_scale)
 }
 #endif
 
+#ifdef __ANDROID__
+static void log_scene_route(int direct)
+{
+    static int last_direct = -1, last_scale = -1;
+    if (direct == last_direct && android_scene_scale == last_scale)
+        return;
+    last_direct = direct;
+    last_scale = android_scene_scale;
+    if (direct) {
+        fprintf(stderr, "video: scene direct (no blit)\n");
+        return;
+    }
+    static const int percent[] = {100, 75, 50, 35};
+    int level = android_scene_scale >= 0 && android_scene_scale <= 3 ? android_scene_scale : 0;
+    fprintf(stderr, "video: scene upscaled via quad %d%%\n", percent[level]);
+}
+
+/* Tile-friendly upscale: sample the reduced colour target into the default
+   framebuffer instead of asking glBlitFramebuffer to scale it. */
+static void scene_quad(GLuint tex, int dst_w, int dst_h)
+{
+    static const int order[6] = {0, 1, 2, 2, 1, 3};
+    const float xs[4] = {0, (float)dst_w, 0, (float)dst_w};
+    const float ys[4] = {0, 0, (float)dst_h, (float)dst_h};
+    const float us[4] = {0, 1, 0, 1};
+    const float vs[4] = {1, 1, 0, 0};
+    vertex2d verts[6];
+    for (int i = 0; i < 6; i++) {
+        int k = order[i];
+        verts[i] = (vertex2d){xs[k], ys[k], us[k], vs[k], {255, 255, 255, 255}};
+    }
+    glUseProgram(program2d);
+    glUniform2f(u_view2d, (float)dst_w, (float)dst_h);
+    glUniform1i(u_tex2d, 0);
+    glUniform1i(u_kind2d, 0);
+    glUniform1i(u_filter2d, 0);
+    glUniform1f(u_text2d, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glDisable(GL_SCISSOR_TEST);
+    glViewport(0, 0, dst_w, dst_h);
+    glBindVertexArray(vao2d);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo2d);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof verts, verts);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    frame_2d_draws++;
+    frame_2d_quads++;
+}
+#endif
+
 void video_begin_scene(void)
 {
     video_flush2d();
@@ -1019,6 +1128,35 @@ void video_begin_scene(void)
 #endif
 #endif
     scene_upscale = mode;
+#ifdef __ANDROID__
+    /* A full-size scene needs no intermediate target at all: draw it where
+       the UI will be drawn and present that. When the default framebuffer has
+       no usable depth the offscreen target still feeds the quad below. */
+    if (android_scene_scale == 0 && scene_upscale == 0 && android_scene_direct_ok) {
+        android_scene_direct = 1;
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#ifdef MOON_PC_VULKAN
+        if (moon_vk_render_active())
+            moon_vk_scene_begin(!scene_frame_has_content);
+#endif
+        glDisable(GL_SCISSOR_TEST);
+        glEnable(GL_MULTISAMPLE);
+        glViewport(0, 0, output_w, output_h);
+        glClearColor(0, 0, 0, 1);
+        glClearDepth(GL_DEPTH_FAR);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        fb_w = output_w;
+        fb_h = output_h;
+        scene_w = output_w;
+        scene_h = output_h;
+        scene_upscale = 0;
+        layout_view();
+        scene_active = 1;
+        log_scene_route(1);
+        return;
+    }
+    android_scene_direct = 0;
+#endif
     if (!scene_fbo) {
         glGenFramebuffers(1, &scene_fbo);
         glGenFramebuffers(1, &scene_resolve);
@@ -1097,11 +1235,40 @@ void video_end_scene(void)
         return;
     video_flush2d();
     glDisable(GL_SCISSOR_TEST);
+#ifdef __ANDROID__
+    if (android_scene_direct) {
+        /* The 3D scene and the UI share the default framebuffer. Nothing is
+           copied here; the UI continues in the same target. */
+        android_scene_direct = 0;
+        fb_w = output_w;
+        fb_h = output_h;
+        scene_active = 0;
+        scene_frame_has_content = 1;
+        layout_view();
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return;
+    }
+#endif
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, scene_resolve);
     glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, scene_tex, 0);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, scene_fbo);
     glBlitFramebuffer(0, 0, scene_w, scene_h, 0, 0, scene_w, scene_h, GL_COLOR_BUFFER_BIT,
                       GL_NEAREST);
+#ifdef __ANDROID__
+    /* Resolve multisampling is same-size; the reduced scene is scaled by a
+       linear texture fetch in the 2D path, which is the tile-friendly route. */
+    glBindFramebuffer(GL_FRAMEBUFFER, scene_resolve);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    scene_quad(scene_tex, output_w, output_h);
+    fb_w = output_w;
+    fb_h = output_h;
+    scene_active = 0;
+    scene_frame_has_content = 1;
+    layout_view();
+    log_scene_route(0);
+    return;
+#endif
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     GLuint resolved = scene_tex;
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)

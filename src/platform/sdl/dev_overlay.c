@@ -329,6 +329,20 @@ void moon_debug_overlay_draw(void)
     double fps = mean > 0 ? 1000.0 / mean : 0;
 
     r3d_stats st = r3d_frame_stats();
+#if !defined(MOON_DEKO3D)
+    /* The GL path submits its own 2D draws; add them to the 3D counters so
+       the overlay is not blank in menus (and reports the phone's real work). */
+    unsigned gl_draws = 0, gl_quads = 0;
+    video_gl_frame_stats(&gl_draws, &gl_quads);
+    st.draws += gl_draws;
+    st.triangles += gl_quads * 2;
+#ifdef __ANDROID__
+    unsigned gl_state_skips = 0, gl_texture_skips = 0;
+    moon_gl_state_stats(&gl_state_skips, &gl_texture_skips);
+    st.state_cache_hits += gl_state_skips;
+    st.texture_cache_hits += gl_texture_skips;
+#endif
+#endif
     unsigned late = 0;
 #if defined(MOON_PC_VULKAN)
     late = (unsigned)video_frame_late_count();

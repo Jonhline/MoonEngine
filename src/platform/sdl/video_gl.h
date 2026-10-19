@@ -17,6 +17,8 @@ float video_read_depth(int x, int y);
 
 /* Draws pending 2D quads (before 3D, captures and state changes). */
 void video_flush2d(void);
+/* 2D draw calls and quads submitted in the current frame (debug overlay). */
+void video_gl_frame_stats(unsigned *draws, unsigned *quads);
 /* Bound frontend rendering to its native 60 Hz; race timing is separate. */
 void video_set_menu_pacing(int enabled);
 /* Frames whose pacing deadline had already passed when they began (the debug

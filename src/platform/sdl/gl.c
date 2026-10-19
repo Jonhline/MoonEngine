@@ -1,3 +1,4 @@
+#define MOON_GL_IMPLEMENTATION
 #include "gl.h"
 #ifdef MOON_PC_VULKAN
 #include "vk_render.h"
@@ -198,3 +199,247 @@ GLuint gl_program(const char *vertex, const char *fragment)
 #endif
     return p;
 }
+
+#ifdef __ANDROID__
+/* Small GLES state cache. Every entry starts "unknown" after a reset, so the
+   first call in a frame always reaches the driver; later equal calls do not. */
+#define MOON_GL_STATE_UNKNOWN 0xFFFFFFFFu
+#define MOON_GL_STATE_UNITS 8
+#define MOON_GL_STATE_ATTRIBS 16
+
+static int state_valid;
+static GLuint state_program;
+static GLuint state_vao;
+static GLuint state_active_unit;
+static GLuint state_tex[MOON_GL_STATE_UNITS];
+static signed char state_caps[65536];
+static GLuint state_array_buffer, state_element_buffer;
+static unsigned state_generation;
+typedef struct {
+    unsigned generation;
+    GLint size;
+    GLenum type;
+    GLboolean normalized;
+    GLsizei stride;
+    const void *pointer;
+} moon_attrib_state;
+static moon_attrib_state state_attrib[MOON_GL_STATE_ATTRIBS];
+static int state_blend_valid;
+static GLenum state_src_rgb, state_dst_rgb, state_src_alpha, state_dst_alpha;
+static unsigned state_skips, texture_skips;
+
+void moon_gl_state_reset(void)
+{
+    state_valid = 1;
+    state_program = MOON_GL_STATE_UNKNOWN;
+    state_vao = MOON_GL_STATE_UNKNOWN;
+    state_active_unit = MOON_GL_STATE_UNKNOWN;
+    for (int i = 0; i < MOON_GL_STATE_UNITS; i++)
+        state_tex[i] = MOON_GL_STATE_UNKNOWN;
+    memset(state_caps, 0, sizeof state_caps);
+    state_array_buffer = state_element_buffer = MOON_GL_STATE_UNKNOWN;
+    state_generation++;
+    memset(state_attrib, 0, sizeof state_attrib);
+    state_blend_valid = 0;
+    state_skips = texture_skips = 0;
+}
+
+void moon_gl_state_stats(unsigned *skips, unsigned *textures)
+{
+    if (skips)
+        *skips = state_skips;
+    if (textures)
+        *textures = texture_skips;
+}
+
+static void state_ready(void)
+{
+    if (!state_valid)
+        moon_gl_state_reset();
+}
+
+void moon_gl_state_active_texture(GLenum unit)
+{
+    state_ready();
+    if (state_active_unit == unit)
+        return;
+    glActiveTexture(unit);
+    state_active_unit = unit;
+}
+
+void moon_gl_state_bind_texture(GLenum target, GLuint texture)
+{
+    if (target != GL_TEXTURE_2D) {
+        glBindTexture(target, texture);
+        return;
+    }
+    state_ready();
+    if (state_active_unit >= GL_TEXTURE0 &&
+        state_active_unit < GL_TEXTURE0 + MOON_GL_STATE_UNITS) {
+        GLuint *current = &state_tex[state_active_unit - GL_TEXTURE0];
+        if (*current == texture) {
+            texture_skips++;
+            return;
+        }
+        glBindTexture(target, texture);
+        *current = texture;
+        return;
+    }
+    glBindTexture(target, texture);
+}
+
+void moon_gl_state_use_program(GLuint program)
+{
+    state_ready();
+    if (state_program == program) {
+        state_skips++;
+        return;
+    }
+    glUseProgram(program);
+    state_program = program;
+}
+
+void moon_gl_state_blend_func_separate(GLenum src_rgb, GLenum dst_rgb, GLenum src_alpha,
+                                       GLenum dst_alpha)
+{
+    state_ready();
+    if (state_blend_valid && state_src_rgb == src_rgb && state_dst_rgb == dst_rgb &&
+        state_src_alpha == src_alpha && state_dst_alpha == dst_alpha) {
+        state_skips++;
+        return;
+    }
+    glBlendFuncSeparate(src_rgb, dst_rgb, src_alpha, dst_alpha);
+    state_src_rgb = src_rgb;
+    state_dst_rgb = dst_rgb;
+    state_src_alpha = src_alpha;
+    state_dst_alpha = dst_alpha;
+    state_blend_valid = 1;
+}
+
+void moon_gl_state_enable(GLenum cap)
+{
+    state_ready();
+    if (cap < 65536) {
+        if (state_caps[cap] == 2) {
+            state_skips++;
+            return;
+        }
+        state_caps[cap] = 2;
+    }
+    glEnable(cap);
+}
+
+void moon_gl_state_disable(GLenum cap)
+{
+    state_ready();
+    if (cap < 65536) {
+        if (state_caps[cap] == 1) {
+            state_skips++;
+            return;
+        }
+        state_caps[cap] = 1;
+    }
+    glDisable(cap);
+}
+
+void moon_gl_state_bind_buffer(GLenum target, GLuint buffer)
+{
+    state_ready();
+    if (target == GL_ARRAY_BUFFER) {
+        if (state_array_buffer == buffer) {
+            state_skips++;
+            return;
+        }
+        glBindBuffer(target, buffer);
+        state_array_buffer = buffer;
+        state_generation++;
+        return;
+    }
+    if (target == GL_ELEMENT_ARRAY_BUFFER) {
+        if (state_element_buffer == buffer) {
+            state_skips++;
+            return;
+        }
+        glBindBuffer(target, buffer);
+        state_element_buffer = buffer;
+        return;
+    }
+    glBindBuffer(target, buffer);
+}
+
+void moon_gl_state_bind_vertex_array(GLuint array)
+{
+    state_ready();
+    if (state_vao == array) {
+        state_skips++;
+        return;
+    }
+    glBindVertexArray(array);
+    state_vao = array;
+    state_element_buffer = MOON_GL_STATE_UNKNOWN;
+    state_generation++;
+}
+
+void moon_gl_state_vertex_attrib_pointer(GLuint index, GLint size, GLenum type,
+                                         GLboolean normalized, GLsizei stride,
+                                         const void *pointer)
+{
+    state_ready();
+    if (index < MOON_GL_STATE_ATTRIBS) {
+        moon_attrib_state *a = &state_attrib[index];
+        if (a->generation == state_generation && a->size == size && a->type == type &&
+            a->normalized == normalized && a->stride == stride && a->pointer == pointer) {
+            state_skips++;
+            return;
+        }
+        glVertexAttribPointer(index, size, type, normalized, stride, pointer);
+        a->generation = state_generation;
+        a->size = size;
+        a->type = type;
+        a->normalized = normalized;
+        a->stride = stride;
+        a->pointer = pointer;
+        return;
+    }
+    glVertexAttribPointer(index, size, type, normalized, stride, pointer);
+}
+
+void moon_gl_state_delete_textures(GLsizei n, const GLuint *textures)
+{
+    glDeleteTextures(n, textures);
+    if (!state_valid)
+        return;
+    for (GLsizei i = 0; i < n; i++)
+        for (int u = 0; u < MOON_GL_STATE_UNITS; u++)
+            if (state_tex[u] == textures[i])
+                state_tex[u] = MOON_GL_STATE_UNKNOWN;
+}
+
+void moon_gl_state_delete_buffers(GLsizei n, const GLuint *buffers)
+{
+    glDeleteBuffers(n, buffers);
+    if (!state_valid)
+        return;
+    for (GLsizei i = 0; i < n; i++) {
+        if (state_array_buffer == buffers[i]) {
+            state_array_buffer = MOON_GL_STATE_UNKNOWN;
+            state_generation++;
+        }
+        if (state_element_buffer == buffers[i])
+            state_element_buffer = MOON_GL_STATE_UNKNOWN;
+    }
+}
+
+void moon_gl_state_delete_vertex_arrays(GLsizei n, const GLuint *arrays)
+{
+    glDeleteVertexArrays(n, arrays);
+    if (!state_valid)
+        return;
+    for (GLsizei i = 0; i < n; i++)
+        if (state_vao == arrays[i]) {
+            state_vao = MOON_GL_STATE_UNKNOWN;
+            state_element_buffer = MOON_GL_STATE_UNKNOWN;
+            state_generation++;
+        }
+}
+#endif

@@ -82,6 +82,57 @@ MOON_GL_FUNCS(MOON_GL_DECLARE)
 #define glBlendColor moon_glBlendColor
 #endif
 
+#ifdef __ANDROID__
+/* GLES pays these calls on the CPU for every draw. The cache only skips a
+   call when the value is already current; the renderer's output is unchanged. */
+void moon_gl_state_reset(void);
+void moon_gl_state_stats(unsigned *state_skips, unsigned *texture_skips);
+void moon_gl_state_bind_texture(GLenum target, GLuint texture);
+void moon_gl_state_use_program(GLuint program);
+void moon_gl_state_blend_func_separate(GLenum src_rgb, GLenum dst_rgb, GLenum src_alpha,
+                                       GLenum dst_alpha);
+void moon_gl_state_enable(GLenum cap);
+void moon_gl_state_disable(GLenum cap);
+void moon_gl_state_bind_buffer(GLenum target, GLuint buffer);
+void moon_gl_state_bind_vertex_array(GLuint array);
+void moon_gl_state_vertex_attrib_pointer(GLuint index, GLint size, GLenum type,
+                                         GLboolean normalized, GLsizei stride,
+                                         const void *pointer);
+void moon_gl_state_delete_textures(GLsizei n, const GLuint *textures);
+void moon_gl_state_delete_buffers(GLsizei n, const GLuint *buffers);
+void moon_gl_state_delete_vertex_arrays(GLsizei n, const GLuint *arrays);
+void moon_gl_state_active_texture(GLenum unit);
+#ifndef MOON_GL_IMPLEMENTATION
+#undef glBindTexture
+#undef glUseProgram
+#undef glBlendFuncSeparate
+#undef glEnable
+#undef glDisable
+#undef glBindBuffer
+#undef glBindVertexArray
+#undef glVertexAttribPointer
+#undef glDeleteTextures
+#undef glDeleteBuffers
+#undef glDeleteVertexArrays
+#undef glActiveTexture
+#define glBindTexture moon_gl_state_bind_texture
+#define glUseProgram moon_gl_state_use_program
+#define glBlendFuncSeparate moon_gl_state_blend_func_separate
+#define glEnable moon_gl_state_enable
+#define glDisable moon_gl_state_disable
+#define glBindBuffer moon_gl_state_bind_buffer
+#define glBindVertexArray moon_gl_state_bind_vertex_array
+#define glVertexAttribPointer moon_gl_state_vertex_attrib_pointer
+#define glDeleteTextures moon_gl_state_delete_textures
+#define glDeleteBuffers moon_gl_state_delete_buffers
+#define glDeleteVertexArrays moon_gl_state_delete_vertex_arrays
+#define glActiveTexture moon_gl_state_active_texture
+#else
+#undef glActiveTexture
+#define glActiveTexture moon_glActiveTexture
+#endif
+#endif
+
 /* Loads the entry points for the current context. 0 if any is missing. */
 int gl_load(void);
 /* Reversed depth (OpenGL 4.5 / ARB_clip_control): far 0, near 1 in a float
