@@ -364,8 +364,47 @@ int plat_pick_disc(char *out, size_t cap)
     (*env)->DeleteLocalRef(env, activity);
     return picked;
 }
+/* The remembered SAF document is opened by GameActivity (its persistable grant
+   lives in the Java startup preferences). Ask for the descriptor the launcher may
+   use to pre-fill its disc step; "" means none or a revoked/gone document. */
+static char g_startup_disc[64];
+
+const char *moon_android_startup_disc(void)
+{
+    return g_startup_disc[0] ? g_startup_disc : NULL;
+}
+
+static void moon_android_read_startup_disc(void)
+{
+    JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    if (!env || !activity)
+        return;
+    jclass cls = (*env)->GetObjectClass(env, activity);
+    jmethodID path = cls ? (*env)->GetMethodID(env, cls, "startupDiscPath",
+                                               "()Ljava/lang/String;")
+                         : NULL;
+    if (path) {
+        jstring found = (jstring)(*env)->CallObjectMethod(env, activity, path);
+        if ((*env)->ExceptionCheck(env))
+            (*env)->ExceptionClear(env);
+        else if (found) {
+            const char *text = (*env)->GetStringUTFChars(env, found, NULL);
+            if (text) {
+                snprintf(g_startup_disc, sizeof g_startup_disc, "%s", text);
+                (*env)->ReleaseStringUTFChars(env, found, text);
+            }
+            (*env)->DeleteLocalRef(env, found);
+        }
+    }
+    if (cls)
+        (*env)->DeleteLocalRef(env, cls);
+    (*env)->DeleteLocalRef(env, activity);
+}
+
 void moon_android_init(void)
 {
+    moon_android_read_startup_disc();
     const char *internal = SDL_AndroidGetInternalStoragePath();
     const char *external = SDL_AndroidGetExternalStoragePath();
     const char *base = external ? external : internal; /* external storage may be unmounted */

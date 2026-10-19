@@ -64,8 +64,8 @@ The front door is **the engine's own launcher** (`src/app/launcher.c`). On a
 first run with no document chosen it opens on the disc step; choosing one
 stores the document's persistent read grant and the launcher then runs the
 studio front-end — the same room, dock, mods page and options the desktop build
-opens on. Once a disc is saved, a later start may go straight into the game;
-the launcher's own screen still owns the disc, mods and options.
+opens on. A saved disc only pre-fills the launcher's disc step: the room comes
+up on every launch, and START hands the remembered descriptor to the game.
 
 The document is used where it lies: nothing is copied, and no broad storage
 permission is requested. A retained file descriptor is
@@ -191,11 +191,12 @@ points `XDG_DATA_HOME` at the app's external files dir, so the root reads
 | `Download/MoonEngine/moonengine.log` | none | `/storage/emulated/0/Download/MoonEngine/moonengine.log` | Android-only mirror (a log a mail/chat picker can attach) |
 | `ffmpeg.exe` | `<root>/ffmpeg.exe` | none | Windows-only, not recreated |
 
-The Android game launch passes **only** the disc descriptor
-(`/proc/self/fd/N`, and `--renderer vulkan`); saves, `options.ini`,
-`video.ini`, `launcher.ini` and mods all come from the engine's own
-`plat_pref_dir()` defaults, exactly as a desktop launch with no override does.
-There is one rule, not two.
+The Android start passes **no** disc arguments: the engine always opens its
+launcher, and native reads the remembered `/proc/self/fd/N` from the startup
+preference to pre-fill the disc step. Saves, `options.ini`, `video.ini`,
+`launcher.ini` and mods all come from the engine's own `plat_pref_dir()`
+defaults, exactly as a desktop launch with no override does. There is one rule,
+not two.
 
 At startup the engine prints one inventory line, the same shape on every
 platform, so a single screenshot of the log shows where the user's things are:

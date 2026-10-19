@@ -15,4 +15,7 @@ void moon_android_mark_frame(const char *where);
    line (main.c). Each returns the path set by moon_android_init, or NULL. */
 const char *moon_android_log_path(void);
 const char *moon_android_log_mirror(void);
+/* The remembered document as /proc/self/fd/N, pre-filled into the launcher's
+   disc step; NULL when none was chosen or it can no longer be opened. */
+const char *moon_android_startup_disc(void);
 #endif

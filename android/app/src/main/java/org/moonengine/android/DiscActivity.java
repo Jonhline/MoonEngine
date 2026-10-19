@@ -63,10 +63,8 @@ public final class DiscActivity extends Activity {
         // picker. This is the only owner of the picker; GameActivity never opens
         // it again once a descriptor is held.
         if (pickerMode) layout.post(this::launchPicker);
-        else {
-            String saved = getSharedPreferences("startup", MODE_PRIVATE).getString("discUri", null);
-            if (saved != null) open(Uri.parse(saved));
-        }
+        // A remembered document never starts the game from here: the launcher
+        // owns the room, and reads it only to pre-fill its disc step.
     }
     private void launchPicker() {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);

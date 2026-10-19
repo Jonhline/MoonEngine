@@ -65,15 +65,20 @@ public final class GameActivity extends SDLActivity {
     }
 
     @Override protected String[] getArguments() {
-        // The launcher (native) owns the disc picker. If it already obtained a
-        // descriptor this process reuses it -- no second prompt. No disc yet:
-        // start the engine with no arguments and let its own launcher ask.
-        if (DiscActivity.disc == null) return new String[0];
-        // Only the disc descriptor is Android-specific. Saves, options.ini,
-        // launcher.ini, video.ini and mods are left to the engine's own
-        // plat_pref_dir() defaults -- the same single rule the desktop uses
-        // (android_host.c points XDG_DATA_HOME at this root).
-        return new String[] { "/proc/self/fd/" + DiscActivity.disc.getFd(), "--renderer", "vulkan" };
+        // No disc on the command line: a bare descriptor would select the game
+        // path (launcher.c argv[1]) and skip the room. The engine always starts
+        // its own launcher; native asks startupDiscPath() to pre-fill the disc.
+        return new String[0];
+    }
+    /** Native (android_host.c) reads the remembered document for the disc step. */
+    public String startupDiscPath() {
+        if (DiscActivity.disc == null) {
+            String uri = getSharedPreferences("startup", MODE_PRIVATE).getString("discUri", null);
+            if (uri != null) try {
+                DiscActivity.disc = getContentResolver().openFileDescriptor(Uri.parse(uri), "r");
+            } catch (Exception ignored) { /* revoked or gone: the room shows no disc */ }
+        }
+        return DiscActivity.disc == null ? "" : "/proc/self/fd/" + DiscActivity.disc.getFd();
     }
     /** Native (android_host.c) starts the document picker in this same process. */
     public void startDiscPicker() { DiscActivity.startPicker(this); }

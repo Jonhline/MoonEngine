@@ -10,6 +10,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef __ANDROID__
+extern const char *moon_android_startup_disc(void); /* android_host.c */
+#endif
 
 /* No-arg / --launcher is the studio front-end (main runs the first-run wizard when
    nothing is saved, else the room). --launcher-v2 is our own SDL options screen,
@@ -34,6 +37,16 @@ int launcher_bootstrap(int *argc,char ***argv,launcher_startup *start)
     char *pref=moon_pref_path();if(!pref)return -1;
     char config[LAUNCHER_PATH];snprintf(config,sizeof config,"%slauncher.ini",pref);
     launcher_preferences_load(&start->preferences,file?file:config);
+#ifdef __ANDROID__
+    /* The remembered SAF document is pre-filled from the startup preference as
+       an already-open descriptor; launcher.ini's old /proc path is stale across
+       processes, and a vanished document leaves the room with no disc chosen. */
+    if(!disc){
+        const char *saved=moon_android_startup_disc();
+        if(saved && *saved)snprintf(start->preferences.disc,sizeof start->preferences.disc,"%s",saved);
+        else start->preferences.disc[0]=0;
+    }
+#endif
     snprintf(start->video_file,sizeof start->video_file,file?"%s.video.ini":"%svideo.ini",file?file:pref);
     if(!start->preferences.saves[0])snprintf(start->preferences.saves,sizeof start->preferences.saves,"%ssaves",pref);
     SDL_free(pref);

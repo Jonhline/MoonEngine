@@ -3170,7 +3170,8 @@ int main(int argc, char **argv)
 #ifdef __ANDROID__
     moon_android_init();
     /* No arguments is the launcher's own first-run wizard / studio room, exactly as on
-       desktop. GameActivity passes the disc arguments only when a saved document exists. */
+       desktop. GameActivity never passes a disc: native reads the remembered document
+       from the startup preference to pre-fill the room's disc step. */
 #endif
     ensure_user_folders();
 #ifndef __SWITCH__
