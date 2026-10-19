@@ -796,6 +796,10 @@ ultimate racing sim"* — is registered there: the logger, the race engineer, an
 
 ### 🆕 G6.23 — **ENHANCED TEXTURES** *(release requirement, 2026-10-13)*
 
+> **DEFERRED by the captain 2026-10-19:** *"No spec ii. And no enhanced textures for now. Atleast."* — not
+> cancelled, just off the table for now. Do NOT propose or dispatch it until he re-opens it, and do not treat
+> it as an active release gate in status reports.
+
 - **The captain, 2026-10-13:** *"Before release I want 3 things to be in Vulcan4. Enhanced textures. Native spec
   ii support and everything in the easy roadmap."* → **release gate**, not a wish.
 - **What it is:** the engine loads **texture replacements from a folder the user owns**, instead of the
@@ -828,6 +832,9 @@ ultimate racing sim"* — is registered there: the logger, the race engineer, an
   theirs?
 
 ### 🆕 G6.24 — **NATIVE SPEC II SUPPORT** *(release requirement, 2026-10-13)*
+
+> **DEFERRED by the captain 2026-10-19:** same sentence as G6.23 — *"No spec ii. And no enhanced textures for
+> now."* Not cancelled; off the table until he re-opens it. Do not schedule it as an active release gate.
 
 - **The captain, 2026-10-13:** same sentence as `G6.23`. Spec II is the mod he actually plays, so "it runs
   on my disc" is the bar.
@@ -1711,3 +1718,33 @@ ultimate racing sim"* — is registered there: the logger, the race engineer, an
 - **The design law for this entry:** touch is a first-class input source feeding the engine's own pad state — never
   a simulated DualShock, never a parallel control path, never a second copy of the layout logic.
 - **STATUS:** ⬜ registered — the driving half exists, the device proof and the launcher half do not.
+
+---
+
+## G6.42 — MORE AI RACERS THAN SIX (PC ONLY)
+
+- **The captain's ask, verbatim (2026-10-19):** *"how possible it is to add more ai racers in a race?"* — then
+  *"I want u to research it. Make it a pc only thing for now. I'll dispatch a playtester once we finish."*
+- **Scope: PC only.** No Android, no Switch work on this line until the captain says otherwise.
+- **RESEARCH DONE — measured, not estimated:** `docs/vulcan4/RESEARCH-MORE-AI-RACERS.md`.
+  The short version: the six-car field is baked into **the original game's own data**, not only into our C.
+  - *Ours, cheap:* `RACE_BSPEC_CARS 6` (`race_bspec.h:16`), the B-Spec monitor arrays and its hard clamp
+    (`race_game_bspec.inc:153`), the arcade board's `rows[6]`/`done_car[6]`/`order[6]` (`race_result.c`), the
+    HUD's grid-letter row (`race_hud.c:1156`), the start-of-race per-car arrays (`race_run.c:76`).
+  - *Our clamps choosing five:* `main.c:4838` asks for 5 opponents; `race_game.c:754` clamps `nothers` to 5;
+    `career_event.c:240` builds `grid.cars = 6`; `replay_file.c:316` **rejects a replay with more than five
+    opponents** (the on-disk format itself is six-car).
+  - *The real wall — the guest's own structures:* `race_run.c:97` holds **six fixed guest addresses**
+    (`entry_at[6]`) — the game's race-entry table is six slots deep; `init.c:17` shows the guest's own
+    grid-side table `SIDES[6]`; `career_original.c:180` documents the contest record as *player + five*.
+  - *Good news, also measured:* the physics and AI loops are **count-driven** (`NCARS(c)` at `ai.c:1717`, the
+    conductor's strided array at `CONDUCTOR_FIELD_CARS + i * CAR_SIZE`), so nothing in the simulation hard-codes
+    six — the limit is allocation and data, not logic.
+- **Staged plan if it is ever built:** arcade first with ONE extra car → widen our own tables in the same pass →
+  then confront the guest entry table (the make-or-break step; needs a measurement of what those six
+  addresses allocate) → replays refuse >6 instead of writing a file the loader rejects → GT mode last.
+- **Known risks written down:** GT4's AI pace is authored for five (expect traffic pile-ups), the entry
+  pointers live in the guest's own heap (a wrong stride corrupts the conductor), and anything storing a field
+  size must be versioned rather than silently extended.
+- **STATUS:** ⬜ researched, no code. Next step when opened: measure the guest entry table's real size and
+  whether a course publishes a seventh grid slot.
