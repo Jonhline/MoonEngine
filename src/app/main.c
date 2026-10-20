@@ -1362,8 +1362,14 @@ static void wiz_text_center(const char *s, float cx, float y, float sc, const ui
     wiz_text(s, cx - wiz_text_width(s, sc) / 2.f, y, sc, col);
 }
 
-static int wiz_pick_disc(char *out, size_t size) /* the platform's own open dialog */
+static int wiz_pick_disc(char *out, size_t size, const char *hint) /* the platform's own open dialog */
 {
+    /* The chooser opens in the folder of the disc already named, so the image the
+       player is replacing is on screen instead of a home directory they must hunt. */
+    if (hint && *hint)
+        setenv("MOONSTUDIO_DISC_HINT", hint, 1);
+    else
+        unsetenv("MOONSTUDIO_DISC_HINT");
     return plat_pick_disc(out, size);
 }
 static int wiz_valid(const char *path, char *msg, size_t n)
@@ -1743,7 +1749,7 @@ static int first_run_wizard(launcher_preferences *prefs)
             if (step == 0) {
                 if (activate == 0) {
                     char chosen[LAUNCHER_PATH];
-                    if (wiz_pick_disc(chosen, sizeof chosen)) {
+                    if (wiz_pick_disc(chosen, sizeof chosen, disc)) {
                         snprintf(disc, sizeof disc, "%s", chosen);
                         valid = launcher_validate_disc(disc, status, sizeof status);
                         if (valid) {
