@@ -1362,14 +1362,27 @@ static void wiz_text_center(const char *s, float cx, float y, float sc, const ui
     wiz_text(s, cx - wiz_text_width(s, sc) / 2.f, y, sc, col);
 }
 
+/* Both Windows toolchains have _putenv; only POSIX has setenv/unsetenv, and the
+   MinGW build is the one that notices. An empty value removes the variable in the
+   Windows CRT, which is what the POSIX branch does explicitly. */
+static void wiz_disc_hint(const char *value)
+{
+#ifdef _WIN32
+    char line[1100];
+    snprintf(line, sizeof line, "MOONSTUDIO_DISC_HINT=%s", value ? value : "");
+    _putenv(line);
+#else
+    if (value)
+        setenv("MOONSTUDIO_DISC_HINT", value, 1);
+    else
+        unsetenv("MOONSTUDIO_DISC_HINT");
+#endif
+}
 static int wiz_pick_disc(char *out, size_t size, const char *hint) /* the platform's own open dialog */
 {
     /* The chooser opens in the folder of the disc already named, so the image the
        player is replacing is on screen instead of a home directory they must hunt. */
-    if (hint && *hint)
-        setenv("MOONSTUDIO_DISC_HINT", hint, 1);
-    else
-        unsetenv("MOONSTUDIO_DISC_HINT");
+    wiz_disc_hint(hint && *hint ? hint : NULL);
     return plat_pick_disc(out, size);
 }
 static int wiz_valid(const char *path, char *msg, size_t n)
