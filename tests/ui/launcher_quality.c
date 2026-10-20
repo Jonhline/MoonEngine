@@ -2,6 +2,13 @@
 #include "video_settings.h"
 #include <stdio.h>
 #include <string.h>
+#ifdef _WIN32
+#include <direct.h>
+#define make_directory(p) _mkdir(p)
+#else
+#include <sys/stat.h>
+#define make_directory(p) mkdir((p), 0755)   /* POSIX */
+#endif
 
 #define CHECK(x)                                                                                   \
     do {                                                                                           \
@@ -57,6 +64,7 @@ int main(int argc, char **argv)
     video_setting_set(&s,aa,4);
     video_settings_init(&loaded,1,argv[1]);
     CHECK(video_setting_get(&loaded,aa)==4);
+    make_directory("build");   /* the preset path below is relative to the test working dir */
     CHECK(video_settings_preset_export(&s,"build/edge-aa.moonpreset","Edge",0));
     video_setting_set(&s,aa,1);
     CHECK(video_settings_preset_import(&s,"build/edge-aa.moonpreset",0));

@@ -462,6 +462,43 @@ int gt4_save_load_slot_with_io(int slot, int (*read)(const char *, uint8_t **, s
     error(status == 2 ? "Loaded the backup because the main save was damaged." : "");
     return 1;
 }
+#if !defined(_WIN32)
+/* Lexical absolute path: the same job GetFullPathNameW does on Windows, so the
+   "never export into the live save folder" rule is not Windows-only. */
+static int absolute_path(const char *input, char *out, size_t n)
+{
+    char buffer[1200];
+    if (!input || !*input || !n) return 0;
+    if (input[0] == '/') {
+        if (snprintf(buffer, sizeof buffer, "%s", input) >= (int)sizeof buffer) return 0;
+    } else {
+        char cwd[1000];
+        if (!getcwd(cwd, sizeof cwd) ||
+            snprintf(buffer, sizeof buffer, "%s/%s", cwd, input) >= (int)sizeof buffer) return 0;
+    }
+    size_t used = 0;
+    for (const char *p = buffer; *p;) {
+        while (*p == '/') p++;
+        const char *start = p;
+        while (*p && *p != '/') p++;
+        size_t length = (size_t)(p - start);
+        if (!length) break;
+        if (length == 1 && start[0] == '.') continue;
+        if (length == 2 && start[0] == '.' && start[1] == '.') {
+            while (used && out[used - 1] != '/') used--;
+            if (used) used--;
+            continue;
+        }
+        if (used + length + 2 > n) return 0;
+        out[used++] = '/';
+        memcpy(out + used, start, length);
+        used += length;
+    }
+    if (!used) { if (n < 2) return 0; out[used++] = '/'; }
+    out[used] = 0;
+    return 1;
+}
+#endif
 int gt4_save_export_destination(const char *destination)
 {
     if (!destination || !*destination) return 0;
@@ -476,6 +513,13 @@ int gt4_save_export_destination(const char *destination)
     for (wchar_t *p=root;*p;p++) if (*p==L'/') *p=L'\\';
     while (b && root[b-1]==L'\\') root[--b]=0;
     if (!_wcsnicmp(target,root,b) && (!target[b] || target[b]==L'\\')) return 0;
+#else
+    char target[1200], root[1200];
+    if (!absolute_path(destination, target, sizeof target) ||
+        !absolute_path(session.dir, root, sizeof root)) return 0;
+    size_t length = strlen(root);
+    while (length && root[length - 1] == '/') root[--length] = 0;
+    if (length && !strncmp(target, root, length) && (!target[length] || target[length] == '/')) return 0;
 #endif
     return 1;
 }

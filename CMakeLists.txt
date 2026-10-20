@@ -1635,7 +1635,14 @@ add_test(NAME ee_mmi COMMAND ee_mmi_tests)
 # These need the user's own extracted/core.bin and splat output. The generated
 # C is derived from game code and stays in the build directory.
 option(MOON_RECOMP_TESTS "Build tests that recompile code from extracted/core.bin" OFF)
-set(MOON_PYTHON "${CMAKE_SOURCE_DIR}/.venv/Scripts/python.exe" CACHE FILEPATH
+if(WIN32)
+  set(MOON_PYTHON_DEFAULT "${CMAKE_SOURCE_DIR}/.venv/Scripts/python.exe")
+else()
+  # The tree carries a Windows virtualenv; on Linux the interpreter CMake found
+  # for the replay-math generator is the one to use.
+  set(MOON_PYTHON_DEFAULT "${Python3_EXECUTABLE}")
+endif()
+set(MOON_PYTHON "${MOON_PYTHON_DEFAULT}" CACHE FILEPATH
     "Python with rabbitizer installed")
 if(WIN32 AND MOON_TEST_DISC AND EXISTS "${MOON_PYTHON}")
   add_test(NAME quick_options_app_return COMMAND "${MOON_PYTHON}" "${CMAKE_SOURCE_DIR}/tests/ui/quick_options_return.py" "$<TARGET_FILE:moonengine>" "${MOON_TEST_DISC}" "${CMAKE_BINARY_DIR}/quick-options-app")
