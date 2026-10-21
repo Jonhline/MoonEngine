@@ -1817,7 +1817,7 @@ static void draw_onboard_panel(race_hud *h, const race_hud_state *s)
     if (s->driving) {
         static const int img[3] = {IMG_SIGN_ASM, IMG_SIGN_BRAKE, IMG_SIGN_OIL};
         static const uint32_t col[3] = {0x80E3B896u, 0x800000C8u, 0x800000C8u};
-        const int st[3] = {state_of[s->aid & 3], lock_of[s->brake_lock != 0], 0};
+        const int st[3] = {state_of[s->aid & 3], lock_of[s->brake_lock != 0], s->oil_sign};
         for (int i = 0; i < 3; i++) {
             uint8_t c[4];
             gs_color2(col[i], st[i] * 0.5f, 1, c);
@@ -1905,7 +1905,7 @@ static void draw_simple_panel(race_hud *h, const race_hud_state *s)
     if (s->driving) {
         draw_sign(h, 0, state_of[s->aid & 3], 1);
         draw_sign(h, 1, lock_of[s->brake_lock != 0], 1);
-        draw_sign(h, 2, 0, 1);
+        draw_sign(h, 2, s->oil_sign, 1);
     }
 }
 

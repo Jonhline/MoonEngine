@@ -313,7 +313,10 @@ static void loading_wait(menu *m, float seconds, void *user)
 {
     (void)user;
     CHECK(loading_presented?(seconds>=28.f/60 && seconds<=58.f/60):seconds==2.f/60);
-    CHECK(ui_root_widget(m->ui,menu_active_root(m))->visible==(loading_presented==0));
+    /* 00233D18 marks pending close; visible stays set until finalization. */
+    if (getenv("GT4_PAGE_CLOSE_VISIBLE_NEGATIVE") && loading_presented)
+        ui_root_widget(m->ui,menu_active_root(m))->visible=0;
+    CHECK(ui_root_widget(m->ui,menu_active_root(m))->visible);
     int frames = (int)lroundf(seconds * 60);
     for (int frame = 0; frame < frames; frame++) {
         menu_animate(m, 1.f / 60);
@@ -1214,6 +1217,30 @@ int main(void)
         mp_free(s);
         mp_free(a);
         mp_free(d);
+    }
+    /* A queued app handoff owns the incoming leg. Never reveal its old page
+       in the interval before the main loop starts the loading screen. */
+    {
+        char error[256];
+        menu *p=menu_open(NULL,"fixture",error,sizeof error);
+        CHECK(p);menu_enter(p,0);
+        for (int route=0;route<2;route++) {
+            ui_fade(p->ui,1,1,0);
+            p->pending_fade_in=.25f;
+            if(route) {
+                p->quick_work=ah_module_new(p->vm,"QuickWork",NULL,NULL,NULL);
+                ah_set_member(p->vm,p->quick_work,"selectedCommand",ah_str(p->vm,"COMMAND_START"));
+                ah_val result;
+                CHECK(nat_finish(p->vm,NULL,p,0,NULL,&result)==0);
+            }
+            else snprintf(p->next_project,sizeof p->next_project,"quick-arcade");
+            apply_pages(p);
+            menu_animate(p,.5f);
+            if(getenv("MOON_LOADING_FADE_NEGATIVE"))ui_fade(p->ui,0,0,0);
+            CHECK(ui_fade_opacity(p->ui)==1 && p->pending_fade_in==0);
+            p->quick_command[0]=p->next_project[0]=0;
+        }
+        menu_close(p);
     }
     /* GT Mode's render context must share page state and retain its transition
        across GC. Timed fades cover the complete composed UI. */

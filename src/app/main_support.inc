@@ -1,3 +1,4 @@
+#include "dialog_style.h"
 static const char *projects[] = {
     "arcade",       "gtmode",        "boot",          "option",
     "setting",      "event",         "quick",         "save",
@@ -1215,10 +1216,7 @@ static int present_dialog(menu *m, const char *title, const char *message, int t
               *buttons = ui_widget_child(pane, "Buttons");
     ui_widget *single = ui_widget_child(buttons, "OK"), *pair = ui_widget_child(buttons, "YesNo");
     ui_widget *positive = ui_widget_child(pair, "Yes"), *negative = ui_widget_child(pair, "No");
-    dialog_text(ui_widget_child(heading, "title"), title);
-    ui_widget_child(heading, "bgE")->visible = 0;
-    ui_widget_child(heading, "titleE")->visible = 0;
-    ui_widget_child(body, "caution")->visible = 0;
+    title = moon_dialog_style(dialog_ui, page, type, title);
     dialog_text(ui_widget_child(body, "message"), message);
     ui_widget *message_face = ui_widget_child(body, "message");
     message_face->w = 300;

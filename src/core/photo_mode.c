@@ -72,6 +72,8 @@ int gt4_photo_location_read(const uint8_t *course, size_t size, gt4_photo_locati
     return 1;
 }
 
+#include "photo_constraints.inc"
+
 int gt4_photo_mode_init(gt4_photo_mode *p, const gt4_course *course)
 {
     if (!p || !course)
@@ -82,24 +84,27 @@ int gt4_photo_mode_init(gt4_photo_mode *p, const gt4_course *course)
     memcpy(next.eye, next.location.camera, sizeof next.eye);
     memcpy(next.car, next.location.car, sizeof next.car);
     next.car_angle = next.location.car_angle;
+    next.region = gt4_photo_region(&next.location, next.eye, 0);
+    float camera_xz[2] = {next.eye[0], next.eye[2]};
+    gt4_photo_contact_reset(&next.contact, camera_xz);
     /* 0036FAE8 +190 / 00371220 +7C..8C: trace down from y=100.
        Ground adapter uses the same installed RNW4, without a vehicle solver.
-       A: boundary polygons/obstruction tests of 003FECB0 are not ported yet. */
+       CRPM region selection is handled by 003FECB0 below. */
     /* 003FE358 +2C/+E8..12C: ground query returns zero when no
        surface is hit (e.g. Grand Canyon camera outside RNW4). */
     float ground = 0;
     gt4_course_height(course, next.eye[0], next.eye[2], 100, &ground);
     gt4_course_height(course, next.car[0], next.car[2], 100, &next.car[1]);
-    const uint8_t *r = next.location.data + next.location.region_table;
+    const uint8_t *r = next.region >= 0 ? next.location.data + next.location.region_table + (size_t)next.region * 64 : NULL;
     /* 00370DD0 +68..C4: standing height is clamped to region +24/+28. */
-    float low = fmaxf(.1f, f32(r + 0x24)), high = f32(r + 0x28);
+    float low = r ? fmaxf(.1f, f32(r + 0x24)) : .1f, high = r ? f32(r + 0x28) : 500;
     /* 0036FAE8 +100..128: camera height above the surface starts 1.3. */
     /* 00370DD0 +90..C4: high is absolute, low is above ground. */
     next.eye[1] = fmaxf(ground + low, fminf(high, ground + 1.3f));
     /* 00371220 +D0..FC: first region's +18/+1C is the camera's aim in
        the map plane, normalized angle = 90 + atan2(dz,dx) in degrees.
        Native float trig is a platform adapter, pending EE comparison (A). */
-    next.yaw =
+    if (r) next.yaw =
         90 + atan2f(f32(r + 0x1c) - next.eye[2], f32(r + 0x18) - next.eye[0]) * 57.29577951308232f;
     /* MPhotoMapWindow ctor 00192BE0 +94/+B4/+BC: 70, 7, 10. */
     next.view_angle = 70;
@@ -108,7 +113,7 @@ int gt4_photo_mode_init(gt4_photo_mode *p, const gt4_course *course)
     next.image_scale = 1;
     strcpy(next.operate_mode, "none");
     strcpy(next.color_filter, "none");
-    next.ready = 1;
+    next.ready = next.can_shoot = 1;
     *p = next;
     return 1;
 }
@@ -294,6 +299,10 @@ void gt4_photo_step(gt4_photo_mode *p, const gt4_course *course, float x, float 
         p->turn_frames = 0;
         return;
     }
+    float previous_eye[3]; memcpy(previous_eye,p->eye,sizeof previous_eye);
+    float previous_yaw=p->yaw,previous_focal=p->view_angle;
+    int previous_region=p->region;
+    gt4_photo_contact previous_contact=p->contact;
     float d = 3.141592502593994f / 180, c = cosf(p->yaw * d), s = sinf(p->yaw * d);
     if (!strcmp(p->operate_mode, "move")) {
         /* 00371800 +44..68, +E4..11C: 2*FOV/45, 22-frame ramp;
@@ -301,7 +310,8 @@ void gt4_photo_step(gt4_photo_mode *p, const gt4_course *course, float x, float 
         p->turn_frames = x || z ? (p->turn_frames < 22 ? p->turn_frames + 1 : 22) : 0;
         float a = -p->roll * d, k = 2 * gt4_photo_fov(p->view_angle) / 45 * p->turn_frames / 22;
         p->yaw += (x * cosf(a) + z * sinf(a)) * k;
-        p->pitch = fminf(45, fmaxf(-30, p->pitch + (-x * sinf(a) + z * cosf(a)) * k));
+        float pitch=p->pitch+(-x*sinf(a)+z*cosf(a))*k;
+        p->pitch=p->drive?fminf(90,fmaxf(-90,pitch)):fminf(45,fmaxf(-30,pitch));
     } else if (!strcmp(p->operate_mode, "roll")) {
         /* 00371A58 +0..28: roll += input.x * 2. */
         p->roll += x * 2;
@@ -310,7 +320,7 @@ void gt4_photo_step(gt4_photo_mode *p, const gt4_course *course, float x, float 
         p->eye[1] -= z * 0.06666666269302368f;
     } else if (!strcmp(p->operate_mode, "pan")) {
         /* 003716A8 +4C..BC: two world-space vectors, 0x3E088888.
-           A: region clipping of 00371530 is still pending. */
+           00371530 clips the move through the retained polygon contact. */
         p->eye[0] += (c * x - s * z) * 0.13333332538604736f;
         p->eye[2] += (s * x + c * z) * 0.13333332538604736f;
     } else if (!strcmp(p->operate_mode, "car") || !strcmp(p->operate_mode, "camera")) {
@@ -325,18 +335,47 @@ void gt4_photo_step(gt4_photo_mode *p, const gt4_course *course, float x, float 
         if (gt4_course_height(course, pos[0], pos[2], 100, &ground))
             pos[1] = ground + (pos == p->eye ? 1.3f : 0);
     }
+    if (!p->drive && !strcmp(p->operate_mode,"pan") && p->region >= 0) {
+        const uint8_t *record=p->location.data+p->location.region_table+(size_t)p->region*64;
+        float delta[2]={p->eye[0]-previous_eye[0],p->eye[2]-previous_eye[2]};
+        gt4_photo_region_move(&p->location,photo_u16(record+4),delta,&p->contact);
+        p->eye[0]=p->contact.point[0];p->eye[2]=p->contact.point[1];
+    } else if (!p->drive && !strcmp(p->operate_mode,"camera")) {
+        float eye[3];memcpy(eye,p->eye,12);
+        int region=gt4_photo_region(&p->location,eye,p->location.map_length*24/128);
+        if(region>=0){
+            if(region!=p->region){
+                const uint8_t *r=p->location.data+p->location.region_table+(size_t)region*64;
+                if(photo_u16(r+6))p->yaw=90+atan2f(f32(r+0x1c)-eye[2],f32(r+0x18)-eye[0])*57.2957763671875f;
+            }
+            p->region=region;p->eye[0]=eye[0];p->eye[2]=eye[2];
+            float xz[2]={eye[0],eye[2]};gt4_photo_contact_reset(&p->contact,xz);
+        }else memcpy(p->eye,previous_eye,12);
+    }
     float floor = 0;
     gt4_course_height(course, p->eye[0], p->eye[2], 500, &floor);
     if (p->drive) {
+        if(p->drive_max_fov>0){
+            p->eye[1]=fmaxf(p->drive_height_min,fminf(p->drive_height_max,p->eye[1]));
+            p->pitch=fmaxf(p->drive_pitch_min,fminf(p->drive_pitch_max,p->pitch));
+        }
         p->yaw = fmodf(p->yaw + 360, 360);
         return;
     }
-    const uint8_t *region = p->location.data + p->location.region_table;
+    const uint8_t *region = p->region >= 0 ? p->location.data + p->location.region_table + (size_t)p->region * 64 : NULL;
     /* 00370DD0 +90..C4: ceiling is absolute; minimum is above ground.
-       A: region 0 until the polygon selector has been ported. */
-    p->eye[1] = fmaxf(floor + fmaxf(.1f, f32(region + 0x24)), fminf(f32(region + 0x28), p->eye[1]));
+       The selected CRPM region supplies both limits. */
+    p->eye[1] = fmaxf(floor + (region ? fmaxf(.1f, f32(region + 0x24)) : .1f), fminf(region ? f32(region + 0x28) : 500, p->eye[1]));
+    if (p->region >= 0) {
+        float fov=gt4_photo_fov(p->view_angle);int adjusted=0;
+        int valid=gt4_photo_aim(&p->location,(unsigned)p->region,p->eye,&p->yaw,&fov,&adjusted);
+        if (!valid || (adjusted && !strcmp(p->operate_mode,"pan"))) {
+            memcpy(p->eye,previous_eye,sizeof previous_eye);p->yaw=previous_yaw;
+            p->view_angle=previous_focal;p->contact=previous_contact;p->region=previous_region;
+        } else if(adjusted) p->view_angle=12/tanf(fov*.01745329252f*.5f);
+    }
     p->yaw = fmodf(p->yaw + 360, 360);
-    /* 0036FAE8 +190..1CC: bounds; A: internal polygons pending. */
+    /* 0036FAE8 +190..1CC: bounds; map-car motion remains a host input adapter. */
     p->car[0] = fminf(p->location.bounds[2], fmaxf(p->location.bounds[0], p->car[0]));
     p->car[2] = fminf(p->location.bounds[3], fmaxf(p->location.bounds[1], p->car[2]));
     p->eye[0] = fminf(p->location.bounds[2], fmaxf(p->location.bounds[0], p->eye[0]));

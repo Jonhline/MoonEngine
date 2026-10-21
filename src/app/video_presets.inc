@@ -8,14 +8,14 @@ static const video_preset_field video_preset_fields[] = {
     PF("controls.desktop_menu",desktop,1), PF("controls.gtmode_edge_pan",edge_pan,1),
     PF("interface.input_hints",input_hints,1), PF("interface.main_menu_overview",main_menu,1),
     PF("interface.smooth_mouse_cursor",smooth_cursor,1), PF("interface.mouse_hover_feedback",hover_feedback,1),
-    PF("interface.compact_car_strip",compact_cars,1), PF("interface.graphics_swap_key",graphics_swap,1),
+    PF("interface.compact_car_strip",compact_cars,1), PF("interface.graphics_swap_key",graphics_swap,1), PF("interface.controller_tiles",controller_tiles,1),
     PF("graphics.spatial_visibility",spatial_visibility,1), PF("graphics.resident_reflections",resident_reflections,1),
     PF("graphics.antialiasing",antialiasing,4), PF("graphics.render_scale",render_scale,2),
     PF("graphics.texture_smoothing",texture_smoothing,1), PF("graphics.texture_filtering",texture_filtering,4),
-    PF("graphics.car_shadows",car_shadows,1), PF("graphics.material_shading",material_shading,1),
+    PF("graphics.night_sky",night_sky,1), PF("graphics.car_lamps",car_lamps,1), PF("graphics.car_shadows",car_shadows,1), PF("graphics.material_shading",material_shading,1),
     PF("graphics.reflection_quality",reflection_quality,2), PF("graphics.shadow_maps",shadow_maps,3),
     PF("graphics.modern_lighting",modern_lighting,1), PF("graphics.daylight",daylight,1),
-    PF("graphics.solar_hour",solar_hour,10), PF("graphics.solar_cycle",solar_cycle,2),
+    PF("graphics.solar_hour",solar_hour,24), PF("graphics.solar_cycle",solar_cycle,2),
     PF("graphics.hdr",hdr,1), PF("graphics.sun_rays",sun_rays,2), PF("graphics.ambient_occlusion",ambient_occlusion,1)
 };
 #undef PF
@@ -58,6 +58,8 @@ int video_settings_preset_import(video_settings *s, const char *path, int draft)
     snprintf(s->personal_preset,sizeof s->personal_preset,"%s",imported.preset);
     s->personal_modified=0;
     s->preset_draft=-1;
+    video_options_realistic_skybox(&next,next.daylight);
+    video_options_realistic_lighting(&next,next.modern_lighting);
     s->draft=next;
     if (!draft) {
         s->current=next;

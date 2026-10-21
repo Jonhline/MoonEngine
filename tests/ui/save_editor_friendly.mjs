@@ -1,0 +1,54 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {createRequire} from 'node:module';
+import {execFileSync} from 'node:child_process';
+import * as model from '../../tools/save_editor/ui/friendly.js';
+const require=createRequire(import.meta.url),{chromium}=require('playwright');
+const [editor,fixture,catalogPath,capture,outputJson,...flags]=process.argv.slice(2);
+const catalog=JSON.parse(fs.readFileSync(catalogPath,'utf8').replace(/^\uFEFF/,''));
+const original=JSON.parse(execFileSync(editor,['--inspect',fixture],{encoding:'utf8'}));
+const source=structuredClone(original),car=model.cars(source,catalog)[0];assert(car);
+assert.equal(car.name,catalog.cars.find(c=>c.label==='ka_01').name);
+assert.equal(catalog.licenses.length,80);assert.equal(catalog.licenses[0].record,590);
+assert.throws(()=>model.mileage('-1'));assert.throws(()=>model.mileage('1.0001'));assert.equal(model.mileage('1234.567'),1234567);
+assert.throws(()=>model.editCar(structuredClone(source),0,{km:'0',setup:'0',paint:'127'},catalog));
+assert.throws(()=>model.editExam(structuredClone(source),catalog.licenses[0],9,'9:59.999'));
+assert.throws(()=>model.editExam(structuredClone(source),catalog.licenses[0],11,'0:01.000'));
+let changed=model.editExam(structuredClone(source),catalog.licenses[0],9,'');
+assert.equal(model.examState(changed,catalog.licenses[0]).grade,9);
+changed=model.editExam(changed,catalog.licenses[0],11,'');
+assert.equal(model.examState(changed,catalog.licenses[0]).grade,11);assert.equal(model.examState(changed,catalog.licenses[0]).ms,catalog.licenses[0].targets[2]);
+changed=model.editExam(changed,catalog.licenses[0],15,'');assert.equal(model.examState(changed,catalog.licenses[0]).completed,false);assert.equal(model.examState(changed,catalog.licenses[0]).ms,0x157529ff);
+assert.deepEqual(source,original,'Failed edits must not touch the original document');
+let cached=structuredClone(original);const race=model.get(cached,'race_record');const units=model.get(race,'units');
+model.set(units,'l0b0001',{kind:'module',value:[['original_record',model.integer(0xabcdf0f0)],['result',{kind:'string',value:'NONE'}]]});
+model.set(model.get(race,'records').value[catalog.licenses[0].record],'original_record',model.integer(0xabcdf0f0));
+cached=model.editExam(cached,catalog.licenses[0],9,'');assert.equal((BigInt(model.get(model.get(units,'l0b0001'),'original_record').value)&0xfffff000n),0xabcdf000n);
+const nonUS=structuredClone(original);model.set(nonUS,'ps2_import',{kind:'module',value:[['region',model.integer(0)]]});assert.throws(()=>model.editExam(nonUS,catalog.licenses[0],9,''));
+const legacy=structuredClone(original),legacyRace=model.get(legacy,'race_record');model.set(legacyRace,'records',{kind:'array',value:[]});const legacyUnits=model.get(legacyRace,'units');model.set(legacyUnits,'l0b0002',{kind:'module',value:[['original_record',model.integer(0xf991)]]});model.editExam(legacy,catalog.licenses[0],9,'');assert.equal(model.examState(legacy,catalog.licenses[1]).grade,9);assert.equal(model.get(legacyRace,'records').value.length,0);
+const http=require('node:http'),path=require('node:path');
+const server=http.createServer((req,res)=>{const name=req.url==='/'?'index.html':req.url.slice(1);if(!['index.html','sdk.css','editor.css','editor.js','friendly.js','vehicle_fields.js'].includes(name)){res.writeHead(404).end();return;}res.setHeader('Content-Type',name.endsWith('.js')?'text/javascript':name.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(path.resolve('tools/save_editor/ui',name)));});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+const browser=await chromium.launch({headless:true,channel:'msedge'});
+try{
+ const page=await browser.newPage({viewport:{width:1440,height:900}}),errors=[];page.on('pageerror',e=>errors.push(String(e)));page.on('dialog',d=>d.accept());
+ await page.addInitScript(({root,catalog})=>{window.edits=[];window.__TAURI__={core:{invoke:async(cmd,args)=>{if(cmd==='saved_catalog')return catalog;if(cmd==='open_profile')return{root,path:'Native test profile'};if(cmd==='validate_profile'){window.edits.push(args.root);return null;}}}};},{root:original,catalog});
+ await page.goto(`http://127.0.0.1:${server.address().port}`);await page.getByRole('button',{name:'Open profile…',exact:true}).click();
+ await page.getByRole('button',{name:'Garage',exact:true}).click();
+ await page.getByLabel('Mileage (km)',{exact:true}).fill('1234.567');await page.getByLabel('Factory paint',{exact:true}).selectOption('7');await page.getByLabel('Active setup',{exact:true}).selectOption('1');await page.getByLabel('Traction control',{exact:true}).fill('7');
+ await page.getByRole('button',{name:'Apply vehicle changes',exact:true}).click();
+ await page.waitForFunction(()=>window.edits.length===1,{},{timeout:3000}).catch(async e=>{console.error(await page.locator('#status').textContent(),await page.locator('input:invalid').evaluateAll(inputs=>inputs.map(i=>({id:i.id,value:i.value,message:i.validationMessage}))));throw e;});
+ await page.getByRole('button',{name:'Undo',exact:true}).click();assert.equal(await page.getByLabel('Mileage (km)',{exact:true}).inputValue(),(car.meter/1000).toFixed(3));await page.getByRole('button',{name:'Redo',exact:true}).click();
+ await page.screenshot({path:capture.replace('.png','-garage.png')});
+ await page.getByRole('button',{name:'Licenses',exact:true}).click();assert.equal(await page.locator('.exam-row').count(),16);
+ await page.getByRole('button',{name:'Apply to all 16 exams',exact:true}).click();await page.waitForFunction(()=>window.edits.length===2);
+ for(const [i,g] of ['A','IB','IA','S'].entries()){await page.getByRole('button',{name:`${g} license`,exact:true}).click();await page.getByRole('button',{name:'Apply to all 16 exams',exact:true}).click();await page.waitForFunction(n=>window.edits.length===n,i+3);}
+ await page.getByRole('button',{name:'B license',exact:true}).click();
+ const saved=await page.evaluate(()=>window.edits.at(-1));fs.writeFileSync(outputJson,JSON.stringify(saved));
+ for(const exam of catalog.licenses){const s=model.examState(saved,exam);assert.equal(s.grade,9);assert.equal(s.ms,exam.targets[0]);}
+ const report=model.review(original,saved,catalog);assert(report.some(c=>c.path==='B-1 · Medal'&&c.after==='Gold'));assert(report.some(c=>c.path.endsWith('Mileage')&&c.after==='1234.567 km'));
+ assert.equal(model.get(saved,'money').value,model.get(original,'money').value);assert.deepEqual(model.get(saved,'calendar'),model.get(original,'calendar'));
+ await page.screenshot({path:capture.replace('.png','-licenses.png')});assert.deepEqual(errors,[]);
+ if(flags.includes('--negative'))assert.equal(model.cars(saved,catalog)[0].meter,1234568,'Deliberate wrong mileage must fail');
+ console.log('PASS guided editor: real car/paint names, vehicle form, byte synchronization, license grades/times, bulk completion, undo/redo, invalid choices');
+}finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

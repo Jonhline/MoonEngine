@@ -12,8 +12,8 @@ static void studio_mixer_draw(const studio_dock *d, const launcher_mixer *m, flo
     const uint8_t soft[4] = {120, 124, 131, MA(210)};
     const uint8_t edge[4] = {255, 255, 255, MA(90)};
 #undef MA
-    const uint8_t *ink = studio_dark ? ink_dark : ink_light;
-    const uint8_t *dim = studio_dark ? dim_dark : dim_light;
+    const uint8_t *ink = STUDIO_LIGHT_INK ? ink_dark : ink_light;
+    const uint8_t *dim = STUDIO_LIGHT_INK ? dim_dark : dim_light;
     /* Match the room header: quiet typography, secondary shortcuts, no flat tiles.
        The original quick-control hit rectangles remain unchanged. */
     dock_text(d, "Audio", 22 * S, 79 * S, .7f, 0, ink);

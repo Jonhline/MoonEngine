@@ -568,14 +568,14 @@ static int shop_catalog_regression(const char *disc)
             int32_t prior = gt4_career_date_to_day(&dates, (int32_t)ah_array_get(date, 0).u.i,
                                                    (int32_t)ah_array_get(date, 1).u.i,
                                                    (int32_t)ah_array_get(date, 2).u.i);
-            ah_val choices[] = {ah_str(vm, label), ah_str(vm, rules->wheel_categories[category]),
+            ah_val choices[] = {ah_str(vm, label), ah_str(vm, gt4_game_home_data()->wheel_event_names[category + 1]),
                                 ah_int(0x123)};
             CHECK(ah_call_member(vm,calendar,wing?"putBuyWingEvent":"putBuyWheelEvent",wing?1:3,choices,&result)==1);
             ah_obj *events = get(vm, calendar, "original_events").u.o;
             CHECK((unsigned)ah_array_size(events)==++event_count);
             ah_obj *last = ah_array_get(events, event_count - 1).u.o;
             memset(expected, 0, 16);
-            gt4_career_calendar_custom_event(expected, wing, k, category, 0x123);
+            gt4_career_calendar_custom_event(expected, wing, k, wing ? 0 : category + 1, 0x123);
             if (getenv("GT4_CUSTOM_EVENT_NEGATIVE"))
                 expected[8] ^= 1;
             for (unsigned j = 0; j < 16; j++)
@@ -1421,6 +1421,27 @@ static int home_status(const char *disc)
             CHECK(ah_cstr(ah_array_get(ret.u.o,1)) && !strcmp(ah_cstr(ah_array_get(ret.u.o,1)),labels_expected[i]));
     }
     CHECK(ah_call_member(vm,instance.u.o,"getEvent",0,NULL,&ret)==1 && ret.t==AV_NIL);
+    /* 00134474 reads the five-entry diary enum, not wheel fitting's four. */
+    int log_root = -1;
+    for (int i = 0; i < ui_root_count(m->ui); i++)
+        if (!strcmp(ui_root_name(m->ui, i), "LogRoot")) log_root = i;
+    CHECK(log_root >= 0);
+    ah_obj *wheel_record = ah_array_get(events, 6).u.o;
+    const char *wheel_names[] = {"NONE", "NORMAL", "RACING", "DIRT", "SNOW"};
+    for (unsigned i = 0; i < 5; i++) {
+        ah_array_set(wheel_record, 1, ah_int(i));
+        ah_val args[] = {ah_int(2005), ah_int(4), ah_int(8)};
+        CHECK(ah_call_member(vm,instance.u.o,"getEvent",3,args,&ret)==1);
+        const char *category = ah_cstr(ah_array_get(ret.u.o, 2));
+        if (getenv("MOON_DIARY_WHEEL_NEGATIVE") && i == 1) category = "NORMAL_SPORTS";
+        CHECK(category && !strcmp(category, wheel_names[i]));
+        if (i) {
+            char key[64]; snprintf(key, sizeof key, "WheelCategory_%s", category);
+            const char *text = ui_translate(m->ui, log_root, NULL, key);
+            CHECK(text && *text && !strstr(text, "WheelCategory_"));
+        }
+    }
+    ah_array_set(wheel_record, 1, ah_int(0));
     CHECK(enter_named(m,"LogRoot"));
     ticks(m);
     menu_send_input(m, MENU_LEFT);

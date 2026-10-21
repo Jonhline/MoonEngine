@@ -24,7 +24,8 @@ struct pregrid_audio {
 static void render(int16_t *out, int frames, void *user)
 {
     pregrid_audio *p = user;
-    if((p->repeat || SDL_AtomicGet(&p->custom_context)==3 || !strcmp(p->group,"racing") || !strcmp(p->group,"replay_theater")) && moon_music_override_render(SDL_AtomicGet(&p->custom_context),out,frames,SDL_AtomicGet(&p->volume),SDL_AtomicGet(&p->paused)))return;
+    /* Menu songs belong only to the map MIDI producer, never menu PCM. */
+    if(SDL_AtomicGet(&p->custom_context)>0 && (p->repeat || SDL_AtomicGet(&p->custom_context)==3 || !strcmp(p->group,"racing") || !strcmp(p->group,"replay_theater")) && moon_music_override_render(SDL_AtomicGet(&p->custom_context),out,frames,SDL_AtomicGet(&p->volume),SDL_AtomicGet(&p->paused)))return;
     if (SDL_AtomicGet(&p->paused)) {
         memset(out, 0, (size_t)frames * 4);
         return;

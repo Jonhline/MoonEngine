@@ -23,11 +23,13 @@ int main(int argc, char **argv)
 {
     CHECK(argc >= 2);
     video_settings s, loaded;
+    CHECK(setting("Part Preview Fades") == -1); /* Original GT Auto behaviour, no preference. */
     int aa = setting("Anti-Aliasing"), scale = setting("3D Resolution"),
         smooth = setting("Texture Smoothing"), api = setting("Graphics API"),
         fsr = setting("Upscaling"), preset = setting("PC Preset");
     CHECK(aa >= 0 && scale >= 0 && smooth >= 0 && api >= 0 && fsr >= 0 && preset >= 0);
     CHECK(!strcmp(video_setting(aa)->group, "Quality"));
+    int lamps=setting("Realistic Car Lamps"),night=setting("Night Sky");CHECK(lamps>=0 && night>=0);
     for (int backend = 0; backend < 2; backend++) {
         video_settings_init(&s, 1, argv[1]);
         video_setting_set(&s, api, backend);
@@ -35,10 +37,12 @@ int main(int argc, char **argv)
         video_setting_set(&s, aa, 3);
         CHECK(s.current.video.upscale == 0 && s.current.render_scale == 2);
         video_setting_set(&s, smooth, 1);
+        video_setting_set(&s, lamps, 1);video_setting_set(&s,night,1);
         video_settings_init(&loaded, 1, argv[1]);
         CHECK(video_setting_get(&loaded, api) == backend);
         CHECK(video_setting_get(&loaded, aa) == (argc > 2 ? 0 : 3));
         CHECK(video_setting_get(&loaded, smooth) == 1);
+        CHECK(video_setting_get(&loaded,lamps)==1 && video_setting_get(&loaded,night)==1);
         CHECK(loaded.store.modified);
         video_setting_set(&s, scale, 0);
         CHECK(s.current.antialiasing == 0 && s.current.video.upscale == 0);
@@ -50,8 +54,10 @@ int main(int argc, char **argv)
         video_setting_set(&s, preset, 0);
         CHECK(video_setting_get(&s, aa) == 0 && video_setting_get(&s, scale) == 2);
         CHECK(video_setting_get(&s, smooth) == 0);
+        CHECK(video_setting_get(&s,lamps)==0 && video_setting_get(&s,night)==0);
         video_setting_set(&s, preset, 1);
         CHECK(video_setting_get(&s, aa) == 4 && video_setting_get(&s, smooth) == 1);
+        CHECK(video_setting_get(&s,lamps)==1);
         CHECK(video_setting_get(&s, api) == backend);
     }
     video_setting_set(&s,aa,4);
@@ -98,24 +104,6 @@ int main(int argc, char **argv)
     CHECK(video_setting_get(&s, filtering) == 0);
     video_setting_set(&s, preset, 1);
     CHECK(video_setting_get(&s, filtering) == 3);
-    int shadows = setting("Car Shadows");
-    CHECK(shadows >= 0);
-    video_setting_set(&s, shadows, 0);
-    video_settings_init(&loaded, 1, argv[1]);
-    CHECK(video_setting_get(&loaded, shadows) == 0);
-    video_setting_set(&s, preset, 1);
-    CHECK(video_setting_get(&s, shadows) == 1);
-    video_setting_set(&s, preset, 0);
-    CHECK(video_setting_get(&s, shadows) == 0);
-    int materials = setting("Material Shading");
-    CHECK(materials >= 0);
-    video_setting_set(&s, materials, 1);
-    video_settings_init(&loaded, 1, argv[1]);
-    CHECK(video_setting_get(&loaded, materials) == 1);
-    video_setting_set(&s, preset, 0);
-    CHECK(video_setting_get(&s, materials) == 0);
-    video_setting_set(&s, preset, 1);
-    CHECK(video_setting_get(&s, materials) == 1);
     int reflections = setting("Reflection Quality");
     CHECK(reflections >= 0);
     video_setting_set(&s, reflections, 2);
@@ -125,16 +113,7 @@ int main(int argc, char **argv)
     CHECK(video_setting_get(&s, reflections) == 0);
     video_setting_set(&s, preset, 1);
     CHECK(video_setting_get(&s, reflections) == 1);
-    int maps = setting("Shadow Maps");
-    CHECK(maps >= 0);
-    video_setting_set(&s, maps, 3);
-    video_settings_init(&loaded, 1, argv[1]);
-    CHECK(video_setting_get(&loaded, maps) == 3);
-    video_setting_set(&s, preset, 0);
-    CHECK(video_setting_get(&s, maps) == 0);
-    video_setting_set(&s, preset, 1);
-    CHECK(video_setting_get(&s, maps) == 2);
-    int lighting = setting("Lighting");
+    int lighting = setting("Realistic Lighting");
     CHECK(lighting >= 0);
     video_setting_set(&s, lighting, 1);
     video_settings_init(&loaded, 1, argv[1]);
@@ -143,18 +122,18 @@ int main(int argc, char **argv)
     CHECK(video_setting_get(&s, lighting) == 0);
     video_setting_set(&s, preset, 1);
     CHECK(video_setting_get(&s, lighting) == 1);
-    const char *solar_labels[]={"Daylight","Solar Time","Daylight Cycle","HDR","Sun Rays","Ambient Occlusion"};
-    const int chosen[]={1,9,2,1,2,1};
-    const int classic[]={0,5,0,0,0,0};
-    const int enhanced[]={1,5,1,1,2,1};
-    for(int i=0;i<6;i++) {
-        int id=setting(solar_labels[i]);CHECK(id>=0);
-        video_setting_set(&s,id,chosen[i]);
-        video_settings_init(&loaded,1,argv[1]);
-        CHECK(video_setting_get(&loaded,id)==chosen[i]);
-        video_setting_set(&s,preset,0);CHECK(video_setting_get(&s,id)==classic[i]);
-        video_setting_set(&s,preset,1);CHECK(video_setting_get(&s,id)==enhanced[i]);
-    }
+    int sky=setting("Realistic Skybox");CHECK(sky>=0);
+    video_setting_set(&s,sky,1);
+    CHECK(s.current.daylight && s.current.night_sky && s.current.solar_hour==24 && s.current.solar_cycle==1);
+    video_settings_init(&loaded,1,argv[1]);
+    CHECK(loaded.current.daylight && loaded.current.night_sky && loaded.current.solar_hour==24);
+    video_setting_set(&s,sky,0);CHECK(!s.current.daylight && !s.current.night_sky);
+    video_setting_set(&s,lighting,1);
+    CHECK(s.current.hdr && s.current.material_shading && s.current.shadow_maps==2 && s.current.car_shadows && s.current.ambient_occlusion && !s.current.sun_rays);
+    video_setting_set(&s,lighting,0);
+    CHECK(!s.current.hdr && !s.current.shadow_maps && !s.current.car_shadows && !s.current.ambient_occlusion);
+    const char *hidden[]={"Night Sky","Solar Time","Sun / Moon Cycle","HDR","Sun Rays","Ambient Occlusion","Material Shading","Car Shadows","Shadow Maps"};
+    for(unsigned i=0;i<sizeof hidden/sizeof *hidden;i++){int id=setting(hidden[i]);CHECK(id>=0 && !strcmp(video_setting(id)->group,"Legacy"));}
     CHECK(moon_options_set(&s.store,"audio.custom_music","1"));
     video_setting_set(&s,preset,0);
     CHECK(!moon_options_int(&s.store,"audio.custom_music",1,0,1) && !s.store.modified);

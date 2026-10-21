@@ -7,16 +7,17 @@ static const preset_rule preset_rules[] = {
     {"graphics.ui_filter",2}, {"graphics.text_sharpness",100},
     {"graphics.upscaling",4}, {"graphics.antialiasing",4},
     {"graphics.render_scale",2}, {"graphics.texture_smoothing",1},
-    {"graphics.texture_filtering",4}, {"graphics.car_shadows",1},
+    {"graphics.texture_filtering",4}, {"graphics.night_sky",1}, {"graphics.car_lamps",1}, {"graphics.car_shadows",1},
     {"graphics.material_shading",1}, {"graphics.reflection_quality",2},
     {"graphics.shadow_maps",3}, {"graphics.modern_lighting",1},
-    {"graphics.daylight",1}, {"graphics.solar_hour",10},
+    {"graphics.daylight",1}, {"graphics.solar_hour",24},
     {"graphics.solar_cycle",2}, {"graphics.hdr",1}, {"graphics.sun_rays",2}, {"graphics.ambient_occlusion",1},
     {"graphics.spatial_visibility",1}, {"graphics.resident_reflections",1},
     {"controls.desktop_menu",1}, {"controls.gtmode_edge_pan",1},
     {"interface.input_hints",1}, {"interface.main_menu_overview",1},
     {"interface.smooth_mouse_cursor",1}, {"interface.mouse_hover_feedback",1},
-    {"interface.compact_car_strip",1}, {"interface.graphics_swap_key",1}
+    {"interface.compact_car_strip",1}, {"interface.graphics_swap_key",1},
+    {"interface.controller_tiles",1}
 };
 static int preset_fail(char *error, unsigned size, const char *message)
 {

@@ -312,6 +312,8 @@ int menu_machine_record_insert(menu *m, int index, const char *car, uint32_t tim
 void menu_set_quick_best_speed(int32_t speed);
 /* the Time Trial's session has a best lap to save (MQuickWork.canSaveGhost) */
 void menu_set_quick_ghost(int on);
+/* P: interface.controller_tiles: the Options' Controllers by player (1) or the disc's (0) */
+void menu_set_controller_tiles(int on);
 /* quick-arcade.ad L159: pending PCM group and raw volume (0..128).
    NULL means no stream request; an empty string means stopStream. */
 const char *menu_pcm_request(menu *m, int *raw_volume);

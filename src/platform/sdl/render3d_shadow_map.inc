@@ -4,9 +4,10 @@
 struct r3d_shadow_map {
     GLuint program, fbo, image, depth;
     GLint projection_uniform, rotation, position, reverse, opacity, texture, texsize, texmode,
-        alpha_test;
+        alpha_test, perspective_uniform;
     GLint wrap_uniform, region_uniform, size_uniform;
-    int size, target, viewport[4], casters, scissor[4], clipped, dithered;
+    int size, height, perspective, batch, target, viewport[4], casters, scissor[4], clipped,
+        dithered;
     float projection[16];
 };
 void r3d_shadow_map_bind(r3d_shadow_map *s)
@@ -31,12 +32,12 @@ static r3d_shadow_map *shadow_map_create(void)
     if (!s)
         return NULL;
     s->program = gl_program(
-        "#version 330 core\nlayout(location=0) in vec3 p;layout(location=2)in vec2 uv;layout(location=6)in vec2 shine_alpha;out vec2 coords;out float alpha; uniform mat4 projection;uniform mat3 rot;uniform vec3 pos;uniform float reverse;out float depth;"
-        "void main(){coords=uv;alpha=shine_alpha.y;vec3 q=(projection*vec4(rot*p+pos,1.)).xyz;depth=q.z;gl_Position=vec4(q.xy*2.-1.,reverse>0.?1.-q.z:q.z*2.-1.,1.);}\n",
+        "#version 330 core\nlayout(location=0) in vec3 p;layout(location=2)in vec2 uv;layout(location=6)in vec2 shine_alpha;out vec2 coords;out float alpha; uniform mat4 projection;uniform mat3 rot;uniform vec3 pos;uniform float reverse;uniform int perspective;out float depth;"
+        "void main(){coords=uv;alpha=shine_alpha.y;vec4 q=projection*vec4(rot*p+pos,1.);depth=q.z;gl_Position=perspective==1?vec4(q.xy*2.-q.ww,reverse>0.?.05:q.w-.1,q.w):vec4(q.xy*2.-1.,reverse>0.?1.-q.z:q.z*2.-1.,1.);}\n",
         "#version 330 core\nin float depth;out vec4 o;uniform float opacity;in vec2 coords;in float alpha;uniform sampler2D image;uniform vec2 texsize;uniform ivec4 texmode;uniform ivec4 alpha_test;uniform ivec2 wrap,size;uniform ivec4 region;"
         "int addr(int at,int size,int mode,int mn,int mx){if(mode==0)return at-size*int(floor(float(at)/float(size)));if(mode==3)return clamp((at&mn)|mx,0,size-1);if(mode==2)return clamp(at,mn,mx);return clamp(at,0,size-1);}"
         "vec4 alphaTexel(){ivec2 p=ivec2(floor(coords*texsize));p=ivec2(addr(p.x,size.x,wrap.x,region.x,region.y),addr(p.y,size.y,wrap.y,region.z,region.w));return texelFetch(image,p,0);}"
-        "void main(){float a=alpha;if(texmode.w==1&&texmode.x==1){float ta=texmode.z==1?alphaTexel().a*255.:128.;a=ta/128.;if(texmode.y==0)a*=alpha;else if(texmode.y==2)a+=alpha;}a=floor(clamp(a*128.,0.,255.)+.5);if(alpha_test.x==1){int f=alpha_test.y;float r=float(alpha_test.z);bool pass=f==1||(f==2&&a<r)||(f==3&&a<=r)||(f==4&&a==r)||(f==5&&a>=r)||(f==6&&a>r)||(f==7&&a!=r);if(!pass)discard;}if(a<1.)discard;float d=floor(clamp(depth,0.,1.)*16777215.+.5);vec3 bytes=vec3(floor(d/65536.),mod(floor(d/256.),256.),mod(d,256.));o=vec4(bytes/255.,opacity);}\n");
+        "void main(){if(depth<0.||depth>1.)discard;float a=alpha;if(texmode.w==1&&texmode.x==1){float ta=texmode.z==1?alphaTexel().a*255.:128.;a=ta/128.;if(texmode.y==0)a*=alpha;else if(texmode.y==2)a+=alpha;}a=floor(clamp(a*128.,0.,255.)+.5);if(alpha_test.x==1){int f=alpha_test.y;float r=float(alpha_test.z);bool pass=f==1||(f==2&&a<r)||(f==3&&a<=r)||(f==4&&a==r)||(f==5&&a>=r)||(f==6&&a>r)||(f==7&&a!=r);if(!pass)discard;}if(a<1.)discard;float d=floor(clamp(depth,0.,1.)*16777215.+.5);vec3 bytes=vec3(floor(d/65536.),mod(floor(d/256.),256.),mod(d,256.));o=vec4(bytes/255.,opacity);}\n");
     if (!s->program) {
         free(s);
         return NULL;
@@ -45,6 +46,7 @@ static r3d_shadow_map *shadow_map_create(void)
     s->rotation = glGetUniformLocation(s->program, "rot");
     s->position = glGetUniformLocation(s->program, "pos");
     s->reverse = glGetUniformLocation(s->program, "reverse");
+    s->perspective_uniform = glGetUniformLocation(s->program, "perspective");
     s->opacity = glGetUniformLocation(s->program, "opacity");
     s->texture = glGetUniformLocation(s->program, "image");
     s->texsize = glGetUniformLocation(s->program, "texsize");
@@ -75,9 +77,9 @@ int r3d_shadow_map_covers(const float p[3])
 {
     return r3d_shadow_map_contains(pc_submission.shadow_map, p);
 }
-int r3d_shadow_map_begin(r3d_shadow_map **owner, const float centre[3], const float direction[3])
+static int shadow_map_begin_target(r3d_shadow_map **owner, const float centre[3],
+                                   const float direction[3], int size, int height)
 {
-    int size = r3d_shadow_map_size();
     if (!owner || !size)
         return 0;
     float length = sqrtf(direction[0] * direction[0] + direction[1] * direction[1] +
@@ -91,6 +93,8 @@ int r3d_shadow_map_begin(r3d_shadow_map **owner, const float centre[3], const fl
         return 0;
     pc_submission.shadow_map = NULL;
     s->casters = 0;
+    s->perspective = 0;
+    s->batch = 0;
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &s->target);
     memcpy(s->viewport, vp, sizeof vp);
     s->clipped = glIsEnabled(GL_SCISSOR_TEST);
@@ -101,8 +105,8 @@ int r3d_shadow_map_begin(r3d_shadow_map **owner, const float centre[3], const fl
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, s->image);
     glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
-    if (s->size != size) {
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, size, size, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    if (s->size != size || s->height != height) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, size, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -110,7 +114,7 @@ int r3d_shadow_map_begin(r3d_shadow_map **owner, const float centre[3], const fl
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s->image, 0);
         glBindRenderbuffer(GL_RENDERBUFFER, s->depth);
         glRenderbufferStorage(GL_RENDERBUFFER, gl_reversed_z ? 0x8CAD : GL_DEPTH24_STENCIL8, size,
-                              size);
+                              height);
         glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER,
                                   s->depth);
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
@@ -120,6 +124,7 @@ int r3d_shadow_map_begin(r3d_shadow_map **owner, const float centre[3], const fl
             return 0;
         }
         s->size = size;
+        s->height = height;
     }
     float basis[3][3], up[3] = {0, 1, 0};
     for (int k = 0; k < 3; k++)
@@ -150,7 +155,7 @@ int r3d_shadow_map_begin(r3d_shadow_map **owner, const float centre[3], const fl
         c = floorf(c / texel + .5f) * texel;
         s->projection[12 + row] = .5f - c / extent;
     }
-    glViewport(0, 0, size, size);
+    glViewport(0, 0, size, height);
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_CULL_FACE);
     glDisable(GL_BLEND);
@@ -164,7 +169,17 @@ int r3d_shadow_map_begin(r3d_shadow_map **owner, const float centre[3], const fl
     glUseProgram(s->program);
     glUniformMatrix4fv(s->projection_uniform, 1, GL_FALSE, s->projection);
     glUniform1f(s->reverse, gl_reversed_z != 0);
+    glUniform1i(s->perspective_uniform, 0);
     return 1;
+}
+static int shadow_map_begin_size(r3d_shadow_map **owner, const float centre[3],
+                                 const float direction[3], int size)
+{
+    return shadow_map_begin_target(owner, centre, direction, size, size);
+}
+int r3d_shadow_map_begin(r3d_shadow_map **owner, const float centre[3], const float direction[3])
+{
+    return shadow_map_begin_size(owner, centre, direction, r3d_shadow_map_size());
 }
 void r3d_shadow_map_mesh(r3d_shadow_map *s, const r3d_mesh *mesh, const r3d_view *view,
                          float opacity)
@@ -177,6 +192,9 @@ void r3d_shadow_map_mesh(r3d_shadow_map *s, const r3d_mesh *mesh, const r3d_view
     glBindVertexArray(mesh->vao);
     glUniform1i(s->texture, 0);
     glActiveTexture(GL_TEXTURE0);
+    float lamp_planes[6][4];
+    if (s->perspective)
+        r3d_lamp_frustum(s->projection, view, lamp_planes);
     /* Reflections repeat the surface. Blended glass is not an opaque caster;
        cutout wheels retain their authored alpha rejection and brake branch. */
     for (int i = 0; i < mesh->ngroups; i++) {
@@ -184,8 +202,8 @@ void r3d_shadow_map_mesh(r3d_shadow_map *s, const r3d_mesh *mesh, const r3d_view
         if (g->reflection || (g->blend_enabled && !g->state.alpha_test) ||
             (g->lamp && (g->lamp == 2) != (view->brake != 0)))
             continue;
-        int outside = 0;
-        for (int axis = 0; axis < 3; axis++) {
+        int outside = s->perspective && !r3d_bounds_visible(lamp_planes, g->lo, g->hi);
+        for (int axis = 0; !s->perspective && axis < 3; axis++) {
             float lo = 2, hi = -1;
             for (int corner = 0; corner < 8; corner++) {
                 float p[3], q = s->projection[12 + axis];
@@ -203,6 +221,21 @@ void r3d_shadow_map_mesh(r3d_shadow_map *s, const r3d_mesh *mesh, const r3d_view
         }
         if (outside)
             continue;
+        int vertices = g->count;
+        if (s->perspective && s->batch)
+            while (i + 1 < mesh->ngroups) {
+                const r3d_group *next = &mesh->groups[i + 1];
+                if (next->first != g->first + vertices || next->texture != g->texture ||
+                    next->reflection || (next->blend_enabled && !next->state.alpha_test) ||
+                    next->lamp != g->lamp || next->state.alpha_test != g->state.alpha_test ||
+                    (g->state.alpha_test && (next->state.alpha_func != g->state.alpha_func ||
+                                             next->state.alpha_ref != g->state.alpha_ref)) ||
+                    !r3d_bounds_visible(lamp_planes, next->lo, next->hi))
+                    break;
+                vertices += next->count;
+                i++;
+                frame_stats.merged_groups++;
+            }
         const r3d_texture *t =
             g->texture >= 0 && g->texture < mesh->ntextures ? &mesh->textures[g->texture] : NULL;
         glBindTexture(GL_TEXTURE_2D, t ? t->id : 0);
@@ -215,10 +248,10 @@ void r3d_shadow_map_mesh(r3d_shadow_map *s, const r3d_mesh *mesh, const r3d_view
         glUniform4i(s->texmode, t ? t->color_component : 0, t ? t->texture_function : 0,
                     t ? t->native : 0, t != NULL);
         glUniform4i(s->alpha_test, g->state.alpha_test, g->state.alpha_func, g->state.alpha_ref, 0);
-        glDrawArrays(GL_TRIANGLES, g->first, g->count);
+        glDrawArrays(GL_TRIANGLES, g->first, vertices);
         s->casters++;
         frame_stats.draws++;
-        frame_stats.triangles += g->count / 3;
+        frame_stats.triangles += vertices / 3;
     }
 }
 void r3d_shadow_map_end(r3d_shadow_map *s)

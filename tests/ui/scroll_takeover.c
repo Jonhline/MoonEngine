@@ -53,6 +53,29 @@ int main(int argc, char **argv)
     menu_send_input(m, MENU_DOWN);
     paint(m);
     CHECK(m->focus[root] != b);
+    ui_widget *strip = ui_widget_from_text(
+        m->ui, root,
+        "SelectBox {name string {\"strip\"} direction digit {1} alignment digit {1} geometry rectangle {400 40 100 40} children [4] {"
+        "Button {name string {\"A\"} geometry rectangle {0 0 100 20}} "
+        "Button {name string {\"B\"} geometry rectangle {0 0 100 20}} "
+        "Button {name string {\"C\"} geometry rectangle {0 0 100 20}} "
+        "Button {name string {\"D\"} geometry rectangle {0 0 100 20}} }}");
+    CHECK(strip);
+    ui_widget_append(page, strip);
+    set_focus(m, strip->kids[0]);
+    paint(m);
+    CHECK(menu_pointer(m,1,450,60,0,-25));
+    paint(m);
+    CHECK(strip->desktop_scrolled && strip->strip_offset < -30);
+    menu_send_input(m, MENU_DOWN);
+    if (getenv("GT4_SCROLL_STRIP_NEGATIVE")) {
+        strip->strip_ready = 1;
+        strip->strip_offset = -40;
+    }
+    menu_animate(m, 1.f / 60);
+    ui_draw_root(m->ui, root, NULL, NULL);
+    CHECK(m->focus[root]==strip->kids[1]);
+    CHECK(strip->kids[1]->pointer_rect[3]==20);
     menu_close(m);
     gt4_vol_close(vol);
     return 0;

@@ -27,13 +27,39 @@ int main(int argc, char **argv)
     CHECK(v);
     size_t size;
     uint8_t *labels = gt4_vol_read(v, "/specdb/GT4_US2560/GENERIC_CAR.idi", &size);
-    CHECK(labels && gt4_specdb_label(labels, size, "ka_01", &d.car[0]));
+    CHECK(labels && gt4_specdb_label(labels, size, getenv("MOON_BOOST_CAR") ? getenv("MOON_BOOST_CAR") : "ka_01", &d.car[0]));
     d.car[1] = d.car[0];
     free(labels);
     gt4_vol_close(v);
     char message[256];
     gt4_race_run *r = gt4_race_run_open(argv[1], &d, message, sizeof message);
     CHECK(r);
+    if (getenv("MOON_BOOST_CAR")) {
+        uint32_t car = gt4_race_run_car(r, 0);
+        if (!strcmp(getenv("MOON_BOOST_CAR"), "woodone_supra_03")) {
+            gt4_race_hud h;
+            CHECK(gt4_race_run_hud(r, 0, &h));
+            CHECK(h.has_boost == (argc > 2 ? 1 : 0));
+            gt4_race_run_close(r);
+            return 0;
+        }
+        GT4_U16(car + CAR_ENGINE_RPM) = 8000;
+        GT4_U16(car + 0x5f8) = GT4_U16(car + 0x5fa) = 8000;
+        GT4_F32(car + CAR_DT) = 1.f / 60;
+        for (int sample = 0; sample < 2; sample++) {
+            for (int tick = 0; tick < 120; tick++)
+                gt4_car_engine_drive(car, sample ? 0.f : 1.f);
+            gt4_race_hud h;
+            CHECK(gt4_race_run_hud(r, 0, &h));
+            if (argc > 2) h.boost = sample ? 2.f : 0.f;
+            CHECK(h.has_boost && h.boost == GT4_F32(car + CAR_FIELD_BOOST_SMOOTH));
+            CHECK(sample ? h.boost < 1.f : h.boost > 1.f);
+            fprintf(stderr, "boost %s throttle%d rpm8000 pressure %.6f\n",
+                    getenv("MOON_BOOST_CAR"), !sample, h.boost);
+        }
+        gt4_race_run_close(r);
+        return 0;
+    }
     static const int hints[] = {-1, 0, 1, 3, 6};
     for (unsigned sample = 0; sample < sizeof hints / sizeof *hints; sample++) {
         for (int i = 0; i < 2; i++) {

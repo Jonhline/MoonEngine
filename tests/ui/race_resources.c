@@ -61,6 +61,7 @@ static void capture(const char *path)
 }
 int main(int argc, char **argv)
 {
+    setvbuf(stdout, NULL, _IONBF, 0);
     CHECK(argc>=4);
     int negative = argc > 4 && !strcmp(argv[4], "--negative"),
         photo_negative = argc > 4 && !strcmp(argv[4], "--photo-negative");
@@ -176,6 +177,7 @@ int main(int argc, char **argv)
     memcpy(world_state, gt4_ptr(0), 32u * 1024 * 1024);
     float camera_size[4], camera_distance;
     CHECK(race_game_photo_camera_data(g,camera_size,&camera_distance));
+    photo_travel_drive_collision(p,g,race_game_photo_ground,race_game_photo_wall);
     photo_travel_drive_setup(p, camera_size, camera_distance);
     CHECK(photo_travel_drive(p,m,race_game_photo_view(g)));
     race_game_photo_pause(g, 1);
@@ -265,6 +267,16 @@ int main(int argc, char **argv)
     char editor_image[1024];
     snprintf(editor_image, sizeof editor_image, "%s.editor.png", argv[3]);
     capture(editor_image);
+    int hud_w, hud_h;
+    uint8_t *hud_pixels = plat_sdl_read_pixels(&hud_w, &hud_h);
+    CHECK(hud_pixels && hud_w == 640 && hud_h == 480);
+    /* Original PhotoPause reserves the control area; a full-screen scene
+       used to leak here and displaced the viewfinder from the optical centre. */
+    for (int channel = 0; channel < 3; channel++) {
+        CHECK(hud_pixels[channel] == 0);
+        CHECK(hud_pixels[4 * (470 * hud_w + 638) + channel] == 0);
+    }
+    free(hud_pixels);
     plat_video_end_frame();
     CHECK(cursor==g->tape_at);
     menu_close(preview);
@@ -300,6 +312,7 @@ int main(int argc, char **argv)
     CHECK(race_game_start_prepared(g,&drive,msg,sizeof msg));
     ready(g);
     CHECK(!g->replaying && race_game_photo_view(g));
+    CHECK(!race_game_photo_select(g,0xffff,0));
     CHECK(GT4_U32(GT4_U32(GT4_U32(gt4_race_run_conductor(g->run))+0x84)+0xd68)==13);
     for (int i = 0; i < 60; i++)
         race_game_update(g, STEP);
@@ -322,6 +335,11 @@ int main(int argc, char **argv)
     CHECK(race_game_replay(g,msg,sizeof msg));
     ready(g);
     CHECK(race_game_photo_view(g));
+    CHECK(!race_game_photo_select(g,0xffff,1));
+    CHECK(!race_game_photo_select(g,0xff13,0));
+    int select_photo=race_game_photo_select(g,0xffff,0);
+    if(argc>4&&!strcmp(argv[4],"--select-negative"))select_photo=0;
+    CHECK(select_photo);
     gt4_career_vehicle_close(factory);
     puts("PASS Photo Drive GT session, live photo freeze/resume and recorded replay");
     CHECK(photo_travel_load(p,m,"ss_gion","ka_01",2,NULL,NULL));

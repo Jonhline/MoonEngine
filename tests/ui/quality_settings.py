@@ -32,23 +32,21 @@ with tempfile.TemporaryDirectory(dir=output) as temporary:
             return log
         def change(row, directions):
             return ["down"] * row + ["accept"] + directions + ["accept"]
-        def commit(row, rows=9):
+        def commit(row, rows=7):
             return ["down"] * (rows - row) + ["accept"]
         if volume_only:
-            run("ao",change(7,["down"])+commit(7,8),2)
+            run("lighting",change(0,["down"])+commit(0,3),2)
             data=config.read_text(encoding="utf-8")
             if negative:data=data.replace("graphics.ambient_occlusion=1","graphics.ambient_occlusion=0")
-            for value in ("graphics.ambient_occlusion=1","graphics.hdr=1","graphics.daylight=1"):
-                assert value in data,data
-            run("volume",change(6,["down","down"])+commit(6,8),2)
+            for key in ("hdr","modern_lighting","material_shading","ambient_occlusion","car_shadows"):
+                assert f"graphics.{key}=1" in data,data
+            assert "graphics.sun_rays=0" in data and "graphics.shadow_maps=2" in data,data
+            run("skybox",change(1,["down"])+commit(1,3),2)
             data=config.read_text(encoding="utf-8")
-            assert "graphics.sun_rays=2" in data and "graphics.hdr=1" in data,data
-            before=config.read_bytes()
-            run("ao-cancel",change(7,["up"])+["back"],2)
-            assert config.read_bytes()==before
-            log=run("volume-reload",[],2)
-            assert "choice AmbientOcclusion/OptionMenu index=1" in log,log
-            assert "choice SunRays/OptionMenu index=2" in log,log
+            assert "graphics.daylight=1" in data and "graphics.night_sky=1" in data,data
+            assert "graphics.solar_hour=24" in data and "graphics.solar_cycle=1" in data,data
+            log=run("bundles-reload",[],2)
+            assert "choice Lighting/OptionMenu index=1" in log and "choice Daylight/OptionMenu index=1" in log,log
             continue
         run("ssaa", change(0, ["down"] * 3) + commit(0))
         data = config.read_text(encoding="utf-8")
@@ -76,23 +74,11 @@ with tempfile.TemporaryDirectory(dir=output) as temporary:
         run("filtering", change(3, ["down"] * 4) + commit(3))
         data = config.read_text(encoding="utf-8")
         assert "graphics.texture_filtering=4" in data, data
-        run("shadows", change(0, ["down"]) + commit(0, 8), 2)
-        assert "graphics.car_shadows=1" in config.read_text(encoding="utf-8")
-        run("materials", change(4, ["down"]) + commit(4))
-        assert "graphics.material_shading=1" in config.read_text(encoding="utf-8")
-        run("reflections", change(5, ["down", "down"]) + commit(5))
-        assert "graphics.reflection_quality=2" in config.read_text(encoding="utf-8")
-        run("shadow-maps", change(1, ["down", "down", "down"]) + commit(1, 8), 2)
-        assert "graphics.shadow_maps=3" in config.read_text(encoding="utf-8")
-        run("lighting", change(6, ["down"]) + commit(6))
-        assert "graphics.modern_lighting=1" in config.read_text(encoding="utf-8")
-        run("daylight", change(2,["down"])+commit(2,8),2)
-        run("solar-time", change(3,["down"]*4)+commit(3,8),2)
-        run("solar-cycle", change(4,["down"]*2)+commit(4,8),2)
-        run("hdr", change(5,["down"])+commit(5,8),2)
-        run("sun-rays", change(6,["down"])+commit(6,8),2)
+        run("lighting",change(0,["down"])+commit(0,3),2)
+        run("skybox",change(1,["down"])+commit(1,3),2)
+        run("reflections", change(4,["down","down"])+commit(4))
         data=config.read_text(encoding="utf-8")
-        for key,value in [("daylight",1),("solar_hour",9),("solar_cycle",2),("hdr",1),("sun_rays",1)]:
+        for key,value in [("modern_lighting",1),("material_shading",1),("car_shadows",1),("shadow_maps",2),("hdr",1),("ambient_occlusion",1),("daylight",1),("night_sky",1),("solar_hour",24),("solar_cycle",1),("sun_rays",0)]:
             assert f"graphics.{key}={value}" in data,data
         log = run("reload", [])
         assert "choice AntiAliasing/OptionMenu index=0" in log, log
@@ -102,5 +88,5 @@ with tempfile.TemporaryDirectory(dir=output) as temporary:
         assert "choice CarShadows/OptionMenu index=1" in log, log
         assert "choice MaterialShading/OptionMenu index=1" in log, log
         assert "choice ReflectionQuality/OptionMenu index=2" in log, log
-        assert "choice ShadowMaps/OptionMenu index=3" in log, log
+        assert "choice ShadowMaps/OptionMenu index=2" in log, log
 print("PC volume/AO: selection, dependencies, Cancel and persistence passed" if volume_only else "PC Edge AA: both renderers, selection, Cancel and persistence passed" if edge_only else "PC quality: both renderers, SSAA, reduced resolution, smoothing, anisotropic filtering, material shading, Cancel and persistence passed")

@@ -3,7 +3,9 @@
 #include "ee.h"
 #include "fpu.h"
 #include "career_original.h"
+#include "race_hud_oil.h"
 #include <stdlib.h>
+#include <math.h>
 #include <string.h>
 #define WEAR 0x1800000u
 #define PARAMS 0x620320u
@@ -120,6 +122,32 @@ int main(int argc, char **argv)
         CHECK(value==c.fpr[0].u);
         CHECK(!memcmp(native_params,c.ram+PARAMS,36) && !memcmp(native_settings,c.ram+SETTINGS,sizeof settings));
         checks++;
+        /* The warning tests raw wear against the separately configured onset,
+           not the colour getter's normalized/clamped life value. */
+        for (int edge = -1; edge <= 1; edge++) {
+            float threshold = (float)((test + 1) * 100000);
+            float mileage = edge < 0 ? nextafterf(threshold, -INFINITY) :
+                            edge > 0 ? nextafterf(threshold, INFINITY) : threshold;
+            wf(c.ram + PARAMS + 32, threshold);
+            c.ram[SETTINGS + 0xcc] = 1;
+            wf(c.ram + WEAR + 8, mileage);
+            CHECK(call(&c, 0x3437b0, WEAR));
+            int sign = race_hud_oil_sign(mileage, threshold);
+            if (getenv("GT4_OIL_WARNING_NEGATIVE")) sign = 0;
+            CHECK(sign == (c.r[2].uw[0] ? 2 : 0));
+            checks++;
+            /* Cold Arcade cache: original getter initializes from +D8. */
+            for (unsigned onset = 0; onset < 256; onset += 17) {
+                c.ram[SETTINGS + 0xcc] = 0;
+                c.ram[SETTINGS + 0xd8] = (uint8_t)onset;
+                wf(c.ram + PARAMS + 32, 0);
+                CHECK(call(&c, 0x3437b0, WEAR));
+                int cold = race_hud_oil_sign_settings(mileage, 0, 0, onset);
+                if (getenv("GT4_OIL_WARNING_NEGATIVE")) cold = 2;
+                CHECK(cold == (c.r[2].uw[0] ? 2 : 0));
+                checks++;
+            }
+        }
     }
     ee_free(&c);
     printf("PASS %u exact original dirt/oil values and setters, exemptions and lazy globals\n",

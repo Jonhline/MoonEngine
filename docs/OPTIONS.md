@@ -80,9 +80,9 @@ player presets): lowercase, dotted by category, for example
 | graphics.reflection_quality | Graphics | Generated race/replay faces and sphere maps, plus studio panel maps; authored environment textures stay unchanged | Original 128 (0) | High 256 (1); Ultra 512 (2) is optional | After OK, rebuild generated targets on next draw; no model reload | No; presentation only | Options > PC Settings > Graphics > Reflection Quality; shared launcher Quality list | Secondary: yes; official: no | 2026-10-18 |
 | graphics.shadow_maps | Graphics | Local car depth shadows on course geometry and car surfaces; alpha-cutout casters and weighted soft filtering | Off (0) | High 1024 (2); Low 512 (1) and Ultra 2048 (3) optional | After OK, next race/replay frame; targets resize lazily | No; presentation only | Options > PC Settings > Light & Shadow > Shadow Maps; shared launcher Quality list | Secondary: yes; official: no | 2026-10-18 |
 | graphics.modern_lighting | Graphics | GGX direct material response, elevation-dependent daylight colour, sky fill and SDR filmic highlight compression | Original (0) | Modern (1) | After OK, next race/replay material draw | No; presentation only | Options > PC Settings > Graphics > Lighting; shared launcher Quality list | Secondary: yes; official: no | 2026-10-18 |
-| graphics.daylight | Graphics | Procedural daytime atmosphere, solar surface lighting and nearby course shadow casting; source assets retained by Classic | Off (0) | On (1) | Next race/replay draw | No; presentation only | Options > PC Settings > Light & Shadow > Daylight | Secondary: yes; official: no | 2026-10-18 |
-| graphics.solar_hour | Graphics | Equinox solar hour at the presentation model's fixed 35-degree latitude; 7..17 encoded as 0..10 | 12:00 (5), inactive | 12:00 (5) | Next draw | No | Options > PC Settings > Light & Shadow > Solar Time | Secondary: yes; official: no | 2026-10-18 |
-| graphics.solar_cycle | Graphics | Fixed, real-time or 60x progression, reflected at 07:00/17:00; no night | Fixed (0) | Real Time (1) | Simulation frame clock; pause freezes it | No; presentation only | Options > PC Settings > Light & Shadow > Daylight Cycle | Secondary: yes; official: no | 2026-10-18 |
+| graphics.daylight | Graphics | Procedural daytime atmosphere, relative relighting of baked course colours and nearby course shadow casting; source assets retained by Classic | Off (0) | On (1) | Next race/replay draw | No; presentation only | Options > PC Settings > Light & Shadow > Daylight | Secondary: yes; official: no | 2026-10-18 |
+| graphics.solar_hour | Graphics | 24 manual solar hours plus Course; index24 selects source day/night default. Legacy day-only clamp when Night Sky is Off | 12:00 (5), inactive | Course (24) | Next draw | No | Options > PC Settings > Light & Shadow > Solar Time | Shared launcher API | 2026-10-20 |
+| graphics.solar_cycle | Graphics | Sun / Moon Cycle: Fixed, Real Time, 60x. Full24h with Night Sky; legacy07..17 reflection otherwise | Fixed (0) | Real Time (1) | Recorded frame clock; pause freezes it | No | Options > PC Settings > Light & Shadow > Sun / Moon Cycle | Shared launcher API | 2026-10-20 |
 | graphics.hdr | Graphics | RGBA16F main scene, SDR filmic resolve and restrained bloom before UI/FSR | Off (0) | On (1) | Next scene; float attachment rebuild | No | Options > PC Settings > Light & Shadow > HDR | Secondary: yes; official: no | 2026-10-18 |
 | graphics.sun_rays | Graphics | Off (0), retained screen-space shafts (1), shadow-mapped world-space volumetric integration (2); requires HDR/Daylight | Off (0) | Volumetric (2) | Next scene; choosing Volumetric enables HDR/Daylight | No; presentation only | Options > PC Settings > Light & Shadow > Sun Rays | Shared launcher API | 2026-10-18 |
 | graphics.ambient_occlusion | Graphics | Optional depth-based cavity/contact shading; screen-space approximation requiring HDR/Daylight | Off (0) | On (1) | Next scene; selecting On enables HDR/Daylight | No; presentation only | Options > PC Settings > Light & Shadow > Ambient Occlusion | Shared launcher API and personal presets | 2026-10-18 |
@@ -92,12 +92,13 @@ player presets): lowercase, dotted by category, for example
 | controls.touch_opacity | Interface | Android race overlay opacity, 20–100 percent | 60%; overlay off | 60% | After OK, Android presentation boundary | No | Options > Screen Settings > Controls > Control Opacity (Android) | no | Android foundation |
 | controls.touch_layout | Controls and input | Steering on the left or mirrored on the right; not a free-position layout editor | Steering left; overlay off | Steering left | After OK, Android input/presentation boundary | No; ordinary commands are recorded | Options > Screen Settings > Controls > Control Layout (Android) | no | Android foundation |
 | controls.touch_steering | Controls and input | Continuous analog drag or digital left/right steering; no solver changes | Analog drag; overlay off | Analog drag | After OK, Android input boundary | Resulting ordinary pad commands are recorded | Options > Screen Settings > Controls > Steering (Android) | no | Android foundation |
-| controls.desktop_menu | Controls and input | Independent hover/previews, manufacturer preselection, full painted-button clicks, viewport/authored-regulation wheel scrolling, pause pointer, slider click/drag with the disc hand and manufacturer-panel edge panning, coalesced hover sounds, fullscreen mouse confinement (released on focus loss) and WASD menu navigation | Off; existing pad-style adapters | On | After OK, menu input boundary | No; menu-only, no simulation change | Options > Screen Settings > Desktop Input | nÃ£o | This change |
+| controls.desktop_menu | Controls and input | Independent hover/previews, manufacturer preselection, full painted-button clicks, viewport/authored-regulation wheel scrolling, pause pointer, slider click/drag with the disc hand and manufacturer/mission-grid edge panning, coalesced hover sounds, fullscreen mouse confinement (released on focus loss) and WASD menu navigation | Off; existing pad-style adapters | On | After OK, menu input boundary | No; menu-only, no simulation change | Options > Screen Settings > Desktop Input | nÃ£o | This change |
 | controls.gtmode_edge_pan | Controls and input | Pan GT Mode map near viewport edges without selecting landmarks; requires Desktop Input | Off | On | After OK, menu input boundary | No; no simulation change | Options > Screen Settings > Map Edge Pan | nÃ£o | This change |
 | interface.smooth_mouse_cursor | Interface | Damped cursor motion, restrained inertial lean and clickable-target feedback; script icon crossfade | Off; direct mouse position when Desktop Input is enabled; original pad cursor with Classic | On | After OK, presentation/input boundary | No | Options > PC Settings > Controls > Smooth Cursor | nÃ£o | This change |
 | interface.mouse_hover_feedback | Interface | Gently enlarge static Options icons/labels and the green Exit pictogram (including its authored alternate face); whole vertical list-card enlargement (background, text, price and swatch together), including event/championship ticket artwork and labels; light standalone paint-swatch enlargement, varnish and animated reflection; adjustable-bar hover; car-strip mouse hover uses authored blob magnification/interpolation; preserve existing game hovers | Off; authored widget faces only | On | After OK, presentation boundary | No | Options > PC Settings > Controls > Hover Feedback | nÃ£o | This change |
 | interface.compact_car_strip | Interface | Draw car thumbnails at 80% of their disc dimensions; retain original assets and smoothly selected magnification | Off; disc geometry | On | After OK, presentation boundary | No; menu only | Options > PC Settings > Controls > Compact Car Strip | nÃ£o | This change |
 | interface.graphics_swap_key | Interface | F7 in a race or replay swaps the picture between Classic graphics and the player's own, with a two-second label; nothing is saved and leaving the race restores the player's graphics (keyboard only) | Off; F7 does nothing in races | On | Immediately, race/replay presentation | No; presentation only, simulation untouched | Launcher Options > Interface > Graphics Swap Key; first-drive guide, Menus | não | This change |
+| interface.controller_tiles | Interface | The game's Options > Controllers by player: Vibration, Controller 1P, Controller 2P (the DUALSHOCK 2 tiles, same page and script), Steering; the six per-model wheel tiles (Driving Force Pro, GT Force, Driving Force; 1P/2P) are hidden and the rows below move up. On the PC each port takes one pad or one wheel, any model, and a wheel's buttons reach the game through that port's button config | Original; the disc's ten tiles | By Player | The next time the Options open | No; menu only | Options > PC Settings > Controls > Controller Tiles; launcher Options > Interface | não | 19 October 2026 |
 | interface.main_menu_overview | Interface | Show five existing entries in the original vertical style, with mouse prelight, full-row clicks and viewport wheel scrolling | Off; original scrolling three-entry presentation | On | After OK, presentation boundary | No; menu layout only | Options > Screen Settings > Main Menu | nÃ£o | This change |
 | interface.input_hints | Interface | Adapt button legends to the latest keyboard/mouse or controller input | Off; original PS2 symbols | On; automatic keyboard/Xbox/PS labels | After OK, input/presentation boundary | No | Options > Screen Settings > Input Hints | nÃ£o | This change |
 | graphics.ui_filter | Graphics | Existing optional UI sampling; migrated from ui_filter | Original (2) | Smooth (0) | Presentation, after OK (draft preview) | No | Options > Screen Settings > UI Filter | nÃ£o | Migrated in this change |
@@ -465,13 +466,56 @@ nothing; the guide verifies the store is untouched. The comparison is scoped to
 this scene; Classic is not a claim that the port is fully PS2-exact.
 
 The launcher Options show the same thing (19 October 2026, P, no setting):
-INTERFACE and QUALITY use the guide's two columns, the rows on the left and the
-focused option on the right with the guide's own words (what, look at, cost; the
-Menus note for interface rows; the Options help for rows the guide does not cover).
-A QUALITY row the guide compares gets its comparison: the same Tsukuba frame at the
+every tab uses the guide's two columns, the rows on the left and the focused option
+on the right with the guide's own words (what, look at, cost; the Menus note for
+interface rows; the Options help for rows the guide does not cover). A QUALITY row
+the guide compares gets its comparison: a short clip of Tsukuba, the camera swinging
+around the car (16 frames recorded once per look, played back and forth), at the
 original value left of a draggable divider and the current value right (Enhanced's,
-marked as not chosen, while it is still original). Options apply at once, so there
-is no draft. The course is read when the column first needs it and closed with the
+marked as not chosen, while it is still original). Theme, Light Colour and Scene's Room
+show the launcher's own room rendered by the showroom in each look (light and dark; the
+colour before, the chosen one and the next) from START's framing, taken only once the car
+is fully there (behind a Scene its fade runs inside the render) and kept for every look
+taken until the car or the window changes, so going through the colours never shows a gap
+(`launcher_renders.inc`). Aspect Ratio, Controller Tiles, Desktop Input, Hover Feedback, UI
+Filter and Text Clarity show the game's own Options menu printed with each of two values
+(`launcher_prints.inc`): the launcher runs its own executable hidden, mute and without
+mods, once a picture (`<menu> <root> --config-file --shot`, scripted input such as
+`mouse:x:y` for our pointer), one at a time on a thread, started the first time OPTIONS
+opens, the focused row first. The PNGs are kept in `launcher-prints/` next to launcher.ini
+with a version stamp, so later runs only read them; nothing is shipped, every picture
+comes from the player's disc. Graphics API and PC Preset show their named choices. Every
+other row has no picture (a still cannot show VSync, latency, a frame limit or a folder
+list), and no drawn stand-in. Card and side names shrink to their box. Under the words a gold line
+appears only when it adds something: a change that waits (next start, next time the
+Jukebox opens) or what Classic and Enhanced set when they differ (not on interface rows,
+whose Menus note already says it). The comparison's remarks sit under the picture, not on
+it; the two side names shrink to their half. When the column is short (a small window)
+the picture keeps at least a third of it and the words drop Look at and Cost. The dock
+captions shrink to their slot. Load Preset and Save Preset are buttons (Choose File...,
+Save As...): Enter, A or a click opens the file window; Left and Right do nothing there.
+
+Launcher Scene (19 October 2026, P; launcher.ini `scene=`, empty by default): GENERAL >
+Scene chooses where the launcher's car stands. Room (the default) is the white or dark
+sweep; the others are the disc's Photo Travel places (`/crs/ss_*`) and courses. The course
+is read in the background with the player's car (its paint and fitted parts) and drawn live
+by the race's renderer instead of the room: at a place the car stands on PhotoMode's spot,
+on a course on the first grid slot. The launcher's cameras (dock framings, the idle
+cinematic shots, the free rig) are written in the car's frame and become cameras of that
+world. They stay 0.3 above the road and come in toward the car where the road rises across
+the line. At a place they turn to the side PhotoMode's own camera stands on, which is known
+to be clear of fences and walls, and stay within 1.1 times its distance. Walls themselves
+are not in the course's road data, so a course camera can still meet one. The room's car
+keeps loading behind it; the corner text gets a dark shade and light ink. Launcher only:
+the game and its presets are not involved (Dante's idea of changing the menu room, as in
+Euro Truck Simulator 2). `MOONSTUDIO_SCENE=<code>` sets it for captures and
+`MOONSTUDIO_WINDOW=WxH` the window size. The car follows the road under its four wheels
+(pitch and roll from the road heights there; a flat car on a slope sank on one side). On a
+course the cameras also stay over the road, since walls, barriers and stands are off it,
+and look from the car's side with more road between the car and them (the first grid slot
+is often by the pit wall: Laguna Seca, Monte Carlo and Seattle had the camera in a wall).
+
+Options apply at once, so there is no draft. The course is read when the column first needs it and closed with the
 panel; each capture is restored to the player's look before the launcher's frame,
 so the room behind keeps it. No full-screen view in Options.
 
@@ -498,8 +542,9 @@ See [usage, tests and limits](notes/CUSTOM_MUSIC.md).
 
 P: `audio.jukebox_folders` (0/1, default 1 except Classic) adds Menu and Replay
 folders to the Jukebox, built from the authored Racing/Slideshow folder and add
-button and run by the page's own playlist code. An empty Menu keeps the original
-menu music; an empty Replay plays the Racing list. Classic sets it to 0.
+button and run by the page's own playlist code. Menu replaces only the GT Mode map music (the authored MAP group), never
+Arcade, Home, dealers or pre-race music. An empty Menu keeps the original
+map music; an empty Replay plays the Racing list. Classic sets it to 0.
 
 P: `audio.jukebox_groups` (0/1, default 1 except Classic) lists local songs by
 their Music subfolder, the folder shown in place of the artist. Classic sets it to 0.
@@ -534,3 +579,252 @@ contributes no direction. Leaving an edge, changing page, disabling edge pan or
 handing over to the pad restores the existing cursor behavior. No extra option.
 `desktop_pointer` checks all eight directions, map bounds and disabled pan;
 `gtmode_map_navigation` retains controller landmark navigation coverage.
+
+Windows launcher Sound > Open Music Folder opens the Music directory beside the active options store. Startup prepares this folder even with audio.custom_music off; the button does not enable playback or change playlists.
+
+### Authored night guard (20 October 2026)
+
+The daytime-only `graphics.daylight` path preserves the loaded authored sky,
+lighting and fog on nonzero Env0 time zones. This prevents noon procedural
+replacement during racing while pregrid keeps the authored scene. No new option:
+the lamp-shadow restoration is original behavior; full procedural night is the
+separate requested follow-up. See [limits](notes/NIGHT_COURSES.md).
+
+### Car Lamps (20 October 2026)
+
+`graphics.car_lamps`: independent 0/1, Classic=0, Enhanced=1. In-game
+PC Settings > Light & Shadow > Car Lamps and shared launcher Quality API.
+Applies on next draw, presentation only; never serialized to physics/replay
+commands. Personal presets include it. World-space cone lamps and emissive
+lenses use the same shader on OpenGL and Vulkan, with existing HDR bloom.
+Includes optional perspective depth occlusion while Car Lamps is On (24 maximum
+256-pixel light tiles, 3 cm bias); no allocation/draw in Classic. Inferred lenses,
+range, colours and depth filtering are artistic P. Full-race performance and
+broad car coverage remain unverified. The later [12-model/24-light check](notes/CAR_LAMP_COVERAGE.md)
+recovers lit brake emitters and excludes ghosts; it is bounded coverage, not a
+full-car certification or complete-race benchmark. The same option now uses a
+direct atlas and shadow-only batching at unchanged resolution; nominal depth
+storage rises about 11.25 MiB in D32F/S8 mode. See the coverage note for the
+copy-reference tests and bounded performance measurements. Emission follows
+night-lens/pressed-branch tags for both lit and unlit materials; nearby paint
+is excluded, with HDR bloom checked on both APIs.
+Parameters, tests and limits: [renderer](RENDERER.md#optional-world-space-car-lamps-20-october-2026).
+
+### Optional full-day procedural sky (20 October 2026)
+
+P: `graphics.night_sky` is individual, Classic Off / Enhanced On, in PC Settings
+> Light & Shadow > Night Sky and the shared launcher Quality API. It requires
+Daylight; turning it on enables Daylight. Off retains the legacy daytime cycle
+and the authored-night guard. No physics or recorded control format changes.
+
+Solar Time now has all 24 hours; saved indices 0..10 still mean 07:00..17:00,
+then 11..23 mean 18:00..06:00. With the default 12:00 setting, nonzero authored
+Env0 time zones start at 22:00; explicit other hours override that default.
+Fixed, Real Time (1/3600 hour per second) and 60x (1/60) use the existing recorded
+frame clock, wrapping at 24. No wall clock or RNG. Lamp activation continues to
+follow original night/safety-car and brake flags, independently of solar time.
+
+The same shader on OpenGL/Vulkan adds a moon opposite the sun and a deterministic
+integer-hash star field, blending with the existing daytime atmosphere over
+sun elevation -0.12..0.08. Direct sunlight is zero below the horizon; solar
+shadow-map casters are skipped there. Night ambient is artistic, not recovered
+PS2 data. Course illumination is still baked into textures; this is not a fully
+relightable nighttime world. No lunar ephemeris, moonlight shadow pass or weather.
+Native Route5 captures are very dark away from the car lamps; visual balance
+and more tracks still need review. Whole-frame API equivalence is not proved.
+
+Tests: night_sky GL/Vulkan and their deliberate noon-as-night negatives;
+2400 deterministic clock/ambient samples, repeat-frame byte equality, dark-night
+and star output, default course time, wrap and legacy clamp. Initial tests failed
+because no star samples survived the float-hash/threshold combination; the
+integer hash and revised density pass. launcher_quality verifies persistence
+and Classic restoration. No equivalent PCSX2 capture: original parity remains A.
+Local captures: build/night-sky-<api>-enhanced-night.png; logs:
+build/night-sky-final-tests.log and build/night-sky-regression-tests.log.
+
+
+### Enhanced night: retain authored local radiance (20 October 2026)
+
+P correction within graphics.night_sky / graphics.daylight, no new option.
+The procedural night multiplied already-lit course radiance by near-zero solar
+irradiance; modern car lighting could also erase the original local RNW4 response.
+The new night_baked GPU positive fails before the fix on both APIs (source20,
+night0). The fragment path now retains its original lit colour before modern
+shading, blends back to that radiance during authored night, then adds optional
+car lamps. HDR retains linear radiance, SDR retains encoded source colour.
+Original fog remains after the mix; the procedural sky is separate.
+
+The weight is 1-smoothstep(-.12,.08,sun elevation), and only nonzero original
+Env0 time zones may retain authored night radiance. Day courses are not forced
+bright at night; noon and Classic have weight zero. The weight depends on the
+same recorded frame clock as the sky, never track labels, wall clock or physics.
+This preserves existing baked artificial light; it is not light-source recovery,
+new global illumination or removal of baked daytime shadows.
+
+Twenty focused GPU tests cover night surfaces/cars, HDR/SDR, source night/day,
+legacy restoration, the existing baked-day/noon path, sky, car lamps and authored
+night guards, including deliberately disabled-source negatives. A car fixture
+initially lacked its modern_light flag and was corrected without relaxing the
+radiance equality. Retained synthetic radiance agrees within 1 byte/channel;
+Off restoration is byte exact. Both APIs captured all 25 source environments
+again: build/night-balanced-<api>/index.html. Route5 now retains lit buildings and
+asphalt; the optional lamps remain additive. No equivalent PCSX2 frames, complete
+source-scene photometry or console GPU certification. Overall visual grade A/P.
+Logs: build/night-baked-before-tests.log, night-baked-final-tests.log and
+night-baked-regression-tests.log. Initial test compile errors were fixture-only
+(include entrypoint alias and light-field name), corrected before GPU comparisons.
+
+
+### Full daily sun/moon cycle (20 October 2026)
+
+P, optional PC presentation: graphics.night_sky plus graphics.daylight enable the
+full daily path. The existing graphics.solar_cycle is exposed as Sun / Moon Cycle
+(Fixed / Real Time / 60x), not a second competing clock. Real Time is one solar
+hour per 3600 recorded-frame seconds; 60x is one hour per 60 seconds, so a full
+cycle lasts 24 real minutes. The sky uses only the recorded frame index /60.
+Sunrise/sunset follow the existing artistic equinox/35-degree model. The moon is
+a stylized full moon opposite the sun, not a lunar ephemeris or monthly phases.
+Stars rotate about that model's celestial pole and wrap with the same 24h clock.
+Moon/star rays below the horizon are rejected before the daytime integrator's
+horizon clamp. Moon radiance uses the existing RGB optical depths
+(.0428,.1,.24414), elevation floor .08 and disc transition .009..008 radians.
+These are presentation choices, not recovered original-game astronomy.
+
+Solar Time now has 25 entries: the existing 24 explicit-hour indices keep their
+mapping; new index24 is Course. Enhanced defaults to Course (12:00 for source day,
+22:00 for nonzero original Env0 time zone); Classic retains inactive index5.
+An explicitly selected 12:00 now really means noon even on a night course; the
+former implicit 12:00->22:00 substitution is removed. Stored indices0..23 remain
+manual hours. New/default presets select Course, not an inference that overwrites
+old modified player choices. Personal presets accept index24. Startup and runtime
+share video_settings_solar_hour, fixing the startup path's previous +7-only mapping
+for late hours. No profile, vehicle command or physics/replay format is changed.
+
+celestial_cycle checks 1441 clock samples over a day, opposite unit sun/moon
+vectors, sunrise/moonrise and actual GPU disc contrast at six times. Star motion
+and exact midnight repetition are checked on both APIs. Moon-disabled and
+clock-held negatives fail their intended assertions. Initial disc comparison used
+the window centre instead of the actual content viewport; querying the viewport
+fixed the fixture without weakening its contrast threshold. The early CPU-negative
+shutdown attempted video teardown before initialization; it now only tears down
+a started device, and returns the intended assertion failure rather than crashing.
+
+celestial_clock uses the actual app: 240 live and replay ticks both publish exactly
+4 seconds / solar23.0666656, pause30 updates preserve the frame count and complete
+scene bytes, and deliberately changed reported time fails. This is bounded clock/
+pause integration, not an entire 24h simulated endurance or universal replay-image
+proof. launcher_quality checks 25 choices, Course/manual-noon resolution, night-hour
+persistence, Classic and Enhanced defaults. Focused sky/baked/lamps/guard regressions
+remain in build/celestial-final-tests.log. Original-code comparison is inapplicable
+to new astronomy; original Classic rendering remains the separate baseline.
+
+Local previews on both APIs: build/celestial-preview-<api>/index.html and cycle.mp4,
+97 fixed-camera Route5 samples at quarter-hour intervals. PNG0 and PNG96 are byte
+identical. No original-game assets/captures are committed. Authored baked lights,
+car lamp activation and callback7 model selection still follow source time-zone
+rules: the optional daily sky does not certify fully dynamically relit tracks,
+automatic day-car geometry swaps or monthly lunar phases. Full scene comparison A.
+
+
+## Realistic lighting bundles (20 October 2026)
+
+User-directed consolidation supersedes the earlier individual lighting rows:
+
+| Visible option | Stable primary key | Classic | Enhanced | Contents |
+|---|---|---|---|---|
+| Realistic Lighting | graphics.modern_lighting | Off | On | per-pixel materials, GGX, sun/sky response, HDR scene/filmic resolve, car shadows, medium shadow maps and AO |
+| Realistic Skybox | graphics.daylight | Off | On | atmosphere, clouds, twilight/night, moon/stars and real-time full solar cycle; authored course day/night selects the initial time |
+| Realistic Car Lamps | graphics.car_lamps | Off | On | existing optional lamp illumination/emission; renamed, lamp behavior unchanged |
+
+Location: PC Settings > Light & Shadow, and launcher Quality/first-drive guide.
+The previous HDR/material/AO/shadow/hour/night/cycle IDs remain readable for
+compatibility, but are hidden Legacy rows. Loading/importing normalizes them
+from the primary switches; there is no separate visible Sun/Night/Time option.
+Skybox On selects Course time and real-time cycle; Off selects fixed noon for
+the procedural fallback while retaining original authored night presentation.
+Lighting On sets clear-air rays Off (the old fog-volume effect is not enabled
+by this bundle). The two bundles can be selected independently. Changes apply
+after OK and are presentation only, never recorded in physics replay state.
+[Calibration, references, test evidence and remaining limits](notes/REALISTIC_LIGHTING.md).
+
+
+### Authored celestial placement and shading caches (20 October 2026)
+
+Update within the existing Realistic Lighting/Skybox options; Classic Off,
+Enhanced On, no additional switch. At the user's request, course sun/moon
+placement now comes from retained source sky artwork, and lighting follows the
+enabled Env0 direction. The stored cycle/hour IDs remain compatibility data;
+there is currently no moving celestial orbit in course draws. Cloud motion
+continues from simulation-frame presentation time. The old constant warm filter
+is removed: high sun is neutral and low sun warmer. Pregrid/race share initialized
+environment state. Cloud lookup at15Hz and linear-source reflection cache reduce
+GPU work without lowering reflection sample count or disabling shadows/lamps.
+[Tests, tradeoffs and measured limits](notes/LIGHTING_PERFORMANCE.md).
+
+
+Photo Travel pointer correction (20 October 2026): the existing
+`controls.desktop_menu` option also covers the original floating ScaleBar
+controls. Wheel input adjusts the hovered focal control even when its popup
+starts closed; dragging retains its decimal min/max/step and the original
+script callback. Classic retains controller-only navigation. The preview
+return fade correction is a base native adapter fix, with no new option.
+
+### Launcher controller binding selection (21 October 2026)
+
+The existing player controller mappings now use a choice list. Pointer hover,
+keyboard/controller navigation and cancelling are presentation only; confirmation
+applies the selected assignment to the selected player's existing pad settings.
+An occupied destination is identified before confirmation. Editing one function
+preserves other functions' alternate bindings. No new mapping store or gameplay
+option: this repairs the secondary launcher's editor for the existing controls.
+
+### Realistic Skybox repair (21 October 2026)
+
+Existing skybox/night controls retain their configuration keys and Classic
+defaults. Procedural sky replaces the full original background when enabled;
+its surface reference irradiance remains authored. Disabling night replacement
+also preserves the authored reflection sky. No new option or physics state.
+
+### Realistic Car Lamps receiving-light repair (21 October 2026)
+
+Existing graphics.car_lamps controls these changes; Classic remains off.
+Front lamps use a generic soft low-beam cutoff and right-side upsweep; rear
+lamps retain their existing brake-linked behavior. Radiance is an artistic
+approximation, not calibrated lumens. No per-car constants or physics edits.
+
+### Realistic Lighting reflected coat (21 October 2026)
+
+Existing graphics.modern_lighting uses a smooth reflected coat independently
+of legacy highlight shininess. No extra toggle: this repairs the existing
+material conversion. Classic bypasses it; physical paint classification remains
+unknown and no metallic-material inference is claimed.
+
+### Authored sheen correction (21 October 2026)
+
+Within Realistic Lighting, the original mixed-material sheen mask keeps its
+authored strength; the global rough-asphalt assumption is removed. No new
+option, no course-name conditions, no physical state changes. Classic unchanged.
+
+### Realistic Lighting baked-light conversion (21 October 2026)
+
+Existing graphics.modern_lighting preserves authored world detail at neutral
+lighting in SDR and HDR; the retained authored-night world branch also keeps
+its source display level in HDR. This corrects double host tone compression.
+No new toggle, no track exceptions or physics state. Classic remains unchanged.
+This does not add dynamic tunnel lamp emitters or certify original-game parity.
+
+
+### GT Auto previews and direct solar coating (21 October 2026)
+
+Correction: wheel/wing preview transitions belong to the base GT Auto
+behaviour in Classic and Enhanced. The mistakenly added
+`interface.part_preview_fades` preference has been removed; existing keys
+have no effect. Exact original blend timing remains unverified.
+The original mechanic camera fade is a base composition correction and
+does not depend on that option.
+
+`graphics.modern_lighting` (Realistic Lighting) also evaluates direct sunlight
+on the existing authored reflective coating. Off keeps the original lighting
+path. The coating remains a host approximation with the original mask; it
+does not infer metallic paint types or replace the original model geometry.
+Material reference: [Filament](https://google.github.io/filament/Filament.md.html).

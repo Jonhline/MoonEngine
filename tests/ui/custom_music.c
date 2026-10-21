@@ -67,6 +67,15 @@ static int samples(music_library *m, int context, int expected, int16_t out[128]
     }
     return 0;
 }
+static int first_sample(music_library *m, int context)
+{
+    int16_t out[128];
+    for (int i = 0; i < 3000; i++) {
+        if (music_library_render(m, context, out, 64, 128, 0) && out[0]) return out[0];
+        SDL_Delay(1);
+    }
+    return -1;
+}
 int main(int argc, char **argv)
 {
     CHECK(argc>=2);
@@ -88,6 +97,30 @@ int main(int argc, char **argv)
     CHECK(one==0 && two==1);
     CHECK(music_library_add(m,one,a,"Som de teste") && music_library_add(m,two,b,NULL));
     CHECK(music_library_assign(m,ML_MENU,one) && music_library_assign(m,ML_RACE,two));
+    if (argc > 2 && !strncmp(argv[2], "--sequence", 10)) {
+        CHECK(music_library_add(m,one,b,"Second"));
+        for(int c=0;c<ML_CONTEXTS;c++) CHECK(music_library_assign(m,c,one));
+        CHECK(music_library_enable(m,1));
+        if (!strcmp(argv[2],"--sequence-shuffle")) CHECK(music_library_shuffle(m,one));
+        int initial[ML_CONTEXTS];
+        for(int c=0;c<ML_CONTEXTS;c++) {
+            initial[c]=first_sample(m,c);
+            CHECK(initial[c]==1000 || initial[c]==2300);
+        }
+        /* Preview does not consume or reset a context's order. */
+        music_library_preview(m,one,0);
+        CHECK(first_sample(m,ML_MENU)==1000);
+        music_library_preview(m,-1,-1);
+        for(int c=0;c<ML_CONTEXTS;c++) {
+            int expected=initial[c]==1000 ? 2300 : 1000;
+            if (!strcmp(argv[2],"--sequence-negative")) expected=initial[c];
+            CHECK(first_sample(m,c)==expected);
+        }
+        music_library_close(m);SDL_Quit();
+        puts("PASS independent playback queues survive context changes and preview");
+        return 0;
+    }
+
     int16_t out[128];
     for (int i = 0; i < 128; i++)
         out[i] = -1234;

@@ -6,9 +6,11 @@
 #include "career_vehicle.h"
 #include <time.h>
 static int selected_profile = 2;
+static int picker_calls;
 static int picker(menu *m)
 {
     (void)m;
+    picker_calls++;
     return selected_profile;
 }
 static ui_widget *named(menu *m, const char *name)
@@ -30,6 +32,7 @@ static ui_widget *find(ui_widget *w, const char *name)
     }
     return NULL;
 }
+static int dialog_accept = 1;
 static int info_dialog(menu *m, const char *t, const char *s, int kind, const char *y,
                        const char *n)
 {
@@ -39,7 +42,7 @@ static int info_dialog(menu *m, const char *t, const char *s, int kind, const ch
     (void)kind;
     (void)y;
     (void)n;
-    return 1;
+    return dialog_accept;
 }
 int main(int argc, char **argv)
 {
@@ -81,10 +84,34 @@ int main(int argc, char **argv)
     ah_set_member(m->vm, active, "money", ah_int(67890));
     CHECK(gt4_save_capture(m->vm,active,1));
     menu_set_profile_picker(m, picker);
+    /* GarageRoot L6749: implicit card zero is this player, never a picker.
+       A cancelled external picker must not prevent selecting an owned car. */
+    ah_val local_check[] = {ah_objv(m->context), ah_int(0), ah_nil()}, local_result;
+    int calls_before = picker_calls;
+    CHECK(ah_call_member(m->vm,m->project,"checkGameData",3,local_check,&local_result)>=0);
+    if(argc==3&&!strcmp(argv[2],"--owned-picker-negative"))picker_calls++;
+    CHECK(local_result.t!=AV_NIL && picker_calls==calls_before);
+    ah_val local_file;
+    CHECK(ah_get_member(m->vm,local_result.u.o,"_file",&local_file));
+    ah_val local_slot;
+    CHECK(ah_get_member(m->vm,local_file.u.o,"_slot",&local_slot) && ah_num(local_slot)==1);
+
     menu_set_dialog_presenter(m, info_dialog);
     ah_obj *manager = ah_module_new(m->vm, "manager", NULL, NULL, NULL);
     ah_val mode[] = {ah_str(m->vm, "MODE_LOAD_GAME"), ah_int(1)}, ret;
     CHECK(nat_pc_manager(m->vm,manager,m,2,mode,&ret)>=0);
+    /* Buy/GetCar/Garage/GT Auto use checkGameData(context,0,manager).
+       Even a manager previously used by Trade cannot redirect these writes. */
+    int operation_picks=picker_calls;
+    for(int operation=0;operation<4;operation++){
+        ah_val local[] = {ah_objv(m->context),ah_int(0),ah_objv(manager)};
+        CHECK(ah_call_member(m->vm,m->project,"checkGameData",3,local,&ret)>=0 && ret.u.o==manager);
+        ah_val file,slot;
+        CHECK(ah_get_member(m->vm,manager,"_file",&file));
+        CHECK(ah_get_member(m->vm,file.u.o,"_slot",&slot)&&ah_num(slot)==1);
+    }
+    if(argc==3&&!strcmp(argv[2],"--operation-picker-negative"))picker_calls++;
+    CHECK(picker_calls==operation_picks);
     ah_val check[] = {ah_objv(m->context), ah_int(0), ah_objv(manager), ah_int(1)};
     CHECK(ah_call_member(m->vm,m->project,"checkGameData",4,check,&ret)>=0 && ret.u.o==manager);
     ah_val create[] = {ah_objv(m->context), ah_int(0), ah_nil(), ah_int(1)};
@@ -124,9 +151,21 @@ int main(int argc, char **argv)
     ah_val context = ah_objv(m->context);
     ui_widget *save = find(home, "Save");
     CHECK(save);
+    ah_val save_handler;
+    CHECK(ah_get_member(m->vm,widget_module(m,save),"onActivate",&save_handler));
+    if (argc==3 && !strcmp(argv[2],"--save-handler-negative"))
+        menu_native_method(m,save,"onActivate",nat_open_save,m);
+    CHECK(ah_get_member(m->vm,widget_module(m,save),"onActivate",&save_handler));
+    CHECK(ah_as_obj(save_handler,AO_FUNC));
     ah_set_member(m->vm, game_object(m), "money", ah_int(67891));
     CHECK(gt4_save_capture(m->vm,game_object(m),1));
+    dialog_accept = 0;
     CHECK(ah_call_member(m->vm,widget_module(m,save),"onActivate",1,&context,&ret)>=0);
+    advance(m);
+    CHECK(gt4_save_dirty() && gt4_save_active()==1);
+    dialog_accept = 1;
+    CHECK(ah_call_member(m->vm,widget_module(m,save),"onActivate",1,&context,&ret)>=0);
+    advance(m);
     CHECK(!gt4_save_dirty() && !m->next_project[0]);
 
     CHECK(ah_call_member(m->vm,widget_module(m,trade),"onActivate",1,&context,&ret)>=0);
@@ -200,13 +239,10 @@ int main(int argc, char **argv)
     menu_enter(m, maker->root);
     advance(m);
     ah_val open[] = {ah_objv(m->context), ah_int(0)};
-    selected_profile = 0;
+    selected_profile = 0; /* A picker would cancel: Arcade must not invoke it. */
+    int arcade_picker_before=picker_calls;
     CHECK(ah_call_member(m->vm,widget_module(m,maker),"openGarage",2,open,&ret)>=0);
-    apply_pages(m);
-    advance(m);
-    CHECK(!strcmp(ui_root_name(m->ui,menu_active_root(m)),"MakerRoot") && !errors && gt4_save_active()==1);
-    selected_profile = 2;
-    CHECK(ah_call_member(m->vm,widget_module(m,maker),"openGarage",2,open,&ret)>=0);
+    CHECK(picker_calls==arcade_picker_before);
     apply_pages(m);
     advance(m);
     CHECK(!strcmp(ui_root_name(m->ui,menu_active_root(m)),"GarageRoot") && !errors && gt4_save_active()==1);
@@ -216,6 +252,6 @@ int main(int argc, char **argv)
     gt4_vol_close(vol);
     gt4_save_shutdown();
     puts(
-        "PASS local profiles: authored Trade loader, independent source garage, cancel, authored Trade purchase/reload/source unchanged, Save writes active player, Arcade garage entry");
+        "PASS local profiles: authored Trade loader, independent source garage, cancel, authored Trade purchase/reload/source unchanged, Save writes active player, Arcade uses current profile without picker");
     return 0;
 }

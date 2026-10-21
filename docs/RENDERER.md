@@ -925,3 +925,336 @@ build/suzuka-shadow-proof/depth-details.log and depth-tests.log.
 The reported black asphalt patches near Suzuka's first corner have not been
 reproduced locally; this fix does not establish that report's cause or visual
 resolution on the affected computer.
+
+## Optional world-space car lamps (20 October 2026)
+
+P: graphics.car_lamps, Classic Off / Enhanced On. The GPU receives up to 24
+world-space emitters from six cars, four each. Candidate front surfaces are
+identified by comparing the authored night and day body streams (material,
+texture, attributes and geometry); rear candidates also include unlit pressed
+brake branches. Area-weighted centroids and normals are grouped by side and
+front/rear using bounds, not per-car coordinates. Pair-averaged horizontal normals
+set aim, with an explicit artistic .03 downward slope for headlights. This is
+inference, not recovered optical lamp metadata. Missing candidates remain absent.
+
+Front range 60m, 25-degree outer cone, quadratic range fade and 1/(1+.06*d²)
+attenuation; rear 8m and 65 degrees. White front radiance (6,5.4,4.5); red rear
+(1,.015,.005) times .35 normally or 3 under braking. Nearby unlit lens fragments
+within .22m add emissive output, with gain 3. Headlights/tails require the original
+Env0 night flag or safety-car exception; brake emitters follow the existing
+per-entry pedal presentation. Curved lenses without normals use triangle normals.
+
+The same GLSL illuminates course, walls and car surfaces on OpenGL/Vulkan. Linear
+addition enters HDR before the existing bloom; SDR uses sRGB encoding without
+re-tonemapping the existing picture. The later optional car-lamp occlusion entry
+adds rigid-world/car depth blocking to this pass. Geometry identification is approximate
+and not surveyed over all 600 cars. Daylight car colours stay on their own option.
+
+car_lamps_opengl/vulkan test cones, range, HDR output, off restoration, emitter
+coordinates and deliberate disabled-light negatives. launcher_quality checks
+persistence and Classic/Enhanced. Real Focus/Route5 produces four emitters and
+changed pixels on both APIs; exact whole-frame API equality is not established
+because the existing backends have other raster differences. Captures remain
+local build/car-lamps-<api>-enhanced-lamps.png. Original PS2 image parity remains A.
+
+### Optional full-day procedural sky (20 October 2026)
+
+P: `graphics.night_sky` is individual, Classic Off / Enhanced On, in PC Settings
+> Light & Shadow > Night Sky and the shared launcher Quality API. It requires
+Daylight; turning it on enables Daylight. Off retains the legacy daytime cycle
+and the authored-night guard. No physics or recorded control format changes.
+
+Solar Time now has all 24 hours; saved indices 0..10 still mean 07:00..17:00,
+then 11..23 mean 18:00..06:00. With the default 12:00 setting, nonzero authored
+Env0 time zones start at 22:00; explicit other hours override that default.
+Fixed, Real Time (1/3600 hour per second) and 60x (1/60) use the existing recorded
+frame clock, wrapping at 24. No wall clock or RNG. Lamp activation continues to
+follow original night/safety-car and brake flags, independently of solar time.
+
+The same shader on OpenGL/Vulkan adds a moon opposite the sun and a deterministic
+integer-hash star field, blending with the existing daytime atmosphere over
+sun elevation -0.12..0.08. Direct sunlight is zero below the horizon; solar
+shadow-map casters are skipped there. Night ambient is artistic, not recovered
+PS2 data. Course illumination is still baked into textures; this is not a fully
+relightable nighttime world. No lunar ephemeris, moonlight shadow pass or weather.
+Native Route5 captures are very dark away from the car lamps; visual balance
+and more tracks still need review. Whole-frame API equivalence is not proved.
+
+Tests: night_sky GL/Vulkan and their deliberate noon-as-night negatives;
+2400 deterministic clock/ambient samples, repeat-frame byte equality, dark-night
+and star output, default course time, wrap and legacy clamp. Initial tests failed
+because no star samples survived the float-hash/threshold combination; the
+integer hash and revised density pass. launcher_quality verifies persistence
+and Classic restoration. No equivalent PCSX2 capture: original parity remains A.
+Local captures: build/night-sky-<api>-enhanced-night.png; logs:
+build/night-sky-final-tests.log and build/night-sky-regression-tests.log.
+
+
+### Enhanced night: retain authored local radiance (20 October 2026)
+
+P correction within graphics.night_sky / graphics.daylight, no new option.
+The procedural night multiplied already-lit course radiance by near-zero solar
+irradiance; modern car lighting could also erase the original local RNW4 response.
+The new night_baked GPU positive fails before the fix on both APIs (source20,
+night0). The fragment path now retains its original lit colour before modern
+shading, blends back to that radiance during authored night, then adds optional
+car lamps. HDR retains linear radiance, SDR retains encoded source colour.
+Original fog remains after the mix; the procedural sky is separate.
+
+The weight is 1-smoothstep(-.12,.08,sun elevation), and only nonzero original
+Env0 time zones may retain authored night radiance. Day courses are not forced
+bright at night; noon and Classic have weight zero. The weight depends on the
+same recorded frame clock as the sky, never track labels, wall clock or physics.
+This preserves existing baked artificial light; it is not light-source recovery,
+new global illumination or removal of baked daytime shadows.
+
+Twenty focused GPU tests cover night surfaces/cars, HDR/SDR, source night/day,
+legacy restoration, the existing baked-day/noon path, sky, car lamps and authored
+night guards, including deliberately disabled-source negatives. A car fixture
+initially lacked its modern_light flag and was corrected without relaxing the
+radiance equality. Retained synthetic radiance agrees within 1 byte/channel;
+Off restoration is byte exact. Both APIs captured all 25 source environments
+again: build/night-balanced-<api>/index.html. Route5 now retains lit buildings and
+asphalt; the optional lamps remain additive. No equivalent PCSX2 frames, complete
+source-scene photometry or console GPU certification. Overall visual grade A/P.
+Logs: build/night-baked-before-tests.log, night-baked-final-tests.log and
+night-baked-regression-tests.log. Initial test compile errors were fixture-only
+(include entrypoint alias and light-field name), corrected before GPU comparisons.
+
+
+### Full daily sun/moon cycle (20 October 2026)
+
+P, optional PC presentation: graphics.night_sky plus graphics.daylight enable the
+full daily path. The existing graphics.solar_cycle is exposed as Sun / Moon Cycle
+(Fixed / Real Time / 60x), not a second competing clock. Real Time is one solar
+hour per 3600 recorded-frame seconds; 60x is one hour per 60 seconds, so a full
+cycle lasts 24 real minutes. The sky uses only the recorded frame index /60.
+Sunrise/sunset follow the existing artistic equinox/35-degree model. The moon is
+a stylized full moon opposite the sun, not a lunar ephemeris or monthly phases.
+Stars rotate about that model's celestial pole and wrap with the same 24h clock.
+Moon/star rays below the horizon are rejected before the daytime integrator's
+horizon clamp. Moon radiance uses the existing RGB optical depths
+(.0428,.1,.24414), elevation floor .08 and disc transition .009..008 radians.
+These are presentation choices, not recovered original-game astronomy.
+
+Solar Time now has 25 entries: the existing 24 explicit-hour indices keep their
+mapping; new index24 is Course. Enhanced defaults to Course (12:00 for source day,
+22:00 for nonzero original Env0 time zone); Classic retains inactive index5.
+An explicitly selected 12:00 now really means noon even on a night course; the
+former implicit 12:00->22:00 substitution is removed. Stored indices0..23 remain
+manual hours. New/default presets select Course, not an inference that overwrites
+old modified player choices. Personal presets accept index24. Startup and runtime
+share video_settings_solar_hour, fixing the startup path's previous +7-only mapping
+for late hours. No profile, vehicle command or physics/replay format is changed.
+
+celestial_cycle checks 1441 clock samples over a day, opposite unit sun/moon
+vectors, sunrise/moonrise and actual GPU disc contrast at six times. Star motion
+and exact midnight repetition are checked on both APIs. Moon-disabled and
+clock-held negatives fail their intended assertions. Initial disc comparison used
+the window centre instead of the actual content viewport; querying the viewport
+fixed the fixture without weakening its contrast threshold. The early CPU-negative
+shutdown attempted video teardown before initialization; it now only tears down
+a started device, and returns the intended assertion failure rather than crashing.
+
+celestial_clock uses the actual app: 240 live and replay ticks both publish exactly
+4 seconds / solar23.0666656, pause30 updates preserve the frame count and complete
+scene bytes, and deliberately changed reported time fails. This is bounded clock/
+pause integration, not an entire 24h simulated endurance or universal replay-image
+proof. launcher_quality checks 25 choices, Course/manual-noon resolution, night-hour
+persistence, Classic and Enhanced defaults. Focused sky/baked/lamps/guard regressions
+remain in build/celestial-final-tests.log. Original-code comparison is inapplicable
+to new astronomy; original Classic rendering remains the separate baseline.
+
+Local previews on both APIs: build/celestial-preview-<api>/index.html and cycle.mp4,
+97 fixed-camera Route5 samples at quarter-hour intervals. PNG0 and PNG96 are byte
+identical. No original-game assets/captures are committed. Authored baked lights,
+car lamp activation and callback7 model selection still follow source time-zone
+rules: the optional daily sky does not certify fully dynamically relit tracks,
+automatic day-car geometry swaps or monthly lunar phases. Full scene comparison A.
+
+
+## Optional car-lamp occlusion (20 October 2026)
+
+P: the existing independent `graphics.car_lamps` option now includes a perspective
+shadow atlas for its additive light. Classic Off / Enhanced On; no new setting,
+physics, replay controls or source time-zone/brake gates. The original RNW4 lamp
+shadow/model-3 floor glow passes remain separate. This is a PC adaptation, not a
+claim that these spot shadows reproduce PS2 passes 0038F168/00451EE0.
+
+Each active light gets a 256x256 depth tile (24 maximum, 1536x1024 RGBA8 atlas,
+one reusable depth target). Source geometry supplies the emitter pose. Resident
+course/scenery, posed rigid car bodies/wheels and visible live gadgets are
+submitted from the light's view, independently of the camera visibility list.
+Ghosts, reflection copies and blended non-cutout surfaces are excluded; authored
+alpha rejection is retained. Packed linear depth, four comparisons and a 3 cm
+receiver bias affect added light only; emissive lenses and baked lighting stay.
+Atlas entries are invalidated on each new lamp frame. No GPU readback.
+
+C within bounded tests: lamp_occlusion OpenGL/Vulkan checks an opaque blocker
+behind the viewing camera, movement restoring illumination, transparent glass,
+alpha rejection, final atlas slot 23, HDR and byte-exact Off restoration. The
+negative omits the atlas and fails the same blocked-surface assertion. Real
+Focus/Route5 integration changes 7587 OpenGL / 7604 Vulkan pixels (max 30/channel)
+and restores Classic byte-for-byte, with sampled car/driver state unchanged;
+its no-caster negative fails. 26 focused cases pass including existing solar
+shadow, night radiance, sky and car-lamp regressions. The initial build lacked
+the fixture's miniz dependency; repaired without relaxing assertions. Local log:
+build/lamp-occlusion-regression-tests.log. Native comparison images:
+build/lamp-occlusion-<api>-{classic,clear,blocked,restored}.png.
+
+A/P limits: 256-pixel tiles can alias; caster coverage omits skinned drivers,
+pit crews and particles; light inference still needs a broad car survey. No
+complete-race FPS/memory benchmark, 24-lamp race stress test, console GPU coverage,
+whole-frame API parity or equivalent PCSX2 capture. This closes missing rigid
+world/car occlusion in the tested path, not every transparency or shadow case.
+
+
+## Car-lamp model coverage, ghosts and bounded cost (20 October 2026)
+
+P/C: `graphics.car_lamps` (Classic Off / Enhanced On) now accepts lit kind-1
+pressed-brake geometry, recovering missing rear emitters on F-150, BEAT, R390,
+GT-One and the pace car in the 12-model survey. All twelve night models produce
+two front/two rear candidates; day models retain rear candidates, with the pace
+car's source always-night selection. These counts do not certify optical axes,
+all materials or full PS2 images. Ghost entries no longer emit physical light.
+A native six-car fixture checks all 24 depth tiles, ghost/opaque/day/brake gates,
+pose/driver state preservation and no renderer readback. The initial survey and
+ghost positives failed before their corrections; deliberate negatives fail.
+
+Lamp-only support-point frustum bounds reduce unnecessary shadow submissions;
+19,995 generated-box decisions match an independent corner reference, excluding
+five numerical-boundary cases. Focus/BEAT Classic/lamps/night images before and
+after culling are byte-identical on both APIs (12 comparisons). 38 focused cases
+pass. Native gallery: build/lamp-coverage-gallery/index.html, 24 car/API runs.
+Bounded six-visible-car timing on GTX 1650 is about 14.1 ms OpenGL / 26.9 ms Vulkan
+with occlusion, native 640x480 and other enhanced passes Off. This is a static,
+unpaced snapshot, not a full race FPS or all-options benchmark; Vulkan remains
+a performance concern. Physics and replay formats are unchanged. No equivalent
+PCSX2 capture; full appearance A/P. Details, failures, timings and limits:
+[coverage note](notes/CAR_LAMP_COVERAGE.md).
+
+
+## Direct car-lamp atlas and shadow batching (20 October 2026)
+
+P: performance-only change inside graphics.car_lamps, Classic Off / Enhanced On.
+All 24 256px depth tiles remain; one atlas framebuffer replaces 24 scratch/copy
+transfers. Contiguous caster ranges merge only with identical shadow-relevant
+texture/alpha/brake state and retained visibility, preserving primitive order.
+Directional solar maps retain their previous path. No physics/replay changes.
+42 focused automated cases pass; legacy OpenGL depth also passes the reference
+and deliberate negative. Logs: build/lamp-atlas-final-tests.log and
+build/lamp-atlas-legacy-depth.log.
+C: GPU copy-reference fixture on OpenGL/Vulkan retains 159000 occupied pixels,
+zero alpha mismatches and max depth error 5.96046e-8 (limit 2e-6). A missing-last-
+tile negative fails. Four native before/after six-car images are byte-identical.
+Native submissions fall 4527 to 4080 with the same triangle count. The modest
+paired timing gain is hardware/sample-specific; Vulkan remains above 16.67 ms.
+Depth storage grows approximately 11.25 MiB in the tested D32F/S8 mode; full-race
+FPS, memory residency, broader GPUs, Enhanced combinations and PS2 imagery are
+not certified. [Reference, measurements and limits](notes/CAR_LAMP_COVERAGE.md#direct-atlas-and-shadow-only-batching-20-october-2026).
+
+
+## Tagged emissive lamp materials (20 October 2026)
+
+P: graphics.car_lamps, Classic Off / Enhanced On. Lens emission now follows the
+loaded night-lens/pressed-brake geometry tags, independently of lit/unlit material
+kind. Group creation and draw merging retain that tag, preventing nearby paint
+from acquiring lens emission. Brake release keeps the authored released branch;
+no source geometry, original lighting, physics or replay command change.
+34 focused cases pass on OpenGL/Vulkan, including missing-emission negatives,
+lit/unlit night and pressed branches, released lamps, adjacent-paint exclusion,
+HDR bloom outside the lens and byte-exact Off restoration. Four native BEAT/F150
+API captures retain Classic byte-exact against prior images. Local captures:
+build/lamp-emission-<api>-<car>-enhanced-lamps.png; logs:
+build/lamp-emission-final-tests.log and build/lamp-emission-native.log.
+A/P: generic source inference/axis/output and .22m emission falloff remain; no
+all-car material or equivalent PCSX2 image certification. This extends emission
+to tagged lit lenses, not arbitrary untagged emissive surfaces.
+
+
+## Realistic sky / lighting reference pass (20 October 2026)
+
+P, optional desktop shaders: coherent Realistic Lighting and Realistic Skybox
+switches replace the fragmented visible controls. Realistic Car Lamps names
+the existing independent lamp switch. Clear-air rays default Off. Sky-only
+and lighting-only draws both initialize their required solar uniforms.
+
+Sun luminance is normalized to one; sky fill uses the measured clear-noon
+25000/105000 ratio, adjusted for the existing sky tint. Baked surfaces retain
+the neutral noon denominator. Cloud volume/shadow and 32-sample GGX sphere-map
+integration replace cloudless sky/fixed reflection cap. These are bounded
+improvements, not measured GT4 albedo recovery, complete clearcoat, HDR probes
+or certified photorealism. Post AO still needs indirect-only separation.
+See [full references, equations, limitations and failures](notes/REALISTIC_LIGHTING.md).
+
+
+## Authored sky and Enhanced shading cost (20 October 2026)
+
+This supersedes the constant warm filter/artificial course orbit above. Retain
+source sky geometry/texture for sun/moon placement and use normalized primary
+Env0 light direction (00398210) for surface light. Pregrid initializes the same
+solar fields as racing; it previously enabled sky shading with zero light data.
+Course celestial cycling is suspended, cloud motion remains frame-deterministic.
+High sun uses neutral direct light; excess optical air mass warms lower sun.
+
+The cloud volume is integrated into a256x128 RGBA16F hemispheric image at15Hz,
+plus128x128/8192m ground shadow field. The same32/3 density integrations remain;
+angular/spatial/time lookup is approximate. Reflection source colours decode to
+a source-sized RGBA16F texture per revision, preserving32 GGX samples while
+using hardware interpolation of linear radiance. Units5..8 are reserved for
+these persistent inputs. Reference bypasses are local test diagnostics.
+
+Forty-two focused cases passed on both backends. The bounded local1600x900
+sample reduced total frame time about44% GL/38% Vulkan and Vulkan GPU time58%;
+Vulkan submission cost and broader performance coverage remain open. Classic
+pixels and native race memory stayed exact against the copied pre-task binary.
+[Full evidence, failed attempt and limits](notes/LIGHTING_PERFORMANCE.md).
+
+
+### Lighting submission follow-up (20 October 2026)
+
+View uniforms are applied once per mesh; the existing material-state comparison
+also gates lens-tag updates. Vulkan links an index list for sampler uniforms,
+then descriptor submission visits only that list while retaining dynamic units,
+keys, transitions and descriptor writes. Native Classic/Enhanced pixels are
+identical on both backends, with32 focused checks and unchanged native race
+memory. This removes CPU submission work; the GPU shading is unchanged. A short
+local run shows a small5%/3% GL/Vulkan total-frame improvement, not a universal
+FPS promise. [Evidence and remaining tint question](notes/LIGHTING_PERFORMANCE.md#20-october-2026--submission-overhead-follow-up-and-tsukuba-building-tint).
+
+### 21 October: full procedural sky cache
+
+The sky no longer composites over the authored sky texture. Source irradiance
+remains available for surface normalization. A 256x128 RGBA16F full-sky lookup
+shares unit 5 with the raw cloud volume according to the draw pass; no added
+sampler is required. The existing 15 Hz deterministic cache key is retained.
+Night celestial detail and the solar disc use the direct path. Deep night
+skips daytime scattering integration. This is part of Realistic Skybox.
+
+### 21 October: reflected coat and legacy highlights
+
+Realistic Lighting uses roughness 0.1 for the authored environment-overlay mask,
+independently of the original highlight exponent. The original separates these
+passes, and the exponent is not a measured coat parameter. Direct GGX highlights
+retain their existing conversion. This is a generic dielectric coating, not a
+new metallic material classifier. See [Filament clearcoat](https://google.github.io/filament/Filament.md).
+
+### 21 October: preserve mixed-material authored sheen
+
+The source 003411D0 sheen coverage is not an asphalt roughness map. The shared
+compositor retains authored masked radiance in modern mode as well as Classic.
+The world-up/F0 multiplier was removed rather than applied to water and unknown
+surfaces. HDR still decodes the intermediate once. This does not introduce a
+physically based water shader or certify water parity.
+
+### 21 October: display-referred authored world lighting
+
+Authored course textures/vertex colours contain baked light and are display
+values, not measured reflectance. The modern world path lifts decoded source
+colour through the inverse of the HOST filmic fit before relighting; final
+compression then preserves the neutral source image instead of crushing its
+shadow-side detail again. The inverse solves the existing host rational curve
+per channel; it does not assume the PS2 used that curve. It also applies to
+retained authored-night WORLD colour in HDR. Procedural sky, direct car BRDF
+and untagged fixtures keep their own radiance paths. No extra sampler or blur
+pass. This remains a P mapping with baked shadows, not a de-lit PBR asset set.

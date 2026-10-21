@@ -2,6 +2,7 @@
    wrong-volume control. It does not prove equivalence to PS2 SPU2 output. */
 #include "pregrid_audio.h"
 #include "pcm_music.h"
+#include "music_override.h"
 #include "platform/platform.h"
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
@@ -18,6 +19,13 @@
 static plat_audio_cb callback;
 static void *owner;
 static unsigned starts, stops;
+static int custom_calls;
+static int custom_song(void *user,int context,int16_t *out,int frames,int gain,int paused)
+{
+    custom_calls++;
+    for(int i=0;i<frames*2;i++)out[i]=1234;
+    return 1;
+}
 int plat_audio_set_music(plat_audio_cb cb, void *user)
 {
     callback = cb;
@@ -73,6 +81,8 @@ int main(int argc, char **argv)
     CHECK(v && gt4_pcm_music_count(v,"default_quick")==2);
     pregrid_audio *p = pregrid_audio_create(argv[1]);
     CHECK(p);
+    moon_music_override_set(custom_song,p);
+    if(getenv("GT4_MENU_PCM_SCOPE_NEGATIVE"))pregrid_audio_context(p,1);
     uint32_t state = 0;
     for (unsigned sequence = 0; sequence < 2; sequence++) {
         uint32_t clock = next_clock(&state, sequence);
@@ -91,6 +101,15 @@ int main(int argc, char **argv)
             }
         }
         CHECK(energy>0);
+        CHECK(custom_calls==0); /* Menu playlist must not replace pre-race PCM. */
+        for(int context=1;context<=3;context++) {
+            pregrid_audio_context(p,context);
+            callback(actual,2048,owner);
+            CHECK(actual[0]==1234);
+        }
+        CHECK(custom_calls==3);
+        custom_calls=0;
+        pregrid_audio_context(p,0);
         pregrid_audio_update(p, "default_quick", 0, clock + 1);
         callback(actual, 2048, owner);
         for (unsigned i = 0; i < 4096; i++)
@@ -99,6 +118,7 @@ int main(int argc, char **argv)
         pregrid_audio_update(p, NULL, 0, 0);
         CHECK(!callback && stops==sequence+1);
     }
+    moon_music_override_clear(p);
     /* Cancel a pending decode, immediately enter again: only the latest
        generation may publish a callback, using its own selector state. */
     uint32_t stale = next_clock(&state, 0);

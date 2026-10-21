@@ -2070,13 +2070,14 @@ static int calendar_custom_event(ah_vm *vm, ah_obj *self, int wing, int argc, co
     int category = 0;
     if (!wing) {
         const char *name = ah_cstr(argv[1]);
-        category = -1;
-        if (original_parts_ready && name)
-            for (int i = 0; i < 4; i++)
-                if (!strcmp(name, original_parts.wheel_categories[i]))
+        /* 00135208 -> 0042EF18: diary enum (NONE/NORMAL/...), not the
+           installed-wheel enum (NORMAL_SPORTS/...). Unknown names return 0. */
+        if (original_home_ready && name)
+            for (int i = 0; i < 5; i++)
+                if (!strcmp(name, original_home.wheel_event_names[i]))
                     category = i;
-        if (category < 0 || (argv[2].t != AV_INT && argv[2].t != AV_LONG))
-            return ah_error(vm, "invalid wheel calendar category/detail");
+        if (argv[2].t != AV_INT && argv[2].t != AV_LONG)
+            return ah_error(vm, "invalid wheel calendar detail");
     }
     ah_val resolver = member(vm, self, wing ? "_getWingKey" : "_getWheelKey"), key;
     if (resolver.t == AV_NIL || ah_call(vm, resolver, 1, argv, &key) < 0 ||

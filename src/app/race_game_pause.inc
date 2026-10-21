@@ -176,10 +176,8 @@ static void pause_input(race_game *g)
     if (!g->pad)
         return;
     if (g->replaying) {
-        int down = SDL_GameControllerGetButton(g->pad, SDL_CONTROLLER_BUTTON_BACK);
-        if (down && !g->replay_back_held)
-            g->held = !g->held;
-        g->replay_back_held = down;
+        /* Select is consumed by the presentation host to enter PhotoPause.
+           Do not also toggle the replay hold when returning from a photo. */
         if (SDL_GameControllerGetButton(g->pad, SDL_CONTROLLER_BUTTON_START) && !g->pause_keys[0])
             g->quit = 1;
         g->pause_keys[0] = SDL_GameControllerGetButton(g->pad, SDL_CONTROLLER_BUTTON_START);

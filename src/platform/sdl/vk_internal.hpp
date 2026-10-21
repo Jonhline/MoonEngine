@@ -43,6 +43,8 @@ struct Program {
     VkShaderModule vs = VK_NULL_HANDLE, fs = VK_NULL_HANDLE;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     std::vector<Uniform> uniforms;
+    std::array<unsigned, 8> sampler_uniforms{};
+    unsigned sampler_count = 0;
     std::vector<uint8_t> values;
     std::map<std::array<uint64_t, 67>, VkPipeline> pipelines;
     uint64_t fingerprint = 0;

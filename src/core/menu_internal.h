@@ -87,6 +87,11 @@ struct menu {
     void (*audio_preparer)(menu *, void *);
     void *audio_preparer_user;
     int options_dirty;
+    /* P: reversible Controllers layout on a cached Options page. */
+    struct controller_layout_entry *controller_layout;
+    int controller_layout_count, controller_layout_mode;
+    float controller_layout_height;
+    ui_widget *controller_layout_space;
     int race_requested; /* finish() with a race sequence */
     gt4_arcade *arcade; /* the Arcade's SpecDB answers, opened on use */
     int (*rate_cars)(void *, const uint64_t *, int, float *);

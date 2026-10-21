@@ -16,7 +16,7 @@ static void render_menu_music(int16_t *out, int frames, void *user)
 {
     music_job *job = user;
     int custom_gain=SDL_AtomicGet(&job->volume)*128/120;
-    if(moon_music_override_render(0,out,frames,custom_gain,0))return;
+    if(!strcmp(job->name,"map") && moon_music_override_render(0,out,frames,custom_gain,0))return;
     if (job->playlist) {
         unsigned sequence = (unsigned)SDL_AtomicGet(&job->current_sequence);
         gt4_music *tracks[256] = {0};

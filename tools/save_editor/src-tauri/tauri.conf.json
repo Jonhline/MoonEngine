@@ -1,0 +1,12 @@
+{
+  "productName": "Moon Save Editor",
+  "version": "0.1.0",
+  "identifier": "org.moonengine.save-editor",
+  "build": { "frontendDist": "../ui" },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{ "label": "main", "title": "Moon Save Editor", "width": 1280, "height": 800, "minWidth": 960, "minHeight": 600 }],
+    "security": { "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost; img-src 'self' data:" }
+  },
+  "bundle": { "active": false }
+}

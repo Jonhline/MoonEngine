@@ -9,7 +9,8 @@ Library shows disc songs and local songs together. Use the original Racing and
 Slideshow folders, Append1/Append2, Trash, Play/Stop, ordering and Shuffle controls.
 
 With `audio.jukebox_folders` (not Classic) two more folders follow them: Menu
-(the music under the game's menus) and Replay (replays). Add songs with their
+(only the GT Mode map music) and Replay (replays). Other menus, Home,
+dealers and pre-race screens keep their original music. Add songs with their
 buttons in the Library, below the Racing and Slideshow ones; Trash, order and
 Shuffle are the same. Shuffle is shared by all folders, as on the PS2. An empty
 Menu plays the original menu music; an empty Replay plays the Racing list. They
@@ -24,7 +25,8 @@ by subfolder of Music and sorted by name; the subfolder shows where the artist g
 Put audio in `Music` beside the active options file and reopen Jukebox. Subfolders
 are scanned too. For the standard Windows profile this is
 `%APPDATA%/MoonEngine/MoonEngine/Music`. A portable/custom options file uses its own
-sibling Music directory. The directory is created on entering Jukebox. Scans are
+sibling Music directory. The directory is created at startup, even with Custom Music off. On Windows,
+launcher Options > Sound > Open Music Folder opens the same active directory. Scans are
 bounded to 8 nested levels, 4096 entries, and a combined Library of 256 songs.
 Reopening does not duplicate tracks. Audio files stay in place and are never deleted
 by removing songs from a playlist. References from older library versions are retained.
@@ -69,3 +71,5 @@ byte with the original PCM decoder, plus pause and mixed-reference persistence.
 The old model still reads named lists/M3U for compatibility, but those operations
 are no longer exposed as a separate UI. This folder integration is an optional PC
 adaptation (P), not a claim of complete PS2 screen equivalence.
+
+Custom playlists keep independent in-memory playback order across context changes and Jukebox previews. Returning selects the next track; editing the playlist rebuilds its order. Closing the game starts a new pass. This applies to ordered and shuffled playback.

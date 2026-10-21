@@ -1033,21 +1033,32 @@ static int nat_page(ah_vm *vm, ah_obj *self, void *d, int argc, const ah_val *ar
        resets "load" before any frame ever displays it. */
     if ((int)(intptr_t)d == 2 && menu_active_root(m) >= 0 && w->root != menu_active_root(m) &&
         m->present_wait) {
-        ui_widget *leaving = ui_root_widget(m->ui, menu_active_root(m));
-        int visible = leaving->visible;
         int paused = ui_cursor_pause(m->ui, 1);
         float loading = menu_loading_duration(m);
         m->present_wait(m, 2.0f / 60.0f, m->present_user);
-        /* 00233D18 marks the departed root between the two barriers.
-           The retained transition surface and context cursor remain. */
-        leaving->visible = 0;
-        /* The simulation includes the first two native barrier frames. */
+        /* 00233D18 sets RootWindow+E8 bit 3 (pending close), not visible.
+           The old root is finalized only after Sync at 0022F79C. Hiding it
+           here cleared colour/direct transitions to one black frame before
+           the destination/reveal. Keep presenting its last live surface. */
         m->present_wait(m, loading - 2.0f / 60.0f, m->present_user);
-        leaving->visible = visible;
         ui_cursor_pause(m->ui, paused);
     }
     if (option_switch)
         ui_cursor_icon(m->ui, NULL);
+    /* photo_shoot.ad PreviewRoot.onCancel L2890..2892 closes the render
+       context with panOut/syncOut, then starts ShootRoot. The native adapter
+       shares that context's surface: carry its incoming leg across startPage
+       instead of retaining the completed opaque outgoing overlay forever.
+       Keep the authored transition period; page initialization may replace it. */
+    if ((int)(intptr_t)d == 2 && !strcmp(m->project_label, "photo_shoot") &&
+        m->pending_fade_in == 0 && ui_fade_opacity(m->ui) >= 1 &&
+        ui_fade_remaining(m->ui) == 0) {
+        ah_val transition, period;
+        if (ah_get_member(vm, m->context, "transition", &transition) &&
+            ah_get_member(vm, ah_as_obj(transition, AO_MODULE), "period", &period) &&
+            ah_is_num(period) && ah_num(period) > 0 && ah_num(period) <= 2)
+            m->pending_fade_in = (float)ah_num(period);
+    }
     m->pending_kind = (int)(intptr_t)d;
     m->pending_page = w->root;
     /* startPage (0022BC20) pushes each of its pages in order (0022F890):
@@ -1164,6 +1175,17 @@ static ah_obj *game_object(menu *m)
     return ah_as_obj(game, AO_MODULE);
 }
 
+/* App commands that replace the presented sequence rather than open a
+   dialog over this one. The destination/loader owns the incoming reveal. */
+static int quick_loading_handoff(const char *command)
+{
+    static const char *const names[]={"COMMAND_START","COMMAND_SPECTATOR",
+        "COMMAND_REPLAY","COMMAND_DEMONSTRATION","COMMAND_NEXT_RACE",
+        "COMMAND_SETTINGS","COMMAND_LOGGER","COMMAND_OPTION"};
+    for(unsigned i=0;i<sizeof names/sizeof *names;i++)
+        if(!strcmp(command,names[i]))return 1;
+    return 0;
+}
 static int nat_finish(ah_vm *vm, ah_obj *self, void *d, int argc, const ah_val *argv, ah_val *ret)
 {
     (void)self;
@@ -1178,7 +1200,8 @@ static int nat_finish(ah_vm *vm, ah_obj *self, void *d, int argc, const ah_val *
         ah_cstr(command) && *ah_cstr(command) && strcmp(ah_cstr(command), "COMMAND_EXIT")) {
         snprintf(m->quick_command, sizeof m->quick_command, "%s", ah_cstr(command));
         ah_set_member(vm, m->quick_work, "selectedCommand", ah_str(vm, ""));
-        ui_fade(m->ui, 0, 0, 0);
+        if(!quick_loading_handoff(m->quick_command))
+            ui_fade(m->ui, 0, 0, 0);
         *ret = ah_nil();
         return 0;
     }
@@ -1379,7 +1402,7 @@ static int nat_dialog_open(ah_vm *vm, ah_obj *self, void *d, int argc, const ah_
     message = ui_storage_text(message);
     const char *yes = argc > 5 ? ah_cstr(argv[5]) : NULL, *no = argc > 6 ? ah_cstr(argv[6]) : NULL;
     int result = m && m->present_dialog
-                     ? m->present_dialog(m, title && *title ? title : "Info",
+                     ? m->present_dialog(m, title,
                                          message ? message : "", (int)ah_num(argv[1]), yes, no)
                      : plat_dialog(title && *title ? title : "Info", message ? message : "",
                                    ah_num(argv[1]) != 0);

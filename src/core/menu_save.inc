@@ -261,6 +261,114 @@ static void pc_label(ui_widget *w, const char *label)
         w->text = strdup(label);
     }
 }
+/* P: interface.controller_tiles; 0 keeps the disc's Controllers section. */
+static int controller_tiles;
+void menu_set_controller_tiles(int on)
+{
+    controller_tiles = !!on;
+}
+/* P: Controllers by player. On the PC every wheel model reads the same way and each port
+   takes a pad or a wheel, so the six per-model wheel tiles (Driving Force Pro, GT Force,
+   Driving Force; 1P and 2P) go; the DUALSHOCK 2 tiles stay, as Controller 1P/2P, with
+   their own page and script. Vibration and Steering are unchanged. The tiles are told
+   apart by their disc image (OptionPage's), so the labels' language does not matter. */
+static void controller_section(ui_widget *space)
+{
+    ui_widget *keep = NULL;
+    float row = -1, last = -1;
+    for (int i = 0; i < space->nkids; i++) {
+        ui_widget *w = space->kids[i], *bg = ui_widget_child(w, "bg");
+        const char *image = bg && bg->image_path ? bg->image_path : "";
+        if (strstr(image, "Controller.png"))
+            keep = w;
+        if (strstr(image, "CTR_port") || strstr(image, "CGR_port") || strstr(image, "JGR_port")) {
+            w->visible = 0;
+            last = fmaxf(last, w->y);
+        }
+        ui_widget *label = ui_widget_child(w, "label");
+        const char *port = strstr(image, "DS2_port0") ? "1P" : strstr(image, "DS2_port1") ? "2P" : NULL;
+        if (port && label && label->text) {
+            const char *line = strchr(label->text, '\n'); /* "DUALSHOCK®2 \nbutton config 1P" */
+            char text[96];
+            snprintf(text, sizeof text, "Controller%s", line ? line : port);
+            pc_label(label, text);
+        }
+    }
+    if (!keep || last <= keep->y)
+        return;
+    row = keep->y;
+    float shift = last - row; /* the wheels' second row, now empty */
+    for (int i = 0; i < space->nkids; i++)
+        if (space->kids[i]->visible && space->kids[i]->y > last)
+            space->kids[i]->y -= shift;
+    space->h -= shift;
+}
+/* Preserve the built page, including PC sections and translated labels. Reapply
+   from this baseline rather than accumulating row shifts on each toggle. */
+struct controller_layout_entry {
+    ui_widget *widget;
+    float y;
+    int visible;
+    char *label;
+};
+static void controller_layout_free(menu *m)
+{
+    for (int i = 0; i < m->controller_layout_count; i++)
+        free(m->controller_layout[i].label);
+    free(m->controller_layout);
+    m->controller_layout = NULL;
+    m->controller_layout_count = 0;
+    m->controller_layout_space = NULL;
+}
+static void controller_layout_update(menu *m, ui_widget *root)
+{
+    if (!m || strcmp(m->project_label, "option") || !root || strcmp(root->name, "OptionRoot"))
+        return;
+    ui_widget *space = ui_widget_child(ui_widget_child(ui_widget_child(root, "ScrollWindow"), "clip"), "space");
+    if (!space || !ui_widget_child(space, "ManageSaves"))
+        return;
+    if (!m->controller_layout) {
+        m->controller_layout = calloc((size_t)space->nkids, sizeof *m->controller_layout);
+        if (!m->controller_layout)
+            return;
+        m->controller_layout_space = space;
+        m->controller_layout_height = space->h;
+        m->controller_layout_count = space->nkids;
+        m->controller_layout_mode = -1;
+        for (int i = 0; i < space->nkids; i++) {
+            struct controller_layout_entry *e = &m->controller_layout[i];
+            ui_widget *w = space->kids[i], *label = ui_widget_child(w, "label");
+            e->widget = w;
+            e->y = w->y;
+            e->visible = w->visible;
+            e->label = label && label->text ? strdup(label->text) : NULL;
+        }
+    }
+    if (m->controller_layout_mode == controller_tiles)
+        return;
+    for (int i = 0; i < m->controller_layout_count; i++) {
+        struct controller_layout_entry *e = &m->controller_layout[i];
+        e->widget->y = e->y;
+        e->widget->visible = e->visible;
+        if (e->label)
+            pc_label(ui_widget_child(e->widget, "label"), e->label);
+    }
+    space->h = m->controller_layout_height;
+    if (controller_tiles)
+        controller_section(space);
+    m->controller_layout_mode = controller_tiles;
+    ui_widget *focus = m->focus[root->root];
+    if (focus && !focus->visible) {
+        for (int i = 0; i < space->nkids; i++) {
+            ui_widget *bg = ui_widget_child(space->kids[i], "bg");
+            if (bg && bg->image_path && strstr(bg->image_path, "DS2_port0")) {
+                set_focus(m, space->kids[i]);
+                scroll_to(space->kids[i], 1);
+                break;
+            }
+        }
+    }
+}
 /* P: a "PC Settings" section under General, built like the game's own: a Group header and
    one row of tiles, copies of the Screen tile with its script, so each opens the Screen
    page; the page shows the tile's own settings (video_settings.c reads which tile). */
@@ -437,6 +545,8 @@ static void pc_menu_entries(menu *m, ui_widget *root)
         ui_widget_append(space, card);
         menu_native_method(m, card, "onActivate", nat_pc_menu_action, "ManageSaves");
         pc_settings_section(m, space, group_sample);
+        controller_layout_free(m);
+        controller_layout_update(m, root);
     }
 }
 
@@ -446,7 +556,9 @@ static void bind_save_buttons(menu *m, ui_widget *w)
         return;
     if (w->name && !strcmp(w->name, "GTmode") && !strcmp(w->type, "Composite"))
         menu_native_method(m, w, "onActivate", nat_enter_gtmode, m);
-    if (w->name && !strcmp(w->name, "Save") &&
+    /* gtmode.ad L4347..4350 owns confirmation, progress and completion.
+       Replace host-only buttons, never the disc Home Save handler. */
+    if (strcmp(m->project_label, "gtmode") && w->name && !strcmp(w->name, "Save") &&
         (!strcmp(w->type, "Button") || mp_number(w->src, "can_focus", 0)))
         menu_native_method(m, w, "onActivate", nat_open_save, m);
     for (int i = 0; i < w->nkids; i++)

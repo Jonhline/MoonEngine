@@ -14,7 +14,8 @@ typedef struct {
     int filter, text, aspect;
     int renderer, low_latency, fps_limit;
     int desktop, edge_pan, input_hints, main_menu, smooth_cursor, hover_feedback;
-    int compact_cars, preset_tools, save_tools, graphics_swap;
+    int car_lamps, night_sky;
+    int compact_cars, preset_tools, save_tools, graphics_swap, controller_tiles;
     int spatial_visibility, resident_reflections;
     int antialiasing, render_scale, texture_smoothing, texture_filtering, car_shadows, material_shading, reflection_quality, shadow_maps, modern_lighting, daylight, solar_hour, solar_cycle, hdr, sun_rays, ambient_occlusion;
 #ifdef __ANDROID__
@@ -35,13 +36,15 @@ typedef struct {
     touch_back_state touch_back;
     uint64_t touch_back_clock;
     menu *owner;
-    ui_widget *page, *choices[38];
+    ui_widget *page, *choices[41];
 #ifndef __SWITCH__
-    ui_widget *rows[38], *tabs[6];
+    ui_widget *rows[41], *tabs[6];
     int active_tab;
 #endif
     char path[1024], message[128];
 } video_settings;
+/* Resolve Solar Time to 0..23, or -1 for the course default. */
+int video_settings_solar_hour(const pc_video_options *v);
 void video_settings_init(video_settings *s, int persist, const char *config_file);
 void video_settings_attach(video_settings *s, menu *m);
 /* The graphics API for the next start (the first-run setup's choice), saved now. */
@@ -65,6 +68,8 @@ void video_settings_preview_graphics(const video_settings *s, int classic);
 void video_settings_preview_options(const pc_video_options *v);
 /* The Classic (0) or Enhanced (1) preset's values, written into v only. */
 void video_settings_preset_values(pc_video_options *v, int enhanced);
+void video_options_realistic_skybox(pc_video_options *v, int enabled);
+void video_options_realistic_lighting(pc_video_options *v, int enabled);
 /* P: shared named-preset interchange. draft=1 waits for the in-game OK. */
 int video_settings_preset_import(video_settings *s, const char *path, int draft);
 int video_settings_preset_export(video_settings *s, const char *path, const char *name, int draft);

@@ -1,3 +1,4 @@
+#include "vk_blit_clip.h"
 #include "vk_internal.hpp"
 #include "vk_render.h"
 #include "vk_surface.h"
@@ -451,6 +452,8 @@ void Context::read(Image &im, int x, int y, int w, int h, GLenum format, void *p
 void Context::blit(Image &src, Image &dst, int sx0, int sy0, int sx1, int sy1, int dx0, int dy0,
                    int dx1, int dy1, bool linear, bool is_depth)
 {
+    if (!moon_vk_clip_axis(sx0,sx1,src.width,dx0,dx1,dst.width) ||
+        !moon_vk_clip_axis(sy0,sy1,src.height,dy0,dy1,dst.height)) return;
     barrier();
     VkImageBlit region{};
     VkImageAspectFlags aspect = is_depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;

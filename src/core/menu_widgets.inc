@@ -1337,7 +1337,7 @@ static int widget_get(ah_vm *vm, ah_obj *self, const char *s, ah_val *out)
             return 1;
         }
         if (!strcmp(s, "can_shoot")) {
-            *out = ah_int(p->ready);
+            *out = ah_int(p->ready && p->can_shoot);
             return 1;
         }
         if (!strcmp(s, "getAperture") || !strcmp(s, "setBaseLen") || !strcmp(s, "doFocus")) {
@@ -1622,6 +1622,10 @@ static int widget_get(ah_vm *vm, ah_obj *self, const char *s, ah_val *out)
         *out = ah_bool(w->list_repeat);
         return 1;
     }
+    if (!strcmp(s, "drag_index") && !strcmp(w->type, "ListBox")) {
+        *out = ah_int(w->list_drag_index);
+        return 1;
+    }
     if (!strcmp(s, "focus_index") || !strcmp(s, "index")) {
         *out = ah_int(w->focus_index);
         return 1;
@@ -1638,8 +1642,9 @@ static int widget_get(ah_vm *vm, ah_obj *self, const char *s, ah_val *out)
     /* insensitive or hidden, it cannot: labomode.ad setFocusTopCommand skips
        the commands the selection disabled, down to Option and Exit */
     if (!strcmp(s, "can_focus")) {
-        *out = ah_bool(available(w) && (mp_number(w->src, "can_focus", 0) ||
-                                        !strcmp(w->type, "Button") || !strcmp(w->type, "ListBox")));
+        *out = ah_bool(available(w) && (w->has_focus_override ? w->focus_override :
+                         (mp_number(w->src, "can_focus", 0) ||
+                          !strcmp(w->type, "Button") || !strcmp(w->type, "ListBox"))));
         return 1;
     }
     if (!strcmp(s, "setItemActive")) {
@@ -1941,6 +1946,10 @@ static int widget_set(ah_vm *vm, ah_obj *self, const char *s, ah_val v)
             p->white_balance = (int)ah_num(v);
             return 1;
         }
+        if (!strcmp(s,"can_shoot")) {
+            p->can_shoot=ah_truthy(v);
+            return 1;
+        }
         if (!strcmp(s, "stand")) {
             p->stand = ah_truthy(v);
             return 1;
@@ -2103,6 +2112,11 @@ static int widget_set(ah_vm *vm, ah_obj *self, const char *s, ah_val v)
         ah_set_member(vm, self, "car_data", ah_objv(info));
         return 0; /* retain the assigned code in the module */
     }
+    if (!strcmp(s, "can_focus")) {
+        w->focus_override = ah_truthy(v);
+        w->has_focus_override = 1;
+        return 1;
+    }
     if (!strcmp(s, "name")) {
         /* Binding a child module named "name" is not a widget rename. */
         if (ah_as_obj(v, AO_MODULE))
@@ -2197,6 +2211,10 @@ static int widget_set(ah_vm *vm, ah_obj *self, const char *s, ah_val v)
         double n = ah_num(v);
         if (isfinite(n) && n >= 0 && n <= 32)
             w->letter_spacing = (float)n;
+        return 1;
+    }
+    if (!strcmp(s, "drag_index") && !strcmp(w->type, "ListBox")) {
+        w->list_drag_index = (int)ah_num(v); /* 002AEF78: signed +12C. */
         return 1;
     }
     if (!strcmp(s, "focus_index") || !strcmp(s, "index")) {

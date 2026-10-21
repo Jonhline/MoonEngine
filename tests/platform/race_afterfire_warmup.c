@@ -3,7 +3,7 @@
 #include "../../src/platform/sdl/race_view.c"
 #undef r3d_mesh_create
 static unsigned uploads;
-static uint64_t expected[6];
+static uint64_t expected[12];
 static uint64_t mesh_hash(const gt4_model *model)
 {
     const unsigned char *bytes = (const unsigned char *)model->triangles;
@@ -15,7 +15,7 @@ static uint64_t mesh_hash(const gt4_model *model)
 }
 r3d_mesh *warmup_mesh_create(const gt4_model *model)
 {
-    if (uploads >= 6 || mesh_hash(model) != expected[uploads])
+    if (uploads >= 12 || mesh_hash(model) != expected[uploads])
         return NULL;
     return (r3d_mesh *)(uintptr_t)(++uploads);
 }
@@ -29,8 +29,8 @@ int main(int argc, char **argv)
     uint8_t *bytes = vol ? gt4_vol_read(vol, "/race/after_fire.mdl", &size) : NULL;
     if (!bytes)
         return 1;
-    for (int i = 0; i < 6; i++) {
-        gt4_model *m = gt4_model_decode_branch(bytes, size, 0, i);
+    for (int i = 0; i < 12; i++) {
+        gt4_model *m = gt4_model_decode_afterfire(bytes, size, i % 2, i / 2);
         if (!m)
             return 1;
         expected[i] = mesh_hash(m);
@@ -43,15 +43,16 @@ int main(int argc, char **argv)
     race_view view = {0};
     view.disc = argv[1];
     prepare_afterfire(&view);
-    if (!view.afterfire_tried || uploads != 6)
+    if (!view.afterfire_tried || uploads != 12)
         return 1;
     for (unsigned i = 0; i < 6; i++)
-        if (view.afterfire[i] != (r3d_mesh *)(uintptr_t)(i + 1))
+        if (view.afterfire[i] != (r3d_mesh *)(uintptr_t)(i * 2 + 1) ||
+            view.afterfire_ground[i] != (r3d_mesh *)(uintptr_t)(i * 2 + 2))
             return 1;
     prepare_afterfire(&view);
-    if (uploads != 6)
+    if (uploads != 12)
         return 1;
     puts(
-        "after-fire: six original branch meshes match lazy data; repeated preparation uploads nothing");
+        "after-fire: twelve original branch meshes match lazy data; repeated preparation uploads nothing");
     return 0;
 }

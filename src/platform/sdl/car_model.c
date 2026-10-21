@@ -437,7 +437,7 @@ void car_model_free(car_model *a)
 }
 static car_model *load_car(gt4_vol *v, const car_model_tables *t, const char *code, int choice,
                            int cars, unsigned entry, const char *wheel, const char *wing,
-                           const float recorded[4][3])
+                           const float recorded[4][3], const char *body)
 {
     if (!t)
         return NULL;
@@ -493,6 +493,10 @@ static car_model *load_car(gt4_vol *v, const car_model_tables *t, const char *co
     }
     char path[96];
     size_t size = 0;
+    if(body && *body){
+        if(strlen(body)>=sizeof a->model || strchr(body,'/') || strchr(body,'\\'))goto fail;
+        model=body;snprintf(a->model,sizeof a->model,"%s",model);
+    }
     snprintf(path, sizeof path, "/car/%s/%s", directory, model);
     uint8_t *data = gt4_vol_read(v, path, &size);
     /* The race's models carry no paints (CAR4 +0x1C zero): func_003B5988
@@ -560,6 +564,25 @@ static car_model *load_car(gt4_vol *v, const car_model_tables *t, const char *co
         int installed = wing && *wing && strcmp(wing, "p000");
         a->car = gt4_model_decode_car_zone(data, size, (int)a->colors[a->choice].order - 1,
                                            installed, t->time_zone);
+        if (a->car && t->time_zone > 0) {
+            /* P: identify authored night-only unlit surfaces, never a per-car
+               lamp coordinate. Decode comparison stays outside rendering/physics. */
+            gt4_model *day=gt4_model_decode_car_zone(data,size,(int)a->colors[a->choice].order-1,installed,0);
+            if(day) {
+                for(int i=0;i<a->car->count;i++) {
+                    gt4_triangle *triangle=&a->car->triangles[i];
+                    if(triangle->attachment)continue;
+                    int same=0;
+                    for(int j=0;j<day->count && !same;j++) {
+                        const gt4_triangle *other=&day->triangles[j];
+                        same=triangle->kind==other->kind && triangle->texture==other->texture &&
+                             triangle->lamp==other->lamp && !memcmp(triangle->v,other->v,sizeof triangle->v);
+                    }
+                    triangle->night_lens=!same;
+                }
+                gt4_model_free(day);
+            }
+        }
         if (a->car) {
 #ifndef __SWITCH__
             {   /* P: a mod car's textures at their authored size (car/hires/<model>; the disc
@@ -662,30 +685,30 @@ fail_data:
 }
 car_model *car_model_load(gt4_vol *v, const car_model_tables *t, const char *code, int choice)
 {
-    return load_car(v, t, code, choice, 0, 0, NULL, NULL, NULL);
+    return load_car(v, t, code, choice, 0, 0, NULL, NULL, NULL, NULL);
 }
 car_model *car_model_load_race(gt4_vol *v, const car_model_tables *t, const char *code, int choice,
                                int cars, unsigned entry)
 {
-    return cars > 0 ? load_car(v, t, code, choice, cars, entry, NULL, NULL, NULL) : NULL;
+    return cars > 0 ? load_car(v, t, code, choice, cars, entry, NULL, NULL, NULL, NULL) : NULL;
 }
 car_model *car_model_load_race_parts(gt4_vol *v, const car_model_tables *t, const char *code,
                                      int choice, int cars, unsigned entry, const char *wheel,
                                      const char *wing)
 {
-    return cars > 0 ? load_car(v, t, code, choice, cars, entry, wheel, wing, NULL) : NULL;
+    return cars > 0 ? load_car(v, t, code, choice, cars, entry, wheel, wing, NULL, NULL) : NULL;
 }
 
 car_model *car_model_load_wheel(gt4_vol *v, const car_model_tables *t, const char *code, int choice,
                                 const char *wheel)
 {
-    return load_car(v, t, code, choice, 0, 0, wheel, NULL, NULL);
+    return load_car(v, t, code, choice, 0, 0, wheel, NULL, NULL, NULL);
 }
 
 car_model *car_model_load_parts(gt4_vol *v, const car_model_tables *t, const char *code, int choice,
                                 const char *wheel, const char *wing)
 {
-    return load_car(v, t, code, choice, 0, 0, wheel, wing, NULL);
+    return load_car(v, t, code, choice, 0, 0, wheel, wing, NULL, NULL);
 }
 
 car_model *car_model_load_film_parts(gt4_vol *v, const car_model_tables *t, const char *code,
@@ -698,5 +721,13 @@ car_model *car_model_load_film_parts(gt4_vol *v, const car_model_tables *t, cons
         if (!isfinite(recorded[i][0]) || !isfinite(recorded[i][1]) || !isfinite(recorded[i][2]) ||
             recorded[i][0] <= 0 || recorded[i][2] <= 0 || recorded[i][1] < recorded[i][2])
             return NULL;
-    return load_car(v, t, code, choice, cars, entry, wheel, wing, recorded);
+    return load_car(v, t, code, choice, cars, entry, wheel, wing, recorded, NULL);
+}
+
+car_model *car_model_load_film_body(gt4_vol *v,const car_model_tables *t,const char *code,
+    int choice,int cars,unsigned entry,const char *wheel,const char *wing,const float recorded[4][3],const char *body)
+{
+    if(cars<=0 || !recorded)return NULL;
+    for(int i=0;i<4;i++)if(!isfinite(recorded[i][0]) || !isfinite(recorded[i][1]) || !isfinite(recorded[i][2]) || recorded[i][0]<=0 || recorded[i][2]<=0 || recorded[i][1]<recorded[i][2])return NULL;
+    return load_car(v,t,code,choice,cars,entry,wheel,wing,recorded,body);
 }

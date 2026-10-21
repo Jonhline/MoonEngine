@@ -28,6 +28,7 @@ typedef struct {
     float grow_mul; /* +0x1E, u8 / 128 */
     float pos[3];   /* +0x20 */
     float ground;   /* +0x2C: the ground's height under the point */
+    float plane[4]; /* +30..3C: authored smoke clipping plane */
 } particle;
 
 struct race_smoke {
@@ -113,6 +114,10 @@ int race_smoke_snapshot(race_smoke *s, const uint8_t (*records)[33], int count)
         p->grow_mul = (int8_t)a[13] / 128.f;
         memcpy(p->pos, a + 14, 12);
         memcpy(&p->ground, a + 26, 4);
+        float length=0;
+        for(int k=0;k<3;k++){p->plane[k]=(int8_t)a[30+k]/127.f;length+=p->plane[k]*p->plane[k];}
+        if(length>0){length=1/sqrtf(length);for(int k=0;k<3;k++)p->plane[k]*=length;}
+        p->plane[3]=-(p->plane[0]*p->pos[0]+p->plane[1]*p->pos[1]+p->plane[2]*p->pos[2]);
     }
     return 1;
 }
@@ -252,6 +257,7 @@ void race_smoke_emit(race_smoke *s, const race_smoke_wheel *w)
     p->grow_mul = (float)(uint8_t)(int)(((rnd(s) - 0.5f) * 0.2f + 1) * 128) / 128;
     p->tag = 0;
     memcpy(p->pos, w->pos, sizeof p->pos);
+    memcpy(p->plane,w->plane,sizeof p->plane);
     ny = w->plane[1];
     p->ground = ny != 0 ? -(w->plane[0] * w->pos[0] + w->plane[2] * w->pos[2] + w->plane[3]) / ny
                         : w->pos[1];
@@ -305,6 +311,36 @@ static int far_first(const void *a, const void *b)
     return za < zb ? -1 : za > zb;
 }
 
+/* 003E8790: small smoke squares are clipped only when the viewer is on
+   the positive side and the plane cuts some, but not all, corners. The
+   original submits the same clipped positions/UVs as a strip; the host
+   triangulates the convex polygon into disjoint degenerate quads. */
+static int smoke_clip(const race_smoke_quad *in,const float plane[4],race_smoke_quad *out,int max){
+    float vertex[6][5],distance[4];int mask=0;const int order[4]={0,1,3,2};
+    for(int i=0;i<4;i++){
+        const float *v=in->xyz[i];distance[i]=plane[0]*v[0]+plane[1]*v[1]+plane[2]*v[2]+plane[3];
+        if(distance[i]<0)mask|=1<<i;
+    }
+    if(plane[3]<0 || !mask || mask==15){if(max>0)*out=*in;return max>0;}
+    int n=0;
+    for(int i=0,j=3;i<4;j=i++){
+        int a=order[j],b=order[i];float da=distance[a],db=distance[b];
+        if((da<0)!=(db<0)){
+            float t=da/(da-db);
+            for(int k=0;k<3;k++)vertex[n][k]=in->xyz[a][k]+(in->xyz[b][k]-in->xyz[a][k])*t;
+            for(int k=0;k<2;k++)vertex[n][3+k]=in->uv[a][k]+(in->uv[b][k]-in->uv[a][k])*t;
+            n++;
+        }
+        if(db>=0){memcpy(vertex[n],in->xyz[b],12);memcpy(vertex[n]+3,in->uv[b],8);n++;}
+    }
+    int quads=0;
+    for(int i=1;i+1<n && quads<max;i++){
+        int indices[4]={0,i,i+1,i+1};race_smoke_quad *q=&out[quads++];*q=*in;
+        for(int k=0;k<4;k++){memcpy(q->xyz[k],vertex[indices[k]],12);memcpy(q->uv[k],vertex[indices[k]]+3,8);}
+    }
+    return quads;
+}
+
 /* func_003E7F08: each live particle's centre into the view, kept between
    0.01 and the course's far (Env0 +0x20) in front; its colour and
    alpha (func_003E8BA8); a square of half side `size` turned by its
@@ -333,7 +369,8 @@ int race_smoke_quads(const race_smoke *s, const float eye[3], const float rows[9
         qsort(list, (size_t)n, sizeof *list, far_first); /* func_003E9018 */
     for (int k = 0; k < n && q < max; k++) {
         const particle *p = &s->p[list[k].i];
-        race_smoke_quad *o = &out[q];
+        race_smoke_quad quad;
+        race_smoke_quad *o = &quad;
         float a, sn, cs, e0, e1, *c = list[k].c;
         /* func_003E8BA8: strength * share * the class's +0x4DC, by 255 or,
            when Env0 +0x10 has 0x40000, by how near it is; at most 128 */
@@ -367,7 +404,11 @@ int race_smoke_quads(const race_smoke *s, const float eye[3], const float rows[9
         for (int v = 0; v < 3; v++)
             o->rgba[v] = fminf(p->rgb[v], 255.f / 128);
         o->rgba[3] = (float)(int)a / 128;
-        q++;
+        float plane[4]={0,0,0,p->plane[3]};
+        for(int r=0;r<3;r++)for(int j=0;j<3;j++)plane[r]+=rows[r*3+j]*p->plane[j];
+        for(int j=0;j<3;j++)plane[3]+=p->plane[j]*eye[j];
+        if(p->size<=3)q+=smoke_clip(o,plane,out+q,max-q);
+        else out[q++]=*o;
     }
     return q;
 }

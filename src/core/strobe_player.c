@@ -1460,7 +1460,35 @@ static void draw_embedded_text(strb_player *p, const xform *m, size_t e, size_t 
                     solid_fill *fill = solid_geometry_mode(p, paths + j * 12, 1);
                     if (!fill || !fill->supported)
                         continue;
+                    unsigned style = u16(p, paths + j * 12);
+                    size_t fo = u32(p, 0x68) + (size_t)style * 8;
+                    unsigned type = u16(p, fo);
                     for (unsigned b = 0; b < fill->count; b++) {
+                        /* Embedded digits may be textured outlines, not solid
+                           paths. Painting their bounds erased the camera count. */
+                        if (style < u32(p, 0x6c) && type == 4) {
+                            unsigned bm = u16(p, fo + 2), mi = u16(p, fo + 4);
+                            if (bm < p->nbitmaps && p->bitmaps[bm] && mi < u32(p, 0x9c)) {
+                                size_t mx = u32(p, 0x98) + (size_t)mi * 64;
+                                float l = fill->xy[b][0][0], t = fill->xy[b][0][1],
+                                      r = fill->xy[b][3][0], bottom = fill->xy[b][3][1];
+                                float su = (float)p->btw[bm] / p->bw[bm],
+                                      sv = (float)p->bth[bm] / p->bh[bm];
+                                plat_draw_quad(
+                                    p->bitmaps[bm], c.a * l + c.x, c.d * t + c.y, c.a * (r - l),
+                                    c.d * (bottom - t),
+                                    (l * f32(p, mx) + t * f32(p, mx + 16) + f32(p, mx + 48)) * su,
+                                    (l * f32(p, mx + 4) + t * f32(p, mx + 20) + f32(p, mx + 52)) *
+                                        sv,
+                                    (r * f32(p, mx) + bottom * f32(p, mx + 16) + f32(p, mx + 48)) *
+                                        su,
+                                    (r * f32(p, mx + 4) + bottom * f32(p, mx + 20) +
+                                     f32(p, mx + 52)) *
+                                        sv,
+                                    color);
+                            }
+                            continue;
+                        }
                         float xy[4][2];
                         for (int v = 0; v < 4; v++) {
                             xy[v][0] = c.a * fill->xy[b][v][0] + c.x;
@@ -1564,6 +1592,47 @@ static void fill_gradient(strb_player *p, const xform *m, size_t fs, size_t fo, 
     }
 }
 
+/* Stroke-only paths are authored separately from fills: racephoto's two
+   focus brackets have fill=FFFF and a 1.75-unit white line in table +70.
+   Do not close these open contours or replace them with their bounds. */
+static void draw_stroke(strb_player *p, const xform *m, size_t fs)
+{
+    size_t strokes = u32(p, fs + 4);
+    unsigned count = u32(p, fs + 8);
+    if (count > 64 || strokes > p->n || count * 20 > p->n - strokes)
+        return;
+    for (unsigned j = 0; j < count; j++) {
+        size_t st = strokes + j * 20;
+        unsigned style = u16(p, st), n = u32(p, st + 16);
+        size_t path = u32(p, st + 12), line = u32(p, 0x70) + style * 8;
+        if (style >= u32(p, 0x74) || n > 256 || path > p->n || n * 20 > p->n - path)
+            continue;
+        float width = f32(p, line);
+        uint8_t color[4];
+        color_of(m, p->d + line + 4, color);
+        float x = f32(p, st + 4), y = f32(p, st + 8);
+        for (unsigned i = 0; i < n; i++) {
+            size_t e = path + i * 20;
+            float ex = f32(p, e + 12), ey = f32(p, e + 16);
+            /* The viewfinder brackets contain straight segments only. Curved
+               strokes remain unsupported rather than drawing bounding boxes. */
+            if (!u32(p, e) && isfinite(width + x + y + ex + ey) && width > 0) {
+                float dx = ex - x, dy = ey - y, length = hypotf(dx, dy);
+                if (length > 0) {
+                    float nx = -dy * width * .5f / length, ny = dx * width * .5f / length;
+                    float xy[4][2] = {{m->a * (x + nx) + m->x, m->d * (y + ny) + m->y},
+                                      {m->a * (ex + nx) + m->x, m->d * (ey + ny) + m->y},
+                                      {m->a * (x - nx) + m->x, m->d * (y - ny) + m->y},
+                                      {m->a * (ex - nx) + m->x, m->d * (ey - ny) + m->y}};
+                    plat_draw_solid_quad(xy, color);
+                }
+            }
+            x = ex;
+            y = ey;
+        }
+    }
+}
+
 /* a shape: each fill's area (the outline's corners) in its colour or its
    bitmap through the bitmap matrix (to the stored texture's 0..1) */
 static void draw_shape(strb_player *p, const xform *m, unsigned id)
@@ -1575,6 +1644,9 @@ static void draw_shape(strb_player *p, const xform *m, unsigned id)
         size_t fs = u32(p, groups + g * 8);
         for (unsigned k = 0; k < u32(p, groups + g * 8 + 4); k++, fs += 12) {
             unsigned fill = u32(p, fs) & 0xffff;
+            draw_stroke(p, m, fs);
+            if (fill >= u32(p, 0x6c))
+                continue;
             size_t fo = u32(p, 0x68) + (size_t)fill * 8, stroke = u32(p, fs + 4),
                    path = u32(p, stroke + 12);
             unsigned edges = u32(p, stroke + 16), type = u16(p, fo);

@@ -1,3 +1,4 @@
+#include "vk_blit_clip.h"
 /* Shared renderer command vocabulary implemented directly with Vulkan.
    No OpenGL context, driver calls or CPU framebuffer are involved. */
 #include "vk_internal.hpp"
@@ -360,6 +361,10 @@ static void APIENTRY vkglCopyTexSubImage2D(GLenum, GLint level, GLint dx, GLint 
     auto *src = c.color(s().read_fb), *dst = texture();
     if (!src || !dst)
         return;
+    int sx1=x+w,sy1=y+h,dx1=dx+w,dy1=dy+h;
+    if (!moon_vk_clip_axis(x,sx1,src->width,dx,dx1,std::max(1,dst->width>>level)) ||
+        !moon_vk_clip_axis(y,sy1,src->height,dy,dy1,std::max(1,dst->height>>level))) return;
+    w=sx1-x;h=sy1-y;
     if(src->format!=dst->format) {
         if(level!=0)throw std::runtime_error("Converted framebuffer copy requires base mip");
         /* HDR scene -> retained GS destination-alpha/UI snapshots requires
@@ -758,6 +763,10 @@ static void APIENTRY vkglUniform2fv(GLint l, GLsizei n, const GLfloat *v)
 {
     uniform(l, n, 2, v);
 }
+static void APIENTRY vkglUniform4fv(GLint l, GLsizei n, const GLfloat *v)
+{
+    uniform(l,n,4,v);
+}
 static void APIENTRY vkglUniform3fv(GLint l, GLsizei n, const GLfloat *v)
 {
     uniform(l, n, 3, v);
@@ -846,7 +855,7 @@ extern "C" void *moon_vk_render_proc(const char *name)
                             glGetUniformLocation) ENTRY(glLinkProgram) ENTRY(glRenderbufferStorage)
                             ENTRY(glRenderbufferStorageMultisample) ENTRY(glShaderSource) ENTRY(
                                 glUniform1f) ENTRY(glUniform1i) ENTRY(glUniform2f) ENTRY(glUniform2i)
-                                ENTRY(glUniform3f) ENTRY(glUniform2fv) ENTRY(glUniform3fv) ENTRY(
+                                ENTRY(glUniform3f) ENTRY(glUniform2fv) ENTRY(glUniform3fv) ENTRY(glUniform4fv) ENTRY(
                                     glUniform4f) ENTRY(glUniform4i) ENTRY(glUniform4ui)
                                     ENTRY(glUniformMatrix3fv) ENTRY(glUniformMatrix4fv) ENTRY(
                                         glUseProgram) ENTRY(glVertexAttribIPointer)

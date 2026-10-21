@@ -179,6 +179,10 @@ int race_game_event_position(const race_game *g);
 
 struct race_view;
 struct race_view *race_game_photo_view(race_game *);
+/* Original replay Select edge; release/ordinary driving never enters PhotoPause. */
+int race_game_photo_select(race_game *, int ps2key, int release);
 void race_game_photo_pause(race_game *, int on);
+int race_game_photo_ground(void *, const float[3]);
+int race_game_photo_wall(void *, float, const float[3], const float[3], float[3], int *);
 int race_game_photo_camera_data(race_game *, float size[4], float *distance);
 #endif
