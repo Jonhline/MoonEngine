@@ -139,6 +139,7 @@ static plat_texture *dock_icon_load(gt4_vol *vol, const char *pkg_path, const ch
 static music_library *app_music_library;
 static void app_music_ensure(int force);
 static void app_music_tick(void);
+static int guide_options_busy(void);
 
 /* Discord presence: one gate and one context build for every render loop. */
 static int app_presence_enabled;
@@ -191,10 +192,30 @@ static void app_presence_poll(const char *mode, const char *course, menu *car_me
     if (now < next)
         return;
     next = now + 1000000000ull;
+    const char *actual_mode = mode;
+    if (!course) {
+        if (car_menu && menu_active_root(car_menu) >= 0)
+            actual_mode = "In the menus";
+        else if (!car_menu && !guide_options_busy())
+            actual_mode = "Launcher";
+    }
     gen_presence presence = {0};
-    presence.mode = mode;
+    presence.mode = actual_mode;
     presence.course = course;
     presence.car = app_presence_car_name(car_menu, car_label);
+    static char last_mode[64], last_course[256], last_car[256];
+    static int have_last;
+    const char *course_text = presence.course ? presence.course : "-";
+    const char *car_text = presence.car ? presence.car : "-";
+    if (!have_last || strcmp(last_mode, actual_mode) || strcmp(last_course, course_text) ||
+        strcmp(last_car, car_text)) {
+        have_last = 1;
+        snprintf(last_mode, sizeof last_mode, "%s", actual_mode);
+        snprintf(last_course, sizeof last_course, "%s", course_text);
+        snprintf(last_car, sizeof last_car, "%s", car_text);
+        fprintf(stderr, "discord presence: mode=%s course=%s car=%s\n", actual_mode, course_text,
+                car_text);
+    }
     discord_presence_tick(&presence);
 }
 
