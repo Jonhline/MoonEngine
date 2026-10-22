@@ -182,6 +182,39 @@ static const char *app_presence_car_name(menu *m, const char *label)
     return label;
 }
 
+static void app_presence_log(const char *line)
+{
+    char pref[1200], path[1300];
+    if (!plat_pref_dir(pref, sizeof pref))
+        return;
+    snprintf(path, sizeof path, "%spresence.log", pref);
+    FILE *f = fopen(path, "rb");
+    long size = 0;
+    if (f) {
+        if (!fseek(f, 0, SEEK_END))
+            size = ftell(f);
+        fclose(f);
+    }
+    f = fopen(path, size > 64 * 1024 ? "wb" : "ab");
+    if (!f)
+        return;
+    time_t now = time(NULL);
+    struct tm date;
+    memset(&date, 0, sizeof date);
+#ifdef _WIN32
+    int ok = !localtime_s(&date, &now);
+#else
+    int ok = localtime_r(&now, &date) != NULL;
+#endif
+    if (ok)
+        fprintf(f, "%04d-%02d-%02d %02d:%02d:%02d %s\n", date.tm_year + 1900, date.tm_mon + 1,
+                date.tm_mday, date.tm_hour, date.tm_min, date.tm_sec, line);
+    else
+        fprintf(f, "%s\n", line);
+    fflush(f);
+    fclose(f);
+}
+
 static void app_presence_poll(const char *mode, const char *course, menu *car_menu,
                               const char *car_label)
 {
@@ -213,8 +246,11 @@ static void app_presence_poll(const char *mode, const char *course, menu *car_me
         snprintf(last_mode, sizeof last_mode, "%s", actual_mode);
         snprintf(last_course, sizeof last_course, "%s", course_text);
         snprintf(last_car, sizeof last_car, "%s", car_text);
-        fprintf(stderr, "discord presence: mode=%s course=%s car=%s\n", actual_mode, course_text,
-                car_text);
+        char trace[512];
+        snprintf(trace, sizeof trace, "discord presence: mode=%s course=%s car=%s", actual_mode,
+                 course_text, car_text);
+        fprintf(stderr, "%s\n", trace);
+        app_presence_log(trace);
     }
     discord_presence_tick(&presence);
 }
