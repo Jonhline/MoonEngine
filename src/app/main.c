@@ -4942,8 +4942,13 @@ int main(int argc, char **argv)
                     menu_send_input(mn, MENU_RIGHT);
                 if (ev.key == SDLK_RETURN || ev.key == SDLK_KP_ENTER)
                     menu_send_input(mn, MENU_ACCEPT);
-                if (ev.key == SDLK_ESCAPE)
-                    menu_send_input(mn, ev.pad ? MENU_CIRCLE : MENU_BACK);
+                if (ev.key == SDLK_ESCAPE) {
+                    if (proj == 0 && menu_active_root(mn) >= 0 &&
+                        !strcmp(ui_root_name(menu_ui(mn), menu_active_root(mn)), "TopRoot"))
+                        menu_test_activate(mn, "QuitGame");
+                    else
+                        menu_send_input(mn, ev.pad ? MENU_CIRCLE : MENU_BACK);
+                }
                 if (ev.pad && ev.key == SDLK_INSERT)
                     menu_send_input(mn, MENU_SQUARE);
                 /* P: F4 maps the original pad Triangle event for Home/Setting. */
