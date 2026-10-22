@@ -367,19 +367,26 @@ SDL_Window *plat_video_acquire_window(const plat_video_desc *d)
             SDL_GetWindowSize(window, &w, &h);
             if (w != d->width || h != d->height)
                 SDL_SetWindowSize(window, d->width, d->height);
+            if (d->placed)
+                SDL_SetWindowPosition(window, d->x, d->y);
         }
         if (!(SDL_GetWindowFlags(window) & SDL_WINDOW_HIDDEN))
             SDL_ShowWindow(window);
         SDL_SetWindowFullscreen(window, d->fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+        if (d->maximized && !d->fullscreen)
+            SDL_MaximizeWindow(window);
         return window;
     }
-    int window_x = SDL_WINDOWPOS_CENTERED, window_y = SDL_WINDOWPOS_CENTERED;
+    int window_x = d->placed ? d->x : SDL_WINDOWPOS_CENTERED,
+        window_y = d->placed ? d->y : SDL_WINDOWPOS_CENTERED;
     const char *capture_position = getenv("MOON_WINDOW_POSITION");
     if (capture_position && sscanf(capture_position, "%d,%d", &window_x, &window_y) == 2)
         SDL_SetHint(SDL_HINT_WINDOW_NO_ACTIVATION_WHEN_SHOWN, "1");
     if (!SDL_WasInit(SDL_INIT_VIDEO) && SDL_InitSubSystem(SDL_INIT_VIDEO) != 0)
         return NULL;
     window = SDL_CreateWindow("Moon Engine", window_x, window_y, d->width, d->height, flags);
+    if (window && d->maximized && !d->fullscreen)
+        SDL_MaximizeWindow(window);
     return window;
 }
 

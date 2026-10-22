@@ -1774,6 +1774,174 @@ static void wiz_log(const char *fmt, ...)
     fflush(f);
     fclose(f);
 }
+static int app_win_x, app_win_y, app_win_w = 960, app_win_h = 720;
+static int app_win_maximized, app_win_fullscreen, app_win_have_rect, app_win_dirty;
+static uint64_t app_win_changed_ns;
+
+static int app_window_int(const char *key, int fallback)
+{
+    const char *v = app_video_settings ? moon_options_get(&app_video_settings->store, key, "") : "";
+    char *end;
+    long n;
+    if (!v || !*v)
+        return fallback;
+    n = strtol(v, &end, 10);
+    return *end ? fallback : (int)n;
+}
+
+static void app_window_default_rect(int *x, int *y, int *w, int *h)
+{
+    SDL_Rect r;
+    *w = 960;
+    *h = 720;
+    if (SDL_GetDisplayUsableBounds(0, &r) == 0) {
+        *x = r.x + (r.w - *w) / 2;
+        *y = r.y + (r.h - *h) / 2;
+    } else
+        *x = *y = 0;
+}
+
+static int app_window_clamp(int *x, int *y, int *w, int *h)
+{
+    int displays = SDL_GetNumVideoDisplays(), best_area = 0;
+    SDL_Rect best = {0, 0, 0, 0}, want = {*x, *y, *w, *h};
+    if (displays < 1)
+        return 0;
+    for (int i = 0; i < displays; i++) {
+        SDL_Rect bounds, overlap;
+        if (SDL_GetDisplayUsableBounds(i, &bounds) != 0)
+            continue;
+        if (SDL_IntersectRect(&want, &bounds, &overlap)) {
+            int area = overlap.w * overlap.h;
+            if (area > best_area) {
+                best_area = area;
+                best = bounds;
+            }
+        }
+    }
+    if (best_area < 64 * 64)
+        return 0;
+    if (*w > best.w)
+        *w = best.w;
+    if (*h > best.h)
+        *h = best.h;
+    if (*x < best.x)
+        *x = best.x;
+    if (*x + *w > best.x + best.w)
+        *x = best.x + best.w - *w;
+    if (*y < best.y)
+        *y = best.y;
+    if (*y + *h > best.y + best.h)
+        *y = best.y + best.h - *h;
+    return 1;
+}
+
+static void app_window_geometry_restore(plat_video_desc *d)
+{
+    if (!d || !app_video_settings)
+        return;
+    if (!SDL_WasInit(SDL_INIT_VIDEO))
+        SDL_Init(SDL_INIT_VIDEO);
+    int w = app_window_int("window.width", 0), h = app_window_int("window.height", 0);
+    int x = app_window_int("window.x", -1000000), y = app_window_int("window.y", -1000000);
+    int maximized = app_window_int("window.maximized", 0);
+    int fullscreen = app_window_int("window.fullscreen", d->fullscreen);
+    int valid = w >= 480 && h >= 360;
+    if (!valid) {
+        app_window_default_rect(&x, &y, &w, &h);
+        app_win_have_rect = 0;
+        d->placed = 0;
+    } else {
+        if (x == -1000000 || y == -1000000) {
+            SDL_Rect r;
+            if (SDL_GetDisplayUsableBounds(0, &r) == 0) {
+                x = r.x + (r.w - w) / 2;
+                y = r.y + (r.h - h) / 2;
+            } else
+                x = y = 0;
+            d->placed = 0;
+        } else
+            d->placed = 1;
+        if (!app_window_clamp(&x, &y, &w, &h)) {
+            app_window_default_rect(&x, &y, &w, &h);
+            app_win_have_rect = 0;
+            d->placed = 0;
+        } else
+            app_win_have_rect = 1;
+    }
+    app_win_x = x;
+    app_win_y = y;
+    app_win_w = w;
+    app_win_h = h;
+    app_win_maximized = maximized ? 1 : 0;
+    app_win_fullscreen = fullscreen ? 1 : 0;
+    d->width = w;
+    d->height = h;
+    d->x = x;
+    d->y = y;
+    d->maximized = app_win_maximized;
+    d->fullscreen = app_win_fullscreen;
+    app_win_dirty = 0;
+    app_win_changed_ns = 0;
+}
+
+static void app_window_geometry_tick(int force)
+{
+    SDL_Window *win = plat_sdl_window();
+    if (!app_video_settings || !win)
+        return;
+    Uint32 flags = SDL_GetWindowFlags(win);
+    int fullscreen = (flags & SDL_WINDOW_FULLSCREEN) != 0;
+    int maximized = (flags & SDL_WINDOW_MAXIMIZED) != 0 && !fullscreen;
+    int changed = 0;
+    if (!fullscreen && !maximized) {
+        int x = 0, y = 0, w = 0, h = 0;
+        SDL_GetWindowPosition(win, &x, &y);
+        SDL_GetWindowSize(win, &w, &h);
+        if (w > 0 && h > 0 &&
+            (!app_win_have_rect || x != app_win_x || y != app_win_y || w != app_win_w ||
+             h != app_win_h)) {
+            app_win_x = x;
+            app_win_y = y;
+            app_win_w = w;
+            app_win_h = h;
+            app_win_have_rect = 1;
+            changed = 1;
+        }
+    }
+    if (app_win_maximized != maximized) {
+        app_win_maximized = maximized;
+        changed = 1;
+    }
+    if (app_win_fullscreen != fullscreen) {
+        app_win_fullscreen = fullscreen;
+        changed = 1;
+    }
+    if (changed) {
+        app_win_dirty = 1;
+        app_win_changed_ns = plat_time_ns();
+    }
+    if (!app_win_dirty || (!force && plat_time_ns() - app_win_changed_ns < 500000000ull))
+        return;
+    char value[32];
+    int modified = app_video_settings->store.modified;
+#define APP_WIN_KEY(key, number)                                                                    \
+    do {                                                                                           \
+        snprintf(value, sizeof value, "%d", (number));                                             \
+        moon_options_set(&app_video_settings->store, key, value);                                  \
+    } while (0)
+    APP_WIN_KEY("window.x", app_win_x);
+    APP_WIN_KEY("window.y", app_win_y);
+    APP_WIN_KEY("window.width", app_win_w);
+    APP_WIN_KEY("window.height", app_win_h);
+    APP_WIN_KEY("window.maximized", app_win_maximized);
+    APP_WIN_KEY("window.fullscreen", app_win_fullscreen);
+#undef APP_WIN_KEY
+    app_video_settings->store.modified = modified;
+    moon_options_save(&app_video_settings->store);
+    app_win_dirty = 0;
+}
+
 #ifndef __SWITCH__
 /* Runs the setup on the current window: 1 = saved, 2 = saved and restarted for the new
    graphics API (the caller quits), 0 = cancelled (nothing written). */
@@ -2131,9 +2299,11 @@ static int first_run_wizard(launcher_preferences *prefs)
         } else
             frame++;
         plat_video_end_frame();
+        app_window_geometry_tick(0);
         app_presence_poll("Launcher", NULL, NULL, NULL, -1, -1);
         plat_sleep_ms(16);
     }
+    app_window_geometry_tick(1);
     if (!saved) {
         launcher_touch_mouse(0);
         return 0;
@@ -3409,10 +3579,12 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                 start_launch = 1;
             goto done;
         } /* fully black: the cinematic starts */
+        app_window_geometry_tick(0);
         plat_sleep_ms(4);
     }
     goto done;
 done:
+    app_window_geometry_tick(1);
     guide_options_close();
 #ifndef __SWITCH__
     if (mixer.dirty && !launcher_mixer_save(&mixer, mixer_store))
@@ -4030,6 +4202,8 @@ int main(int argc, char **argv)
         desc.height = 720; /* 4:3 */
         desc.fullscreen = 0;
     }
+    if (front_end && !studio_car)
+        app_window_geometry_restore(&desc);
 #endif
     if (plat_video_init(&desc) != 0) {
         fprintf(stderr, "cannot open a window: %s\n", SDL_GetError());
