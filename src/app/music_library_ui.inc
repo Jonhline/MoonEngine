@@ -279,11 +279,15 @@ static int mlj_seed(ml_jukebox *j, gt4_vol *vol)
 {
     music_library_disc(j->library, gt4_vol_source(vol));
     j->catalog = music_library_catalog(j->library);
-    if (j->catalog < 0)
+    if (j->catalog < 0) {
+        mlj_log("jukebox: seed failed, catalog could not be created");
         return 0;
+    }
     ml_playlist *combined = calloc(1, sizeof *combined);
-    if (!combined)
+    if (!combined) {
+        mlj_log("jukebox: seed failed, out of memory");
         return 0;
+    }
     const ml_playlist *old = music_library_list(j->library, j->catalog);
     *combined = *old;
     unsigned order[256], n = gt4_music_library_default(vol, order, 256);
@@ -310,8 +314,10 @@ static int mlj_seed(ml_jukebox *j, gt4_vol *vol)
     }
     int ok = music_library_replace(j->library, j->catalog, combined->tracks, combined->count, 0);
     free(combined);
-    if (!ok)
+    if (!ok) {
+        mlj_log("jukebox: seed failed, catalog could not be replaced");
         return 0;
+    }
     j->race = mlj_default_list(j, vol, ML_RACE, "Race playlist");
     j->slide = mlj_default_list(j, vol, ML_SLIDESHOW, "Slideshow playlist");
     j->folder[0] = j->folder[1] = -1;
@@ -319,7 +325,12 @@ static int mlj_seed(ml_jukebox *j, gt4_vol *vol)
         j->folder[0] = mlj_folder_list(j, "Menu playlist");
         j->folder[1] = mlj_folder_list(j, "Replay playlist");
     }
-    return j->race >= 0 && j->slide >= 0;
+    if (j->race < 0 || j->slide < 0) {
+        mlj_log("jukebox: seed failed, playlist could not be created (race=%d slide=%d)", j->race,
+                j->slide);
+        return 0;
+    }
+    return 1;
 }
 static void mlj_store(ml_jukebox *j)
 {
@@ -581,11 +592,18 @@ static void app_jukebox_attach(menu *m)
     j.folder[0] = j.folder[1] = -1;
     menu_jukebox_folders(m, NULL, NULL);
     int local = 0;
-    if (mlj_seed(&j, vol)) {
+    if (!mlj_seed(&j, vol))
+        mlj_log("jukebox: seeding failed, continuing with the local Music folder");
+    if (j.catalog < 0)
+        j.catalog = music_library_catalog(j.library);
+    if (j.catalog >= 0) {
         mlj_scan(&j);
         const ml_playlist *catalog = music_library_list(j.library, j.catalog);
-        for (int i = 0; i < catalog->count && !local; i++)
-            local = strncmp(catalog->tracks[i].path, "gt4:", 4) != 0;
+        if (catalog)
+            for (int i = 0; i < catalog->count && !local; i++)
+                local = strncmp(catalog->tracks[i].path, "gt4:", 4) != 0;
+    } else {
+        mlj_log("jukebox: Music folder not scanned, catalog unavailable");
     }
     /* the folders keep their lists in the library, disc songs included */
     if (!local && j.folder[0] < 0)
