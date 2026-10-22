@@ -37,6 +37,8 @@ void video_set_fill_window(int enabled);
 int video_fill_window(void);
 /* Current offscreen frame target (the main FBO), for diagnostics. */
 void video_target_size(int *width, int *height);
+/* Current 3D scene target, for diagnostics. */
+void video_scene_target_size(int *width, int *height);
 float video_projection_x(void);
 int video_fsr_available(void);
 /* Android-only: shrink the 3D scene target (0 = full, 1 = 75%, 2 = 50%,

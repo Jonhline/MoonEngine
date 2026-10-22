@@ -951,6 +951,13 @@ void video_target_size(int *width, int *height)
     if (height)
         *height = fb_h;
 }
+void video_scene_target_size(int *width, int *height)
+{
+    if (width)
+        *width = scene_w;
+    if (height)
+        *height = scene_h;
+}
 
 int video_set_upscale(int mode)
 {

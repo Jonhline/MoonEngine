@@ -7,6 +7,43 @@
    Each graphics option is shown on its own: the same frozen instant rendered with the option
    at its original value and at the chosen one, split by a divider the mouse can drag, framed
    where the effect shows. Disc-backed car, course, icons and face. */
+#include <stdarg.h>
+static void gl_log(const char *fmt, ...)
+{
+    char pref[1200], path[1300], line[512];
+    if (!plat_pref_dir(pref, sizeof pref))
+        return;
+    snprintf(path, sizeof path, "%sguide.log", pref);
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof line, fmt, ap);
+    va_end(ap);
+    FILE *f = fopen(path, "rb");
+    long size = 0;
+    if (f) {
+        if (!fseek(f, 0, SEEK_END))
+            size = ftell(f);
+        fclose(f);
+    }
+    f = fopen(path, size > 64 * 1024 ? "wb" : "ab");
+    if (!f)
+        return;
+    time_t now = time(NULL);
+    struct tm date;
+    memset(&date, 0, sizeof date);
+#ifdef _WIN32
+    int ok = !localtime_s(&date, &now);
+#else
+    int ok = localtime_r(&now, &date) != NULL;
+#endif
+    if (ok)
+        fprintf(f, "%04d-%02d-%02d %02d:%02d:%02d %s\n", date.tm_year + 1900, date.tm_mon + 1,
+                date.tm_mday, date.tm_hour, date.tm_min, date.tm_sec, line);
+    else
+        fprintf(f, "%s\n", line);
+    fflush(f);
+    fclose(f);
+}
 #define GUIDE_PAGES 5
 #define GUIDE_WELCOME 0
 #define GUIDE_PRESET 1
@@ -409,6 +446,7 @@ static int studio_guide(showroom *cars,gt4_vol *vol,const char *code,int raster,
     if(!script) script="";
     dock->cx=dock->ctx=guide_slot_cx(sel); dock->cy=dock->cty=GUIDE_CURSOR_Y;
     dock->ca=dock->cta=guide_tilt[sel]; dock->ticks=0;
+    int last_w=-1,last_h=-1;
     while(running) {
         int w=0,h=0; SDL_GL_GetDrawableSize(plat_sdl_window(),&w,&h);
         if(w<1||h<1) { plat_sleep_ms(16); continue; }
@@ -606,17 +644,30 @@ static int studio_guide(showroom *cars,gt4_vol *vol,const char *code,int raster,
                 }
             }
         }
+        int branch_backdrop=0,drew_race=0,drew_showroom=0;
         plat_video_begin_frame();
         if(scene) {
             plat_texture *back=full && shown?images[flip?1:0]:backdrop_ok?images[2]:NULL;
             const uint8_t white[4]={255,255,255,255};
-            plat_video_set_view(640.f,448.f);
-            if(back) plat_draw_quad(back,0,0,640.f,448.f,0,1,1,0,white);
+            if(back) {
+                branch_backdrop=1;
+                plat_video_set_view(640.f,448.f);
+                plat_draw_quad(back,0,0,640.f,448.f,0,1,1,0,white);
+            } else { /* the capture is being rebuilt: show the live scene, never black */
+                video_settings_preview_options(live);
+                drawn_look=*live;
+                if(track) drew_race=1; else drew_showroom=1;
+                video_begin_scene();
+                guide_scene(cars,code,raster,track,1.f/60.f);
+                video_end_scene();
+            }
         } else { /* the course is loading (or missing): the launcher's room, live */
             video_settings_preview_options(live);
             drawn_look=*live;
+            drew_showroom=1;
             video_begin_scene();
-            guide_scene(cars,code,raster,NULL,1.f/60.f); video_end_scene();
+            guide_scene(cars,code,raster,NULL,1.f/60.f);
+            video_end_scene();
         }
         plat_video_set_view((float)w,(float)h);
         const uint8_t head[4]={255,255,255,240}, dim[4]={160,163,170,220}, ink[4]={245,246,248,255},
@@ -865,6 +916,15 @@ static int studio_guide(showroom *cars,gt4_vol *vol,const char *code,int raster,
             frame=0;
         }
         plat_video_end_frame();
+        if(last_w>=0 && (w!=last_w || h!=last_h)) {
+            int sw=0,sh=0;
+            video_scene_target_size(&sw,&sh);
+            gl_log("guide: drawable %dx%d -> %dx%d view=%dx%d raster=%d scene=%dx%d branch=%s "
+                   "race_view_draw=%d showroom_draw=%d",
+                   last_w,last_h,w,h,w,h,raster,sw,sh,
+                   branch_backdrop?"backdrop-image":"live-3d",drew_race,drew_showroom);
+        }
+        last_w=w;last_h=h;
         {
             uint64_t now=plat_time_ns();
             if(frame_clock && track_ready && test) {
