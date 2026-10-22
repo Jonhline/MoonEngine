@@ -1,5 +1,44 @@
 /* P: local file operations added to the disc's actual slide/MusicRoot Jukebox. */
 #include "pcm_music.h"
+#include <stdarg.h>
+
+/* Diagnostics survive a GUI launch: same append/flush/cap pattern as presence.log. */
+static void mlj_log(const char *fmt, ...)
+{
+    char pref[1200], path[1300], line[512];
+    if (!plat_pref_dir(pref, sizeof pref))
+        return;
+    snprintf(path, sizeof path, "%sjukebox.log", pref);
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof line, fmt, ap);
+    va_end(ap);
+    FILE *f = fopen(path, "rb");
+    long size = 0;
+    if (f) {
+        if (!fseek(f, 0, SEEK_END))
+            size = ftell(f);
+        fclose(f);
+    }
+    f = fopen(path, size > 64 * 1024 ? "wb" : "ab");
+    if (!f)
+        return;
+    time_t now = time(NULL);
+    struct tm date;
+    memset(&date, 0, sizeof date);
+#ifdef _WIN32
+    int ok = !localtime_s(&date, &now);
+#else
+    int ok = localtime_r(&now, &date) != NULL;
+#endif
+    if (ok)
+        fprintf(f, "%04d-%02d-%02d %02d:%02d:%02d %s\n", date.tm_year + 1900, date.tm_mon + 1,
+                date.tm_mday, date.tm_hour, date.tm_min, date.tm_sec, line);
+    else
+        fprintf(f, "%s\n", line);
+    fflush(f);
+    fclose(f);
+}
 /* The one Jukebox is the disc's slide/MusicRoot reached from GT Mode. With local
    songs, its Library lists them beside the disc's; its own scripts edit Racing and
    Slideshow, its own sound.startStreamEx plays them, its own Exit leaves. */
@@ -502,8 +541,9 @@ static void mlj_scan(ml_jukebox *j)
     ml_add_folder(j->library, j->catalog, folder, 0, &scanned);
     snprintf(mlj_music_root, sizeof mlj_music_root, "%s", folder);
     int added = music_library_list(j->library, j->catalog)->count - before;
-    printf("jukebox: Music folder=%s added=%d catalog=%d\n", folder, added,
-           music_library_list(j->library, j->catalog)->count);
+    int catalog = music_library_list(j->library, j->catalog)->count;
+    printf("jukebox: Music folder=%s added=%d catalog=%d\n", folder, added, catalog);
+    mlj_log("jukebox: Music folder=%s added=%d catalog=%d", folder, added, catalog);
 }
 /* GT Mode -> Jukebox (or a direct slide start): before the page is entered. With no
    local song the page stays exactly the disc's, on its PS2 playlist blobs. */
@@ -511,19 +551,31 @@ static void app_jukebox_attach(menu *m)
 {
     if (!m || app_jukebox.page == m)
         return;
+    const char *options =
+        app_video_settings && app_video_settings->store.path[0] ? app_video_settings->store.path
+                                                                : "-";
+    int custom = app_video_settings
+                     ? moon_options_int(&app_video_settings->store, "audio.custom_music", 0, 0, 1)
+                     : 0;
+    mlj_log("jukebox: attach called options=%s custom_music=%d", options, custom);
     /* Custom Music off: the disc's own page, on its PS2 playlist blobs */
-    if (!app_video_settings ||
-        !moon_options_int(&app_video_settings->store, "audio.custom_music", 0, 0, 1)) {
+    if (!app_video_settings || !custom) {
         printf("jukebox: native disc-only entry, custom music off\n");
+        mlj_log("jukebox: early return, custom music off (audio.custom_music=%d)", custom);
         return;
     }
     app_music_ensure(1);
-    if (!app_music_library)
+    if (!app_music_library) {
+        mlj_log("jukebox: early return, library could not be opened");
         return;
+    }
     const char *disc = studio_disc ? studio_disc : presentation_disc, *error = NULL;
     gt4_vol *vol = disc ? gt4_vol_open(disc, &error) : NULL;
-    if (!vol)
+    if (!vol) {
+        mlj_log("jukebox: early return, disc volume could not be opened (disc=%s)",
+                disc ? disc : "-");
         return;
+    }
     ml_jukebox j = {0};
     j.library = app_music_library;
     j.folder[0] = j.folder[1] = -1;
