@@ -87,6 +87,7 @@
 #include "miniz.h"
 
 #include <SDL.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1737,6 +1738,42 @@ static void launcher_touch_mouse(int on)
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, on ? "1" : "0");
     fprintf(stderr, "launcher: touch-mouse synthesis %s\n", on ? "on" : "off");
 }
+static void wiz_log(const char *fmt, ...)
+{
+    char pref[1200], path[1300], line[512];
+    if (!plat_pref_dir(pref, sizeof pref))
+        return;
+    snprintf(path, sizeof path, "%swizard.log", pref);
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof line, fmt, ap);
+    va_end(ap);
+    FILE *f = fopen(path, "rb");
+    long size = 0;
+    if (f) {
+        if (!fseek(f, 0, SEEK_END))
+            size = ftell(f);
+        fclose(f);
+    }
+    f = fopen(path, size > 64 * 1024 ? "wb" : "ab");
+    if (!f)
+        return;
+    time_t now = time(NULL);
+    struct tm date;
+    memset(&date, 0, sizeof date);
+#ifdef _WIN32
+    int ok = !localtime_s(&date, &now);
+#else
+    int ok = localtime_r(&now, &date) != NULL;
+#endif
+    if (ok)
+        fprintf(f, "%04d-%02d-%02d %02d:%02d:%02d %s\n", date.tm_year + 1900, date.tm_mon + 1,
+                date.tm_mday, date.tm_hour, date.tm_min, date.tm_sec, line);
+    else
+        fprintf(f, "%s\n", line);
+    fflush(f);
+    fclose(f);
+}
 #ifndef __SWITCH__
 /* Runs the setup on the current window: 1 = saved, 2 = saved and restarted for the new
    graphics API (the caller quits), 0 = cancelled (nothing written). */
@@ -1763,6 +1800,7 @@ static int first_run_wizard(launcher_preferences *prefs)
     video_set_fill_window(1);
     SDL_ShowCursor(SDL_ENABLE);
     SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
+    int last_fw = -1, last_fh = -1, last_tw = -1, last_th = -1, last_full = -1;
     for (;;) {
         int fw = 0, fh = 0;
         SDL_GL_GetDrawableSize(plat_sdl_window(), &fw, &fh);
@@ -1835,6 +1873,16 @@ static int first_run_wizard(launcher_preferences *prefs)
             if (ev.type != SDL_KEYDOWN)
                 continue;
             int k = ev.key.keysym.sym;
+            if (!ev.key.repeat &&
+                (k == SDLK_F11 ||
+                 ((k == SDLK_RETURN || k == SDLK_KP_ENTER) &&
+                  (ev.key.keysym.mod & KMOD_ALT)))) {
+                Uint32 flags = SDL_GetWindowFlags(plat_sdl_window());
+                SDL_SetWindowFullscreen(plat_sdl_window(), (flags & SDL_WINDOW_FULLSCREEN)
+                                                               ? 0
+                                                               : SDL_WINDOW_FULLSCREEN_DESKTOP);
+                continue;
+            }
             if (k == SDLK_ESCAPE)
                 activate = 2; /* BACK, or EXIT on the disc step */
             else if (k == SDLK_LEFT)
@@ -1927,9 +1975,39 @@ static int first_run_wizard(launcher_preferences *prefs)
         for (int i = 0; i < 4; i++)
             L.hover[i] += ((i == sel && list_sel < 0 ? 1.f : 0.f) - L.hover[i]) * .25f;
 
-        plat_video_set_view((float)fw, (float)fh);
+        {
+            int draw_fw = 0, draw_fh = 0;
+            SDL_GL_GetDrawableSize(plat_sdl_window(), &draw_fw, &draw_fh);
+            if (draw_fw > 0 && draw_fh > 0 && (draw_fw != fw || draw_fh != fh)) {
+                fw = draw_fw;
+                fh = draw_fh;
+                wiz_metrics(&L, (float)fw, (float)fh);
+                L.n = step ? 4 : 3;
+            }
+        }
         plat_video_begin_frame();
+        plat_video_set_view((float)fw, (float)fh);
         wiz_room((float)fw, (float)fh);
+        {
+            int tw = 0, th = 0, full;
+            video_target_size(&tw, &th);
+            full = (SDL_GetWindowFlags(plat_sdl_window()) & SDL_WINDOW_FULLSCREEN) != 0;
+            if (last_fw >= 0 &&
+                (fw != last_fw || fh != last_fh || tw != last_tw || th != last_th ||
+                 full != last_full))
+                wiz_log("wizard: drawable %dx%d -> %dx%d fullscreen=%d renderer=%s target=%dx%d "
+                        "font=512x512",
+                        last_fw, last_fh, fw, fh, full,
+                        moon_renderer_name(app_video_settings
+                                               ? app_video_settings->current.renderer
+                                               : MOON_RENDERER_OPENGL),
+                        tw, th);
+            last_fw = fw;
+            last_fh = fh;
+            last_tw = tw;
+            last_th = th;
+            last_full = full;
+        }
         const float S = L.S, cx = fw * .5f;
         static const uint8_t ink_l[4] = {38, 40, 45, 255}, soft_l[4] = {110, 113, 120, 255},
                              ink_d[4] = {228, 230, 235, 255}, soft_d[4] = {150, 153, 160, 255},

@@ -944,6 +944,13 @@ void video_set_fill_window(int enabled)
     layout_view();
 }
 int video_fill_window(void) { return fill_window; }
+void video_target_size(int *width, int *height)
+{
+    if (width)
+        *width = fb_w;
+    if (height)
+        *height = fb_h;
+}
 
 int video_set_upscale(int mode)
 {
