@@ -69,6 +69,7 @@
 #include "platform/renderer_backend.h"
 #endif
 #include "save_ui.h"
+#include "discord_presence.h"
 #include "save.h"
 #include "replay_file.h"
 #include "career_event.h"
@@ -3500,6 +3501,10 @@ int main(int argc, char **argv)
     }
 #endif
     app_video_settings = &settings;
+    int discord_enabled =
+        moon_options_int(&settings.store, "integrations.discord_presence", 0, 0, 1);
+    discord_presence_configure(
+        discord_enabled, moon_options_get(&settings.store, "integrations.discord_app_id", ""));
     int window_w = settings.current.video.width, window_h = settings.current.video.height;
     int window_full = settings.current.video.fullscreen, upscale = settings.current.video.upscale,
         video_vsync = settings.current.video.vsync;
@@ -6174,6 +6179,39 @@ int main(int argc, char **argv)
         SWP_READY(car_ready && !loading_screen_active() && !race_loading);
         SWP_POP();
         plat_video_end_frame();
+        { /* Discord presence: one cheap check a second, never in the race step. */
+            static uint64_t next_presence_tick;
+            static int presence_live;
+            if (discord_enabled && !shot && now >= next_presence_tick) {
+                next_presence_tick = now + 1000000000ull;
+                if (driving == 2 && game) {
+                    gt4_race_hud hud;
+                    menu_quick_race grid;
+                    gen_presence presence = {0};
+                    presence.course = race_course;
+                    presence.car = race_car;
+                    presence.mode = race_game_replaying(game)      ? "Replay"
+                                    : race_game_license_active(game) ? "Licence"
+                                    : race_game_mission_active(game) ? "Mission"
+                                    : career_race.active             ? "GT Mode"
+                                    : race_time_trial                ? "Time Trial"
+                                                                     : "Arcade";
+                    presence.cars = race_game_quick_grid(game, &grid) ? grid.entries : 0;
+                    presence.paused = race_game_is_paused(game);
+                    presence.speed_kmh = -1;
+                    if (race_game_player_hud(game, &hud)) {
+                        presence.lap = hud.lap;
+                        presence.laps = hud.laps;
+                        presence.speed_kmh = (int)(hud.speed * 3.6f);
+                    }
+                    discord_presence_tick(&presence);
+                    presence_live = 1;
+                } else if (presence_live) {
+                    discord_presence_tick(NULL);
+                    presence_live = 0;
+                }
+            }
+        }
         /* the results over: the race's replay plays by itself from its
            opening, then the quick menu (as the game goes on) */
         if (race_return && career_license.active && race_game_license_retry(game)) {
@@ -6251,6 +6289,7 @@ int main(int argc, char **argv)
         }
     }
 done:
+    discord_presence_shutdown();
     photo_travel_close(presentation_photo);
     presentation_photo = NULL;
     race_game_close(game);
