@@ -11,7 +11,8 @@
 #define DP_PAYLOAD_MAX 2048
 #define DP_FRAME_MAX (DP_PAYLOAD_MAX + 8)
 #define DP_BACKOFF_MS 60000ull
-#define DP_FLOOR_MS 15000ull
+/* Stay inside Discord's ~5-updates-per-20-seconds budget: 5000 ms = at most 4 per 20 s. */
+#define DP_FLOOR_MS 5000ull
 #define DP_KEEPALIVE_MS 60000ull
 
 int discord_presence_encode_frame(uint32_t opcode, const char *json, size_t json_len,
