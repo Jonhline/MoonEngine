@@ -6181,7 +6181,6 @@ int main(int argc, char **argv)
         plat_video_end_frame();
         { /* Discord presence: one cheap check a second, never in the race step. */
             static uint64_t next_presence_tick;
-            static int presence_live;
             if (discord_enabled && !shot && now >= next_presence_tick) {
                 next_presence_tick = now + 1000000000ull;
                 if (driving == 2 && game) {
@@ -6205,10 +6204,10 @@ int main(int argc, char **argv)
                         presence.speed_kmh = (int)(hud.speed * 3.6f);
                     }
                     discord_presence_tick(&presence);
-                    presence_live = 1;
-                } else if (presence_live) {
-                    discord_presence_tick(NULL);
-                    presence_live = 0;
+                } else {
+                    gen_presence presence = {0};
+                    presence.mode = "In the menus";
+                    discord_presence_tick(&presence);
                 }
             }
         }
