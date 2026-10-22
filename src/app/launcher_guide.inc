@@ -315,6 +315,20 @@ static int guide_capture(plat_texture **into, showroom *cars, const char *code, 
                          const pc_video_options *look, race_view *track, pc_video_options *drawn,
                          int drawable_w, int drawable_h)
 {
+    int live_w = 0, live_h = 0;
+    SDL_GL_GetDrawableSize(plat_sdl_window(), &live_w, &live_h);
+    if (live_w > 0 && live_h > 0 && (live_w != drawable_w || live_h != drawable_h))
+        return -1; /* the resize landed after this frame's size read: never read it */
+    static int capture_w = -1, capture_h = -1;
+    if (drawable_w != capture_w || drawable_h != capture_h) {
+        capture_w = drawable_w;
+        capture_h = drawable_h;
+        if (*into) {
+            plat_texture_destroy(*into);
+            *into = NULL;
+        }
+        return -1;
+    }
     int settling = guide_rebuilds(look, drawn);
     video_settings_preview_options(look);
     plat_video_begin_frame();
@@ -448,8 +462,7 @@ static int studio_guide(showroom *cars,gt4_vol *vol,const char *code,int raster,
     pc_video_options drawn_look=start;
     uint64_t frame_clock=0; double worst_ms=0; /* the test reports the longest frame */
     float split=.5f, pic[4]={0,0,0,0}, hover[3]={0,0,1};
-    plat_texture *images[3]={NULL,NULL,NULL}; /* original, chosen, backdrop */
-    pc_video_options backdrop_look=start; int backdrop_ok=0, backdrop_w=0, backdrop_h=0;
+    plat_texture *images[3]={NULL,NULL,NULL}; /* original, chosen, (unused) */
     int running=1, keep_running=1, frame=0, commit=0;
     studio_dock before_dock=*dock;
     moon_options before_store=vs->store;
@@ -649,48 +662,37 @@ static int studio_guide(showroom *cars,gt4_vol *vol,const char *code,int raster,
         if(crop && (capture || pw!=w || ph!=h) && (track_ready || track_failed)) {
             settle=test?1:8; pending=0; shown=0; retry_hold=0; pw=w; ph=h; capture=0;
         }
+        if(last_w>=0 && (w!=last_w || h!=last_h)) {
+            for(int j=0;j<3;j++) { plat_texture_destroy(images[j]); images[j]=NULL; }
+            settle=0; pending=0; shown=0; retry_hold=0; pw=0; ph=0; capture=1;
+        }
         if(!crop || !scene) {capture=0;settle=pending=0;}
         if(settle && !--settle) pending=1;
-        /* The scene is frozen, so it is drawn only into captures, one render per frame at most:
-           the two sides once the selection rests, the backdrop when its look changes. */
+        /* Only the A/B comparison is frozen. The background itself is the live scene, as in
+           the studio, so a capture texture is never the whole screen. */
         const pc_video_options *live=page==GUIDE_WELCOME?&start:&draft;
-        if(backdrop_w!=w || backdrop_h!=h) {backdrop_ok=0;backdrop_w=w;backdrop_h=h;}
-        if(scene) {
+        if(scene && settle<=0) {
             if(retry_hold>0) retry_hold--;
             else if(pending) {
                 int got=guide_capture(&images[pending-1],cars,code,raster,
                                       pending==2?&look_b:&look_a,track,&drawn_look,w,h);
                 if(got==1) { if(++pending>2) {pending=0;shown=1;} }
                 else if(got<0) retry_hold=4;
-            } else if(!backdrop_ok || memcmp(&backdrop_look,live,sizeof *live)) {
-                int got=guide_capture(&images[2],cars,code,raster,live,track,&drawn_look,w,h);
-                if(got==1) { backdrop_ok=1;backdrop_look=*live; }
-                else if(got<0) retry_hold=4;
             }
         }
-        int branch_backdrop=0,drew_race=0,drew_showroom=0;
+        int branch_capture=0,drew_race=0,drew_showroom=0;
         plat_video_begin_frame();
-        if(scene) {
-            plat_texture *back=full && shown?images[flip?1:0]:backdrop_ok?images[2]:NULL;
+        if(full && shown && images[flip?1:0]) { /* frozen full-screen comparison */
             const uint8_t white[4]={255,255,255,255};
-            if(back) {
-                branch_backdrop=1;
-                plat_video_set_view(640.f,448.f);
-                plat_draw_quad(back,0,0,640.f,448.f,0,1,1,0,white);
-            } else { /* the capture is being rebuilt: show the live scene, never black */
-                video_settings_preview_options(live);
-                drawn_look=*live;
-                if(track) drew_race=1; else drew_showroom=1;
-                video_begin_scene();
-                guide_scene(cars,code,raster,track,1.f/60.f);
-                video_end_scene();
-            }
-        } else { /* the course is loading (or missing): the launcher's room, live */
+            branch_capture=1;
+            plat_video_set_view(640.f,448.f);
+            plat_draw_quad(images[flip?1:0],0,0,640.f,448.f,0,1,1,0,white);
+        } else { /* live scene every frame, exactly as the studio */
             video_settings_preview_options(live);
             drawn_look=*live;
-            drew_showroom=1;
+            if(scene) drew_race=1; else drew_showroom=1;
             video_begin_scene();
-            guide_scene(cars,code,raster,NULL,1.f/60.f);
+            guide_scene(cars,code,raster,scene?track:NULL,1.f/60.f);
             video_end_scene();
         }
         plat_video_set_view((float)w,(float)h);
@@ -932,8 +934,7 @@ static int studio_guide(showroom *cars,gt4_vol *vol,const char *code,int raster,
                 plat_draw_rotated(dock_arrow.tex,ox+dock->cx*S-16.f*S,oy+dock->cy*S,32.f*S,32.f*S,
                                   ox+dock->cx*S,oy+dock->cy*S,dock->ca,opaque);
         }
-        if(test && (track_ready || track_failed) && frame>=8 && !capture && !settle && !pending &&
-           !(scene && (!backdrop_ok || memcmp(&backdrop_look,live,sizeof *live)))) {
+        if(test && (track_ready || track_failed) && frame>=8 && !capture && !settle && !pending) {
             if(!guide_script_step(&script,page)) { /* the script ran out: leave unchanged */
                 SDL_Event key={0};key.type=SDL_KEYDOWN;key.key.keysym.sym=SDLK_ESCAPE;SDL_PushEvent(&key);
             }
@@ -946,7 +947,7 @@ static int studio_guide(showroom *cars,gt4_vol *vol,const char *code,int raster,
             gl_log("guide: drawable %dx%d -> %dx%d view=%dx%d raster=%d scene=%dx%d branch=%s "
                    "race_view_draw=%d showroom_draw=%d",
                    last_w,last_h,w,h,w,h,raster,sw,sh,
-                   branch_backdrop?"backdrop-image":"live-3d",drew_race,drew_showroom);
+                   branch_capture?"backdrop-image":"live-3d",drew_race,drew_showroom);
         }
         last_w=w;last_h=h;
         {
@@ -1075,6 +1076,12 @@ static void guide_options_step(showroom *cars, const char *code, int raster, int
     guide_options_looks(o, &a, &b);
     if (id != g->id || w != g->w || h != g->h || memcmp(&a, &g->a, sizeof a) ||
         memcmp(&b, &g->b, sizeof b)) {
+        if (w != g->w || h != g->h) {
+            for (int j = 0; j < 2; j++) {
+                plat_texture_destroy(g->images[j]);
+                g->images[j] = NULL;
+            }
+        }
         g->id = id, g->w = w, g->h = h, g->a = a, g->b = b;
         g->settle = 8, g->pending = g->shown = 0, g->retry_hold = 0;
     }
