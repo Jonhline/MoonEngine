@@ -312,7 +312,8 @@ static int guide_rebuilds(const pc_video_options *a, const pc_video_options *b)
    call; when the look rebuilds a render target that frame only settles it and 0 is returned,
    so the caller draws again on the next frame. Only the final composed frame is presented. */
 static int guide_capture(plat_texture **into, showroom *cars, const char *code, int raster,
-                         const pc_video_options *look, race_view *track, pc_video_options *drawn)
+                         const pc_video_options *look, race_view *track, pc_video_options *drawn,
+                         int drawable_w, int drawable_h)
 {
     int settling = guide_rebuilds(look, drawn);
     video_settings_preview_options(look);
@@ -323,7 +324,27 @@ static int guide_capture(plat_texture **into, showroom *cars, const char *code, 
     *drawn = *look;
     if (settling)
         return 0;
-    *into = video_grab(*into, 0, 0, track ? 640.f : (float)raster, 448.f);
+    int cw = track ? 640 : raster, ch = 448, pw = 0, ph = 0;
+    unsigned char *px = plat_sdl_read_pixels(&pw, &ph);
+    long sum = 0;
+    unsigned max_luma = 0;
+    if (px && pw > 0 && ph > 0) {
+        const unsigned char *q = px;
+        for (long i = 0; i < (long)pw * ph; i++, q += 4) {
+            unsigned luma = (q[0] * 77u + q[1] * 150u + q[2] * 29u) >> 8;
+            sum += luma;
+            if (luma > max_luma)
+                max_luma = luma;
+        }
+    }
+    int mean = px && pw > 0 && ph > 0 ? (int)(sum / ((long)pw * ph)) : 0;
+    int blank = !px || max_luma <= 4;
+    gl_log("guide: drawable %dx%d capture=%dx%d mean=%d accepted=%d", drawable_w, drawable_h, cw,
+           ch, mean, blank ? 0 : 1);
+    free(px);
+    if (blank)
+        return -1;
+    *into = video_grab(*into, 0, 0, (float)cw, (float)ch);
     return 1;
 }
 /* Two captures of one instant through one window: a's left of the divider, b's right. The
@@ -423,7 +444,7 @@ static int studio_guide(showroom *cars,gt4_vol *vol,const char *code,int raster,
     int full=0, flip=1, capture=1, pw=0, ph=0, dragging=0;
     /* a comparison is drawn once the selection has rested (settle frames), one side per
        frame (pending 1: original, 2: chosen), so scrolling the list never stalls */
-    int settle=0, pending=0, shown=0;
+    int settle=0, pending=0, shown=0, retry_hold=0;
     pc_video_options drawn_look=start;
     uint64_t frame_clock=0; double worst_ms=0; /* the test reports the longest frame */
     float split=.5f, pic[4]={0,0,0,0}, hover[3]={0,0,1};
@@ -626,7 +647,7 @@ static int studio_guide(showroom *cars,gt4_vol *vol,const char *code,int raster,
         if(page!=last_page || row[page]!=last_row) {capture=1;last_page=page;last_row=row[page];}
         const int scene=track_on && track_ready;
         if(crop && (capture || pw!=w || ph!=h) && (track_ready || track_failed)) {
-            settle=test?1:8; pending=0; shown=0; pw=w; ph=h; capture=0;
+            settle=test?1:8; pending=0; shown=0; retry_hold=0; pw=w; ph=h; capture=0;
         }
         if(!crop || !scene) {capture=0;settle=pending=0;}
         if(settle && !--settle) pending=1;
@@ -635,13 +656,16 @@ static int studio_guide(showroom *cars,gt4_vol *vol,const char *code,int raster,
         const pc_video_options *live=page==GUIDE_WELCOME?&start:&draft;
         if(backdrop_w!=w || backdrop_h!=h) {backdrop_ok=0;backdrop_w=w;backdrop_h=h;}
         if(scene) {
-            if(pending) {
-                if(guide_capture(&images[pending-1],cars,code,raster,pending==2?&look_b:&look_a,track,&drawn_look)
-                   && ++pending>2) {pending=0;shown=1;}
+            if(retry_hold>0) retry_hold--;
+            else if(pending) {
+                int got=guide_capture(&images[pending-1],cars,code,raster,
+                                      pending==2?&look_b:&look_a,track,&drawn_look,w,h);
+                if(got==1) { if(++pending>2) {pending=0;shown=1;} }
+                else if(got<0) retry_hold=4;
             } else if(!backdrop_ok || memcmp(&backdrop_look,live,sizeof *live)) {
-                if(guide_capture(&images[2],cars,code,raster,live,track,&drawn_look)) {
-                    backdrop_ok=1;backdrop_look=*live;
-                }
+                int got=guide_capture(&images[2],cars,code,raster,live,track,&drawn_look,w,h);
+                if(got==1) { backdrop_ok=1;backdrop_look=*live; }
+                else if(got<0) retry_hold=4;
             }
         }
         int branch_backdrop=0,drew_race=0,drew_showroom=0;
@@ -967,7 +991,7 @@ static int studio_guide(showroom *cars,gt4_vol *vol,const char *code,int raster,
    look: each capture is restored at once, and only the launcher's frame is presented. */
 typedef struct {
     race_view *track;
-    int ready, failed, want, settle, pending, shown, id, dragging, w, h;
+    int ready, failed, want, settle, pending, shown, retry_hold, id, dragging, w, h;
     plat_texture *images[2];
     pc_video_options a, b, drawn;
     float split, pic[4];
@@ -1052,13 +1076,19 @@ static void guide_options_step(showroom *cars, const char *code, int raster, int
     if (id != g->id || w != g->w || h != g->h || memcmp(&a, &g->a, sizeof a) ||
         memcmp(&b, &g->b, sizeof b)) {
         g->id = id, g->w = w, g->h = h, g->a = a, g->b = b;
-        g->settle = 8, g->pending = g->shown = 0;
+        g->settle = 8, g->pending = g->shown = 0, g->retry_hold = 0;
     }
     if (g->settle && !--g->settle) g->pending = 1;
     if (!g->pending) return;
+    if (g->retry_hold > 0) { g->retry_hold--; return; }
     const pc_video_options *look = g->pending == 2 ? &g->b : &g->a;
-    if (!guide_capture(&g->images[g->pending - 1], cars, code, raster, look, g->track, &g->drawn))
-        guide_capture(&g->images[g->pending - 1], cars, code, raster, look, g->track, &g->drawn);
+    int got = guide_capture(&g->images[g->pending - 1], cars, code, raster, look, g->track,
+                            &g->drawn, g->w, g->h);
+    if (got == 0)
+        got = guide_capture(&g->images[g->pending - 1], cars, code, raster, look, g->track,
+                            &g->drawn, g->w, g->h);
+    if (got < 0) { g->retry_hold = 4; return; }
+    if (got == 0) return;
     if (++g->pending > 2) {
         g->pending = 0;
         g->shown = 1;
