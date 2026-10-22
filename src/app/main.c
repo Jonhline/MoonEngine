@@ -143,7 +143,46 @@ static void app_music_tick(void);
 /* Discord presence: one gate and one context build for every render loop. */
 static int app_presence_enabled;
 
-static void app_presence_poll(const char *mode, const char *course, const char *car)
+static const char *app_presence_car_name(menu *m, const char *label)
+{
+    if (!label || !*label)
+        return NULL;
+    if (m) {
+        const char *name = menu_car_name(m, label);
+        return name ? name : label;
+    }
+    static uint8_t *labels, *names, *strings;
+    static size_t labels_size, names_size, strings_size;
+    static int loaded;
+    if (!loaded) {
+        loaded = 1;
+        if (presentation_disc) {
+            const char *error = NULL;
+            gt4_vol *vol = gt4_vol_open(presentation_disc, &error);
+            if (vol) {
+                labels = gt4_vol_read(vol, "/specdb/GT4_US2560/GENERIC_CAR.idi", &labels_size);
+                names = gt4_vol_read(vol, "/specdb/GT4_US2560/CAR_NAME_american.dbt", &names_size);
+                strings =
+                    gt4_vol_read(vol, "/specdb/GT4_US2560/american_StrDB.sdb", &strings_size);
+                gt4_vol_close(vol);
+            }
+        }
+    }
+    uint32_t id;
+    uint8_t row[256];
+    if (labels && names && strings && gt4_specdb_label(labels, labels_size, label, &id) &&
+        gt4_specdb_row(names, names_size, id, row, sizeof row) == 16) {
+        uint32_t offset = (uint32_t)row[0] | (uint32_t)row[1] << 8 | (uint32_t)row[2] << 16 |
+                          (uint32_t)row[3] << 24;
+        const char *name = gt4_specdb_string(strings, strings_size, offset);
+        if (name && *name)
+            return name;
+    }
+    return label;
+}
+
+static void app_presence_poll(const char *mode, const char *course, menu *car_menu,
+                              const char *car_label)
 {
     static uint64_t next;
     if (!app_presence_enabled)
@@ -155,7 +194,7 @@ static void app_presence_poll(const char *mode, const char *course, const char *
     gen_presence presence = {0};
     presence.mode = mode;
     presence.course = course;
-    presence.car = car;
+    presence.car = app_presence_car_name(car_menu, car_label);
     discord_presence_tick(&presence);
 }
 
@@ -1944,7 +1983,7 @@ static int first_run_wizard(launcher_preferences *prefs)
         } else
             frame++;
         plat_video_end_frame();
-        app_presence_poll("Launcher", NULL, NULL);
+        app_presence_poll("Launcher", NULL, NULL, NULL);
         plat_sleep_ms(16);
     }
     if (!saved) {
@@ -2344,7 +2383,7 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
         }
         plat_video_begin_frame();
         plat_video_end_frame();
-        app_presence_poll("Launcher", NULL, chosen);
+        app_presence_poll("Launcher", NULL, NULL, chosen);
         plat_sleep_ms(10);
     }
     /* The paint: --color INDEX picks one of the car's own colours; the name is printed so
@@ -3197,7 +3236,7 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
             printf("studio: %s painted '%s'\n", chosen, showroom_caption(cars));
         }
         plat_video_end_frame();
-        app_presence_poll(guide_options_busy() ? "Settings" : "Launcher", NULL,
+        app_presence_poll(guide_options_busy() ? "Settings" : "Launcher", NULL, NULL,
                           guide_options_busy() ? NULL : chosen);
 
         if (guide_request && (i >= FADE_FRAMES*2 || (getenv("MOONSTUDIO_GUIDE_SHOT") && i>=60)) && !start_fade && !exit_fade) {
@@ -3282,7 +3321,7 @@ static int preview_run(showroom *cars,const char *code,const char *shot,int colo
         SDL_Event ev;while(SDL_PollEvent(&ev))if(ev.type==SDL_QUIT)return 0;
         if(plat_time_ns()-start>UINT64_C(60000000000)){fprintf(stderr,"preview: assets did not arrive for %s\n",chosen);return 1;}
         plat_video_begin_frame();plat_video_end_frame();
-        app_presence_poll("Launcher", NULL, chosen);
+        app_presence_poll("Launcher", NULL, NULL, chosen);
         plat_sleep_ms(10);
     }
     if(color>=0)showroom_set_color(cars,color);
@@ -3343,7 +3382,7 @@ static int preview_run(showroom *cars,const char *code,const char *shot,int colo
         showroom_draw(cars,chosen,1.f/60.f);
         video_end_scene();
         plat_video_end_frame();
-        app_presence_poll("Launcher", NULL, chosen);
+        app_presence_poll("Launcher", NULL, NULL, chosen);
         if(!ready){ready=1;printf("preview: ready car=%s window=%dx%d\n",chosen,fw,fh);fflush(stdout);}
         if(shot && i==frames-1){screenshot(shot);printf("preview: %s painted '%s'\n",chosen,showroom_caption(cars));}
         if(picture&&*picture){
@@ -6215,9 +6254,9 @@ int main(int argc, char **argv)
                                : career_race.active             ? "GT Mode"
                                : race_time_trial                ? "Time Trial"
                                                                 : "Arcade";
-            app_presence_poll(mode, race_course, race_car);
+            app_presence_poll(mode, race_course, mn, race_car);
         } else {
-            app_presence_poll("In the menus", NULL, race_car[0] ? race_car : NULL);
+            app_presence_poll("In the menus", NULL, mn, race_car[0] ? race_car : NULL);
         }
         /* the results over: the race's replay plays by itself from its
            opening, then the quick menu (as the game goes on) */
