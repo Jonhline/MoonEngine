@@ -42,7 +42,17 @@ static FILE *mfopen(const char *path, const char *mode)
     if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, p, 4096) ||
         !MultiByteToWideChar(CP_UTF8, 0, mode, -1, m, 16))
         return NULL;
-    return _wfopen(p, m);
+    FILE *f = _wfopen(p, m);
+    if (!f) {
+        size_t n = 0;
+        while (m[n])
+            n++;
+        if (n && m[n - 1] == L'x') {
+            m[n - 1] = 0;
+            f = _wfopen(p, m);
+        }
+    }
+    return f;
 #else
     return fopen(path, mode);
 #endif
