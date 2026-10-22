@@ -42,33 +42,42 @@ static size_t read_frame(int fd, char *json, size_t cap)
 static void encoder_test(void)
 {
     int sv[2];
+    char json[4096];
+    size_t len;
+
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
     discord_presence_test_reset();
     discord_presence_configure(1, "123456789012345678");
     discord_presence_test_set_fd(sv[0], 1);
 
     gen_presence p = {0};
-    p.course = "Tsukuba";
+    p.course = "Tsukuba Circuit";
     p.mode = "Arcade";
     p.car = "Honda NSX";
     p.cars = 5;
     p.lap = 3;
     p.laps = 5;
     p.speed_kmh = 312;
+    p.paused = 1;
     discord_presence_tick(&p);
 
-    char json[4096];
-    size_t len = read_frame(sv[1], json, sizeof json);
+    len = read_frame(sv[1], json, sizeof json);
     assert(len == strlen(json));
     assert(strstr(json, "\"cmd\":\"SET_ACTIVITY\""));
     assert(strstr(json, "\"nonce\":\""));
     assert(strstr(json, "\"pid\":"));
-    assert(strstr(json, "\"details\":\"Tsukuba \xc2\xb7 5 cars\""));
-    assert(strstr(json, "\"state\":\"Arcade \xc2\xb7 Lap 3/5 \xc2\xb7 312 km/h\""));
-    assert(strstr(json, "\"large_image\":\"moonengine\""));
-    assert(strstr(json, "\"large_text\":\"Moon Engine\""));
+    assert(strstr(json, "\"details\":\"Arcade \xc2\xb7 Tsukuba Circuit\""));
+    assert(strstr(json, "\"state\":\"Honda NSX\""));
     assert(strstr(json, "\"timestamps\":{\"start\":"));
+    assert(strstr(json, "\"large_image\":\"track-tsukuba-circuit\""));
+    assert(strstr(json, "\"large_text\":\"Tsukuba Circuit\""));
+    assert(strstr(json, "\"small_image\":\"moonengine\""));
+    assert(strstr(json, "\"small_text\":\"Moon Engine\""));
     assert(strstr(json, "\"instance\":false"));
+    assert(!strstr(json, "Lap"));
+    assert(!strstr(json, "km/h"));
+    assert(!strstr(json, "cars"));
+    assert(!strstr(json, "Paused"));
 
     discord_presence_test_reset();
     close(sv[1]);
@@ -83,11 +92,36 @@ static void encoder_test(void)
     p.lap = 0;
     p.laps = 0;
     p.speed_kmh = -1;
+    p.paused = 0;
     discord_presence_tick(&p);
     len = read_frame(sv[1], json, sizeof json);
     assert(len == strlen(json));
-    assert(strstr(json, "\"details\":\"Tsu\\\"kuba\\nline\""));
-    assert(strstr(json, "\"state\":\"GT\\\\Mode\""));
+    assert(strstr(json, "\"details\":\"GT\\\\Mode \xc2\xb7 Tsu\\\"kuba\\nline\""));
+    assert(strstr(json, "\"state\":\"Honda NSX\""));
+    assert(strstr(json, "\"large_image\":\"track-tsu-kuba-line\""));
+    assert(strstr(json, "\"large_text\":\"Tsu\\\"kuba\\nline\""));
+    assert(strstr(json, "\"small_image\":\"moonengine\""));
+    discord_presence_test_reset();
+    close(sv[1]);
+
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    discord_presence_test_reset();
+    discord_presence_configure(1, "123456789012345678");
+    discord_presence_test_set_fd(sv[0], 1);
+    p.course = NULL;
+    p.mode = "GT Mode";
+    p.car = "Toyota Corolla";
+    discord_presence_tick(&p);
+    len = read_frame(sv[1], json, sizeof json);
+    assert(len == strlen(json));
+    assert(strstr(json, "\"details\":\"GT Mode\""));
+    assert(strstr(json, "\"state\":\"Toyota Corolla\""));
+    assert(strstr(json, "\"large_image\":\"moonengine\""));
+    assert(strstr(json, "\"large_text\":\"Moon Engine\""));
+    assert(strstr(json, "\"timestamps\":{\"start\":"));
+    assert(!strstr(json, "small_image"));
+    assert(!strstr(json, "small_text"));
+    assert(!strstr(json, "track-"));
     discord_presence_test_reset();
     close(sv[1]);
 }

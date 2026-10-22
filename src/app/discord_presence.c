@@ -3,7 +3,6 @@
 #endif
 #include "discord_presence.h"
 
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -180,56 +179,72 @@ static int dp_puts(char *out, size_t cap, size_t *n, const char *s)
     return 1;
 }
 
-static int dp_printf(char *out, size_t cap, size_t *n, const char *fmt, ...)
+static int dp_slug(char *out, size_t cap, const char *in)
 {
-    va_list ap;
-    va_start(ap, fmt);
-    int w = vsnprintf(out + *n, cap - *n, fmt, ap);
-    va_end(ap);
-    if (w < 0 || (size_t)w >= cap - *n)
-        return 0;
-    *n += (size_t)w;
+    size_t n = 0;
+    int dash = 0;
+    if (!in)
+        in = "";
+    for (; *in; in++) {
+        unsigned char c = (unsigned char)*in;
+        int alnum = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') ||
+                    (c >= 'A' && c <= 'Z');
+        if (alnum) {
+            if (n + 1 >= cap)
+                return 0;
+            out[n++] = (char)(c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c);
+            dash = 0;
+        } else if (n && !dash) {
+            if (n + 1 >= cap)
+                return 0;
+            out[n++] = '-';
+            dash = 1;
+        }
+    }
+    while (n && out[n - 1] == '-')
+        n--;
+    out[n] = 0;
     return 1;
 }
 
 static int dp_build_activity(const gen_presence *p, char *out, size_t cap, uint64_t start)
 {
-    char course[768], mode[192], details[900], state[512];
-    size_t dl = 0, sl = 0;
-    if (!dp_escape(course, sizeof course, p && p->course ? p->course : "") ||
-        !dp_escape(mode, sizeof mode, p && p->mode ? p->mode : ""))
+    char course[768], mode[192], car[512], slug[192], details[1100], state[512];
+    size_t dl = 0;
+    int has_course = p && p->course && *p->course;
+    if (!dp_escape(course, sizeof course, has_course ? p->course : "") ||
+        !dp_escape(mode, sizeof mode, p && p->mode ? p->mode : "") ||
+        !dp_escape(car, sizeof car, p && p->car ? p->car : ""))
         return 0;
     details[0] = state[0] = 0;
-    if (!dp_puts(details, sizeof details, &dl, course))
+    if (mode[0] && !dp_puts(details, sizeof details, &dl, mode))
         return 0;
-    if (p && p->cars > 0 && !dp_printf(details, sizeof details, &dl, " \xc2\xb7 %d cars", p->cars))
-        return 0;
-    if (mode[0] && !dp_puts(state, sizeof state, &sl, mode))
-        return 0;
-    if (p && p->lap > 0 && p->laps > 0) {
-        if (sl && !dp_puts(state, sizeof state, &sl, " \xc2\xb7 "))
+    if (has_course) {
+        if (dl && !dp_puts(details, sizeof details, &dl, " \xc2\xb7 "))
             return 0;
-        if (!dp_printf(state, sizeof state, &sl, "Lap %d/%d", p->lap, p->laps))
+        if (!dp_puts(details, sizeof details, &dl, course))
             return 0;
     }
-    if (p && p->speed_kmh >= 0) {
-        if (sl && !dp_puts(state, sizeof state, &sl, " \xc2\xb7 "))
+    snprintf(state, sizeof state, "%s", car);
+    int w;
+    if (has_course) {
+        if (!dp_slug(slug, sizeof slug, p->course))
             return 0;
-        if (!dp_printf(state, sizeof state, &sl, "%d km/h", p->speed_kmh))
-            return 0;
+        w = snprintf(
+            out, cap,
+            "{\"details\":\"%s\",\"state\":\"%s\",\"timestamps\":{\"start\":%llu},"
+            "\"assets\":{\"large_image\":\"track-%s\",\"large_text\":\"%s\","
+            "\"small_image\":\"moonengine\",\"small_text\":\"Moon Engine\"},"
+            "\"instance\":false}",
+            details, state, (unsigned long long)start, slug, course);
+    } else {
+        w = snprintf(
+            out, cap,
+            "{\"details\":\"%s\",\"state\":\"%s\",\"timestamps\":{\"start\":%llu},"
+            "\"assets\":{\"large_image\":\"moonengine\",\"large_text\":\"Moon Engine\"},"
+            "\"instance\":false}",
+            details, state, (unsigned long long)start);
     }
-    if (p && p->paused) {
-        if (sl && !dp_puts(state, sizeof state, &sl, " \xc2\xb7 "))
-            return 0;
-        if (!dp_puts(state, sizeof state, &sl, "Paused"))
-            return 0;
-    }
-    int w = snprintf(
-        out, cap,
-        "{\"details\":\"%s\",\"state\":\"%s\",\"timestamps\":{\"start\":%llu},"
-        "\"assets\":{\"large_image\":\"moonengine\",\"large_text\":\"Moon Engine\"},"
-        "\"instance\":false}",
-        details, state, (unsigned long long)start);
     return w > 0 && (size_t)w < cap;
 }
 
@@ -237,7 +252,7 @@ static int dp_build_payload(const gen_presence *p, char *out, size_t cap)
 {
     char uuid[37];
     dp_uuid(uuid);
-    if (!p || !p->course || !*p->course) {
+    if (!p) {
         int w = snprintf(out, cap,
                          "{\"cmd\":\"SET_ACTIVITY\",\"nonce\":\"%s\",\"args\":{\"pid\":%lu,"
                          "\"activity\":null}}",
@@ -587,7 +602,7 @@ void discord_presence_tick(const gen_presence *p)
     }
 
     char activity[DP_PAYLOAD_MAX];
-    int live = p && p->course && *p->course;
+    int live = p != NULL;
     if (live) {
         if (!dp_build_activity(p, activity, sizeof activity, dp.session_start))
             return;
