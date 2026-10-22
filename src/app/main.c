@@ -140,6 +140,25 @@ static music_library *app_music_library;
 static void app_music_ensure(int force);
 static void app_music_tick(void);
 
+/* Discord presence: one gate and one context build for every render loop. */
+static int app_presence_enabled;
+
+static void app_presence_poll(const char *mode, const char *course, const char *car)
+{
+    static uint64_t next;
+    if (!app_presence_enabled)
+        return;
+    uint64_t now = plat_time_ns();
+    if (now < next)
+        return;
+    next = now + 1000000000ull;
+    gen_presence presence = {0};
+    presence.mode = mode;
+    presence.course = course;
+    presence.car = car;
+    discord_presence_tick(&presence);
+}
+
 #define DOCK_COUNT 4
 #define DOCK_START 0
 #define DOCK_OPTIONS 1
@@ -1925,6 +1944,7 @@ static int first_run_wizard(launcher_preferences *prefs)
         } else
             frame++;
         plat_video_end_frame();
+        app_presence_poll("Launcher", NULL, NULL);
         plat_sleep_ms(16);
     }
     if (!saved) {
@@ -2324,6 +2344,7 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
         }
         plat_video_begin_frame();
         plat_video_end_frame();
+        app_presence_poll("Launcher", NULL, chosen);
         plat_sleep_ms(10);
     }
     /* The paint: --color INDEX picks one of the car's own colours; the name is printed so
@@ -3176,6 +3197,8 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
             printf("studio: %s painted '%s'\n", chosen, showroom_caption(cars));
         }
         plat_video_end_frame();
+        app_presence_poll(guide_options_busy() ? "Settings" : "Launcher", NULL,
+                          guide_options_busy() ? NULL : chosen);
 
         if (guide_request && (i >= FADE_FRAMES*2 || (getenv("MOONSTUDIO_GUIDE_SHOT") && i>=60)) && !start_fade && !exit_fade) {
             guide_options_close(); /* one course at a time */
@@ -3258,7 +3281,9 @@ static int preview_run(showroom *cars,const char *code,const char *shot,int colo
     while(showroom_prepare(cars,chosen)==0){
         SDL_Event ev;while(SDL_PollEvent(&ev))if(ev.type==SDL_QUIT)return 0;
         if(plat_time_ns()-start>UINT64_C(60000000000)){fprintf(stderr,"preview: assets did not arrive for %s\n",chosen);return 1;}
-        plat_video_begin_frame();plat_video_end_frame();plat_sleep_ms(10);
+        plat_video_begin_frame();plat_video_end_frame();
+        app_presence_poll("Launcher", NULL, chosen);
+        plat_sleep_ms(10);
     }
     if(color>=0)showroom_set_color(cars,color);
     if(picture&&*picture){ /* front three-quarter (the car faces -Z), aimed at where it stands */
@@ -3318,6 +3343,7 @@ static int preview_run(showroom *cars,const char *code,const char *shot,int colo
         showroom_draw(cars,chosen,1.f/60.f);
         video_end_scene();
         plat_video_end_frame();
+        app_presence_poll("Launcher", NULL, chosen);
         if(!ready){ready=1;printf("preview: ready car=%s window=%dx%d\n",chosen,fw,fh);fflush(stdout);}
         if(shot && i==frames-1){screenshot(shot);printf("preview: %s painted '%s'\n",chosen,showroom_caption(cars));}
         if(picture&&*picture){
@@ -3776,6 +3802,8 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: %s <disc.iso|GT4.VOL> [project] [screen]\n", argv[0]);
         return 2;
     }
+    app_presence_enabled =
+        discord_enabled && !shot && !front_shot && !wiz_shot_prefix && !start_shot_prefix;
 
     int startup_intro =
         !race_preview &&
@@ -6179,37 +6207,17 @@ int main(int argc, char **argv)
         SWP_READY(car_ready && !loading_screen_active() && !race_loading);
         SWP_POP();
         plat_video_end_frame();
-        { /* Discord presence: one cheap check a second, never in the race step. */
-            static uint64_t next_presence_tick;
-            if (discord_enabled && !shot && now >= next_presence_tick) {
-                next_presence_tick = now + 1000000000ull;
-                if (driving == 2 && game) {
-                    gt4_race_hud hud;
-                    menu_quick_race grid;
-                    gen_presence presence = {0};
-                    presence.course = race_course;
-                    presence.car = race_car;
-                    presence.mode = race_game_replaying(game)      ? "Replay"
-                                    : race_game_license_active(game) ? "Licence"
-                                    : race_game_mission_active(game) ? "Mission"
-                                    : career_race.active             ? "GT Mode"
-                                    : race_time_trial                ? "Time Trial"
-                                                                     : "Arcade";
-                    presence.cars = race_game_quick_grid(game, &grid) ? grid.entries : 0;
-                    presence.paused = race_game_is_paused(game);
-                    presence.speed_kmh = -1;
-                    if (race_game_player_hud(game, &hud)) {
-                        presence.lap = hud.lap;
-                        presence.laps = hud.laps;
-                        presence.speed_kmh = (int)(hud.speed * 3.6f);
-                    }
-                    discord_presence_tick(&presence);
-                } else {
-                    gen_presence presence = {0};
-                    presence.mode = "In the menus";
-                    discord_presence_tick(&presence);
-                }
-            }
+        /* Discord presence: one cheap check a second, never in the race step. */
+        if (driving == 2 && game) {
+            const char *mode = race_game_replaying(game)      ? "Replay"
+                               : race_game_license_active(game) ? "Licence"
+                               : race_game_mission_active(game) ? "Mission"
+                               : career_race.active             ? "GT Mode"
+                               : race_time_trial                ? "Time Trial"
+                                                                : "Arcade";
+            app_presence_poll(mode, race_course, race_car);
+        } else {
+            app_presence_poll("In the menus", NULL, race_car[0] ? race_car : NULL);
         }
         /* the results over: the race's replay plays by itself from its
            opening, then the quick menu (as the game goes on) */
