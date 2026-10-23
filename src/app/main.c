@@ -533,9 +533,10 @@ static void studio_info_draw(const studio_dock *d)
    behind it). GENERAL includes the room's theme and light colour (launcher.ini).
    VIDEO, INTERFACE and QUALITY use the same store as the game's Screen Settings,
    saved as they change and applied at START. */
-#define STUDIO_TABS 6
+#define STUDIO_TABS 7
 static const char *const studio_tab_names[STUDIO_TABS] = {"GENERAL", "VIDEO",    "INTERFACE",
-                                                          "SOUND",   "CONTROLS", "QUALITY"};
+                                                          "SOUND",   "CONTROLS", "QUALITY",
+                                                          "TWEAKS"};
 /* The game's own sound and pad settings (the earlier launcher's pages): launcher_options,
    read once and written to the game's options file and save when the panel closes. */
 static launcher_options studio_game_options;
@@ -590,8 +591,9 @@ static int studio_tab_rows(int tab, int rows[24])
         rows[n++] = -4; /* Open the actual custom-music folder. */
 #endif
     }
-    if (tab <= 3 || tab == 5) {
-        const char *group = tab == 5   ? "Quality"
+    if (tab <= 3 || tab >= 5) {
+        const char *group = tab == 6   ? "Tweaks"
+                            : tab == 5 ? "Quality"
                             : tab == 0 ? "General"
                             : tab == 1 ? "Video"
                             : tab == 3 ? "Sound" /* P: the Jukebox's options, after the volumes */
@@ -724,11 +726,25 @@ typedef struct {
     float x, y, w, h, row0, pitch, tab_y;
     float right; /* where the values end; 0: the panel's right margin */
 } studio_panel;
-/* the tabs, side by side at their own widths */
+/* the tabs, side by side at their own widths; seven labels shrink rather than drop */
+static float studio_tab_scale(const studio_dock *d)
+{
+    const float S = d->scale > 0 ? d->scale : DOCK_SCALE;
+    float base = .9f, total = (STUDIO_TABS - 1) * 22.f * S;
+    for (int t = 0; t < STUDIO_TABS; t++)
+        total += dock_text_width(&d->font, studio_tab_names[t]) * DOCK_NAME_SCALE * base * S;
+    float avail = d->fw > 0 ? d->fw - 40.f * S : 640.f * S;
+    if (total > avail && total > 0) {
+        base *= avail / total;
+        if (base < .5f)
+            base = .5f;
+    }
+    return base;
+}
 static float studio_tab_w(const studio_dock *d, int t)
 {
     const float S = d->scale > 0 ? d->scale : DOCK_SCALE;
-    return dock_text_width(&d->font, studio_tab_names[t]) * DOCK_NAME_SCALE * .9f * S;
+    return dock_text_width(&d->font, studio_tab_names[t]) * DOCK_NAME_SCALE * studio_tab_scale(d) * S;
 }
 static float studio_tab_x(const studio_dock *d, int t)
 {
@@ -831,7 +847,8 @@ static void studio_options_draw(const studio_dock *d, int tab, int row, int them
                            1, box);
             plat_draw_quad(NULL, tx, p.tab_y + 5.f * S, tw, fmaxf(1.f, S), 0, 0, 1, 1, line);
         }
-        dock_text(d, studio_tab_names[t], tx, p.tab_y, .9f, 0, t == tab || hot ? head : dim);
+        dock_text(d, studio_tab_names[t], tx, p.tab_y, studio_tab_scale(d), 0,
+                  t == tab || hot ? head : dim);
         if (t == tab)
             plat_draw_quad(NULL, tx, p.tab_y + 5.f * S, tw, fmaxf(1.f, S), 0, 0, 1, 1, head);
     }
