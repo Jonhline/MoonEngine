@@ -38,6 +38,7 @@ struct ui_widget {
     float x, y, w, h;  /* relative to the parent */
     int has_geometry;
     int visible;
+    int focus_override, has_focus_override; /* authored can_focus, changed by script */
     int insensitive;
     int caret; /* InputTextFace: the insertion point (bytes into text) */
     int focused;
@@ -79,6 +80,7 @@ struct ui_widget {
     /* MScaleBar 00239018/20: float value, clamped by script min/max. */
     float photo_value, photo_min, photo_max, photo_step, photo_current, photo_repeat;
     float photo_saved; /* ScaleBar value kept while its popup is open (00238BE0), back on Cancel */
+    int list_drag_index; /* original ListBox+12C: -1 outside drag mode. */
     int focus_index; /* SelectBox */
     int hover_shown; /* P: index + 1 a mouse preview left showing over focus_index */
     int list_repeat; /* authored ListBox/OptionMenu repeat property */

@@ -1,4 +1,5 @@
 # Game content: never commit
+launcher-prints/
 assets/*
 extracted/*
 !assets/.gitkeep

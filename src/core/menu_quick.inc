@@ -680,7 +680,7 @@ static int nat_calendar_get(ah_vm *vm, ah_obj *self, void *data, int argc, const
                       : e[2] < 5 ? ah_str(vm, home->car_event_names[e[2]])
                                  : ah_nil());
     } else if (e[0] == 6) {
-        ah_array_push(vm, event, e[1] < 4 ? ah_str(vm, parts->wheel_categories[e[1]]) : ah_nil());
+        ah_array_push(vm, event, e[1] < 5 ? ah_str(vm, home->wheel_event_names[e[1]]) : ah_nil());
         ah_array_push(vm, event, ah_int(e[2]));
     } else if (e[0] == 3 || e[0] == 4 || e[0] == 5 || e[0] == 8) {
         if (e[0] == 8)
@@ -737,16 +737,17 @@ static int nat_photo_format(ah_vm *vm, ah_obj *self, void *d, int argc, const ah
         return 0;
     }
     /* 001B0ED0 +70..84 -> 00490A40. PhotoShoot L106/L2350 uses
-       %.1t; caller passes rounded tenths. A: other conversions pending. */
-    int precision = fmt && !strcmp(fmt, "%.1t") ? 1 : fmt && !strcmp(fmt, "%.2t") ? 2 : 0;
+       %.1t; Setting.setupSlider L111 uses %.3t for gear ratios. */
+    int precision = fmt && !strcmp(fmt, "%.1t") ? 1 : fmt && !strcmp(fmt, "%.2t") ? 2 :
+                    fmt && !strcmp(fmt, "%.3t") ? 3 : 0;
     if (argc != 2 || !precision || !ah_is_num(argv[1]) || !isfinite(ah_num(argv[1])) ||
         fabs(ah_num(argv[1])) >= 9223372036854775808.)
-        return ah_error(vm, "unsupported Photo Travel format");
+        return ah_error(vm, "unsupported menu format");
     int64_t v = (int64_t)ah_num(argv[1]);
     if (v == INT64_MIN)
         return ah_error(vm, "invalid fixed decimal");
     uint64_t a = v < 0 ? (uint64_t)-v : (uint64_t)v;
-    unsigned scale = precision == 1 ? 10 : 100;
+    unsigned scale = precision == 1 ? 10 : precision == 2 ? 100 : 1000;
     snprintf(text, sizeof text, "%s%llu.%0*llu", v < 0 ? "-" : "", (unsigned long long)(a / scale),
              precision, (unsigned long long)(a % scale));
     *ret = ah_str(vm, text);

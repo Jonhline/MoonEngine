@@ -31,6 +31,8 @@ static void shadow_map_car(race_view *v, const car_meshes *meshes, const car_mod
 
 static void prepare_shadow_map(race_view *v, const r3d_view *car, int split_entry)
 {
+    if(car->daylight && car->sun_direction[1]<=0)return; /* No solar caster beneath the horizon. */
+
     v->mapped_shadow_ready = 0;
     r3d_shadow_map_bind(NULL);
     if (!r3d_shadow_map_size() || !v->now->shadow || getenv("MOON_NO_CAST_SHADOW"))

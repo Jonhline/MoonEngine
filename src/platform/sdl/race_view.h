@@ -17,6 +17,8 @@ int race_view_request(race_view *v, const char *course, const char *car, int col
 /* the player's car's fitted wheel and wing labels for the next request */
 void race_view_set_parts(race_view *v, const char *wheel, const char *wing);
 int race_view_set_film_tires(race_view *v, unsigned entry, const float tires[4][3]);
+int race_view_set_film_body(race_view *, unsigned entry, const char *body);
+int race_view_set_film_gadgets(race_view *, const uint8_t *, size_t);
 int race_view_set_film_parts(race_view *v, unsigned entry, const char *wheel, const char *wing);
 /* Static Photo Travel scene: full menu car, no race grid or solver. */
 int race_view_request_photo(race_view *v, const char *course, const char *car, int color);
@@ -41,6 +43,8 @@ int race_view_poll(race_view *v, int cancel);
 void race_view_clear(race_view *v);
 /* Draws the 640x448 view; 1 when the course and the car were drawn. */
 void race_view_daylight_time(race_view *v, double seconds);
+/* Read-only diagnostic of the last submitted presentation clock. */
+double race_view_daylight_seconds(const race_view *v);
 int race_view_draw(race_view *v);
 /* Arcade's SceneViewFace: 640x480, empty course, no car reflection work. */
 int race_view_draw_pregrid(race_view *v);
@@ -53,6 +57,8 @@ int race_view_camera_point(const race_view *v, int i, float out[8]);
 /* Whether the player's car is drawn (not from the view on it) */
 void race_view_show_car(race_view *v, int on);
 int race_view_car_visible(const race_view *v);
+/* Read-only presentation state for diagnostics; callback 0, not brake heat. */
+int race_view_brake_lamp(const race_view *v, unsigned entry);
 /* Resident objects selected by RaceCourse +B0 (00395B60). The borrowed
    instances may receive their original RNW4 surface once after loading. */
 gt4_course_gadgets *race_view_gadgets(race_view *v, int section);
@@ -73,6 +79,8 @@ const gt4_course *race_view_course(const race_view *v);
    half width and height at unit depth: 1.73205, 2.25378 for the chase
    camera) and its near plane; eye NULL goes back to the view's own chase
    camera */
+void race_view_set_camera_far(race_view *, float far_clip);
+float race_view_camera_far(const race_view *);
 void race_view_set_camera(race_view *v, const float eye[3], const float rows[9], float sx, float sy,
                           float near_clip);
 /* Native inspection camera: copy the active view, including projection. */

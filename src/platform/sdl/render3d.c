@@ -34,7 +34,7 @@ void r3d_texture_smoothing(int enabled)
 #define UPLOAD_TRIANGLES 2048
 
 typedef struct {
-    int first, count, texture, reflection, flat, specular, wheel_blur_texture, lamp;
+    int first, count, texture, reflection, flat, specular, wheel_blur_texture, lamp, night_lens;
     gt4_draw_state state;
     uint8_t blend_enabled;
     float lo[3], hi[3];
@@ -68,7 +68,7 @@ struct r3d_mesh {
     int vertices;
     unsigned *texture_refs;
     int skinned;
-    int morph;
+    int morph, morph_color;
     float grasp_scale;
     float wheel_screen[2];
     int wheel_screen_valid;
@@ -77,6 +77,7 @@ struct r3d_mesh {
 static GLuint program, dest_tex, dest_fbo, env_tex;
 static int dest_w, dest_h, env_w, env_h, env_dirty, failed, vp[4];
 static const tex1_image *env_source;
+static unsigned environment_revision;
 #ifndef MOON_DEKO3D
 static GLuint gpu_environment;
 static int gpu_environment_w, gpu_environment_h;
@@ -98,22 +99,42 @@ void r3d_texture_filtering(int mode)
 {
     pc_submission.texture_filter = mode >= 0 && mode <= 4 ? mode : 0;
 }
+static int night_sky_enabled;
+void r3d_night_sky(int enabled){night_sky_enabled=enabled!=0;}
+int r3d_night_sky_enabled(void){return night_sky_enabled;}
+float r3d_solar_hour(double seconds,int authored_night){
+    if(!night_sky_enabled)return r3d_daylight_hour(seconds);
+    const double rates[]={0,1./3600,1./60};
+    double start=pc_submission.solar_hour<0?(authored_night?22:12):pc_submission.solar_hour;
+    return (float)fmod(start+fmax(0,seconds)*rates[pc_submission.solar_cycle],24);
+}
+static int car_lamps_enabled, car_lamp_count;
+static r3d_car_lamp car_lamp_frame[R3D_CAR_LAMPS];
+void r3d_car_lamps(int enabled){car_lamps_enabled=enabled!=0;}
+int r3d_car_lamps_enabled(void){return car_lamps_enabled;}
+void r3d_car_lamp_frame(const r3d_car_lamp *lamps,unsigned count){
+    r3d_lamp_shadow_bind(NULL);
+    car_lamp_count=lamps?(count>R3D_CAR_LAMPS?R3D_CAR_LAMPS:count):0;
+    if(car_lamp_count)memcpy(car_lamp_frame,lamps,car_lamp_count*sizeof *lamps);
+}
 static void shadow_map_receiver(const r3d_view *view);
+static void lamp_shadow_receiver(int count);
 void r3d_daylight_options(int enabled, int hour, int cycle)
 {
     pc_submission.daylight = enabled != 0;
-    pc_submission.solar_hour = hour >= 7 && hour <= 17 ? hour : 12;
+    pc_submission.solar_hour = hour >= -1 && hour < 24 ? hour : 12;
     pc_submission.solar_cycle = cycle >= 0 && cycle <= 2 ? cycle : 0;
 }
 int r3d_daylight_enabled(void) { return pc_submission.daylight; }
 float r3d_daylight_hour(double seconds)
 {
     const double rates[] = {0, 1.0/3600, 1.0/60};
-    double hour = pc_submission.solar_hour + fmax(0,seconds)*rates[pc_submission.solar_cycle];
+    double hour = (pc_submission.solar_hour<0?12:fmin(17,fmax(7,pc_submission.solar_hour))) + fmax(0,seconds)*rates[pc_submission.solar_cycle];
     /* Reflect at the daylight boundaries: no discontinuous jump into night. */
     hour = fmod(hour-7,20);
     return (float)(7+(hour<=10?hour:20-hour));
 }
+int r3d_modern_lighting_enabled(void) { return pc_submission.modern_lighting; }
 void r3d_modern_lighting(int enabled)
 {
     pc_submission.modern_lighting = enabled != 0;
@@ -185,14 +206,21 @@ r3d_stats r3d_frame_stats(void)
 }
 static struct {
     GLint rot, pos, cam, r, u, f, focal, jitter, clip, mode, flat, reflect, specular;
-    GLint nlights, ldir, lamb, ldif, lspe, lspec_scale, lvertex, shadow_alpha, shadow_rgb, mirror,
+    GLint nlights, local_lights, ldir, lamb, ldif, lspe, lspec_scale, lvertex, shadow_alpha, shadow_rgb, mirror,
         cscale, untex, envk;
     GLint tex, has_tex, texsize, size, wrap, region, cc, tfx, native, nearest, mip_count, minify, filtering;
+    GLint cloud_cache, cloud_volume, cloud_shadow, cloud_origin, linear_environment, environment_linear;
     GLint fade, atest, afunc, aref, pass, date, date_bit, dest, envtex, envsize, viewport, focal_px;
-    GLint skinned, palette, morph, colorop, colormul, coloradd, valpha;
+    GLint skinned, palette, morph, morph_color, colorop, colormul, coloradd, valpha;
     GLint fog, fogcol, grade_rgb, grade;
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
     GLint material_shading;
+    GLint night_sky, authored_night;
+    GLint car_lamp_count,car_lamp_position,car_lamp_direction,car_lamp_color;
+    GLint lamp_lens;
+    GLint lamp_shadow_mask, lamp_shadow_map, lamp_shadow_projection;
+    GLint sky_seconds;
+    GLint authored_environment;
     GLint shadow_on, shadow_map, shadow_projection, modern_lighting, hdr, daylight, sun_direction, sun_color, sky_color, haze_color;
 #endif
 #if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
@@ -209,8 +237,8 @@ static const char *vs =
     "layout(location=3) in vec3 a_rgb; layout(location=4) in vec3 a_amb; layout(location=5) in vec3 a_spec;\n"
     "layout(location=6) in vec2 a_shine_alpha;\n"
     "layout(location=7) in vec4 a_bone; layout(location=8) in vec4 a_weight;\n"
-    "layout(location=9) in vec3 a_morph_pos; layout(location=10) in vec3 a_morph_normal; layout(location=11) in vec2 a_morph_uv;\n"
-    "uniform float u_morph; uniform int u_colorop; uniform vec3 u_colormul,u_coloradd; uniform float u_valpha;\n"
+    "layout(location=9) in vec3 a_morph_pos; layout(location=10) in vec3 a_morph_normal; layout(location=11) in vec2 a_morph_uv;layout(location=12) in vec4 a_morph_rgba;\n"
+    "uniform float u_morph; uniform int u_morph_color; uniform int u_colorop; uniform vec3 u_colormul,u_coloradd; uniform float u_valpha;\n"
     "uniform int u_skinned; uniform mat4 u_palette[20];\n"
     "uniform mat3 u_rot; uniform vec3 u_pos, u_cam, u_r, u_u, u_f; uniform vec2 u_focal, u_jitter, u_clip;\n"
     "uniform int u_mode, u_flat, u_reflect, u_mirror, u_specular_only; uniform float u_shadow_alpha, u_cscale; uniform vec3 u_shadow_rgb; uniform vec2 u_envk;\n"
@@ -226,8 +254,8 @@ static const char *vs =
     "const vec3 L[3]=vec3[3](vec3(.57735,.57735,.57735),vec3(0.,.9759,-.2182),vec3(-1.,0.,0.));\n"
     "const vec3 D=vec3(1.,60./255.,216./255.), S=vec3(239./255.,108./255.,198./255.);\n"
     "void main(){\n"
-    "  vec3 p=a_pos, normal=a_normal; vec2 uv=a_uv;\n"
-    "  if(u_morph>0.){p=mix(p,a_morph_pos,u_morph);normal=mix(normal,a_morph_normal,u_morph);uv=mix(uv,a_morph_uv,u_morph);}\n"
+    "  vec3 p=a_pos, normal=a_normal, rgb=a_rgb; float alpha=a_shine_alpha.y; vec2 uv=a_uv;\n"
+    "  if(u_morph>0.){p=mix(p,a_morph_pos,u_morph);normal=mix(normal,a_morph_normal,u_morph);uv=mix(uv,a_morph_uv,u_morph);if(u_morph_color==1){rgb=mix(rgb,a_morph_rgba.rgb,u_morph);alpha=mix(alpha,a_morph_rgba.a,u_morph);}}\n"
     "  if(u_skinned==1 && dot(a_weight,vec4(1.))>0.){\n"
     "    mat4 bone=u_palette[int(a_bone.x)]*a_weight.x+u_palette[int(a_bone.y)]*a_weight.y+\n"
     "              u_palette[int(a_bone.z)]*a_weight.z+u_palette[int(a_bone.w)]*a_weight.w;\n"
@@ -245,13 +273,13 @@ static const char *vs =
        (MINI with vf24.w), times 1/w, times 255 - max*255 (vf25.w) plus
        max*255 + 0.1 (vf26.w); FTOI4 keeps the whole part */
     "  { float fz=max(z,1e-6); v_fog=u_fog.x<0.?1.:floor(min(255.,u_fog.y+u_fog.x*min(fz,u_fog.z)/fz))/255.; }\n"
-    "  v_uv=uv; v_alpha=u_mode==2?min(a_shine_alpha.y*u_shadow_alpha,1.):a_shine_alpha.y*u_valpha;\n"
+    "  v_uv=uv; v_alpha=u_mode==2?min(alpha*u_shadow_alpha,1.):alpha*u_valpha;\n"
     /* the course (unlit): a kind 4 layer has no colour of its own (0049EB90
        loads no ambient/diffuse block), only the lights' specular. Which
        lights the course gives it is not read: none here, so it adds
        nothing (its vertex colour, 1.0 doubled, made the grid's Cs * Ad + Cd
        tyre marks white at Tsukuba, user's PCSX2 report) */
-    "  if(u_mode!=0){ v_light=u_mode==1?(u_specular_only==1?vec3(0.):a_rgb*u_cscale):a_rgb+u_shadow_rgb; if(u_colorop==1) v_light=v_light*u_colormul+u_coloradd; v_spec=vec3(0.); v_envuv=vec2(.5); return; }\n"
+    "  if(u_mode!=0){ v_light=u_mode==1?(u_specular_only==1?vec3(0.):rgb*u_cscale):a_rgb+u_shadow_rgb; if(u_colorop==1) v_light=v_light*u_colormul+u_coloradd; v_spec=vec3(0.); v_envuv=vec2(.5); return; }\n"
 #if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     /* P: flat non-reflective vertices do not consume their normal. */
     "  vec3 wn=vec3(0.,1.,0.); if(u_switch_fast==0 || u_flat==0 || u_reflect==1) wn=normalize(u_rot*normal);\n"
@@ -314,6 +342,7 @@ static const char *fs =
     "in float v_floor; uniform int u_mirror; in vec3 v_light; in vec3 v_spec; in vec2 v_envuv; in vec2 v_uv; in float v_alpha; out vec4 o;\n"
     "noperspective in float v_fog; uniform vec3 u_fogcol, u_grade_rgb, u_grade;\n"
     "uniform sampler2D u_tex, u_dest, u_envtex; uniform int u_has_tex, u_cc, u_tfx, u_native, u_nearest, u_mip_count, u_minify;\n"
+    "uniform float u_authored_night;\n"
     "uniform vec2 u_texsize; uniform ivec2 u_size, u_wrap, u_envsize; uniform ivec4 u_region;\n"
     "uniform int u_atest, u_afunc, u_pass, u_date, u_date_bit, u_reflect; uniform float u_aref, u_untex, u_fade; uniform vec2 u_focal_px;\n"
     "uniform vec4 u_viewport;\n"
@@ -323,6 +352,7 @@ static const char *fs =
 #include "render3d_modern_shader.inc"
 #include "render3d_atmosphere_shader.inc"
 #include "render3d_daylight_shader.inc"
+#include "render3d_car_lamps_shader.inc"
 #endif
     "int texel(int at,int size,int mode,int mn,int mx){\n"
     "  if(mode==0) return at-size*int(floor(float(at)/float(size)));\n"
@@ -411,7 +441,7 @@ static const char *fs =
     "    reflectedEnvironment=e;src=e*light;\n"
     "  } else src=min(vec3(1.),t.rgb*light*(u_has_tex==1?1.:u_untex)+spec);\n"
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
-    "  bool linearOutput=false;\n"
+    "  vec3 retainedNight=src;bool linearOutput=false;\n"
     "  vec2 occlusion=u_shadow_on==1?shadowVisibility():vec2(1.,0.);float visibility=occlusion.x;\n"
     "  if(u_modern_lighting==1 && u_mode==0 && u_flat==0 && u_nlights>0){src=modernShade(t.rgb,visibility,occlusion.y,src,reflectedEnvironment);linearOutput=u_hdr==1;}else if(u_daylight==0)src*=visibility;\n"
 #endif
@@ -421,6 +451,8 @@ static const char *fs =
     "  if(u_hdr==1 && !linearOutput)src=modernLinear(max(src,vec3(0.)));\n"
 #endif
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    "  if(u_daylight==1 && u_authored_night>0.)src=mix(src,u_hdr==1?(u_authored_environment==1 && u_mode==1?authoredSceneLinear(modernLinear(max(retainedNight,vec3(0.)))):modernLinear(max(retainedNight,vec3(0.)))):retainedNight,clamp(u_authored_night,0.,1.));\n"
+    "  if(u_car_lamp_count>0 && u_daylight<2 && u_mode!=2 && u_reflect==0)src=carLampShade(src,t.rgb);\n"
     "  src=mix(u_hdr==1?modernLinear(u_fogcol):u_fogcol,src,v_fog);\n"
 #else
     "  src=mix(u_fogcol,src,v_fog);\n"
@@ -469,6 +501,7 @@ int r3d_available(void)
     UNI(flat, "u_flat");
     UNI(reflect, "u_reflect");
     UNI(nlights, "u_nlights");
+    UNI(local_lights, "u_local_lights");
     UNI(ldir, "u_ldir");
     UNI(lamb, "u_lamb");
     UNI(ldif, "u_ldif");
@@ -498,9 +531,22 @@ int r3d_available(void)
     UNI(material_shading, "u_material_shading");
     UNI(hdr,"u_hdr");
     UNI(daylight, "u_daylight");
+    UNI(authored_environment,"u_authored_environment");
+    UNI(sky_seconds, "u_sky_seconds");
+    UNI(cloud_cache,"u_cloud_cache");UNI(cloud_volume,"u_cloud_volume");
+    UNI(linear_environment,"u_linear_environment");UNI(environment_linear,"u_environment_linear");
+    UNI(cloud_shadow,"u_cloud_shadow");UNI(cloud_origin,"u_cloud_origin");
     UNI(sun_direction, "u_sun_direction");
     UNI(sun_color, "u_sun_color");
     UNI(sky_color, "u_sky_color");
+    UNI(night_sky,"u_night_sky");
+    UNI(authored_night, "u_authored_night");
+    UNI(car_lamp_count,"u_car_lamp_count");UNI(car_lamp_position,"u_car_lamp_position");
+    UNI(car_lamp_direction,"u_car_lamp_direction");UNI(car_lamp_color,"u_car_lamp_color");
+    UNI(lamp_lens, "u_lamp_lens");
+    UNI(lamp_shadow_mask, "u_lamp_shadow_mask");
+    UNI(lamp_shadow_map, "u_lamp_shadow_map");
+    UNI(lamp_shadow_projection, "u_lamp_shadow_projection");
     UNI(haze_color, "u_haze_color");
     UNI(modern_lighting, "u_modern_lighting");
     UNI(shadow_on, "u_shadow_on");
@@ -523,6 +569,7 @@ int r3d_available(void)
     UNI(skinned, "u_skinned");
     UNI(palette, "u_palette");
     UNI(morph, "u_morph");
+    UNI(morph_color, "u_morph_color");
     UNI(colorop, "u_colorop");
     UNI(colormul, "u_colormul");
     UNI(valpha, "u_valpha");
@@ -560,7 +607,8 @@ static int same_group(const r3d_group *g, const gt4_triangle *t)
     return g->source_model == t->source_model && g->texture == t->texture &&
            g->wheel_blur_texture == t->wheel_blur_texture && g->blend_enabled == t->blend_enabled &&
            g->flat == (t->kind == 0 || t->kind == 5) && g->specular == (t->kind == 4) &&
-           g->lamp == t->lamp && !memcmp(&g->state, &t->state, sizeof g->state);
+           g->lamp == t->lamp && g->night_lens == t->night_lens &&
+           !memcmp(&g->state, &t->state, sizeof g->state);
 }
 
 /* P: preserve 00455708 draw state while omitting redundant GL applications.
@@ -570,7 +618,7 @@ static int same_draw_state(const r3d_group *a, const r3d_group *b)
 {
     return a->blend_enabled == b->blend_enabled && a->reflection == b->reflection &&
            a->flat == b->flat && a->specular == b->specular && a->lamp == b->lamp &&
-           !memcmp(&a->state, &b->state, sizeof a->state);
+           a->night_lens == b->night_lens && !memcmp(&a->state, &b->state, sizeof a->state);
 }
 
 static int same_opaque_group(const r3d_group *a, const r3d_group *b)
@@ -578,7 +626,7 @@ static int same_opaque_group(const r3d_group *a, const r3d_group *b)
     return !b->blend_enabled && a->source_model == b->source_model && a->texture == b->texture &&
            a->reflection == b->reflection && a->flat == b->flat && a->specular == b->specular &&
            a->wheel_blur_texture == b->wheel_blur_texture && a->lamp == b->lamp &&
-           !memcmp(&a->state, &b->state, sizeof a->state);
+           a->night_lens == b->night_lens && !memcmp(&a->state, &b->state, sizeof a->state);
 }
 
 r3d_mesh *r3d_mesh_create_shared(const gt4_model *m, const r3d_mesh *shared)
@@ -608,6 +656,7 @@ r3d_mesh *r3d_mesh_create_shared(const gt4_model *m, const r3d_mesh *shared)
     mesh->skinned = m->skin != NULL;
     int stride = mesh->skinned ? SKIN_VFLOATS : VFLOATS;
     mesh->morph = m->morph != NULL;
+    mesh->morph_color=m->morph_color;
     mesh->grasp_scale = m->grasp_scale;
     if (mesh->morph) {
         if (mesh->skinned || !isfinite(mesh->grasp_scale) || mesh->grasp_scale <= 0 ||
@@ -615,7 +664,7 @@ r3d_mesh *r3d_mesh_create_shared(const gt4_model *m, const r3d_mesh *shared)
             free(mesh);
             return NULL;
         }
-        stride += 8;
+        stride += 12;
     }
     /* Stream into the final VBO with a bounded scratch buffer. A million
        course triangles otherwise need another 228 MB temporary CPU copy. */
@@ -684,6 +733,7 @@ r3d_mesh *r3d_mesh_create_shared(const gt4_model *m, const r3d_mesh *shared)
                 memcpy(o + 19, x->p, 12);
                 memcpy(o + 22, x->normal, 12);
                 memcpy(o + 25, x->uv, 8);
+                memcpy(o+27,x->rgb,12);o[30]=x->alpha;
             }
         }
         r3d_group *g = mesh->ngroups ? &mesh->groups[mesh->ngroups - 1] : NULL;
@@ -715,6 +765,7 @@ r3d_mesh *r3d_mesh_create_shared(const gt4_model *m, const r3d_mesh *shared)
             g->flat = t->kind == 0 || t->kind == 5;
             g->specular = t->kind == 4;
             g->lamp = t->lamp;
+            g->night_lens = t->night_lens;
             for (int k = 0; k < 3; k++) {
                 g->lo[k] = 1e30f;
                 g->hi[k] = -1e30f;
@@ -767,8 +818,8 @@ r3d_mesh *r3d_mesh_create_shared(const gt4_model *m, const r3d_mesh *shared)
         glEnableVertexAttribArray(a);
     }
     if (mesh->morph)
-        for (int a = 9, at = 19; a < 12; a++) {
-            int size = a == 11 ? 2 : 3;
+        for (int a = 9, at = 19; a < 13; a++) {
+            int size = a == 12 ? 4 : a == 11 ? 2 : 3;
             glVertexAttribPointer(a, size, GL_FLOAT, GL_FALSE, stride * sizeof(float),
                                   (void *)(size_t)(at * sizeof(float)));
             glEnableVertexAttribArray(a);
@@ -979,6 +1030,7 @@ void r3d_begin(float x, float y, float w, float h, const tex1_image *environment
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     if (environment != env_source || env_dirty) {
         env_dirty = 0;
+        environment_revision++;
         if (environment && env_tex && env_w == environment->width && env_h == environment->height) {
             glBindTexture(GL_TEXTURE_2D, env_tex);
             glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, env_w, env_h, GL_RGBA, GL_UNSIGNED_BYTE,
@@ -1270,6 +1322,7 @@ int r3d_begin_target(int size)
 void r3d_gpu_environment(unsigned texture, int width, int height)
 {
     gpu_environment = texture;
+    environment_revision++;
     gpu_environment_w = width;
     gpu_environment_h = height;
 }
@@ -1568,11 +1621,19 @@ static int wheel_accumulate(r3d_texture *t, int samples, float angle)
     return 1;
 }
 
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+#include "render3d_cloud_cache.inc"
+#include "render3d_environment_cache.inc"
+#endif
 static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *lights)
 {
     if (!mesh || !program)
         return;
     SWP_PUSH(SWP_GL);
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    int cloud_ready=cloud_cache_prepare(view);
+    int environment_ready=environment_cache_prepare(view);
+#endif
     float planes[6][4];
     r3d_frustum(view, projection_x, planes);
     int cull = getenv("MOON_DISABLE_CULL") == NULL;
@@ -1616,6 +1677,7 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
 #endif
     int skinned = mesh->skinned && view->skin_palette != NULL;
     glUniform1i(U.skinned, skinned);
+    glUniform1i(U.morph_color,mesh->morph_color);
     glUniform1f(U.morph, mesh->morph && isfinite(view->grasp)
                              ? fminf(1, fmaxf(0, view->grasp)) * mesh->grasp_scale
                              : 0);
@@ -1628,6 +1690,7 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
     int n = lights ? lights->count : 0;
     n = n < 0 ? 0 : n > 4 ? 4 : n;
     glUniform1i(U.nlights, n);
+    glUniform1i(U.local_lights, n ? lights->authored_local : 0);
     glUniform1f(U.lvertex, n ? lights->vertex_limit : 0);
     if (n) {
         glUniform3fv(U.ldir, n, &lights->direction[0][0]);
@@ -1650,7 +1713,7 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
     {
         float k[2];
         depth_coeffs((view->near_clip > 0 ? view->near_clip : .2f) + view->depth_bias,
-                     20000 + view->depth_bias, k);
+                     (view->far_clip > view->near_clip ? view->far_clip : 20000) + view->depth_bias, k);
         glUniform2f(U.clip, k[0], k[1]);
     }
     glUniform1i(U.mode, view->shadow ? 2 : view->unlit ? 1 : 0);
@@ -1659,10 +1722,25 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
     shadow_map_receiver(view);
     glUniform1i(U.hdr,video_hdr_active());
     glUniform1i(U.daylight, view->daylight);
+    glUniform1i(U.authored_environment,view->authored_environment);
+    cloud_cache_bind(cloud_ready,view);
+    environment_cache_bind(environment_ready);
+    glUniform1f(U.sky_seconds, view->sky_seconds);
+    glUniform1i(U.night_sky,night_sky_enabled);
+    glUniform1f(U.authored_night, view->authored_night);
     glUniform3fv(U.sun_direction,1,view->sun_direction);
     glUniform3fv(U.sun_color,1,view->sun_color);
     glUniform3fv(U.sky_color,1,view->sky_color);
     glUniform3fv(U.haze_color,1,view->haze_color);
+    int lamp_count=car_lamps_enabled && !view->ghost && !view->shadow?car_lamp_count:0;
+    glUniform1i(U.car_lamp_count,lamp_count);
+    lamp_shadow_receiver(lamp_count);
+    float positions[R3D_CAR_LAMPS][4],directions[R3D_CAR_LAMPS][4],colors[R3D_CAR_LAMPS][4];
+    for(int i=0;i<lamp_count;i++) {
+        memcpy(positions[i],car_lamp_frame[i].position,16);memcpy(directions[i],car_lamp_frame[i].direction,16);memcpy(colors[i],car_lamp_frame[i].color,16);
+    }
+    if(lamp_count){glUniform4fv(U.car_lamp_position,lamp_count,positions[0]);glUniform4fv(U.car_lamp_direction,lamp_count,directions[0]);glUniform4fv(U.car_lamp_color,lamp_count,colors[0]);}
+
     glUniform1i(U.modern_lighting, pc_submission.modern_lighting && view->modern_light && !view->ghost && !view->shadow);
 #endif
     glUniform1f(U.shadow_alpha, view->shadow_alpha > 0 ? view->shadow_alpha : .55f);
@@ -1839,12 +1917,13 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
             } else
                 frame_stats.state_cache_hits++;
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
-            /* Legacy blended windows/reflection overlays already encode their
-               light contribution. Relighting them as opaque paint hides the
-               cockpit and exposes the low-poly overlay triangles. */
-            int relight = !(view->daylight && g->blend_enabled && !g->reflection);
-            glUniform1i(U.modern_lighting,pc_submission.modern_lighting && view->modern_light && !view->ghost && !view->shadow && relight);
-            glUniform1i(U.daylight,relight?view->daylight:0);
+            /* P: blend coverage is not a material class. Authored paint decals,
+               glass and lamps retain their alpha while using the same lighting
+               as their corresponding opaque material. */
+            /* View uniforms are set once above. Material state equality already
+               includes the lens tags, so this value changes with that state. */
+            if (state_changed)
+                glUniform1i(U.lamp_lens, g->night_lens || g->lamp == 2);
 #endif
             if (state_changed) {
                 /* the draw's own fog colour (a GS colour, doubled with the course's) or the scene's */
@@ -2189,7 +2268,7 @@ void r3d_end_target_add_road(const float rgb[3], int blur, const r3d_view *road)
     static GLuint copy, quad, other_fbo, other_tex;
     static int other_size, failed_copy;
     static struct {
-        GLint image, shift, range, tint, linear_output, rough_road, road_y, road_focal;
+        GLint image, shift, range, tint, linear_output;
     } C;
     int size = target_size;
     GLuint picture = target_color;
@@ -2201,8 +2280,8 @@ void r3d_end_target_add_road(const float rgb[3], int blur, const r3d_view *road)
             "#version 330 core\nout vec2 uv; void main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2); uv=p; gl_Position=vec4(p*2.-1.,0.,1.);}\n",
             /* uv: 0..1 across the drawn rectangle, v up; the GS's rows go
                down, so its "first texels" are the picture's top */
-            "#version 330 core\nin vec2 uv; out vec4 o; uniform sampler2D image; uniform vec2 shift; uniform float range; uniform vec3 tint;uniform int linear_output,rough_road;uniform vec3 road_y;uniform vec2 road_focal;\n"
-            "void main(){vec2 t=vec2(uv.x*range,1.-(1.-uv.y)*range)+shift; vec3 c=texture(image,t).rgb*tint;if(linear_output==1){c=clamp(c,0.,1.);c=mix(c/12.92,pow((c+.055)/1.055,vec3(2.4)),step(vec3(.04045),c));}if(rough_road==1){vec2 q=(uv*2.-1.)/road_focal;float cosine=clamp(abs(dot(vec3(q,1.),road_y))/sqrt(1.+dot(q,q)),0.,1.);c*=.04+.06*pow(1.-cosine,5.);}o=vec4(c,1.);}\n");
+            "#version 330 core\nin vec2 uv; out vec4 o; uniform sampler2D image; uniform vec2 shift; uniform float range; uniform vec3 tint;uniform int linear_output;\n"
+            "void main(){vec2 t=vec2(uv.x*range,1.-(1.-uv.y)*range)+shift; vec3 c=texture(image,t).rgb*tint;if(linear_output==1){c=clamp(c,0.,1.);c=mix(c/12.92,pow((c+.055)/1.055,vec3(2.4)),step(vec3(.04045),c));}o=vec4(c,1.);}\n");
         if (!copy)
             failed_copy = 1;
         else {
@@ -2211,9 +2290,6 @@ void r3d_end_target_add_road(const float rgb[3], int blur, const r3d_view *road)
             C.range = glGetUniformLocation(copy, "range");
             C.tint = glGetUniformLocation(copy, "tint");
             C.linear_output = glGetUniformLocation(copy,"linear_output");
-            C.rough_road = glGetUniformLocation(copy,"rough_road");
-            C.road_y = glGetUniformLocation(copy,"road_y");
-            C.road_focal = glGetUniformLocation(copy,"road_focal");
             glGenVertexArrays(1, &quad);
         }
     }
@@ -2222,7 +2298,6 @@ void r3d_end_target_add_road(const float rgb[3], int blur, const r3d_view *road)
         glBindVertexArray(quad);
         glUniform1i(C.image, 0);
         glUniform1i(C.linear_output,0);
-        glUniform1i(C.rough_road,0);
         glActiveTexture(GL_TEXTURE0);
         glDisable(GL_BLEND);
         glViewport(0, 0, size, size);
@@ -2277,15 +2352,9 @@ void r3d_end_target_add_road(const float rgb[3], int blur, const r3d_view *road)
            P: its encoded LDR result must enter the float scene as linear light. */
         glUniform1i(C.linear_output,video_hdr_active());
 #endif
-        /* P: rough dielectric IBL approximation, F0=.04 and roughness=.9.
-           Ground is locally horizontal; the authored mask remains authoritative.
-           Original: func_003411D0 +0x0 retains the unweighted GS path. */
-        glUniform1i(C.rough_road, road != NULL);
-        if (road) {
-            glUniform3f(C.road_y,road->r[1],road->u[1],road->f[1]);
-            float fy=road->focal_y>0?road->focal_y:road->focal;
-            glUniform2f(C.road_focal,road->focal/320*projection_x,fy/224);
-        }
+        /* 003411D0's destination-alpha mask covers multiple materials.
+           Preserve its authored strength: world-up is not roughness metadata. */
+        (void)road;
         glEnable(GL_BLEND);
         glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
         glBlendFuncSeparate(GL_DST_ALPHA, GL_ONE, GL_ONE, GL_ZERO);
@@ -2388,7 +2457,7 @@ void r3d_draw_sprites(const r3d_sprite_texture *t, const r3d_view *view, const f
         {
             float k[2];
             depth_coeffs((view->near_clip > 0 ? view->near_clip : .2f) + view->depth_bias,
-                         20000 + view->depth_bias, k);
+                         (view->far_clip > view->near_clip ? view->far_clip : 20000) + view->depth_bias, k);
             glUniform2f(u_clip, k[0], k[1]);
         }
     }
@@ -2495,4 +2564,5 @@ int r3d_warmup(void)
 
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
 #include "render3d_shadow_map.inc"
+#include "render3d_lamp_shadow.inc"
 #endif

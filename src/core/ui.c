@@ -932,6 +932,7 @@ static ui_widget *build(ui_project *p, int root, const mp_node *n, float pw, flo
         !strcmp(w->type, "Composite"))
         w->visible = 0;
     w->insensitive = mp_number(n, "insensitive", 0) != 0;
+    w->list_drag_index = -1; /* 002AEEB0 / 002B5270: inactive drag index. */
     w->opacity = (float)mp_number(n, "opacity", 1.0);
     if (!strcmp(w->type, "ModelFace")) {
         double angles[3] = {0};
@@ -2583,6 +2584,19 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
     ((ui_widget *)w)->drawn_tick = p->draw_tick;
     int root = w->resource_root;
     frame f = {parent.x + w->x, parent.y + w->y, w->w, w->h, parent.alpha * w->opacity};
+    if (!strcmp(p->name,"setting") && !w->has_geometry &&
+        (!strcmp(w->type,"ColorFace") || !strcmp(w->type,"ImageFace"))) {
+        f.w=parent.w;f.h=parent.h;
+    }
+
+    /* The retained option entry uses the owner's width, including its
+       authored background's one-unit overhang (002C8198 -> 00263368). */
+    if (!strcmp(p->name,"setting") && !strcmp(w->type,"ColorFace") && w->parent &&
+        w->name && (!strcmp(w->name,"bgf") || !strcmp(w->name,"bgi"))) {
+        double geometry[4];
+        if (mp_numbers(w->parent->src,"geometry",geometry,4)==4)
+            f.w+=parent.w-(float)geometry[2];
+    }
 
     /* P: initial client bounds, then include actual painted face extents. */
     pointer_bounds((ui_widget *)w,f,clip);
@@ -2834,8 +2848,16 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
                bar image across (ConfirmDialog's caution is already 43x40). */
             if (!strcmp(p->name, "cursor"))
                 client_size = 1;
+            /* Setting's OptionMenu backgrounds inherit its 180x24 client,
+               not the 155x24 source image (002A2608 +7C..C0). */
+            if (!strcmp(p->name,"setting"))
+                client_size = 1;
             float iw = client_size ? f.w : (float)(im ? im->w : 0);
             float ih = client_size ? f.h : (float)(im ? im->h : 0);
+            if (!strcmp(p->name,"setting") && (!w->has_geometry ||
+                (w->image_path && strstr(w->image_path,"popup_item")))) {
+                iw=parent.w;ih=parent.h;
+            }
             /* The manufacturer sidebar fills Nation's authored height,
                including the next-flag preview under the footer gradient. */
             if (!w->has_geometry && w->name && !strcmp(w->name, "bg0") && w->parent &&
@@ -3059,7 +3081,10 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
             base.y -= item->y;
             const ui_widget *previous = p->option_value;
             p->option_value = w;
+            float item_width=((ui_widget *)item)->w;
+            if (!strcmp(p->name,"setting")) ((ui_widget *)item)->w=f.w;
             draw_widget(p, item, base, inner, drawn, skipped);
+            ((ui_widget *)item)->w=item_width;
             p->option_value = previous;
         }
         set_clip(clip);
@@ -3200,7 +3225,10 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
     }
     /* P: a button's full visible frame/label is clickable, not only its
        smaller authored client rectangle. Descendant bounds are clipped. */
-    if (is_container(type))
+    /* A scrolling viewport is fixed: including its translated space would
+       move the mouse edge zones with the content and strand the left edge. */
+    int scroll_clip = w->name && !strcmp(w->name,"clip") && ui_widget_child(w,"space");
+    if (is_container(type) && !scroll_clip)
         for (int i=0;i<w->nkids;i++)
             if (w->kids[i]->drawn_tick == p->draw_tick)
                 pointer_include((ui_widget *)w,w->kids[i]);
@@ -3562,7 +3590,10 @@ void ui_draw_root(ui_project *p, int i, int *drawn, int *skipped)
                with each item's own state mask, texture and RGBA. */
             frame base = {x - item->x, y + j * row - item->y, option->w, row,
                           p->option_alpha * (item->insensitive ? .4f : 1)};
+            float item_width=item->w;
+            if (!strcmp(p->name,"setting")) item->w=option->w;
             draw_widget(p, item, base, popup_clip, &d, &s);
+            item->w=item_width;
         }
         plat_set_clip(0, 0, 0, 0);
         cursor_target(p, option, x, y + (selected_index - start) * row, option->w, row);
@@ -3627,7 +3658,13 @@ void ui_draw_root(ui_project *p, int i, int *drawn, int *skipped)
         }
         p->cursor_started = p->cursor_visible = 1;
     }
-    if (!p->touch_cursor_hidden && (!p->cursor_hidden || p->pointer_active) &&
+    /* 002DF738 +4c -> 002306D0(context,0): opening a popup slider
+       hides the context arrow; 002DF7B0 +6c restores it when closing.
+       Its authored pinch hand remains visible inside the adjustment. */
+    const ui_widget *adjusting = p->cursor_selected;
+    int controller_adjustment = !p->pointer_active && adjusting && adjusting->option_open &&
+        (!strcmp(adjusting->type,"SliderBar") || !strcmp(adjusting->type,"ScaleBar"));
+    if (!controller_adjustment && !p->touch_cursor_hidden && (!p->cursor_hidden || p->pointer_active) &&
         (p->cursor_visible || cursor_in_transition)) {
         ui_load_package(p, "/projects/cursor", "CursorRoot");
         char cursor_path[96];
@@ -4246,6 +4283,16 @@ static int pointer_scroll_widget(ui_project *p, ui_widget *w, float x, float y, 
         space->scroll_set=1;
         return 1;
     }
+    /* P: authored two-row grids (Driving Missions) extend the ScrollWindow
+       horizontally. A wheel must move that space too, without changing focus. */
+    if (space && space->w > clip->w && ui_pointer_contains(p, clip, x, y)) {
+        float old = space->scroll_set ? space->scroll_tx : space->x;
+        space->scroll_tx = fminf(0, fmaxf(clip->w - space->w, old + wheel * clip->w * .12f));
+        if (!space->scroll_set)
+            space->scroll_ty = space->y;
+        space->scroll_set = 1;
+        return 1;
+    }
     if(horizontal_strip(w) && w->nkids && ui_pointer_contains(p,w,x,y)) {
         float total=strip_length(w);
         if(total<=w->w) return 0;
@@ -4339,11 +4386,10 @@ static int pointer_edge_widget(ui_project *p,ui_widget *w,float x,float y,float 
     if(!w || !w->visible || w->insensitive) return 0;
     for(int i=w->nkids-1;i>=0;i--)
         if(pointer_edge_widget(p,w->kids[i],x,y,seconds)) return 1;
-    /* P: MakerRoot/HistoryRoot use clip > space rather than a horizontal
-       list. Pan the viewport continuously, leaving authored focus alone. */
-    if(!strcmp(p->name,"arcade") && w->name && !strcmp(w->name,"clip") &&
-       (!strcmp(ui_root_name(p,w->root),"MakerRoot") ||
-        !strcmp(ui_root_name(p,w->root),"HistoryRoot"))) {
+    /* P: horizontal grids also use clip > space (Driving Missions, makers).
+       The GT Mode map retains its separate Map Edge Pan setting. */
+    if(w->name && !strcmp(w->name,"clip") &&
+       !(!strcmp(p->name,"gtmode") && !strcmp(ui_root_name(p,w->root),"TopRoot"))) {
         ui_widget *space=ui_widget_child(w,"space");
         if(space && space->w>w->w && ui_pointer_contains(p,w,x,y)) {
             float width=w->w,local=x-w->pointer_rect[0],edge=width*.1f;
@@ -4391,7 +4437,16 @@ void ui_pointer_pan_direction(ui_project *p, float dx, float dy)
 }
 void ui_pointer_scroll_clear(ui_project *p)
 {
-    if(p) for(int i=0;i<p->nall;i++) p->all[i]->desktop_scrolled=0;
+    if(p) for(int i=0;i<p->nall;i++) {
+        ui_widget *w=p->all[i];
+        if(w->desktop_scrolled) {
+            /* Controller navigation starts at its selected row, not at the
+               mouse's unrelated offset while the strip eases back on screen. */
+            w->strip_ready=0;
+            w->strip_ticks=0;
+        }
+        w->desktop_scrolled=0;
+    }
 }
 void ui_pointer_hover(ui_project *p, const ui_widget *widget)
 {

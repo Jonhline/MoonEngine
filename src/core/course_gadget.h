@@ -13,7 +13,7 @@ typedef struct {
     int32_t ground_id;
 } gt4_course_gadget;
 typedef struct {
-    gt4_model **model;
+    gt4_model **model, **shadow;
     uint8_t *descriptor;
     unsigned types, sections, count;
     gt4_course_gadget *instance;
@@ -33,4 +33,10 @@ void gt4_course_gadget_rotation(const float angles[3], float rot[9]);
    Plane and light fractions come from the original RNW4 ray query. */
 void gt4_course_gadget_surface(gt4_course_gadget *g, const float normal[3], float plane, float sun,
                                float shade);
+/* Read-only presentation: 003E4968 column-major homogeneous projection,
+   003983E0 alpha and 003E53B8 paired-model selection. */
+void gt4_course_gadget_shadow_matrix(const gt4_course_gadget *g, const float direction[3],
+                                     float matrix[16]);
+float gt4_course_gadget_shadow_alpha(float sun, float shade, float lit, float dark);
+int gt4_course_gadget_model_index(int descriptor_index, int shadow);
 #endif

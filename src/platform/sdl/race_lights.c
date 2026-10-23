@@ -28,9 +28,25 @@ int race_lights_sample(const gt4_course *c, int triangle, const float pos[3], fl
 {
     return race_lights_sample_environment(c, triangle, pos, sun, level, NULL, 0, out);
 }
+static int sample(const gt4_course *c, int triangle, const float pos[3], float sun,
+                  float level, const uint8_t *replacement, size_t replacement_size,
+                  r3d_lights *out, race_lamp_shadows *shadows);
+int race_lights_shadows(const gt4_course *c, int triangle, const float pos[3],
+                       const uint8_t *env, size_t size, race_lamp_shadows *out)
+{
+    r3d_lights unused;
+    memset(out,0,sizeof *out);
+    return sample(c,triangle,pos,1,1,env,size,&unused,out);
+}
 int race_lights_sample_environment(const gt4_course *c, int triangle, const float pos[3], float sun,
                                    float level, const uint8_t *replacement, size_t replacement_size,
                                    r3d_lights *out)
+{
+    return sample(c,triangle,pos,sun,level,replacement,replacement_size,out,NULL);
+}
+static int sample(const gt4_course *c, int triangle, const float pos[3], float sun,
+                  float level, const uint8_t *replacement, size_t replacement_size,
+                  r3d_lights *out, race_lamp_shadows *shadows)
 {
     memset(out, 0, sizeof *out);
     if (!c || !c->data || !span(c->size, 0x80, 4))
@@ -52,6 +68,7 @@ int race_lights_sample_environment(const gt4_course *c, int triangle, const floa
         if (index >= 0)
             list = c->runway + u32(rw + 0x6c) + (size_t)index * 2;
     }
+    out->authored_local = list != 0;
     if (list) {
         /* 0038E960..0038EAF8: up to nine candidates. 0038EB10..0038EBF0
      stable descending attenuation sort, first four uploaded (not all lamps). */
@@ -110,6 +127,14 @@ int race_lights_sample_environment(const gt4_course *c, int triangle, const floa
             memcpy(out->direction[i], a[i].dir, 12);
             const unsigned char *s = env + a[i].source;
             float k = f32(d + a[i].record + 28) != 0 ? a[i].weight : 1;
+            if (shadows) {
+                shadows->count=out->count;
+                for (int j=0;j<3;j++) {
+                    shadows->lamp[i].way[j]=-a[i].dir[j]*f32(env+0xa78);
+                    shadows->lamp[i].rgb[j]=f32(s+0x130+j*4)/f32(env+0x38);
+                }
+                shadows->lamp[i].alpha=f32(s+0x13c)*k;
+            }
             for (int j = 0; j < 3; j++) {
                 out->ambient[i][j] = f32(s + 0xe0 + j * 4) * k;
                 out->diffuse[i][j] = f32(s + 0xf0 + j * 4) * k;

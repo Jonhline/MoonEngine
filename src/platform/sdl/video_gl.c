@@ -1254,6 +1254,36 @@ plat_texture *video_grab(plat_texture *t, float x, float y, float w, float h)
     return t;
 }
 
+uint8_t *video_grab_pixels(const plat_texture *t, int *w, int *h, int *screen)
+{
+    if (!t || t->w < 1 || t->h < 1)
+        return NULL;
+    uint8_t *px = malloc((size_t)t->w * t->h * 4);
+    if (!px)
+        return NULL;
+    video_flush2d();
+    GLint read = 0;
+    GLuint f = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read);
+    glGenFramebuffers(1, &f);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, f);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, t->id, 0);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, t->w, t->h, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)read);
+    glDeleteFramebuffers(1, &f);
+    *w = t->w, *h = t->h, *screen = t->screen_capture;
+    return px;
+}
+
+plat_texture *video_grab_restore(int w, int h, const uint8_t *rgba, int screen)
+{
+    plat_texture *t = plat_texture_create(w, h, rgba);
+    if (t)
+        t->screen_capture = screen;
+    return t;
+}
+
 void plat_texture_update(plat_texture *t, const uint8_t *rgba)
 {
     if (!t || !rgba)

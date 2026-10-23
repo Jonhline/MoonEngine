@@ -29,6 +29,11 @@
 
 static const int sizes[][2] = {{1280, 720},  {1280, 960},  {1600, 900},
                                {1920, 1080}, {2560, 1440}, {3840, 2160}};
+/* Stored 0..23 keep their old hour mapping; 24 explicitly means Course. */
+int video_settings_solar_hour(const pc_video_options *v)
+{
+    return v->solar_hour==24?-1:(v->solar_hour+7)%24;
+}
 static void quality(const pc_video_options *v)
 {
     video_ui_quality(v->filter, v->text / 100.f);
@@ -40,11 +45,13 @@ static void quality(const pc_video_options *v)
     r3d_texture_smoothing(v->texture_smoothing);
     r3d_texture_filtering(v->texture_filtering);
     r3d_car_shadows(v->car_shadows);
+    r3d_car_lamps(v->car_lamps);
+    r3d_night_sky(v->night_sky);
     r3d_material_shading(v->material_shading);
     r3d_reflection_quality(v->reflection_quality);
     r3d_shadow_map_quality(v->shadow_maps);
     r3d_modern_lighting(v->modern_lighting);
-    r3d_daylight_options(v->daylight,v->solar_hour+7,v->solar_cycle);
+    r3d_daylight_options(v->daylight,video_settings_solar_hour(v),v->solar_cycle);
     video_hdr_options(v->hdr,v->sun_rays);
     video_ambient_occlusion(v->ambient_occlusion);
 #endif
@@ -72,15 +79,18 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     s->current.antialiasing = 4;
     s->current.texture_filtering = 3;
     s->current.car_shadows = 1;
+    s->current.car_lamps = 1;
+    s->current.night_sky=1;
     s->current.material_shading = 1;
     s->current.reflection_quality = 1;
     s->current.shadow_maps = 2;
     s->current.modern_lighting = 1;
-    s->current.daylight=1;s->current.solar_hour=5;s->current.solar_cycle=1;s->current.hdr=1;s->current.sun_rays=2;s->current.ambient_occlusion=1;
+    s->current.daylight=1;s->current.solar_hour=24;s->current.solar_cycle=1;s->current.hdr=1;s->current.sun_rays=0;s->current.ambient_occlusion=1;
 #ifndef __SWITCH__
     s->current.desktop = s->current.edge_pan = s->current.input_hints = s->current.main_menu = s->current.smooth_cursor = s->current.hover_feedback = 1;
     s->current.compact_cars = 1;
     s->current.graphics_swap = 1;
+    s->current.controller_tiles = 1;
     s->current.preset_tools = 1;
     s->current.save_tools = 1;
     s->current.spatial_visibility = s->current.resident_reflections = 1;
@@ -133,14 +143,19 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     s->current.shadow_maps = moon_options_int(&s->store, "graphics.shadow_maps", enhanced * 2, 0, 3);
     s->current.modern_lighting = moon_options_int(&s->store, "graphics.modern_lighting", enhanced, 0, 1);
     s->current.daylight=moon_options_int(&s->store,"graphics.daylight",enhanced,0,1);
-    s->current.solar_hour=moon_options_int(&s->store,"graphics.solar_hour",5,0,10);
+    s->current.night_sky=moon_options_int(&s->store,"graphics.night_sky",enhanced,0,1);
+    s->current.car_lamps=moon_options_int(&s->store,"graphics.car_lamps",strcmp(s->store.preset,"Classic")!=0,0,1);
+    s->current.solar_hour=moon_options_int(&s->store,"graphics.solar_hour",enhanced?24:5,0,24);
     s->current.hdr=moon_options_int(&s->store,"graphics.hdr",enhanced,0,1);
     s->current.sun_rays=moon_options_int(&s->store,"graphics.sun_rays",enhanced*2,0,2);
     s->current.ambient_occlusion=moon_options_int(&s->store,"graphics.ambient_occlusion",enhanced,0,1);
     s->current.solar_cycle=moon_options_int(&s->store,"graphics.solar_cycle",enhanced,0,2);
+    video_options_realistic_skybox(&s->current,s->current.daylight);
+    video_options_realistic_lighting(&s->current,s->current.modern_lighting);
 #endif
     s->current.compact_cars = moon_options_int(&s->store,"interface.compact_car_strip",enhanced,0,1);
     s->current.graphics_swap = moon_options_int(&s->store,"interface.graphics_swap_key",enhanced,0,1);
+    s->current.controller_tiles = moon_options_int(&s->store,"interface.controller_tiles",enhanced,0,1);
     s->current.spatial_visibility = moon_options_int(&s->store, "graphics.spatial_visibility", enhanced, 0, 1);
     s->current.resident_reflections = moon_options_int(&s->store, "graphics.resident_reflections", enhanced, 0, 1);
 #endif
@@ -211,9 +226,9 @@ static void save(video_settings *s)
 {
     const pc_video_options *v = &s->current;
     const char *keys[] = {"graphics.width", "graphics.height", "graphics.fullscreen", "graphics.vsync", "graphics.upscaling", "graphics.ui_filter",
-                         "graphics.text_sharpness", "graphics.aspect_ratio", "graphics.low_latency", "graphics.fps_limit", "controls.desktop_menu", "controls.gtmode_edge_pan", "interface.input_hints", "interface.main_menu_overview", "graphics.spatial_visibility", "graphics.resident_reflections", "interface.smooth_mouse_cursor", "interface.mouse_hover_feedback", "interface.compact_car_strip", "interface.graphics_swap_key"};
+                         "graphics.text_sharpness", "graphics.aspect_ratio", "graphics.low_latency", "graphics.fps_limit", "controls.desktop_menu", "controls.gtmode_edge_pan", "interface.input_hints", "interface.main_menu_overview", "graphics.spatial_visibility", "graphics.resident_reflections", "interface.smooth_mouse_cursor", "interface.mouse_hover_feedback", "interface.compact_car_strip", "interface.graphics_swap_key", "interface.controller_tiles"};
     int values[] = {v->video.width, v->video.height, v->video.fullscreen, v->video.vsync,
-                    v->video.upscale, v->filter, v->text, v->aspect, v->low_latency, v->fps_limit, v->desktop, v->edge_pan, v->input_hints, v->main_menu, v->spatial_visibility, v->resident_reflections, v->smooth_cursor, v->hover_feedback, v->compact_cars, v->graphics_swap};
+                    v->video.upscale, v->filter, v->text, v->aspect, v->low_latency, v->fps_limit, v->desktop, v->edge_pan, v->input_hints, v->main_menu, v->spatial_visibility, v->resident_reflections, v->smooth_cursor, v->hover_feedback, v->compact_cars, v->graphics_swap, v->controller_tiles};
     for (int i = 0; i < (int)(sizeof values / sizeof values[0]); i++) {
         char value[32];
         snprintf(value, sizeof value, "%d", values[i]);
@@ -222,6 +237,8 @@ static void save(video_settings *s)
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
     const char *quality_keys[] = {"graphics.antialiasing", "graphics.render_scale",
                                   "graphics.texture_smoothing", "graphics.texture_filtering", "graphics.car_shadows", "graphics.material_shading", "graphics.reflection_quality", "graphics.shadow_maps", "graphics.modern_lighting", "graphics.daylight", "graphics.solar_hour", "graphics.solar_cycle","graphics.hdr","graphics.sun_rays","graphics.ambient_occlusion"};
+    moon_options_set(&s->store,"graphics.night_sky",v->night_sky?"1":"0");
+    moon_options_set(&s->store,"graphics.car_lamps",v->car_lamps?"1":"0");
     const int quality_values[] = {v->antialiasing, v->render_scale, v->texture_smoothing, v->texture_filtering, v->car_shadows, v->material_shading, v->reflection_quality, v->shadow_maps, v->modern_lighting,v->daylight,v->solar_hour,v->solar_cycle,v->hdr,v->sun_rays,v->ambient_occlusion};
     for (int i = 0; i < (int)(sizeof quality_values / sizeof quality_values[0]); i++) {
         char value[16];
@@ -293,8 +310,8 @@ enum {
     VS_MODERN_LIGHTING,
     VS_DAYLIGHT,VS_SOLAR_HOUR,VS_SOLAR_CYCLE,VS_HDR,VS_SUN_RAYS,
     VS_PRESET_TOOLS, VS_SAVE_TOOLS, VS_AMBIENT_OCCLUSION, VS_GRAPHICS_SWAP,
-    VS_CUSTOM_MUSIC, VS_JUKEBOX_FOLDERS, VS_JUKEBOX_GROUPS,
-    VS_COUNT
+    VS_CUSTOM_MUSIC, VS_JUKEBOX_FOLDERS, VS_JUKEBOX_GROUPS, VS_CONTROLLER_TILES,
+    VS_CAR_LAMPS, VS_NIGHT_SKY, VS_COUNT
 };
 static const char *const vs_preset[] = {"Classic", "Enhanced", "Modified"};
 static const char *const vs_fps[] = {"Unlimited", "60 FPS",  "90 FPS", "120 FPS",
@@ -310,10 +327,10 @@ static const char *const vs_fsr[] = {"Native", "FSR Ultra Quality", "FSR Quality
                                      "FSR Performance"};
 static const char *const vs_filter[] = {"Smooth", "Sharp", "Original"};
 static const char *const vs_aa[] = {"Original", "Off", "SSAA 150%", "SSAA 200%", "Edge AA"};
-static const char *const vs_hours[]={"07:00","08:00","09:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00"};
+static const char *const vs_hours[]={"07:00","08:00","09:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00","19:00","20:00","21:00","22:00","23:00","00:00","01:00","02:00","03:00","04:00","05:00","06:00","Course"};
 static const char *const vs_rays[]={"Off","Screen Space","Volumetric"};
 static const char *const vs_cycle[]={"Fixed","Real Time","60x"};
-static const char *const vs_modern_lighting[] = {"Original", "Modern"};
+static const char *const vs_modern_lighting[] = {"Off", "On"};
 static const char *const vs_shadow_maps[] = {"Off (Original)", "Low 512", "High 1024", "Ultra 2048"};
 static const char *const vs_reflection_quality[] = {"Original 128", "High 256", "Ultra 512"};
 static const char *const vs_material_shading[] = {"Original", "Per-Pixel"};
@@ -321,6 +338,7 @@ static const char *const vs_car_shadows[] = {"Original", "Projected"};
 static const char *const vs_texture_filtering[] = {"Original", "Trilinear", "Anisotropic 4x", "Anisotropic 8x", "Anisotropic 16x"};
 static const char *const vs_scale[] = {"50%", "75%", "100%"};
 static const char *const vs_text[] = {"0%", "25%", "50%", "75%", "100%"};
+static const char *const vs_controller_tiles[] = {"Original", "By Player"};
 static const video_setting_info vs_info[VS_COUNT] = {
     {"Video", "Graphics API", "The renderer. Applies the next time Moon Engine opens.", 2, vs_api},
     {"Video", "Window Mode", "A window, or the whole screen.", 2, vs_mode},
@@ -352,27 +370,31 @@ static const video_setting_info vs_info[VS_COUNT] = {
      vs_off_on},
     {"Quality", "Texture Filtering", "Optional trilinear/anisotropic filtering. Original preserves authored sampling.", 5, vs_texture_filtering},
 
-    {"Quality", "Car Shadows", "Project the car geometry onto the local ground. Original keeps the authored shadow volume.", 2, vs_car_shadows},
-    {"Quality", "Material Shading", "Evaluate authored lighting and reflection normals per pixel. Original retains vertex sampling.", 2, vs_material_shading},
+    {"Legacy", "Car Shadows", "Project the car geometry onto the local ground. Original keeps the authored shadow volume.", 2, vs_car_shadows},
+    {"Legacy", "Material Shading", "Evaluate authored lighting and reflection normals per pixel. Original retains vertex sampling.", 2, vs_material_shading},
     {"Quality", "Reflection Quality", "Resolution of generated race/replay and studio reflections; higher levels cost GPU time.", 3, vs_reflection_quality},
-    {"Quality", "Shadow Maps", "Nearby car depth shadows on the course and car; higher levels cost GPU time.", 4, vs_shadow_maps},
-    {"Quality", "Lighting", "GGX material response, sky fill and filmic highlight compression. Original retains the authored renderer.", 2, vs_modern_lighting},
-    {"Quality","Daylight","Dynamic sunlight and daytime atmosphere.",2,vs_off_on},
-    {"Quality","Solar Time","Solar hour, 07:00 through 17:00. No night.",11,vs_hours},
-    {"Quality","Daylight Cycle","Fixed or simulation-clock daylight progression.",3,vs_cycle},
-    {"Quality","HDR","Floating-point scene, filmic highlights and restrained bloom.",2,vs_off_on},
-    {"Quality","Sun Rays","Screen-space or shadow-mapped world scattering. Requires HDR and Daylight.",3,vs_rays},
+    {"Legacy", "Shadow Maps", "Nearby car depth shadows on the course and car; higher levels cost GPU time.", 4, vs_shadow_maps},
+    {"Quality", "Realistic Lighting", "Sun/sky illumination, material response, contact shading and HDR. Off restores original lighting.", 2, vs_modern_lighting},
+    {"Quality","Realistic Skybox","Clouds, atmosphere, sun, moon and stars in one system. Off restores the disc sky.",2,vs_off_on},
+    {"Legacy","Solar Time","Course uses the authored day/night flag. Explicit hours override it. Night Sky enables all 24 hours.",25,vs_hours},
+    {"Legacy","Sun / Moon Cycle","Fixed, real-time or 60x sun/moon progression. Night Sky enables the full 24 hours.",3,vs_cycle},
+    {"Legacy","HDR","Floating-point scene, filmic highlights and restrained bloom.",2,vs_off_on},
+    {"Legacy","Sun Rays","Screen-space or shadow-mapped world scattering. Requires HDR and Daylight.",3,vs_rays},
     {"Interface","Preset Files","Show optional named-preset file actions. Off preserves the screen without them.",2,vs_off_on},
     {"Interface","Save Transfer","Show Export in the player profiles screen. Native imports remain available alongside PS2 imports.",2,vs_off_on},
-    {"Quality","Ambient Occlusion","Depth-based contact and cavity shading. Requires HDR and Daylight.",2,vs_off_on},
+    {"Legacy","Ambient Occlusion","Depth-based contact and cavity shading. Requires HDR and Daylight.",2,vs_off_on},
     {"Interface","Graphics Swap Key","F7 in races and replays swaps Classic and your graphics live.",2,vs_off_on},
     {"Sound","Custom Music","Your own songs from the Music folder. Off: the disc's music only.",2,vs_off_on},
     {"Sound","Jukebox Folders","Menu and Replay folders in the Jukebox, beside Race and Slideshow.",2,vs_off_on},
     {"Sound","Library Groups","The Jukebox Library lists your songs by their folder in Music.",2,vs_off_on},
+    {"Interface","Controller Tiles","By Player: one button config tile per player. Original: a tile per device and port.",2,vs_controller_tiles},
+    {"Quality","Realistic Car Lamps","Headlights illuminate nearby surfaces with occlusion; rear and brake lenses emit light. Off restores the PS2 effect.",2,vs_off_on},
+    {"Legacy","Night Sky","Twilight, moon and stars. Night courses start at 22:00; requires Daylight.",2,vs_off_on},
 };
 /* A preset's values for the registered PC options; host size, mode and the API are kept. */
 void video_settings_preset_values(pc_video_options *v, int enhanced)
 {
+    v->car_lamps=enhanced;v->night_sky=enhanced;
     v->preset_tools=v->save_tools=enhanced;
     v->antialiasing = enhanced ? 4 : 0;
     v->render_scale = 2;
@@ -383,12 +405,13 @@ void video_settings_preset_values(pc_video_options *v, int enhanced)
     v->reflection_quality = enhanced;
     v->shadow_maps = enhanced * 2;
     v->modern_lighting = enhanced;
-    v->daylight=enhanced;v->solar_hour=5;v->solar_cycle=enhanced;v->hdr=enhanced;v->sun_rays=enhanced*2;v->ambient_occlusion=enhanced;
+    v->daylight=enhanced;v->solar_hour=enhanced?24:5;v->solar_cycle=enhanced;v->hdr=enhanced;v->sun_rays=0;v->ambient_occlusion=enhanced;
     v->filter = enhanced ? 0 : 2;
     v->text = 0;
     v->video.upscale = 0;
     v->desktop = v->edge_pan = v->input_hints = v->main_menu = enhanced;
     v->smooth_cursor = v->hover_feedback = v->compact_cars = v->graphics_swap = enhanced;
+    v->controller_tiles = enhanced;
     v->spatial_visibility = v->resident_reflections = enhanced;
 }
 int video_setting_count(void)
@@ -426,6 +449,9 @@ int video_setting_get(const video_settings *s, int i)
     case VS_HOVER: return v->hover_feedback != 0;
     case VS_COMPACT: return v->compact_cars != 0;
     case VS_GRAPHICS_SWAP: return v->graphics_swap != 0;
+    case VS_NIGHT_SKY: return v->night_sky;
+    case VS_CAR_LAMPS: return v->car_lamps;
+    case VS_CONTROLLER_TILES: return v->controller_tiles != 0;
     case VS_AA:
         return v->antialiasing;
     case VS_SCALE:
@@ -506,6 +532,9 @@ void video_setting_set(video_settings *s, int i, int value)
     case VS_HOVER: v->hover_feedback = value; break;
     case VS_COMPACT: v->compact_cars = value; break;
     case VS_GRAPHICS_SWAP: v->graphics_swap = value; break;
+    case VS_NIGHT_SKY:v->night_sky=value;if(value)v->daylight=1;break;
+    case VS_CAR_LAMPS: v->car_lamps=value;break;
+    case VS_CONTROLLER_TILES: v->controller_tiles = value; break;
     case VS_FPS: v->fps_limit = vs_fps_values[value]; break;
     case VS_AA:
         v->antialiasing = value;
@@ -538,11 +567,11 @@ void video_setting_set(video_settings *s, int i, int value)
     case VS_HDR:v->hdr=value;break;
     case VS_SUN_RAYS:v->sun_rays=value;if(value==2)v->hdr=v->daylight=1;break;
     case VS_AMBIENT_OCCLUSION:v->ambient_occlusion=value;if(value)v->hdr=v->daylight=1;break;
-    case VS_DAYLIGHT:v->daylight=value;break;
+    case VS_DAYLIGHT:video_options_realistic_skybox(v,value);break;
     case VS_SOLAR_HOUR:v->solar_hour=value;break;
     case VS_SOLAR_CYCLE:v->solar_cycle=value;break;
     case VS_MODERN_LIGHTING:
-        v->modern_lighting = value;
+        video_options_realistic_lighting(v,value);
         break;
     case VS_PRESET: {
         /* as the Screen Settings page applies it: the registered PC options at the
@@ -577,7 +606,7 @@ void video_settings_preview_graphics(const video_settings *s, int classic)
         v.texture_smoothing = v.texture_filtering = 0;
         v.car_shadows = v.material_shading = v.reflection_quality = 0;
         v.shadow_maps = v.modern_lighting = 0;
-        v.daylight = v.solar_cycle = v.hdr = v.sun_rays = v.ambient_occlusion = 0;
+        v.night_sky = v.car_lamps = v.daylight = v.solar_cycle = v.hdr = v.sun_rays = v.ambient_occlusion = 0;
         v.filter = 2; v.text = 0;
     }
     quality(&v);
@@ -655,6 +684,9 @@ static void read_draft(video_settings *s)
     v->preset_tools=s->choices[31]->focus_index;
     v->save_tools=s->choices[32]->focus_index;
     v->graphics_swap = s->choices[37]->focus_index;
+    v->night_sky = s->choices[40]->focus_index;
+    v->car_lamps = s->choices[39]->focus_index;
+    v->controller_tiles = s->choices[38]->focus_index;
 #endif
 #ifdef __SWITCH__
     v->aspect = 1;
@@ -732,6 +764,23 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
 #ifndef __SWITCH__
     ui_widget *sender = ah_host_data(self);
 #ifndef __ANDROID__
+    if(sender==s->choices[26]) {
+        int on=sender->focus_index;
+        s->choices[VS_NIGHT_SKY]->focus_index=on;
+        s->choices[27]->focus_index=on?24:5;
+        s->choices[28]->focus_index=on;
+    }
+    if(sender==s->choices[25]) {
+        pc_video_options bundle=s->draft;
+        video_options_realistic_lighting(&bundle,sender->focus_index);
+        s->choices[21]->focus_index=bundle.car_shadows;
+        s->choices[22]->focus_index=bundle.material_shading;
+        s->choices[24]->focus_index=bundle.shadow_maps;
+        s->choices[29]->focus_index=bundle.hdr;
+        s->choices[30]->focus_index=bundle.sun_rays;
+        s->choices[33]->focus_index=bundle.ambient_occlusion;
+    }
+    if(sender==s->choices[40] && sender->focus_index)s->choices[26]->focus_index=1;
     if((sender==s->choices[33] && sender->focus_index) || (sender==s->choices[30] && sender->focus_index==2)){
         s->choices[29]->focus_index=1;s->choices[26]->focus_index=1;
     }
@@ -746,7 +795,8 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
         if (!enhanced)
             s->choices[34]->focus_index = 0; /* Classic: the disc's music only */
         s->choices[35]->focus_index = s->choices[36]->focus_index = enhanced;
-        s->choices[37]->focus_index = enhanced;
+        s->choices[39]->focus_index=enhanced;s->choices[40]->focus_index=enhanced;
+        s->choices[37]->focus_index = s->choices[38]->focus_index = enhanced;
         s->choices[17]->focus_index = enhanced ? 4 : 0;
         s->choices[18]->focus_index = 2;
         s->choices[19]->focus_index = enhanced;
@@ -756,7 +806,7 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
         s->choices[23]->focus_index = enhanced;
         s->choices[24]->focus_index = enhanced * 2;
         s->choices[25]->focus_index = enhanced;
-        s->choices[26]->focus_index=enhanced;s->choices[27]->focus_index=5;s->choices[28]->focus_index=enhanced;s->choices[29]->focus_index=enhanced;s->choices[30]->focus_index=enhanced*2;s->choices[33]->focus_index=enhanced;
+        s->choices[26]->focus_index=enhanced;s->choices[27]->focus_index=enhanced?24:5;s->choices[28]->focus_index=enhanced;s->choices[29]->focus_index=enhanced;s->choices[30]->focus_index=0;s->choices[33]->focus_index=enhanced;
 #endif
         s->choices[3]->focus_index = enhanced ? 0 : 2;
         s->choices[4]->focus_index = 0;
@@ -856,7 +906,7 @@ static const char *hints[] = {
     "Original uses 128-pixel generated maps. High uses 256; Ultra 512. Larger targets cost GPU time; authored environment images are unchanged.",
     "Depth shadows from nearby cars onto the course and car. Off restores the retained shadows; higher resolutions cost GPU time.",
     "Modern evaluates materials with GGX, sky fill and filmic highlights. Original retains the previous lighting. Course baked lighting remains authored.",
-    "Dynamic daylight and sky; Original restores the authored scene.",
+    "Realistic Skybox: clouds, atmosphere, sun, moon and stars. Off restores the authored sky.",
     "Choose solar time between 07:00 and 17:00.",
     "Advance daylight from simulation time; pause freezes it. No night.",
     "Floating-point scene, filmic resolve and bloom; UI remains SDR.",
@@ -867,7 +917,10 @@ static const char *hints[] = {
     "Your own songs from the Music folder in the Jukebox, races and menus. Off keeps the disc's music only.",
     "Add Menu and Replay folders to the Jukebox, beside Race and Slideshow.",
     "List your songs in the Jukebox Library by their folder in Music.",
-    "F7 in races and replays swaps between Classic graphics and yours. Nothing is saved."};
+    "F7 in races and replays swaps between Classic graphics and yours. Nothing is saved.",
+    "By Player: one button config tile per player for any controller or wheel. Original: one tile per device.",
+    "Realistic Car Lamps: headlights illuminate nearby surfaces with shadows; rear lenses brighten with the brake pedal. Off restores the original effect.",
+    "Twilight, moon and stars, following the frame clock. Requires Daylight; Classic keeps the authored sky."};
 static int focus(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv, ah_val *ret)
 {
     (void)vm;
@@ -927,17 +980,18 @@ static int focus(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
 /* Six rows of 44 units fit between the tabs and the authored footer. The
    preset row joins Display so every tab has room for the thumb. */
 enum { VIDEO_TAB_COUNT = 3 };
-static const int tab_rows[VIDEO_TAB_COUNT][10] = {
+static const int tab_rows[VIDEO_TAB_COUNT][11] = {
     {8, 0, 1, 2, 3, 5, -1}, {4, 6, 17, 11, 12, 16, -1}, {7, 9, 10, 13, 14, 15, -1}};
 #else
 /* P: one page per Options tile, as the game's own Options: Screen (the display), then the
    PC Settings section's Graphics, Light & Shadow, Controls, Music and Presets. */
 enum { VIDEO_TAB_COUNT = 6 };
-static const int tab_rows[VIDEO_TAB_COUNT][10] = {
+static const int tab_rows[VIDEO_TAB_COUNT][11] = {
     {0, 1, 2, 5, 6, 3, 4, -1},
-    {17, 18, 19, 20, 22, 23, 25, 12, 11, -1},
-    {21, 24, 26, 27, 28, 29, 30, 33, -1},
-    {7, 10, 14, 15, 13, 9, 16, 37, -1},
+    {17, 18, 19, 20, 23, 12, 11, -1},
+    /* UI row indices are separate from the launcher API's VS_* enum. */
+    {25, 26, 39, -1},
+    {7, 10, 14, 15, 13, 9, 16, 37, 38, -1},
     {34, 35, 36, -1},
     {8, 31, 32, -1}};
 static const char *const page_tiles[VIDEO_TAB_COUNT] = {"", "PcGraphics", "PcLighting",
@@ -1135,6 +1189,9 @@ static int enter(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     s->choices[35]->focus_index = video_setting_get(s, VS_JUKEBOX_FOLDERS);
     s->choices[36]->focus_index = video_setting_get(s, VS_JUKEBOX_GROUPS);
     s->choices[37]->focus_index = s->current.graphics_swap;
+    s->choices[40]->focus_index=s->current.night_sky;
+    s->choices[39]->focus_index = s->current.car_lamps;
+    s->choices[38]->focus_index = s->current.controller_tiles;
 #endif
     s->choices[8]->focus_index = s->personal_preset[0] || s->store.modified ? 2 : strcmp(s->store.preset, "Classic") != 0;
     char caption[96];
@@ -1161,7 +1218,7 @@ static int enter(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     int page = 0;
     const char *tile = menu_root_focus_name(s->owner, s->option_root);
     for (int i = 1; i < VIDEO_TAB_COUNT; i++)
-        if (!strcmp(tile, page_tiles[i]))
+        if (tile && !strcmp(tile, page_tiles[i]))
             page = i;
     if (getenv("MOON_SETTINGS_PAGE"))
         page = abs(atoi(getenv("MOON_SETTINGS_PAGE"))) % VIDEO_TAB_COUNT;
@@ -1348,7 +1405,7 @@ void video_settings_attach(video_settings *s, menu *m)
 #ifdef __ANDROID__
     const int rows = 18;
 #else
-    const int rows = 38;
+    const int rows = 41;
 #endif
 #endif
 #ifndef __SWITCH__
@@ -1403,14 +1460,16 @@ void video_settings_attach(video_settings *s, menu *m)
                            "AntiAliasing",
                            "RenderScale",
                            "TextureSmoothing", "TextureFiltering", "CarShadows", "MaterialShading", "ReflectionQuality", "ShadowMaps", "Lighting", "Daylight", "SolarTime", "DaylightCycle", "HDR", "SunRays", "PresetFiles", "SaveTransfer", "AmbientOcclusion",
-                           "CustomMusic", "JukeboxFolders", "LibraryGroups", "GraphicsSwapKey"};
+                           "CustomMusic", "JukeboxFolders", "LibraryGroups", "GraphicsSwapKey",
+                           "ControllerTiles", "CarLamps", "NightSky"};
     const char *titles[] = {
         "Aspect Ratio",      "Window Mode",   "Resolution",    "UI Filter",
         "Text Clarity",      "VSync",         "Upscaling",     "Desktop Input",
         "PC Preset",         "Map Edge Pan",  "Input Hints",   "Spatial Visibility",
         "GPU Reflections",   "Main Menu",     "Smooth Cursor", "Hover Feedback",
-        "Compact Car Strip", "Anti-Aliasing", "3D Resolution", "Texture Smoothing", "Texture Filtering", "Car Shadows", "Material Shading", "Reflection Quality", "Shadow Maps", "Lighting", "Daylight", "Solar Time", "Daylight Cycle", "HDR", "Sun Rays", "Preset Files", "Save Transfer", "Ambient Occlusion",
-        "Custom Music", "Jukebox Folders", "Library Groups", "Graphics Swap Key"};
+        "Compact Car Strip", "Anti-Aliasing", "3D Resolution", "Texture Smoothing", "Texture Filtering", "Car Shadows", "Material Shading", "Reflection Quality", "Shadow Maps", "Realistic Lighting", "Realistic Skybox", "Solar Time", "Sun / Moon Cycle", "HDR", "Sun Rays", "Preset Files", "Save Transfer", "Ambient Occlusion",
+        "Custom Music", "Jukebox Folders", "Library Groups", "Graphics Swap Key",
+        "Controller Tiles", "Realistic Car Lamps", "Night Sky"};
     ui_widget *sample = ui_widget_copy(ui, row);
     for (int i = pane->nkids - 1; i >= 0; i--) {
         ui_widget *w = pane->kids[i];
@@ -1432,10 +1491,11 @@ void video_settings_attach(video_settings *s, menu *m)
     const char *upscalers[] = {"Native", "FSR Ultra Quality", "FSR Quality", "FSR Balanced",
                                "FSR Performance"};
     const char *presets[] = {"Classic", "Enhanced", "Modified"};
+    const char *controller_tiles[] = {"Original", "By Player"};
     const char *const *lists[] = {
         ratios, modes,  resolutions, filters, clarity, toggle, upscalers, toggle, presets,  toggle,
-        toggle, toggle, toggle,      toggle,  toggle,  toggle, toggle,    vs_aa,  vs_scale, toggle, vs_texture_filtering, vs_car_shadows, vs_material_shading, vs_reflection_quality, vs_shadow_maps, vs_modern_lighting,vs_off_on,vs_hours,vs_cycle,vs_off_on,vs_rays,toggle,toggle,toggle,toggle,toggle,toggle,toggle};
-    int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 5, 3, 2, 5, 2, 2, 3, 4, 2,2,11,3,2,3,2,2,2,2,2,2,2};
+        toggle, toggle, toggle,      toggle,  toggle,  toggle, toggle,    vs_aa,  vs_scale, toggle, vs_texture_filtering, vs_car_shadows, vs_material_shading, vs_reflection_quality, vs_shadow_maps, vs_modern_lighting,vs_off_on,vs_hours,vs_cycle,vs_off_on,vs_rays,toggle,toggle,toggle,toggle,toggle,toggle,toggle,controller_tiles,toggle,toggle};
+    int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 5, 3, 2, 5, 2, 2, 3, 4, 2, 2, 25, 3, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 #ifdef __SWITCH__
     const char *scene_sizes[]={"Classic","Balanced","Performance"};
     names[7]="SceneResolution"; titles[7]="3D Resolution"; titles[8]="Preset";
@@ -1606,4 +1666,19 @@ void video_settings_attach(video_settings *s, menu *m)
     menu_native_method(m, s->page, "onCancel", cancel, s);
     menu_native_method(m, ui_widget_child(buttons, "Cancel"), "onActivate", cancel, s);
     menu_native_method(m, ui_widget_child(buttons, "OK"), "onActivate", apply, s);
+}
+
+/* The two user-facing systems keep older preset keys as compatibility data. */
+void video_options_realistic_skybox(pc_video_options *v, int enabled)
+{
+    v->daylight=v->night_sky=enabled!=0;
+    v->solar_hour=enabled?24:5;
+    v->solar_cycle=enabled!=0;
+}
+void video_options_realistic_lighting(pc_video_options *v, int enabled)
+{
+    int on=enabled!=0;
+    v->modern_lighting=v->material_shading=v->hdr=v->car_shadows=v->ambient_occlusion=on;
+    v->shadow_maps=on*2;
+    v->sun_rays=0; /* clean atmosphere; shafts are not a global grey exposure lift */
 }

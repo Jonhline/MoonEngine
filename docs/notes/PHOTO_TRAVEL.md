@@ -181,3 +181,17 @@ film_menu e ps2_media_fixture passam. Imagem integral A.
 Replay: 12 classes/48 fixtures, count0..3 e dois streams independentes;
 negativo detecta steps alterado. 93 arquivos reais/556738 comandos E.
 Cobertura e limites em docs/notes/PHOTO_MEDIA_COVERAGE.md. Física intacta.
+
+
+## 20/10 — regiões e restrições da câmera
+
+A seleção CRPM, paridade de polígonos, deslizamento com contato nas bordas/cantos,
+janela angular e rejeição agora usam as rotinas originais como comparador.
+PhotoPause mantém limites de altura/inclinação, FOV máximo e mínimo dinâmico,
+consulta paredes com a função já existente e conserva a ordem dos pontos REP4,
+inclusive ao atravessar o começo da volta. O teste de integração confere os
+32 MiB da corrida intactos. A propriedade can_shoot inicia ligada, aceita escrita
+e usa o aviso original quando desligada. As notas E/C são delimitadas pelos
+comparadores; imagem, trig/pose nativos, controle do carro no mapa e visibilidade
+completa continuam A. A lista F antiga acima é histórica; o registro atualizado
+está na entrada de 20/10 da FIDELITY, sem declarar Photo Mode inteiro concluído.

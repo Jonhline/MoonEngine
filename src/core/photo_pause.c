@@ -13,7 +13,7 @@ struct photo_pause {
     gt4_photo_mode *state;
     float apertures[17];
     int32_t shutters[19];
-    int blink, wide;
+    int blink, wide, focus_trigger;
 };
 static int named(const char *a, const char *b)
 {
@@ -63,7 +63,8 @@ int photo_pause_value(photo_pause *p, const char *name, strb_value *ret)
         else if (named(name, "isWide"))
             ret->n = p->wide;
         else if (named(name, "isFocusTrigger")) {
-            ret->n = s->focus_requested;
+            ret->n = s->focus_requested || p->focus_trigger;
+            p->focus_trigger = 0;
         } else
             return 0;
     }
@@ -110,7 +111,10 @@ void photo_pause_draw(photo_pause *p, double dt, int wide)
 {
     if (p) {
         p->wide = wide;
-        strb_tick(p->movie, dt);
+        /* 003C4BD8 passes 1/12 to 00475488 for each 60-Hz PhotoPause
+           update; the asset itself is 12 fps. Preserve one movie frame per
+           game tick while adapting to the host frame interval. */
+        strb_tick(p->movie, dt * 5);
         strb_draw(p->movie);
     }
 }
@@ -121,4 +125,23 @@ void photo_pause_close(photo_pause *p)
         free(p->text_data);
         free(p);
     }
+}
+
+void photo_pause_viewport(int portrait, int wide, float box[4])
+{
+    /* 003C5AB8: image quad 410x308, translation then horizontal scale
+       (wide), with a 90-degree image rotation for the portrait frame. */
+    box[0] = portrait ? (wide ? 289.5f - 308.f * .75f : 328.f - 308.f)
+                      : (wide ? 72.480003356933594f : 20.f);
+    box[1] = 20.f;
+    box[2] = (portrait ? 308.f : 410.f) * (wide ? .75f : 1.f);
+    box[3] = portrait ? 410.f : 308.f;
+}
+
+void photo_pause_focus(photo_pause *p)
+{
+    /* 00374130 -> 00380D78 exposes the camera focus-trigger byte. Keep
+       the presentation event after native depth readback clears its request. */
+    if (p)
+        p->focus_trigger = 1;
 }

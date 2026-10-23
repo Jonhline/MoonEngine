@@ -13,7 +13,7 @@ int gt4_media_film_valid(const uint8_t *, size_t);
 /* Owned decoded fields; the source stream remains unchanged. */
 typedef struct {
     char code[64], model[128], parts[4][128];
-    int paint;
+    int paint, detail_mode;
 } gt4_film_car;
 typedef struct {
     float camera[17];
@@ -26,6 +26,7 @@ typedef struct {
     int smoke_count;
     uint8_t leaves[128][17];
     int leaf_count;
+    unsigned gadget_offset, gadget_size;
 } gt4_film_frame;
 typedef struct {
     char course[64], race[64];
@@ -35,6 +36,9 @@ typedef struct {
     uint8_t environment[0x17f4];
     int has_environment;
     gt4_film_frame frame[2];
+    /* Owned serialized GDGT bodies, bounded by the original film limit. */
+    uint8_t gadget_data[0x14000];
+    unsigned gadget_size;
 } gt4_film;
 int gt4_media_film_decode(const uint8_t *, size_t, gt4_film *);
 /* 00334B28: film development coefficients, including its filter enum. */

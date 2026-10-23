@@ -1,3 +1,4 @@
+#include "race_hud_oil.h"
 /* the display's car icon (RaceDisplay +0x2D14): func_003A6678 draws the
    car's 96x64 picture (func_004997B0 2, 0x60, 0x40), CarIconMaker's first
    per car (00393B70: 00393D20 mode 0, in perspective from the front
@@ -136,6 +137,12 @@ static void split_hud(race_game *g, double dt)
         s.boost = r.boost;
         memcpy(s.tire_rgb, r.tire_rgb, sizeof s.tire_rgb);
         s.rev_limit = r.rev_limit;
+        {
+            uint32_t car = gt4_race_run_car(g->run, i);
+            s.oil_sign = race_hud_oil_sign_settings(GT4_F32(car + CAR_ENGINE_WEAR + 8),
+                                           GT4_F32(0x00620340u), GT4_U8(0x00620DA4u),
+                                           GT4_U8(0x00620DB0u));
+        }
         s.aid = r.aid;
         s.brake_lock = r.brake_lock;
         s.driving = r.driving;
@@ -285,6 +292,12 @@ void race_game_draw_hud(race_game *g, double dt)
         s.refueling = gt4_pit_refueling(GT4_U16(car + CAR_FIELD_UNK_5BC), GT4_U16(car + CAR_5BE));
     }
     s.rev_limit = r.rev_limit;
+    {
+        uint32_t car = gt4_race_run_car(g->run, watched_car(g));
+        s.oil_sign = race_hud_oil_sign_settings(GT4_F32(car + CAR_ENGINE_WEAR + 8),
+                                       GT4_F32(0x00620340u), GT4_U8(0x00620DA4u),
+                                           GT4_U8(0x00620DB0u));
+    }
     s.aid = r.aid;
     s.brake_lock = r.brake_lock;
     s.driving = r.driving;

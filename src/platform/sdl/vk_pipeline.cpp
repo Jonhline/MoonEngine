@@ -88,6 +88,7 @@ bool compile(Program &p)
             if (u.type == "sampler2D") {
                 if (sampler >= 8)
                     throw std::runtime_error("Vulkan sampler limit exceeded");
+                p.sampler_uniforms[sampler] = (unsigned)(&u - p.uniforms.data());
                 u.sampler = sampler++;
                 textures += "layout(set=0,binding=" + std::to_string(u.sampler + 1) +
                             ") uniform sampler2D " + u.name + ";\n";
@@ -114,6 +115,7 @@ bool compile(Program &p)
                 block += "[" + std::to_string(u.count) + "]";
             block += ";\n";
         }
+        p.sampler_count = (unsigned)sampler;
         if (!offset) {
             block += "vec4 moon_unused;\n";
             offset = 16;
@@ -431,20 +433,21 @@ VkPipeline pipeline(Context &c, Program &p, VkRenderPass pass, GLenum topology)
 VkDescriptorSet Context::draw_descriptors(const Program &p)
 {
     std::array<VkDescriptorImageInfo, 8> images{};
-    unsigned sampler_count = 0;
-    for (auto &u : p.uniforms)
-        if (u.sampler >= 0) {
-            sampler_count = std::max(sampler_count, (unsigned)u.sampler + 1);
-            unsigned texture = u.unit >= 0 && u.unit < 16 ? state.textures[u.unit] : 0;
-            auto found = textures.find(texture);
-            auto *im = found != textures.end() && found->second ? found->second.get() : white.get();
-            if (im->layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
-                if (pass_color || pass_depth)
-                    barrier();
-                transition(*im, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            }
-            images[u.sampler] = {sampler(*im), im->view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    /* Linking fixes the sampler list. Avoid scanning every material, matrix
+       and lamp uniform again for each course draw. Units remain dynamic. */
+    unsigned sampler_count = p.sampler_count;
+    for (unsigned index = 0; index < sampler_count; index++) {
+        const auto &u = p.uniforms[p.sampler_uniforms[index]];
+        unsigned texture = u.unit >= 0 && u.unit < 16 ? state.textures[u.unit] : 0;
+        auto found = textures.find(texture);
+        auto *im = found != textures.end() && found->second ? found->second.get() : white.get();
+        if (im->layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+            if (pass_color || pass_depth)
+                barrier();
+            transition(*im, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         }
+        images[u.sampler] = {sampler(*im), im->view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    }
     /* Descriptor contents depend on textures and uniform range, not on the
        draw's uniform slice. Dynamic offsets keep each draw's values distinct. */
     std::array<uint64_t, 17> key{};

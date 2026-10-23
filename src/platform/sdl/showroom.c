@@ -52,6 +52,10 @@ struct showroom {
     float spin;                /* turntable speed, degrees per second */
     const showroom_face *face; /* set while a normal-mode CarFace draws */
     plat_texture *face_page;   /* the page under a normal CarFace, this frame */
+    plat_texture *part_last, *part_hold;
+    float part_rect[4], part_time;
+    char part_surface[32];
+    int part_valid, part_pending;
     int showing;               /* active is the requested car and may be drawn */
     uint8_t previous[MAXW * H * 4];
     uint64_t frames, total_ns, max_ns;
@@ -1835,10 +1839,12 @@ static void draw_face_gpu(showroom *s)
            then composes with ALPHA 0x64. Both targets stay resident. */
         car.env_color[0] = gt4_f32(0x3f8ccccc);
         car.env_color[1] = gt4_f32(0x3fa66666);
-        /* 00217430..48 requests a separate additional-model context
-           while the body's opacity is below 0x3F7D70A3. Its opacity
-           comes from camera fade (00232388..A0), not the body fade. */
-        int separate = f->service_opacity < gt4_f32(0x3f7d70a3);
+        /* 00217420..48 separates the additional context for context flags
+           OR a translucent body. The host flattens those contexts: it must
+           also separate when their opacities differ. Camera fade belongs
+           to the crew (00232388..A0), including after the body reaches 1. */
+        int separate = f->service_opacity < gt4_f32(0x3f7d70a3) ||
+                       f->service_additional_opacity != f->service_opacity;
         r3d_begin(f->x, f->y, f->w, f->h, env);
         if (r3d_begin_layer(0)) {
             r3d_view mirror = car;
@@ -1954,8 +1960,39 @@ int showroom_draw_face(showroom *s, const char *code, float dt, const showroom_f
 {
     if (!s || !face)
         return 0;
+    int parts = s->gpu && face->surface &&
+                (!strcmp(face->surface, "WheelShopRoot") || !strcmp(face->surface, "WingShopRoot"));
+    float rect[4] = {face->x, face->y, face->w, face->h};
+    if (!parts || strcmp(s->code, code) || memcmp(rect, s->part_rect, sizeof rect) ||
+        strcmp(s->part_surface, face->surface ? face->surface : "")) {
+        s->part_valid = s->part_pending = 0;
+        memcpy(s->part_rect, rect, sizeof rect);
+        snprintf(s->part_surface, sizeof s->part_surface, "%s", face->surface ? face->surface : "");
+    }
     s->face = face;
     int r = showroom_draw(s, code, dt);
+    if (parts && s->showing) {
+        if (s->part_pending && s->part_hold) {
+            /* A: existing host duration/curve retained until an equivalent
+               PS2 capture or native blend-timeline oracle establishes them.
+               The transition itself belongs to the base GT Auto path. */
+            float t = s->part_pending == 1 ? 0 : fminf(1, s->part_time / .12f);
+            float opacity = 1 - t * t * (3 - 2 * t);
+            const uint8_t tint[4] = {255, 255, 255, 255};
+            /* Framebuffer alpha includes GS coverage, not snapshot opacity. */
+            plat_draw_quad_blend(s->part_hold, face->x, face->y, face->w, face->h,
+                                 0, 1, 1, 0, tint, opacity);
+            if (s->part_pending == 2) {
+                s->part_time += fmaxf(0, fminf(dt, .05f));
+                if (t >= 1)
+                    s->part_pending = 0;
+            }
+        }
+        /* Resident copy, restricted to the preview rectangle. No readback,
+           duplicate geometry or blending the HUD. Also captures interrupted fades. */
+        s->part_last = video_grab(s->part_last, face->x, face->y, face->w, face->h);
+        s->part_valid = s->part_last != NULL;
+    }
     s->face = NULL;
     return r;
 }
@@ -2078,6 +2115,8 @@ void showroom_close(showroom *s)
 #endif
     plat_texture_destroy(s->shadow_tex);
     plat_texture_destroy(s->face_page);
+    plat_texture_destroy(s->part_last);
+    plat_texture_destroy(s->part_hold);
     if (s->wake)
         SDL_DestroyCond(s->wake);
     if (s->lock)
@@ -2103,6 +2142,10 @@ int showroom_prepare(showroom *s, const char *code)
         s->active = s->pending;
         s->pending = NULL;
         s->displayed = s->generation;
+        if (s->part_pending) {
+            s->part_pending = 2;
+            s->part_time = 0;
+        }
         SDL_CondSignal(s->wake); /* allow the loader to release the retired asset */
     }
     int complete = s->completed == s->generation && s->displayed == s->generation;
@@ -2136,6 +2179,10 @@ int showroom_draw(showroom *s, const char *code, float dt)
         s->pending = NULL;
         s->displayed = s->generation;
         memcpy(s->previous, s->pixels, sizeof s->pixels);
+        if (s->part_pending) {
+            s->part_pending = 2;
+            s->part_time = 0;
+        }
         if (!repaint)
             s->fade = 0;
         s->showing = !strcmp(s->active->code, s->code);
@@ -2329,6 +2376,7 @@ void showroom_hide(showroom *s)
         SDL_LockMutex(s->lock);
         s->showing = 0;
         s->restart_light = 1;
+        s->part_valid = s->part_pending = 0;
         s->placed[0] = 0;
         SDL_UnlockMutex(s->lock);
     }
@@ -2395,6 +2443,20 @@ void showroom_set_angle(showroom *s, float angle)
         s->angle = angle;
 }
 
+static void part_preview_request(showroom *s)
+{
+    if (s->part_valid && s->showing) {
+        plat_texture *reuse = s->part_hold;
+        s->part_hold = s->part_last;
+        s->part_last = reuse;
+        s->part_pending = 1;
+        s->part_time = 0;
+        s->part_valid = 0;
+    } else if (!s->part_pending) {
+        s->showing = 0;
+        s->part_pending = 0;
+    }
+}
 void showroom_set_wheel(showroom *s, const char *wheel)
 {
     if (!s)
@@ -2405,7 +2467,7 @@ void showroom_set_wheel(showroom *s, const char *wheel)
     if (strcmp(s->wheel, wheel)) {
         snprintf(s->wheel, sizeof s->wheel, "%s", wheel);
         s->generation++;
-        s->showing = 0;
+        part_preview_request(s);
         SDL_CondSignal(s->wake);
     }
     SDL_UnlockMutex(s->lock);
@@ -2421,7 +2483,7 @@ void showroom_set_wing(showroom *s, const char *wing)
     if (strcmp(s->wing, wing)) {
         snprintf(s->wing, sizeof s->wing, "%s", wing);
         s->generation++;
-        s->showing = 0;
+        part_preview_request(s);
         SDL_CondSignal(s->wake);
     }
     SDL_UnlockMutex(s->lock);

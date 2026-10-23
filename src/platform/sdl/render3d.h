@@ -41,12 +41,16 @@ typedef struct {
     float env_color
         [2];   /* reflections: their colour times [0] + [1] * min(I.N, 0) / |I| (0, 0: as it is) */
     int daylight;
+    int authored_environment; /* retain source sky/celestial placement and baked reference */
+    float sky_seconds; /* presentation clock: deterministic clouds, no wall clock */
+    float authored_night; /* P: retain authored local radiance at night, 0..1. */
     float sun_direction[3], sun_color[3], sky_color[3], haze_color[3];
     int modern_light; /* PC race/replay boundary; source material remains authored. */
     int brake; /* the brake pedal down: the cars' lit lamp branch (car callback 0) */
     /* func_0049AB58: the projection made with its near and far planes this
        much further, so that what is drawn comes out nearer in depth */
     float depth_bias;
+    float far_clip; /* 0 keeps the ordinary 20000 m projection; PCAM stores an explicit far plane. */
     int mirror;         /* reflected in the floor (y = 0): the car's floor reflection */
     int screen_reflect; /* rear-view projection reverses triangle winding */
     /* Optional 20 column-major pose * inverse-bind matrices. The mesh and
@@ -83,10 +87,29 @@ typedef struct {
 void r3d_car_shadows(int enabled);
 int r3d_car_shadows_enabled(void);
 /* P: local directional car shadow maps; zero keeps the retained shadow paths. */
+void r3d_night_sky(int enabled);
+int r3d_night_sky_enabled(void);
+float r3d_solar_hour(double seconds,int authored_night);
 void r3d_daylight_options(int enabled, int hour, int cycle);
 int r3d_daylight_enabled(void);
 float r3d_daylight_hour(double seconds);
+#define R3D_CAR_LAMPS 24
+typedef struct {float position[4], direction[4], color[4];} r3d_car_lamp;
+void r3d_car_lamps(int enabled);
+int r3d_car_lamps_enabled(void);
+void r3d_car_lamp_frame(const r3d_car_lamp *lamps, unsigned count);
+/* P: depth atlas for the active lamp frame, using resident visual geometry.
+   begin, then light/mesh/end_light for each source; bind finalizes the atlas
+   and restores the receiver target/viewport. No receiver draw between tiles. */
+typedef struct r3d_lamp_shadow r3d_lamp_shadow;
+void r3d_lamp_shadow_destroy(r3d_lamp_shadow *atlas);
+int r3d_lamp_shadow_begin(r3d_lamp_shadow **atlas);
+int r3d_lamp_shadow_light(r3d_lamp_shadow *atlas, unsigned index);
+void r3d_lamp_shadow_mesh(r3d_lamp_shadow *atlas, const r3d_mesh *mesh, const r3d_view *view);
+void r3d_lamp_shadow_end_light(r3d_lamp_shadow *atlas);
+void r3d_lamp_shadow_bind(r3d_lamp_shadow *atlas);
 void r3d_modern_lighting(int enabled);
+int r3d_modern_lighting_enabled(void);
 void r3d_shadow_map_quality(int mode);
 int r3d_shadow_map_size(void);
 typedef struct r3d_shadow_map r3d_shadow_map;
@@ -166,6 +189,7 @@ typedef struct {
                     colour's 255 in the lights' own units), and the whole of
                     it times the texel. */
     float vertex_limit;
+    int authored_local; /* selected RNW4 list, not the global solar rig */
 } r3d_lights;
 void r3d_draw_lit(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *lights);
 /* Studio silhouette on y=0, drawn/blurred on the GPU at native half size.

@@ -195,6 +195,7 @@ void moon_options_preset(moon_options *s, int enhanced)
     moon_options_set(s, "interface.mouse_hover_feedback", enhanced ? "1" : "0");
     moon_options_set(s, "interface.compact_car_strip", enhanced ? "1" : "0");
     moon_options_set(s, "interface.graphics_swap_key", enhanced ? "1" : "0");
+    moon_options_set(s, "interface.controller_tiles", enhanced ? "1" : "0");
     moon_options_set(s, "graphics.spatial_visibility", enhanced ? "1" : "0");
     moon_options_set(s, "graphics.resident_reflections", enhanced ? "1" : "0");
     moon_options_set(s, "graphics.upscaling", "0");

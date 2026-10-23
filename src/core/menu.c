@@ -728,6 +728,7 @@ void menu_close(menu *m)
         return;
     if (jukebox_menu == m)
         jukebox_menu = NULL;
+    controller_layout_free(m);
     gt4_sound_close(m->sound);
     gt4_disc_replay_close(m->disc_replays);
     free(m->race_labels);
@@ -845,6 +846,17 @@ void menu_enter(menu *m, int root)
 {
     if (root < 0 || root >= ui_root_count(m->ui))
         return;
+    /* Desktop ownership belongs to the outgoing page. Its hover callbacks,
+       drag target and dimmed focus must not follow a cached page transition. */
+    m->pointer_hover = NULL;
+    m->pointer_drag = NULL;
+    m->focus_dimmed = NULL;
+    m->hover_dispatch = 0;
+    ui_pointer_hover(m->ui, NULL);
+    ui_pointer(m->ui, 0, 0, 0);
+    ui_pointer_scroll_clear(m->ui);
+    ui_cursor_hold(m->ui, 0);
+
     if (!m->jukebox_external && !gt4_save_active())
         options_restore(m);
     if (!m->page_transition_depth && strcmp(ah_module_name(m->project), "SettingProject"))
@@ -1021,6 +1033,8 @@ static void item_callbacks(menu *m)
 
 void menu_tick(menu *m)
 {
+    if (m)
+        controller_layout_update(m, ui_root_widget(m->ui, menu_active_root(m)));
     if (m)
         album_tick(m);
     logger_tick(m);
@@ -1335,19 +1349,18 @@ static void deliver_held_focus(menu *m)
 }
 
 /* Candidates come from widget semantics, never from hard-coded menu labels. */
+static int navigation_can_focus(const ui_widget *w);
 static void candidates(ui_widget *w, ui_widget **items, int *n)
 {
     if (!available(w) || *n >= 512)
         return;
     if (!strcmp(w->type, "SelectBox")) {
         for (int i = 0; i < w->nkids && *n < 512; i++)
-            if (available(w->kids[i]))
+            if (available(w->kids[i]) && navigation_can_focus(w->kids[i]))
                 items[(*n)++] = w->kids[i];
         return;
     }
-    if (!strcmp(w->type, "Button") || (!strcmp(w->type, "OptionMenu") && ui_option_count(w)) ||
-        !strcmp(w->type, "SliderBar") || !strcmp(w->type, "ScaleBar") ||
-        mp_number(w->src, "can_focus", 0)) {
+    if (navigation_can_focus(w)) {
         items[(*n)++] = w;
         return;
     }
@@ -1398,7 +1411,15 @@ static void pointer_wheel(menu *m, ui_widget *hit, float x, float y, int wheel)
     }
     /* Original: EventInfoDialog.onKeyPress instructions 27..116: move the
        authored actor by 40 units and clamp to the regulation viewport. */
-    if(bar) set_focus(m,hit);
+    if(bar) {
+        set_focus(m,hit);
+        /* P: a wheel detent adjusts the targeted float ScaleBar directly,
+           rather than navigating away because its popup is closed. */
+        if (!strcmp(hit->type,"ScaleBar") && !hit->slider_range_set && !hit->option_open) {
+            hit->photo_saved = hit->photo_value;
+            hit->option_open = 1;
+        }
+    }
     int steps=wheel>0 ? wheel : -wheel;
     if(steps>32) steps=32;
     for(int i=0;i<steps && menu_active_root(m)==root;i++)
@@ -1410,10 +1431,12 @@ void menu_edge_pan(menu *m, int enabled, float seconds)
 {
     float x,y;
     if (!m || strcmp(m->project_label,"gtmode")) return;
-    ui_pointer_pan_direction(m->ui, 0, 0);
-    if(!enabled || seconds<=0 || !ui_pointer_position(m->ui,&x,&y)) return;
     int root=menu_active_root(m);
     if(root<0 || strcmp(ui_root_name(m->ui,root),"TopRoot")) return;
+    /* Only the map owns this feedback. Other horizontal grids have just
+       supplied their own edge direction through ui_pointer_edge_scroll. */
+    ui_pointer_pan_direction(m->ui, 0, 0);
+    if(!enabled || seconds<=0 || !ui_pointer_position(m->ui,&x,&y)) return;
     ui_widget *items[512], *space=NULL;
     int n=0;
     candidates(ui_root_widget(m->ui,root),items,&n);
@@ -1528,11 +1551,11 @@ static void pointer_send_input(menu *m, menu_input input)
     menu_send_input(m,input);
     m->pointer_dispatch = previous;
 }
-/* P: direct manipulation maps into the authored integer range/callback. */
+/* P: direct manipulation uses the authored integer or floating range/callback. */
 static int pointer_adjust_bar(menu *m,ui_widget *bar,float x,float y)
 {
     if(!bar || (strcmp(bar->type,"SliderBar") && strcmp(bar->type,"ScaleBar")) ||
-       (!strcmp(bar->type,"ScaleBar") && !bar->slider_range_set)) return 0;
+       !isfinite(x) || !isfinite(y)) return 0;
     double range[2]={0,100};mp_numbers(bar->src,"range",range,2);
     if(bar->slider_range_set) {range[0]=bar->slider_min;range[1]=bar->slider_max;}
     int axis=(int)mp_number(bar->src,"direction",0)==1;
@@ -1547,6 +1570,23 @@ static int pointer_adjust_bar(menu *m,ui_widget *bar,float x,float y)
         extent=(axis?popup->h:popup->w)-knob;
     }
     float t=extent>0 ? ((axis?y:x)-origin)/extent : 0;
+    if (!strcmp(bar->type,"ScaleBar") && !bar->slider_range_set) {
+        float old = bar->photo_value;
+        if (!bar->option_open) {
+            bar->photo_saved = old;
+            bar->option_open = 1;
+        }
+        float value = bar->photo_min + fminf(1,fmaxf(0,t)) * (bar->photo_max-bar->photo_min);
+        if (bar->photo_step > 0)
+            value = bar->photo_min + roundf((value-bar->photo_min)/bar->photo_step)*bar->photo_step;
+        bar->photo_value = fminf(bar->photo_max,fmaxf(bar->photo_min,value));
+        if (old != bar->photo_value) {
+            ah_val ctx=ah_objv(m->context),result;
+            ah_call_member(m->vm,widget_module(m,bar),"onValueChanged",1,&ctx,&result);
+            if(m->pointer_sound_delay<=0) {menu_play_effect(m,"param");m->pointer_sound_delay=.1f;}
+        }
+        return 1;
+    }
     int old=bar->focus_index;
     assign_index(bar,(int)lround(range[0]+fminf(1,fmaxf(0,t))*(range[1]-range[0])));
     if(old!=bar->focus_index) {
@@ -1610,7 +1650,7 @@ int menu_pointer(menu *m, int enabled, float x, float y, int action, int wheel)
     pointer_set_hover(m,hit);
     if(hit && (action==1 || action==3) &&
        ((!strcmp(hit->type,"SliderBar")) ||
-        (!strcmp(hit->type,"ScaleBar") && hit->slider_range_set))) {
+        !strcmp(hit->type,"ScaleBar"))) {
         if(hit!=m->focus[root]) set_focus(m,hit);
         if(action==3) m->pointer_drag=hit;
         pointer_adjust_bar(m,hit,x,y);
@@ -1827,6 +1867,8 @@ static menu_nav_rect navigation_rect(const ui_widget *w, const char *key, menu_i
 }
 static int navigation_can_focus(const ui_widget *w)
 {
+    if (w->has_focus_override)
+        return w->focus_override;
     int fallback = (w->parent && !strcmp(w->parent->type, "SelectBox")) ||
                    !strcmp(w->type, "Button") || !strcmp(w->type, "SliderBar") ||
                    !strcmp(w->type, "ScaleBar") ||
@@ -2007,7 +2049,10 @@ static void apply_pages(menu *m)
         ui_transition_reveal(m->ui);
         m->pending_fade_in = 0;
     } else if (m->pending_fade_in > 0) {
-        ui_fade(m->ui, 1, 0, m->pending_fade_in);
+        /* start_sequence/doAction queues an app-owned destination. Revealing
+           here paints the old page again before its loading screen starts. */
+        if (!m->next_project[0] && !quick_loading_handoff(m->quick_command))
+            ui_fade(m->ui, 1, 0, m->pending_fade_in);
         m->pending_fade_in = 0;
     }
     m->page_transition_depth--;
@@ -2093,7 +2138,9 @@ void menu_send_key(menu *m, int keysym, int release)
    closed, everything while open; a plain one only its direction's arrows */
 static int slider_key(ui_widget *w, menu_input input)
 {
-    if ((int)mp_number(w->src, "popup", 0))
+    /* MScaleBar +0xF0 is its popup child, not MSliderBar's digit attribute. */
+    if (!strcmp(w->type,"ScaleBar") ? ui_widget_child(w,"popup") != NULL :
+        (int)mp_number(w->src, "popup", 0))
         return w->option_open || input == MENU_ACCEPT;
     if ((int)mp_number(w->src, "direction", 0) == 1)
         return input == MENU_UP || input == MENU_DOWN;
@@ -2143,7 +2190,8 @@ static int bar_input(menu *m, ui_widget *w, menu_input input)
            (002DF640) and every other key is taken; X closes it (002DF7B0),
            Circle puts the kept value back. Without popup the arrows step it
            directly (002DF540) and the rest goes to the base widget. */
-        int popup = (int)mp_number(w->src, "popup", 0) != 0;
+        int popup = !strcmp(w->type,"ScaleBar") ? ui_widget_child(w,"popup") != NULL :
+            (int)mp_number(w->src, "popup", 0) != 0;
         int vertical = (int)mp_number(w->src, "direction", 0) == 1;
         if (popup && input == MENU_ACCEPT) {
             if (!w->option_open)

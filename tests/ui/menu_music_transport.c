@@ -104,10 +104,14 @@ int pregrid_audio_playing(pregrid_audio *p)
 {
     return 0;
 }
-/* no local music and no Jukebox page: the original transport alone */
+static int custom_enabled, custom_calls;
 int moon_music_override_render(int context, int16_t *out, int frames, int gain, int paused)
 {
-    return 0;
+    custom_calls++;
+    if(!custom_enabled)return 0;
+    CHECK(context==0);
+    for(int i=0;i<frames*2;i++)out[i]=1234;
+    return 1;
 }
 static int app_jukebox_pcm(menu *m, int allowed)
 {
@@ -185,6 +189,17 @@ int main(int argc, char **argv)
         state.enabled = 0; /* Deliberately restore outer-loop-only publication. */
     update_present_pcm(&m);
     CHECK(starts==2 && owner==&jobs[1] && state.playing==&jobs[1]);
+    /* Menu custom songs replace map only; Arcade keeps its disc sequence. */
+    custom_enabled=1;
+    custom_calls=0;
+    callback(next,512,owner);
+    CHECK(custom_calls==1 && next[0]==1234);
+    custom_calls=0;
+    if(argc>2 && !strcmp(argv[2],"--custom-scope"))
+        strcpy(jobs[0].name,"map"); /* Restore the overly broad override. */
+    render_menu_music(next,512,&jobs[0]);
+    CHECK(custom_calls==0);
+    custom_enabled=0;
     /* An authored fade retains its producer until the device finishes it. */
     m.request = "";
     music_faded = 1;

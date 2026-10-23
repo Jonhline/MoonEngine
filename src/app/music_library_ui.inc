@@ -532,22 +532,8 @@ static int mlj_bind(ml_jukebox *j, menu *m, gt4_vol *vol)
 static void mlj_scan(ml_jukebox *j)
 {
     char folder[ML_PATH];
-    const char *config = app_video_settings->store.path;
-    const char *slash = strrchr(config, '/'), *back = strrchr(config, '\\');
-    if (!slash || (back && back > slash))
-        slash = back;
-    size_t prefix = slash ? (size_t)(slash - config + 1) : 0;
-    if (prefix + sizeof "Music" > sizeof folder)
+    if (!app_music_folder(app_video_settings->store.path, folder, sizeof folder))
         return;
-    memcpy(folder, config, prefix);
-    strcpy(folder + prefix, "Music");
-#ifdef _WIN32
-    wchar_t wide[4096];
-    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, folder, -1, wide, 4096))
-        CreateDirectoryW(wide, NULL);
-#else
-    mkdir(folder, 0700);
-#endif
     int scanned = 0, before = music_library_list(j->library, j->catalog)->count;
     ml_add_folder(j->library, j->catalog, folder, 0, &scanned);
     snprintf(mlj_music_root, sizeof mlj_music_root, "%s", folder);

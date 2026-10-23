@@ -43,10 +43,15 @@ struct photo_travel {
     gt4_photo_mode cameras[64];
     float camera_size[4], camera_distance;
     int camera_context;
+    void *collision_context;
+    int (*camera_ground)(void *,const float[3]);
+    int (*camera_wall)(void *,float,const float[3],const float[3],float[3],int *);
     uint32_t camera_random;
     int zoom_frames;
     float drive_ev[21], drive_kelvin[11];
 };
+static int drive_camera_clear(photo_travel *, const gt4_photo_mode *, float);
+
 
 photo_travel *photo_travel_open(const char *disc)
 {
@@ -381,10 +386,11 @@ static void input(photo_travel *p, gt4_photo_mode *s)
        Cross/shoulder press grabs it, release restores operate_mode=none.
        Merely focusing a tool must never move the camera. */
     while (p->remainder >= 1. / 60) {
+        gt4_photo_mode previous=*s;
         if (s->drive && p->owner == p->editor) {
             /* 00380100..184, 0036F6A0: zoom ramp 18 frames, factor
                1+abs(axis)*0.049999997. A: native free camera lacks the
-               per-preset dynamic minimum derived by wall intersection. */
+               per-preset dynamic minimum derived by original car-box rejection. */
             int zoom = k[SDL_SCANCODE_X] - k[SDL_SCANCODE_Z] +
                        !!(editor_pad.buttons & (1u << GT4_PAD_L2)) -
                        !!(editor_pad.buttons & (1u << GT4_PAD_R2));
@@ -396,11 +402,18 @@ static void input(photo_travel *p, gt4_photo_mode *s)
                 float fov = gt4_photo_fov(s->view_angle),
                       factor = 1 + .04999999701976776f * p->zoom_frames / 18;
                 fov = zoom > 0 ? fov * factor : fov / factor;
-                fov = fmaxf(2, fminf(83.19999694824219f, fov));
+                fov = fmaxf(s->drive_min_fov, fminf(s->drive_max_fov>0?s->drive_max_fov:83.19999694824219f, fov));
+                if(!drive_camera_clear(p,s,fov)){
+                    s->drive_min_fov=fmaxf(s->drive_min_fov,fov);
+                    fov=gt4_photo_fov(previous.view_angle);
+                }
                 s->view_angle = 12 / tanf(fov * .01745329252f * .5f);
             }
         }
         gt4_photo_step(s, race_view_course(p->view), x, z, turn);
+        if(s->drive && !drive_camera_clear(p,s,gt4_photo_fov(s->view_angle))) {
+            memcpy(s->eye,previous.eye,sizeof s->eye);s->yaw=previous.yaw;s->pitch=previous.pitch;
+        }
         p->remainder -= 1. / 60;
     }
 }
@@ -445,6 +458,8 @@ int photo_travel_draw(void *user, const ui_widget *widget, float x, float y, flo
         if (!race_view_draw_photo(p->view, x, y, w, h))
             return 0;
         if (s->focus_requested || s->focus_distance <= 0) {
+            if (s->drive && s->focus_requested)
+                photo_pause_focus(p->pause);
             /* 001952D0 centres focus at (0.5,0.5). A: native depth readback
                replaces GS/ZBUF decoding; one pixel, only on focus. */
             int vx, vy, vw, vh;
@@ -507,7 +522,7 @@ int photo_travel_draw(void *user, const ui_widget *widget, float x, float y, flo
 #endif
                 float e[3], r[9], pr[3];
                 race_view_get_camera(p->view, e, r, pr);
-                float near_clip = pr[2], far_clip = 20000;
+                float near_clip = pr[2], far_clip = race_view_camera_far(p->view);
                 extern int gl_reversed_z;
                 s->focus_distance =
                     gl_reversed_z
@@ -551,7 +566,9 @@ int photo_travel_draw(void *user, const ui_widget *widget, float x, float y, flo
                 for (int k = 0; k < 3; k++)
                     e[k] =
                         motion_eye[k] + motion_rows[k] * shift[0] + motion_rows[3 + k] * shift[1];
+                float far_clip=race_view_camera_far(p->view);
                 race_view_set_camera(p->view, e, motion_rows, pr[0], pr[1], pr[2]);
+                race_view_set_camera_far(p->view,far_clip);
                 race_view_photo_jitter(p->view, jitter);
                 if (!race_view_draw_photo(p->view, x, y, w, h))
                     goto sample_failed;
@@ -621,6 +638,12 @@ int photo_travel_draw(void *user, const ui_widget *widget, float x, float y, flo
     return 0;
 }
 
+void photo_travel_drive_collision(photo_travel *p,void *ctx,
+    int (*ground)(void *,const float[3]),
+    int (*wall)(void *,float,const float[3],const float[3],float[3],int *))
+{
+    if(p){p->collision_context=ctx;p->camera_ground=ground;p->camera_wall=wall;}
+}
 void photo_travel_drive_setup(photo_travel *p, const float size[4], float distance)
 {
     if (p && size) {
@@ -653,19 +676,24 @@ static float camera_random(photo_travel *p)
     memcpy(&f, &bits, 4);
     return f;
 }
-static float camera_word(const uint8_t *p)
-{
-    float f;
-    memcpy(&f, p, 4);
-    return f;
-}
 static uint32_t camera_u32(const uint8_t *p)
 {
     uint32_t u;
     memcpy(&u, p, 4);
     return u;
 }
-static void camera_add(photo_travel *p, gt4_photo_mode *s, const float eye[3])
+/* 00380C50: reject an enlarged original car box and a too-small field of
+   view. Renderer-only frozen pose; this never writes the car parameters. */
+static int drive_camera_clear(photo_travel *p,const gt4_photo_mode *s,float fov)
+{
+    if(!p->camera_context)return 1;
+    float pos[3],rot[9];if(!race_view_photo_pose(p->view,pos,rot))return 0;
+    float local[3]={0};
+    for(int i=0;i<3;i++)for(int k=0;k<3;k++)local[i]+=rot[k*3+i]*(s->eye[k]-pos[k]);
+    float near_clip=p->saved_projection[2]>0?p->saved_projection[2]:.2f;
+    return gt4_photo_car_clear(local,p->camera_size,fov,near_clip,s->drive_distance>0?s->drive_distance:.1f);
+}
+static void camera_add(photo_travel *p, gt4_photo_mode *s, const float eye[3],float height_min,float height_max)
 {
     if (s->drive_cameras >= 64)
         return;
@@ -683,10 +711,17 @@ static void camera_add(photo_travel *p, gt4_photo_mode *s, const float eye[3])
     /* 003FFC68: 2*atan(8/distance), clamp 2..83.2 degrees.
     003FFD10 +2C0..390 applies car aiming and defaults. A: host trig,
     aim/wall restriction and selected point partition have no EE proof. */
-    float fov = fmaxf(2, fminf(83.19999694824219f, atanf(8 / distance) * 114.591552734375f));
+    float limits[2];gt4_photo_distance_fov(distance,limits);
+    float fov = limits[1];
+    c->drive_min_fov=0;c->drive_max_fov=limits[1];c->drive_distance=distance;
     c->view_angle = 12 / tanf(fov * .01745329252f * .5f);
     c->yaw = atan2f(v[0], -v[2]) * 57.2957763671875f;
     c->pitch = -atan2f(v[1], sqrtf(v[0] * v[0] + v[2] * v[2])) * 57.2957763671875f;
+    c->pitch-=sinf(c->pitch*.01745329252f)*(limits[0]*.5f)*.44999995827674866f;
+    c->drive_pitch_min=-c->pitch-90;
+    if(limits[1]<=c->drive_pitch_min)c->drive_pitch_min=-limits[1]*.5f;
+    c->drive_pitch_min=fmaxf(-90,c->drive_pitch_min);c->drive_pitch_max=limits[1]*.5f;
+    c->drive_height_min=height_min;c->drive_height_max=height_max;
     c->roll = 0;
     c->stand = 0;
     c->focus_distance = distance;
@@ -709,22 +744,21 @@ static void camera_bank(photo_travel *p, gt4_photo_mode *s)
         return;
     /* 003FFD10: incoming camera, active REP4 points (up to 63), then
     randomized car-relative cameras until the original capacity 64.
-    A: native road height replaces original triangle/wall queries;
-    the course point partition and collision rejection still need EE proof. */
+    Original point ordering/wrap and car-box rejection are retained.
+    A: native floor/trig and renderer pose adapters need equivalent PS2 images. */
     uint32_t base = course->size >= 0xb4 ? camera_u32(course->data + 0xb0) : 0;
     if (base && base < course->size && course->size - base >= 0x34) {
         const uint8_t *rep = course->data + base;
-        uint32_t count = camera_u32(rep + 0x2c), at = camera_u32(rep + 0x30);
-        if (at <= course->size - base && count <= (course->size - base - at) / 48)
-            for (uint32_t k = 0; k < count && s->drive_cameras < 64; k++) {
-                const uint8_t *point = rep + at + k * 48;
-                if (camera_word(point + 0x10) <= p->camera_distance &&
-                    p->camera_distance < camera_word(point + 0x14)) {
-                    float eye[3];
-                    memcpy(eye, point + 4, 12);
-                    camera_add(p, s, eye);
-                }
+        unsigned selected[63];
+        unsigned count=gt4_photo_replay_points(rep,course->size-base,course->length,p->camera_distance,selected,63);
+        for(unsigned k=0;k<count && s->drive_cameras<64;k++) {
+            const uint8_t *point=rep+selected[k];float eye[3];memcpy(eye,point+4,12);
+            float minimum=eye[1],maximum=eye[1],floor;
+            if((camera_u32(point)&4) && gt4_course_height(course,eye[0],eye[2],20000,&floor)){
+                minimum=floor+.3999999761581421f;maximum=fmaxf(eye[1],floor+3);
             }
+            camera_add(p,s,eye,minimum,maximum);
+        }
     }
     float rot[9], pos[3];
     if (!race_view_photo_pose(p->view, pos, rot))
@@ -743,11 +777,17 @@ static void camera_bank(photo_travel *p, gt4_photo_mode *s)
         for (int j = 0; j < 3; j++)
             eye[j] = pos[j] + rot[j * 3] * local[0] + rot[j * 3 + 1] * local[1] +
                      rot[j * 3 + 2] * local[2];
+        if(p->camera_ground && p->camera_wall){
+            int id=p->camera_ground(p->collision_context,pos);float clipped[3];
+            p->camera_wall(p->collision_context,.14999999105930328f,pos,eye,clipped,&id);
+            memcpy(eye,clipped,12);
+            if(p->camera_ground(p->collision_context,eye)<0)continue;
+        }
         float height;
         if (!gt4_course_height(course, eye[0], eye[2], 20000, &height))
             continue;
         eye[1] = fmaxf(height + .3999999761581421f, fminf(eye[1], height + 3));
-        camera_add(p, s, eye);
+        camera_add(p, s, eye,height+.3999999761581421f,height+3);
     }
     for (int k = 0; k < s->drive_cameras; k++)
         p->cameras[k].drive_cameras = s->drive_cameras;
@@ -788,6 +828,11 @@ int photo_travel_drive(photo_travel *p, menu *m, race_view *view)
     s->yaw = atan2f(-p->saved_rows[6], p->saved_rows[8]) * d;
     s->roll = atan2f(p->saved_rows[1], p->saved_rows[4]) * d;
     s->view_angle = 12 * p->saved_projection[1];
+    s->drive_max_fov=83.19999694824219f;
+    float distance2=0;for(int i=0;i<3;i++){float d=s->car[i]-s->eye[i];distance2+=d*d;}
+    s->drive_distance=fmaxf(.1f,sqrtf(distance2));
+    s->drive_pitch_min=fmaxf(-90,-s->pitch-90);s->drive_pitch_max=s->drive_max_fov*.5f;
+    s->drive_height_min=s->drive_height_max=s->eye[1];
     s->aperture = 6;
     s->shutter = 3;
     s->lightness = 10;
@@ -797,7 +842,7 @@ int photo_travel_drive(photo_travel *p, menu *m, race_view *view)
     /* Initial camera is the frozen resident race view. */
     s->drive_cameras = 1;
     s->image_scale = 1;
-    s->drive = s->ready = 1;
+    s->drive = s->ready = s->can_shoot = 1;
     strcpy(s->operate_mode, "none");
     strcpy(s->color_filter, "none");
     camera_bank(p, s);
@@ -860,9 +905,19 @@ void photo_travel_drive_editor(photo_travel *p)
 }
 void photo_travel_editor_draw(photo_travel *p)
 {
+    if (!p || !p->owner)
+        return;
+    const gt4_photo_mode *s = menu_photo_state(p->owner);
+    float box[4];
+    photo_pause_viewport(s->roll == 90 || s->roll == -90, video_projection_x() < 1, box);
+    /* PhotoPause 003C5AB8 composes the photograph before racephoto.strb;
+       the controls occupy the remaining black area, not the live scene. */
+    static const uint8_t black[4] = {0, 0, 0, 255};
+    plat_video_set_view(640, 480);
+    plat_draw_quad(NULL, 0, 0, 640, 480, 0, 0, 1, 1, black);
     ui_widget view = {0};
     view.type = "PhotoViewFace";
-    photo_travel_draw(p, &view, 0, 0, 640, 480, 1);
+    photo_travel_draw(p, &view, box[0], box[1], box[2], box[3], 1);
 }
 static int film_pose(photo_travel *p, const gt4_film_frame *f)
 {
@@ -905,7 +960,7 @@ static int film_pose(photo_travel *p, const gt4_film_frame *f)
         back[k] = c[k] - c[k + 3];
         length += back[k] * back[k];
     }
-    if (length <= 0 || c[9] <= 0 || c[9] >= 180 || c[10] <= 0 || c[11] <= 0)
+    if (length <= 0 || c[9] <= 0 || c[9] >= 180 || c[10] <= 0 || c[11] <= 0 || c[12] <= c[11])
         return 0;
     length = sqrtf(length);
     for (int k = 0; k < 3; k++)
@@ -926,6 +981,7 @@ static int film_pose(photo_travel *p, const gt4_film_frame *f)
     memcpy(rows + 6, back, 12);
     float sy = 1 / tanf(c[9] * .01745329252f * .5f);
     race_view_set_camera(p->view, c, rows, sy / c[10], sy, c[11]);
+    race_view_set_camera_far(p->view,c[12]);
     return 1;
 }
 int photo_travel_develop(photo_travel *p, menu *preview, const char *path, void (*pump)(void *),
@@ -953,6 +1009,9 @@ int photo_travel_develop(photo_travel *p, menu *preview, const char *path, void 
     if (!race_view_set_opponents(p->view, cars, colors, f.cars - 1))
         return 0;
     for (int k = 0; k < f.cars; k++) {
+        /* 0033A8C0 deliberately applies CDTL label 0 to both model slots;
+           label 1 is consumed but not selected by the original reader. */
+        if(!race_view_set_film_body(p->view,(unsigned)k,f.car[k].parts[0]))return 0;
         if (!race_view_set_film_parts(p->view, (unsigned)k, f.car[k].parts[2], f.car[k].parts[3]))
             return 0;
         /* 0033A1B0 applies CPRM tire dimensions through 00450F50 before
@@ -982,6 +1041,7 @@ int photo_travel_develop(photo_travel *p, menu *preview, const char *path, void 
         !race_view_photo_environment(p->view, f.environment, sizeof f.environment))
         return 0;
     for (int k = 0; k < f.frames; k++) {
+        if(f.frame[k].gadget_size && !race_view_set_film_gadgets(p->view,f.gadget_data+f.frame[k].gadget_offset,f.frame[k].gadget_size))return 0;
         if (!film_pose(p, &f.frame[k]))
             return 0;
         race_view_photo_record(p->view);

@@ -1087,7 +1087,13 @@ static int player_thread(void *user)
     if (!p)
         return 0;
     int revision = -1, context = -1, index = -1, failures = 0, file_data = 0;
-    int order[ML_TRACKS], order_at = ML_TRACKS;
+    int order[ML_TRACKS] = {0}, order_at = ML_TRACKS;
+    /* Each playback context keeps its own pass through the playlist. Preview
+       selection and returning from another context must not rewind it. */
+    ml_playlist *history = calloc(ML_CONTEXTS, sizeof *history);
+    int saved_order[ML_CONTEXTS][ML_TRACKS], saved_at[ML_CONTEXTS];
+    if (!history) { free(p); return 0; }
+    for (int c = 0; c < ML_CONTEXTS; c++) saved_at[c] = ML_TRACKS;
     uint32_t random = 0x341f234u;
     int16_t chunk[2048 * 2];
     char disc[ML_PATH] = "";
@@ -1103,6 +1109,10 @@ static int player_thread(void *user)
             SDL_AtomicSet(&m->write, 0);
             SDL_AtomicSet(&m->read, 0);
             SDL_UnlockMutex(m->transport);
+            if (context >= 0 && context < ML_CONTEXTS) {
+                memcpy(saved_order[context], order, sizeof order);
+                saved_at[context] = order_at;
+            }
             decoder_close(&d);
             context = want;
             revision = rev;
@@ -1118,6 +1128,15 @@ static int player_thread(void *user)
                 *p = m->model.lists[id];
             snprintf(disc, sizeof disc, "%s", m->disc);
             SDL_UnlockMutex(m->mutex);
+            if (want >= 0 && want < ML_CONTEXTS) {
+                if (!memcmp(&history[want], p, sizeof *p)) {
+                    memcpy(order, saved_order[want], sizeof order);
+                    order_at = saved_at[want];
+                } else {
+                    history[want] = *p;
+                    saved_at[want] = ML_TRACKS;
+                }
+            }
             /* Consumer discards old-generation samples before ready is published. */
             if (preview >= 0) {
                 int start = SDL_AtomicGet(&m->preview_track);
@@ -1224,6 +1243,7 @@ static int player_thread(void *user)
         SDL_UnlockMutex(m->transport);
     }
     decoder_close(&d);
+    free(history);
     free(p);
     return 0;
 }

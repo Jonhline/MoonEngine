@@ -71,6 +71,35 @@ static void r3d_frustum(const r3d_view *v, float projection_x, float planes[6][4
         planes[i][3] = d;
     }
 }
+/* P: spotlight clip planes in model space. Support-point rejection avoids
+   transforming/dividing eight corners per material group and remains valid
+   when a box straddles the light's near plane. Projection XY is in 0..W. */
+static void r3d_lamp_frustum(const float projection[16], const r3d_view *v, float planes[6][4])
+{
+    for (int i = 0; i < 6; i++) {
+        float world[4];
+        for (int k = 0; k < 4; k++) {
+            const float *p = projection + k * 4;
+            world[k] = i == 0   ? p[0]
+                       : i == 1 ? p[3] - p[0]
+                       : i == 2 ? p[1]
+                       : i == 3 ? p[3] - p[1]
+                       : i == 4 ? p[3]
+                                : -p[2];
+        }
+        if (i == 4)
+            world[3] -= .05f;
+        if (i == 5)
+            world[3] += 1;
+        planes[i][3] = world[3];
+        for (int k = 0; k < 3; k++) {
+            planes[i][3] += world[k] * v->pos[k];
+            planes[i][k] = 0;
+            for (int r = 0; r < 3; r++)
+                planes[i][k] += world[r] * v->rot[r * 3 + k];
+        }
+    }
+}
 static int r3d_bounds_visible(const float planes[6][4], const float lo[3], const float hi[3])
 {
     for (int i = 0; i < 6; i++) {

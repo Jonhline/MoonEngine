@@ -2944,6 +2944,12 @@ race_view *race_game_photo_view(race_game *g)
                ? g->view
                : NULL;
 }
+int race_game_photo_select(race_game *g, int ps2key, int release)
+{
+    /* Retail manual pp24/25/28: Select during replay opens PhotoPause.
+       The original attract/replay caller reaches 003C3CE8 at 0010CE14. */
+    return g && g->replaying && ps2key == 0xffff && !release && race_game_photo_view(g);
+}
 void race_game_photo_pause(race_game *g, int on)
 {
     if (g) {
@@ -2954,6 +2960,16 @@ void race_game_photo_pause(race_game *g, int on)
             plat_input_set_ffb(1, 0);
         }
     }
+}
+
+/* Existing immutable camera queries, shared with PhotoPause. */
+int race_game_photo_ground(void *ctx,const float p[3])
+{
+    race_game *g=ctx;return g&&g->run?gt4_race_run_ground_id(g->run,p):-1;
+}
+int race_game_photo_wall(void *ctx,float margin,const float from[3],const float to[3],float out[3],int *id)
+{
+    race_game *g=ctx;return gt4_race_run_camera_wall(g?g->run:NULL,margin,from,to,out,id);
 }
 
 int race_game_photo_camera_data(race_game *g, float size[4], float *distance)

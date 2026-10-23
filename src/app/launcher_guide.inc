@@ -69,49 +69,20 @@ typedef struct {
 } guide_option;
 #define GO(field) offsetof(pc_video_options, field)
 static const guide_option guide_graphics[] = {
-    {"Lighting", GO(modern_lighting),
-     "Modern swaps the PS2 lighting model for physically based highlights, a soft sky fill on "
-     "the shaded side and filmic compression of the brightest parts.",
+    {"Realistic Lighting", GO(modern_lighting),
+     "Direct sunlight, shaded surfaces and reflections that respond to the material. "
+     "Off keeps the original lighting.",
      "The paint's highlights and the side of the car away from the sun.",
-     "Light on the graphics card.", {.05f, .29f, .65f, .67f}},
-    {"Material Shading", GO(material_shading),
-     "Works out each material's lighting for every pixel instead of at the corners of each "
-     "polygon, so curved panels shade smoothly.",
-     "The bonnet and the doors: reflections run across them without steps.",
-     "Light.", {.08f, .31f, .62f, .63f}},
+     "Uses more graphics time.", {.05f, .29f, .65f, .67f}},
     {"Reflection Quality", GO(reflection_quality),
      "The resolution of the surroundings reflected in the paint and the glass. Original keeps "
      "the PS2's 128-pixel reflection.",
      "The sky and the course mirrored on the bodywork and the windscreen.",
      "Each step up costs more graphics time.", {.10f, .33f, .58f, .59f}},
-    {"Car Shadows", GO(car_shadows),
-     "Projected lays the car's real outline on the ground under it. Original keeps the game's "
-     "own soft shadow shape.",
-     "The shadow's shape around the wheels and the nose.",
-     "Light.", {.04f, .35f, .66f, .71f}},
-    {"Shadow Maps", GO(shadow_maps),
-     "Depth shadows from the sun for the car on the course and on itself, at the size chosen.",
-     "Shadow edges, and the car shading its own sills and mirrors.",
-     "Higher sizes cost more graphics time.", {.04f, .31f, .66f, .71f}},
-    {"Daylight", GO(daylight),
-     "Sunlight and daytime atmosphere that follow the hour set in Options.",
+    {"Realistic Skybox", GO(daylight),
+     "Clouds, atmosphere, sun, moon and stars following the course and replay clock.",
      "The sky, the haze on the hills and where the light comes from.",
-     "Light.", {.04f, .10f, .96f, .64f}},
-    {"HDR", GO(hdr),
-     "Renders the scene with a high range of light, then compresses it like a camera, with a "
-     "restrained bloom.",
-     "Bright sky and highlights keep their detail instead of turning flat white.",
-     "Moderate.", {.04f, .10f, .96f, .64f}},
-    {"Sun Rays", GO(sun_rays),
-     "Light scattered through the air around the sun. Needs HDR and Daylight; Volumetric "
-     "turns them on.",
-     "The air towards the sun and around the hills.",
-     "Volumetric is the most expensive option here.", {.04f, .10f, .96f, .64f}},
-    {"Ambient Occlusion", GO(ambient_occlusion),
-     "Darkens corners and contact points that light hardly reaches. Needs HDR and Daylight; "
-     "turning it on turns them on.",
-     "Under the car, the wheel arches and the gaps between panels.",
-     "Moderate.", {.06f, .37f, .62f, .65f}},
+     "Uses more graphics time.", {.04f, .10f, .96f, .64f}},
     {"Texture Filtering", GO(texture_filtering),
      "Keeps surfaces sharp as they recede. Original keeps the textures exactly as the disc "
      "samples them.",
@@ -169,6 +140,8 @@ static int guide_get(const pc_video_options *v, size_t field)
 static void guide_put(pc_video_options *v, size_t field, int value)
 {
     *(int *)((char *)v + field) = value;
+    if(field==offsetof(pc_video_options,daylight))video_options_realistic_skybox(v,value);
+    if(field==offsetof(pc_video_options,modern_lighting))video_options_realistic_lighting(v,value);
     if (field == offsetof(pc_video_options, sun_rays) && value == 2)
         v->hdr = v->daylight = 1;
     if (field == offsetof(pc_video_options, ambient_occlusion) && value)
@@ -197,8 +170,9 @@ static int guide_value_count(const char *label)
 static void guide_text(const studio_dock *d, const char *text, float x, float base, float size,
                        int align, const uint8_t col[4])
 {
-    if (!d->font_ok || !text) return;
-    static const uint8_t s1[4] = {6, 7, 9, 120}, s2[4] = {6, 7, 9, 70};
+    if (!d->font_ok || !text || !col[3]) return;
+    const uint8_t s1[4] = {6, 7, 9, (uint8_t)(120 * col[3] / 255)},
+                  s2[4] = {6, 7, 9, (uint8_t)(70 * col[3] / 255)};
     const float S = d->scale > 0 ? d->scale : DOCK_SCALE;
     float w = dock_text_width(&d->font, text) * DOCK_NAME_SCALE * size * S;
     float cx = align == 1 ? x : align == 2 ? x - w * .5f : x + w * .5f;
@@ -206,7 +180,8 @@ static void guide_text(const studio_dock *d, const char *text, float x, float ba
     dock_name_pass(d, text, cx, base, 2.f * S, 2.f * S, s2, size);
     dock_name_pass(d, text, cx, base, 0.f, 0.f, col, size);
 }
-/* a paragraph broken at spaces to a width; returns the baseline after its last line */
+/* a paragraph broken at spaces to a width; returns the baseline after its last line. A NULL
+   colour only measures. */
 static float guide_wrap(const studio_dock *d, const char *text, float x, float y, float maxw,
                         float size, const uint8_t col[4], float leading)
 {
@@ -228,7 +203,8 @@ static float guide_wrap(const studio_dock *d, const char *text, float x, float y
         if (!best) break;
         memcpy(line, p, best);
         line[best] = 0;
-        dock_text(d, line, x, y, size, 0, col);
+        if (col)
+            dock_text(d, line, x, y, studio_text_fit(d, line, size, maxw), 0, col);
         y += leading;
         p += best;
         while (*p == ' ') p++;
@@ -330,14 +306,21 @@ static int guide_capture(plat_texture **into, showroom *cars, const char *code, 
         return -1;
     }
     int settling = guide_rebuilds(look, drawn);
+    /* Captures use the game's fitted viewport, not the launcher's width-filled
+       layout: a wide/maximized window can otherwise request rows outside the
+       framebuffer (e.g. 1920x1344 from a 1920x1080 image). */
+    int fill = video_fill_window();
+    video_set_fill_window(0);
     video_settings_preview_options(look);
     plat_video_begin_frame();
     video_begin_scene();
-    guide_scene(cars, code, raster, track, 0); /* identical pose; no car time advances */
+    guide_scene(cars, code, raster, track, 0);
     video_end_scene();
     *drawn = *look;
-    if (settling)
+    if (settling) {
+        video_set_fill_window(fill);
         return 0;
+    }
     int cw = track ? 640 : raster, ch = 448, pw = 0, ph = 0;
     unsigned char *px = plat_sdl_read_pixels(&pw, &ph);
     long sum = 0;
@@ -356,10 +339,10 @@ static int guide_capture(plat_texture **into, showroom *cars, const char *code, 
     gl_log("guide: drawable %dx%d capture=%dx%d mean=%d accepted=%d", drawable_w, drawable_h, cw,
            ch, mean, blank ? 0 : 1);
     free(px);
-    if (blank)
-        return -1;
-    *into = video_grab(*into, 0, 0, (float)cw, (float)ch);
-    return 1;
+    if (!blank)
+        *into = video_grab(*into, 0, 0, (float)cw, (float)ch);
+    video_set_fill_window(fill);
+    return blank ? -1 : 1;
 }
 /* Two captures of one instant through one window: a's left of the divider, b's right. The
    crop (top-down) is fitted into the box; grabbed rows run bottom up, so v is flipped. out
@@ -418,6 +401,12 @@ static int guide_script_step(const char **script, int page)
         snprintf(path, sizeof path, "%s-%s.png", getenv("MOONSTUDIO_GUIDE_SHOT"), token + 1);
         screenshot(path);
         printf("studio guide: shot %s on page %d\n", token + 1, page);
+        return 1;
+    }
+    int width, height;
+    if (sscanf(token, "RESIZE:%dx%d", &width, &height) == 2 && width > 0 && height > 0 && width <= 4096 && height <= 2160) {
+        SDL_SetWindowSize(plat_sdl_window(), width, height);
+        printf("studio guide: resize %d %d\n", width, height);
         return 1;
     }
     static const struct { const char *name; int key; } keys[] = {
@@ -990,14 +979,150 @@ static int studio_guide(showroom *cars,gt4_vol *vol,const char *code,int raster,
    player's current value (Enhanced's when it is still at the original). The course is read
    when the column first needs it and closed with the panel. The room keeps the player's own
    look: each capture is restored at once, and only the launcher's frame is presented. */
+/* The comparison is a short film, not one instant: the camera swings around the car while
+   both sides are recorded, then the two loops play together under the divider (as settings
+   screens preview an option with a clip). Recorded once per look, one frame per launcher
+   frame; nothing is drawn while it plays. */
+#define GUIDE_CLIP 16
+#define GUIDE_CLIP_FPS 10.f
+/* the swing around the car from the still's angle, in radians (race_view_camera adds) */
+static float guide_clip_orbit(int f)
+{
+    return -.3f + .6f * (float)f / (GUIDE_CLIP - 1);
+}
+/* Each film is kept like the Options' prints: next to launcher.ini (launcher-comparisons/), one
+   file an option with its look's key inside. A film whose key still matches is read back on a
+   thread instead of filmed again; a new one is written on a thread once filmed. */
+#include <ctype.h>
+#define GUIDE_CLIP_MAGIC "MOONCLP1"
+typedef struct {
+    SDL_Thread *thread;
+    SDL_atomic_t done;
+    char path[LAUNCHER_PATH + 64];
+    uint64_t key;
+    int w, h, screen, ok;
+    uint8_t *px[2][GUIDE_CLIP];
+} guide_clip_job;
+static SDL_atomic_t guide_clip_writing; /* films still being written; closing waits */
+static void guide_clip_free(guide_clip_job *j)
+{
+    if (!j) return;
+    for (int s = 0; s < 2; s++)
+        for (int f = 0; f < GUIDE_CLIP; f++) free(j->px[s][f]);
+    free(j);
+}
+static int guide_clip_write(void *data)
+{
+    guide_clip_job *j = data;
+    char dir[LAUNCHER_PATH + 64], tmp[LAUNCHER_PATH + 72];
+    snprintf(dir, sizeof dir, "%s", j->path);
+    char *cut = strrchr(dir, '/');
+    if (cut) *cut = 0, gt4_save_mkdir(dir);
+    snprintf(tmp, sizeof tmp, "%s.tmp", j->path);
+    FILE *f = fopen(tmp, "wb");
+    int head[4] = {j->w, j->h, j->screen, GUIDE_CLIP};
+    int ok = f && fwrite(GUIDE_CLIP_MAGIC, 8, 1, f) == 1 && fwrite(&j->key, 8, 1, f) == 1 &&
+             fwrite(head, sizeof head, 1, f) == 1;
+    mz_ulong raw = (mz_ulong)j->w * j->h * 4, bound = mz_compressBound(raw);
+    uint8_t *z = ok ? malloc(bound) : NULL;
+    ok = ok && z;
+    for (int s = 0; s < 2; s++)
+        for (int i = 0; i < GUIDE_CLIP && ok; i++) {
+            mz_ulong packed = bound;
+            uint32_t len;
+            ok = mz_compress2(z, &packed, j->px[s][i], raw, 1) == MZ_OK;
+            len = (uint32_t)packed;
+            ok = ok && fwrite(&len, 4, 1, f) == 1 && fwrite(z, packed, 1, f) == 1;
+        }
+    free(z);
+    if (f && fclose(f)) ok = 0;
+    remove(j->path);
+    if (!ok || rename(tmp, j->path)) remove(tmp);
+    guide_clip_free(j);
+    SDL_AtomicAdd(&guide_clip_writing, -1);
+    return 0;
+}
+static int guide_clip_read(void *data)
+{
+    guide_clip_job *j = data;
+    FILE *f = fopen(j->path, "rb");
+    char magic[8];
+    uint64_t key = 0;
+    int head[4] = {0};
+    int ok = f && fread(magic, 8, 1, f) == 1 && !memcmp(magic, GUIDE_CLIP_MAGIC, 8) &&
+             fread(&key, 8, 1, f) == 1 && key == j->key && fread(head, sizeof head, 1, f) == 1 &&
+             head[0] > 0 && head[0] <= 8192 && head[1] > 0 && head[1] <= 8192 &&
+             head[3] == GUIDE_CLIP;
+    mz_ulong raw = ok ? (mz_ulong)head[0] * head[1] * 4 : 0, bound = mz_compressBound(raw);
+    uint8_t *z = ok ? malloc(bound) : NULL;
+    ok = ok && z;
+    j->w = head[0], j->h = head[1], j->screen = head[2];
+    for (int s = 0; s < 2; s++)
+        for (int i = 0; i < GUIDE_CLIP && ok; i++) {
+            uint32_t len = 0;
+            mz_ulong out = raw;
+            ok = fread(&len, 4, 1, f) == 1 && len > 0 && len <= bound && fread(z, len, 1, f) == 1 &&
+                 (j->px[s][i] = malloc(raw)) != NULL &&
+                 mz_uncompress(j->px[s][i], &out, z, len) == MZ_OK && out == raw;
+        }
+    free(z);
+    if (f) fclose(f);
+    j->ok = ok;
+    SDL_AtomicSet(&j->done, 1);
+    return 0;
+}
+/* the option's file, from launcher.ini's folder; 0 without one */
+static int guide_clip_path(char *out, size_t size, const char *label)
+{
+    if (!studio_prefs || !studio_prefs->file[0]) return 0;
+    char dir[LAUNCHER_PATH], name[64];
+    snprintf(dir, sizeof dir, "%s", studio_prefs->file);
+    char *cut = strrchr(dir, '/'), *back = strrchr(dir, '\\');
+    if (back && (!cut || back > cut)) cut = back;
+    if (cut) *cut = 0;
+    else snprintf(dir, sizeof dir, ".");
+    int n = 0;
+    for (const char *c = label; *c && n < (int)sizeof name - 1; c++)
+        if (isalnum((unsigned char)*c)) name[n++] = (char)tolower((unsigned char)*c);
+        else if (n && name[n - 1] != '-') name[n++] = '-';
+    name[n] = 0;
+    snprintf(out, size, "%s/launcher-comparisons/%s.clip", dir, name);
+    return 1;
+}
+static uint64_t guide_clip_key(const char *label, const pc_video_options *a,
+                               const pc_video_options *b, int w, int h)
+{
+    uint64_t k = 1469598103934665603ull;
+    const int size[3] = {w, h, GUIDE_CLIP};
+    const void *part[4] = {label, a, b, size};
+    const size_t len[4] = {strlen(label), sizeof *a, sizeof *b, sizeof size};
+    for (int p = 0; p < 4; p++)
+        for (size_t i = 0; i < len[p]; i++) k = (k ^ ((const uint8_t *)part[p])[i]) * 1099511628211ull;
+    return k;
+}
 typedef struct {
     race_view *track;
-    int ready, failed, want, settle, pending, shown, retry_hold, id, dragging, w, h;
-    plat_texture *images[2];
+    int ready, failed, want, settle, pending, frame, shown, retry_hold, id, dragging, w, h;
+    float orbit; /* the swing applied to the course's camera now */
+    plat_texture *images[2][GUIDE_CLIP];
     pc_video_options a, b, drawn;
     float split, pic[4];
+    /* the kept film: its key and file, a read on its way, the frames filmed for the file */
+    uint64_t key;
+    int seek, pw, ph, pscreen;
+    char path[LAUNCHER_PATH + 64];
+    guide_clip_job *load;
+    uint8_t *px[2][GUIDE_CLIP];
 } guide_options_state;
 static guide_options_state guide_options = {.split = .5f, .id = -1};
+static void guide_options_drop_frames(guide_options_state *g)
+{
+    for (int s = 0; s < 2; s++)
+        for (int f = 0; f < GUIDE_CLIP; f++) {
+            free(g->px[s][f]);
+            g->px[s][f] = NULL;
+        }
+}
 /* the guide's entry for an Options row: graphics (1), menus (0), or none */
 static const guide_option *guide_option_for(int id, int *graphics)
 {
@@ -1019,7 +1144,15 @@ static void guide_options_close(void)
 {
     guide_options_state *g = &guide_options;
     race_view_close(g->track);
-    for (int j = 0; j < 2; j++) plat_texture_destroy(g->images[j]);
+    if (g->load) {
+        SDL_WaitThread(g->load->thread, NULL);
+        guide_clip_free(g->load);
+    }
+    guide_options_drop_frames(g);
+    for (int waited = 0; SDL_AtomicGet(&guide_clip_writing) && waited < 20000; waited += 10)
+        SDL_Delay(10);
+    for (int j = 0; j < 2; j++)
+        for (int f = 0; f < GUIDE_CLIP; f++) plat_texture_destroy(g->images[j][f]);
     float split = g->split;
     memset(g, 0, sizeof *g);
     g->split = split;
@@ -1051,7 +1184,62 @@ static void guide_options_step(showroom *cars, const char *code, int raster, int
     int graphics = 0;
     const guide_option *o = app_video_settings ? guide_option_for(id, &graphics) : NULL;
     g->want = o && graphics;
-    if (!g->want || g->failed) return;
+    if (!g->want) return;
+    pc_video_options a, b;
+    guide_options_looks(o, &a, &b);
+    if (id != g->id || w != g->w || h != g->h || memcmp(&a, &g->a, sizeof a) ||
+        memcmp(&b, &g->b, sizeof b)) {
+        /* A capture made against the old drawable is stale: its texture reads back empty once
+           the window changed size, so it is thrown away rather than shown. */
+        if (w != g->w || h != g->h)
+            for (int s = 0; s < 2; s++)
+                for (int f = 0; f < GUIDE_CLIP; f++) {
+                    plat_texture_destroy(g->images[s][f]);
+                    g->images[s][f] = NULL;
+                }
+        g->id = id, g->w = w, g->h = h, g->a = a, g->b = b;
+        g->settle = 8, g->pending = g->shown = g->frame = 0, g->retry_hold = 0;
+        guide_options_drop_frames(g);
+        g->key = guide_clip_key(o->label, &a, &b, w, h);
+        g->seek = guide_clip_path(g->path, sizeof g->path, o->label);
+        if (!g->seek) g->path[0] = 0;
+    }
+    /* the kept film first: read on a thread, its frames made textures again here */
+    if (g->load) {
+        if (!SDL_AtomicGet(&g->load->done)) return;
+        guide_clip_job *j = g->load;
+        SDL_WaitThread(j->thread, NULL);
+        g->load = NULL;
+        if (j->ok && j->key == g->key) {
+            for (int s = 0; s < 2; s++)
+                for (int f = 0; f < GUIDE_CLIP; f++) {
+                    plat_texture_destroy(g->images[s][f]);
+                    g->images[s][f] = video_grab_restore(j->w, j->h, j->px[s][f], j->screen);
+                }
+            g->shown = 1, g->seek = g->settle = g->pending = 0;
+            printf("studio options: comparison %s from the cache\n", o->label);
+        }
+        guide_clip_free(j);
+        if (g->shown) return;
+    }
+    if (g->seek) {
+        g->seek = 0;
+        FILE *f = fopen(g->path, "rb");
+        guide_clip_job *j = f ? calloc(1, sizeof *j) : NULL;
+        if (f) fclose(f);
+        if (j) {
+            snprintf(j->path, sizeof j->path, "%s", g->path);
+            j->key = g->key;
+            j->thread = SDL_CreateThread(guide_clip_read, "launcher comparison", j);
+            if (j->thread) {
+                g->load = j;
+                return;
+            }
+            free(j);
+        }
+    }
+    /* filmed: the course opens only now, so a kept film needs no disc read */
+    if (g->shown || g->failed) return;
     if (!g->track) {
         g->track = race_view_open(studio_disc);
         if (g->track) race_view_set_parts(g->track, "", "");
@@ -1072,34 +1260,49 @@ static void guide_options_step(showroom *cars, const char *code, int raster, int
         race_view_daylight_time(g->track, 0);
         g->drawn = app_video_settings->current;
     }
-    pc_video_options a, b;
-    guide_options_looks(o, &a, &b);
-    if (id != g->id || w != g->w || h != g->h || memcmp(&a, &g->a, sizeof a) ||
-        memcmp(&b, &g->b, sizeof b)) {
-        if (w != g->w || h != g->h) {
-            for (int j = 0; j < 2; j++) {
-                plat_texture_destroy(g->images[j]);
-                g->images[j] = NULL;
-            }
-        }
-        g->id = id, g->w = w, g->h = h, g->a = a, g->b = b;
-        g->settle = 8, g->pending = g->shown = 0, g->retry_hold = 0;
-    }
     if (g->settle && !--g->settle) g->pending = 1;
     if (!g->pending) return;
     if (g->retry_hold > 0) { g->retry_hold--; return; }
     const pc_video_options *look = g->pending == 2 ? &g->b : &g->a;
-    int got = guide_capture(&g->images[g->pending - 1], cars, code, raster, look, g->track,
-                            &g->drawn, g->w, g->h);
+    plat_texture **into = &g->images[g->pending - 1][g->frame];
+    race_view_camera(g->track, guide_clip_orbit(g->frame) - g->orbit, 0);
+    g->orbit = guide_clip_orbit(g->frame);
+    int got = guide_capture(into, cars, code, raster, look, g->track, &g->drawn, g->w, g->h);
     if (got == 0)
-        got = guide_capture(&g->images[g->pending - 1], cars, code, raster, look, g->track,
-                            &g->drawn, g->w, g->h);
+        got = guide_capture(into, cars, code, raster, look, g->track, &g->drawn, g->w, g->h);
     if (got < 0) { g->retry_hold = 4; return; }
     if (got == 0) return;
-    if (++g->pending > 2) {
-        g->pending = 0;
-        g->shown = 1;
-        printf("studio options: comparison %s\n", o->label);
+    if (g->path[0]) {
+        int pw = 0, ph = 0, screen = 0;
+        uint8_t **px = &g->px[g->pending - 1][g->frame];
+        free(*px);
+        *px = video_grab_pixels(*into, &pw, &ph, &screen);
+        if (g->pending == 1 && !g->frame) g->pw = pw, g->ph = ph, g->pscreen = screen;
+        else if (pw != g->pw || ph != g->ph) free(*px), *px = NULL;
+    }
+    if (++g->frame == GUIDE_CLIP) {
+        g->frame = 0;
+        if (++g->pending > 2) {
+            g->pending = 0;
+            g->shown = 1;
+            printf("studio options: comparison %s (%d frames)\n", o->label, GUIDE_CLIP);
+            /* kept for the next time: every frame read back, written on a thread */
+            int all = g->path[0] != 0;
+            for (int s = 0; s < 2; s++)
+                for (int f = 0; f < GUIDE_CLIP; f++) all = all && g->px[s][f];
+            guide_clip_job *j = all ? calloc(1, sizeof *j) : NULL;
+            if (j) {
+                snprintf(j->path, sizeof j->path, "%s", g->path);
+                j->key = g->key, j->w = g->pw, j->h = g->ph, j->screen = g->pscreen;
+                memcpy(j->px, g->px, sizeof j->px);
+                memset(g->px, 0, sizeof g->px);
+                SDL_AtomicAdd(&guide_clip_writing, 1);
+                SDL_Thread *t = SDL_CreateThread(guide_clip_write, "launcher comparison", j);
+                if (t) SDL_DetachThread(t);
+                else guide_clip_free(j), SDL_AtomicAdd(&guide_clip_writing, -1);
+            }
+            guide_options_drop_frames(g);
+        }
     }
     video_settings_preview_graphics(app_video_settings, 0);
     g->drawn = app_video_settings->current;
@@ -1136,11 +1339,77 @@ static const char *guide_options_help(int id)
     snprintf(line, sizeof line, "%s: Left / Right to change. Drag the line to compare.", o->label);
     return line;
 }
-static void guide_options_draw(const studio_dock *d, int tab, int id, float alpha)
+#include "launcher_renders.inc"
+#include "launcher_prints.inc"
+#include "launcher_visuals.inc"
+/* Keep the description title below the tab divider; trace actual font ink for captures. */
+static void guide_title(const studio_dock *d, const char *title, float x, float y, float w,
+                        const uint8_t col[4])
+{
+    const float S = d->scale > 0 ? d->scale : DOCK_SCALE;
+    float size = studio_text_fit(d, title, .95f, w);
+    dock_text(d, title, x, y, size, 0, col);
+    if (getenv("MOONSTUDIO_LAYOUT_TRACE")) {
+        float top = y;
+        for (const char *c = title; *c;) {
+            const gt4_glyph *glyph = gt4_font_glyph(&d->font, gt4_text_next(&c));
+            if (glyph && glyph->w && glyph->h)
+                top = fminf(top, y + glyph->y * DOCK_NAME_SCALE * size * S);
+        }
+        studio_panel panel = studio_panel_at(d, 0);
+        fprintf(stderr, "STUDIO_GUIDE_TOP %.3f %.3f\n", top, panel.tab_y + 12.f * S);
+    }
+}
+/* the column's words under the picture; NULL colours measure. Returns their height. */
+/* compact: a short column (a small window) keeps what and when, without Look at and Cost;
+   note: the comparison's own remark, in gold under the picture's words */
+static float guide_options_words(const studio_dock *d, const guide_option *o, int graphics, int id,
+                                 float x, float y, float w, const uint8_t *const cols[3],
+                                 int compact, const char *note)
+{
+    const float S = d->scale > 0 ? d->scale : DOCK_SCALE, y0 = y;
+    /* a launcher row's help line is "Name: what it does"; the column shows the name above */
+    const char *help = studio_row_help(id), *colon = strstr(help, ": ");
+    if (id >= 0 && id < video_setting_count()) help = video_setting(id)->help;
+    else if (colon) help = colon + 2;
+    char first[512];
+    snprintf(first, sizeof first, "%s", help); /* after the colon it starts in lower case */
+    if (first[0] >= 'a' && first[0] <= 'z') first[0] = (char)(first[0] - 'a' + 'A');
+    help = first;
+    if (cols)
+        guide_title(d, o ? o->label : studio_row_label(id), x, y, w, cols[0]);
+    y = guide_wrap(d, o ? o->what : help, x, y + 17.f * S, w, .75f,
+                   cols ? cols[1] : NULL, 13.f * S);
+    if (o && !graphics)
+        y = guide_wrap(d, "It shows in the game's own menus once you press Start. "
+                          "On: as Enhanced. Off: as the PS2.",
+                       x, y + 3.f * S, w, .75f, cols ? cols[2] : NULL, 13.f * S);
+    if (o && o->look[0] && !compact) {
+        char line[220];
+        snprintf(line, sizeof line, "Look at: %s", o->look);
+        y = guide_wrap(d, line, x, y + 3.f * S, w, .75f, cols ? cols[2] : NULL, 13.f * S);
+    }
+    if (o && o->cost[0] && !compact) {
+        char line[160];
+        snprintf(line, sizeof line, "Cost: %s", o->cost);
+        y = guide_wrap(d, line, x, y + 3.f * S, w, .75f, cols ? cols[2] : NULL, 13.f * S);
+    }
+    if (note && note[0]) {
+        const uint8_t gold[4] = {255, 204, 64, 235};
+        y = guide_wrap(d, note, x, y + 4.f * S, w, .68f, cols ? gold : NULL, 12.f * S);
+    }
+    float facts = vis_facts(d, id, x, y + 4.f * S, w, 1.f, cols != NULL, o && !graphics);
+    if (facts > 0)
+        y += 4.f * S + facts;
+    return y - y0;
+}
+static void guide_options_draw(const studio_dock *d, int tab, int id, int theme, int mood,
+                               float alpha)
 {
     guide_options_state *g = &guide_options;
     g->pic[0] = g->pic[1] = g->pic[2] = g->pic[3] = 0;
-    if (alpha <= 0 || id < 0 || id >= video_setting_count() || !app_video_settings) return;
+    if (alpha <= 0 || id < -3 || id >= video_setting_count() && id < 1000 || !app_video_settings)
+        return;
     const float S = d->scale > 0 ? d->scale : DOCK_SCALE;
     studio_panel p = studio_options_panel(d, tab);
     const uint8_t a8 = (uint8_t)(255 * alpha);
@@ -1150,60 +1419,88 @@ static void guide_options_draw(const studio_dock *d, int tab, int id, float alph
                   ink[4] = {245, 246, 248, a8}, gold[4] = {255, 204, 64, a8},
                   well[4] = {0, 0, 0, (uint8_t)(200 * alpha)};
     const float rx0 = p.right + 18.f * S, rw = p.x + p.w - 14.f * S - rx0;
-    float y = p.row0 - 12.f * S;
+    float y = p.row0; /* align the description with the first option, below the tabs */
     int graphics = 0;
     const guide_option *o = guide_option_for(id, &graphics);
+    /* the column's own dark ground: the room's car stands behind the panel there, and the
+       words must not run over it */
+    const uint8_t ground[4] = {16, 17, 20, (uint8_t)(150 * alpha)};
+    guide_rect(rx0 - 8.f * S, p.row0 - 22.f * S, rw + 14.f * S, p.y + p.h - p.row0 + 16.f * S,
+               ground);
+    const float bottom = p.y + p.h - 8.f * S;
+    /* the comparison's remarks, under the picture, not on it: a small picture has no room */
+    char note[200] = "";
     if (o && graphics) {
-        float ih_box = fminf(rw * .52f, p.y + p.h - y - 118.f * S);
+        const pc_video_options *now = &app_video_settings->current;
+        if ((o->field == offsetof(pc_video_options, sun_rays) ||
+             o->field == offsetof(pc_video_options, ambient_occlusion)) &&
+            !(now->hdr && now->daylight))
+            snprintf(note, sizeof note, "Both sides with HDR and Daylight on: it needs them; "
+                                        "choosing it turns them on. ");
+        if (!guide_get(now, o->field))
+            snprintf(note + strlen(note), sizeof note - strlen(note),
+                     "Right side: Enhanced's value, not chosen yet.");
+    }
+    /* the picture keeps at least a third of the column: else the words drop Look at and Cost */
+    int compact = 0;
+    float words = guide_options_words(d, o, graphics, id, rx0, 0, rw, NULL, 0, note);
+    if (bottom - y - 18.f * S - words < rw * .34f) {
+        compact = 1;
+        words = guide_options_words(d, o, graphics, id, rx0, 0, rw, NULL, 1, note);
+    }
+    if (o && graphics) {
+        /* the picture takes what the words leave, so they never run past the panel */
+        float ih_box = fminf(rw * .52f, bottom - y - 18.f * S - words);
         guide_rect(rx0 - 2.f * S, y - 2.f * S, rw + 4.f * S, ih_box + 4.f * S, well);
-        if (g->shown && g->id == id && g->images[0] && g->images[1] && alpha > .99f) {
+        /* the clip back and forth, both sides on the same frame */
+        int f = (int)(SDL_GetTicks() * GUIDE_CLIP_FPS / 1000.f) % (2 * GUIDE_CLIP - 2);
+        if (f >= GUIDE_CLIP) f = 2 * GUIDE_CLIP - 2 - f;
+        if (getenv("MOONSTUDIO_CLIP_FRAME")) /* dev: one frame of the clip, for shots */
+            f = abs(atoi(getenv("MOONSTUDIO_CLIP_FRAME"))) % GUIDE_CLIP;
+        if (g->shown && g->id == id && g->images[0][f] && g->images[1][f] && alpha > .99f) {
             const pc_video_options *now = &app_video_settings->current;
             char named[96];
             snprintf(named, sizeof named, "%s",
                      guide_value_name(o->label, guide_get(&g->b, o->field)));
             for (char *c = named; *c; c++)
                 if (*c >= 'a' && *c <= 'z') *c = (char)(*c - 'a' + 'A');
-            guide_compare(g->images[0], g->images[1], 640.f, 448.f, o->crop, rx0, y, rw, ih_box,
+            guide_compare(g->images[0][f], g->images[1][f], 640.f, 448.f, o->crop, rx0, y, rw, ih_box,
                           g->split, g->pic);
-            guide_text(d, "ORIGINAL", g->pic[0] + 6.f * S, g->pic[1] + 14.f * S, .7f, 0, ink);
-            guide_text(d, named, g->pic[0] + g->pic[2] - 6.f * S, g->pic[1] + 14.f * S, .7f, 2,
-                       ink);
-            if ((o->field == offsetof(pc_video_options, sun_rays) ||
-                 o->field == offsetof(pc_video_options, ambient_occlusion)) &&
-                !(now->hdr && now->daylight))
-                guide_text(d, "Both sides with HDR and Daylight on: it needs them; choosing it "
-                              "turns them on.",
-                           g->pic[0] + g->pic[2] * .5f, g->pic[1] + g->pic[3] - 22.f * S, .65f, 1,
-                           gold);
-            if (!guide_get(now, o->field))
-                guide_text(d, "Right: Enhanced's value, not chosen. Right / Left to choose it.",
-                           g->pic[0] + g->pic[2] * .5f, g->pic[1] + g->pic[3] - 8.f * S, .65f, 1,
-                           gold);
+            /* the two names on a dark tag each, made smaller to fit their half of the picture */
+            const char *names[2] = {"ORIGINAL", named};
+            for (int k = 0; k < 2; k++) {
+                float size = .7f, half = g->pic[2] * .5f - 10.f * S,
+                      tw = dock_text_width(&d->font, names[k]) * DOCK_NAME_SCALE * size * S;
+                if (tw > half && tw > 0)
+                    size *= half / tw, tw = half;
+                float tx = k ? g->pic[0] + g->pic[2] - 4.f * S - tw - 4.f * S : g->pic[0] + 4.f * S;
+                const uint8_t tag[4] = {0, 0, 0, (uint8_t)(150 * alpha)};
+                guide_rect(tx, g->pic[1] + 4.f * S, tw + 8.f * S, 14.f * S, tag);
+                guide_text(d, names[k], tx + 4.f * S, g->pic[1] + 15.f * S, size, 0, ink);
+            }
+            (void)now;
         } else if (g->failed)
             dock_text(d, "Comparisons need the course from the disc.", rx0 + 8.f * S,
                       y + 14.f * S, .75f, 0, dim);
+        else if (g->load)
+            dock_text(d, "Loading the comparison...", rx0 + rw * .5f, y + ih_box * .5f, .8f, 1, dim);
         else if (!g->ready)
             dock_text(d, "Loading " GUIDE_COURSE_NAME " from your disc...", rx0 + 8.f * S,
                       y + 14.f * S, .75f, 0, dim);
-        else
-            dock_text(d, "...", rx0 + rw * .5f, y + ih_box * .5f, 1.f, 1, dim);
+        else {
+            char line[64];
+            int done = g->pending ? (g->pending - 1) * GUIDE_CLIP + g->frame : 0;
+            snprintf(line, sizeof line, "Filming the comparison... %d%%", done * 100 / (2 * GUIDE_CLIP));
+            dock_text(d, line, rx0 + rw * .5f, y + ih_box * .5f, .8f, 1, dim);
+        }
         y += ih_box + 18.f * S;
     }
-    dock_text(d, o ? o->label : video_setting(id)->label, rx0, y, .95f, 0, head);
-    y = guide_wrap(d, o ? o->what : video_setting(id)->help, rx0, y + 17.f * S, rw, .75f, dim,
-                   13.f * S);
-    if (o && !graphics)
-        y = guide_wrap(d, "It shows in the game's own menus once you press Start. "
-                          "On: as Enhanced. Off: as the PS2.",
-                       rx0, y + 3.f * S, rw, .75f, soft, 13.f * S);
-    if (o && o->look[0]) {
-        char line[220];
-        snprintf(line, sizeof line, "Look at: %s", o->look);
-        y = guide_wrap(d, line, rx0, y + 3.f * S, rw, .75f, soft, 13.f * S);
+    else {
+        /* every other row: its own small demonstration above the words */
+        float box = fminf(rw * .5f, bottom - y - 18.f * S - words);
+        if (box > 60.f * S && vis_draw(d, id, theme, mood, rx0, y, rw, box, alpha))
+            y += box + 18.f * S;
     }
-    if (o && o->cost[0]) {
-        char line[160];
-        snprintf(line, sizeof line, "Cost: %s", o->cost);
-        guide_wrap(d, line, rx0, y + 3.f * S, rw, .75f, soft, 13.f * S);
-    }
+    const uint8_t *cols[3] = {head, dim, soft};
+    guide_options_words(d, o, graphics, id, rx0, y, rw, cols, compact, note);
 }

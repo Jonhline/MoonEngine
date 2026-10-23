@@ -23,8 +23,8 @@ static int nat_save_auto(ah_vm *vm, ah_obj *self, void *data, int argc, const ah
 }
 /* PC storage adapters for the authored acquisition sequence. These replace
    PS2 device I/O, never the verified garage/money/calendar game rules. */
-/* P: local profile files replace PS2 card I/O for both Arcade garages
-   and Home Trade. The original callers consume [status, game]. */
+/* P: local profile files replace PS2 card I/O. Trade alone chooses another
+   player; ordinary garage/Arcade operations use the active profile. */
 void menu_set_photo_saver(menu *m, int (*fn)(void *), void *user)
 {
     if (m) {
@@ -99,16 +99,22 @@ static int nat_pc_check_profile(ah_vm *vm, ah_obj *self, void *data, int argc, c
 {
     menu *m = data;
     ah_obj *manager = argc > 2 ? ah_as_obj(argv[2], AO_MODULE) : NULL;
-    int slot = m->profile_picker ? m->profile_picker(m) : gt4_save_active();
+    /* memorycard.ad L167..172: omitted/zero slot is the active player's
+       card; GarageRoot L6749 uses it when selecting an already owned car.
+       GTmode Home Trade L4297 explicitly requests the other card (slot 1).
+       The PC user changes the active profile in Player Profiles separately. */
+    int external = !strcmp(m->project_label, "gtmode") &&
+                   argc > 3 && to_int(argv[3]) == 1;
+    int slot = external && m->profile_picker ? m->profile_picker(m) : gt4_save_active();
     gt4_save_info info;
-    if (slot <= 0 || gt4_save_info_get(slot, &info) <= 0) {
+    if (external && (slot <= 0 || gt4_save_info_get(slot, &info) <= 0)) {
         *ret = ah_nil();
         return 0;
     }
     if (!manager) {
         manager = ah_module_new(vm, "native_profile_manager", NULL, NULL, NULL);
-        ah_val mode = ah_str(vm, "MODE_LOAD_GAME");
-        nat_pc_manager(vm, manager, m, 1, &mode, ret);
+        ah_val mode[] = {ah_str(vm, "MODE_LOAD_GAME"), ah_int(external)};
+        nat_pc_manager(vm, manager, m, 2, mode, ret);
     }
     ah_val file = ah_nil();
     ah_get_member(vm, manager, "_file", &file);
@@ -644,6 +650,7 @@ static int nat_pc_manager(ah_vm *vm, ah_obj *self, void *data, int argc, const a
     {
         const char *mode = argc ? ah_cstr(argv[0]) : NULL;
         ah_set_member(vm, self, "_mode", ah_str(vm, mode ? mode : "MODE_OPERATION"));
+        ah_set_member(vm, self, "_source_slot", argc > 1 ? argv[1] : ah_int(0));
         ah_set_member(vm, self, "_directory", ah_str(vm, gt4_save_directory()));
         ah_set_member(vm, self, "_storage_kind",
                       ah_str(vm, mode && strstr(mode, "PHOTO") ? "photos"

@@ -16,10 +16,12 @@ with tempfile.TemporaryDirectory(dir=output) as temporary:
                MOON_OVERLAY=str(Path(temporary) / "no-mods"))
     env.pop("MOON_SETTINGS_PAGE", None)
 
-    def run(name, keys):
+    def run(name, keys, interval=None):
         command = [str(exe.resolve()), str(disc.resolve()), "option", "OptionRoot",
                    "--config-file", str(config), "--shot", str(output / (name + ".png")),
                    "--input", ",".join(keys)]
+        if interval:  # the list scrolls before the next press reaches lower rows
+            command += ["--input-interval", interval]
         result = subprocess.run(command, env=env, capture_output=True, text=True,
                                 encoding="utf-8", errors="replace", timeout=90)
         log = result.stdout + result.stderr
@@ -42,4 +44,17 @@ with tempfile.TemporaryDirectory(dir=output) as temporary:
     log = run("back", ["down", "right", "accept", "back", "right", "accept"])
     assert "back -> option/OptionRoot focus=PcLighting\n" in log, log
     assert "video settings: page Controls\n" in log, log
-print("PC Settings section: five tiles open their pages, Screen keeps the display, back returns to the tile")
+    # Controllers: by player, Steering is the row's last tile, so right goes on to Exit (no
+    # Driving Force Pro after it); Classic keeps the disc's ten tiles. Controller 1P opens
+    # the button config.
+    controllers = ["down"] * 5 + ["right"] * 4
+    for preset in ("Enhanced", "Classic"):
+        config.write_text(f"preset={preset}\ngraphics.renderer=opengl\n", encoding="utf-8", newline="")
+        log = run("controllers-" + preset, controllers, "0.5")
+        by_player = preset == "Enhanced" and not negative
+        last = [line for line in log.splitlines() if line.startswith("input ")][-1]
+        assert last.endswith("focus=Exit") == by_player, log
+    config.write_text("preset=Enhanced\ngraphics.renderer=opengl\n", encoding="utf-8", newline="")
+    log = run("controller-1p", ["down"] * 5 + ["right", "accept"], "0.5")
+    assert "accept -> option/KeyconfigRoot " in log, log
+print("PC Settings section: five tiles open their pages, Screen keeps the display, back returns to the tile, Controllers by player")

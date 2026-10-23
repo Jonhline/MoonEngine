@@ -38,6 +38,7 @@ typedef struct {
     int has_boost;
     float boost;
     float rev_limit;          /* the tachometer's top */
+    int oil_sign; /* 0039E308: 0 off, 2 lit, from the watched car's wear. */
     int aid, brake_lock;      /* the signs' sources */
     int driving;              /* the player drives: the signs and fuel shown */
     float map_x[6], map_y[6]; /* each car on the course (the render frame's x, z) */

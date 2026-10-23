@@ -137,6 +137,8 @@ int main(int argc, char **argv)
         s.panel = getenv("MOON_TIRE_HUD_ONBOARD") != NULL;
         const uint8_t tire_sample[4][3] = {{0,0,252},{0,252,0},{252,252,0},{252,0,0}};
         memcpy(s.tire_rgb, tire_sample, sizeof tire_sample);
+        s.has_boost = getenv("MOON_BOOST_HUD_VALUE") != NULL;
+        s.boost = s.has_boost ? (float)atof(getenv("MOON_BOOST_HUD_VALUE")) : 0;
         s.speed = 30;
         s.rpm = 5000;
         s.rev_limit = s.tacho_scale = 8000;
@@ -157,6 +159,7 @@ int main(int argc, char **argv)
         free(pixels);
         plat_video_end_frame();
     }
+    h->needle_last[2] = -1;
     CHECK(h->img[IMG_BOOST].tex);
     s.has_boost = 0;
     draw_boost(h, &s);

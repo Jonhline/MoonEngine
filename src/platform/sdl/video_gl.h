@@ -75,6 +75,10 @@ void video_viewport(float x, float y, float w, float h, int *vx, int *vy, int *v
 float video_view_height(void);
 plat_texture *video_capture_frame(plat_texture *t);
 plat_texture *video_grab(plat_texture *t, float x, float y, float w, float h);
+/* A grab's pixels as the texture holds them (rows bottom up), to keep it on disk, and the
+   texture made again from them: screen is the grab's full-frame mark. */
+uint8_t *video_grab_pixels(const plat_texture *t, int *w, int *h, int *screen);
+plat_texture *video_grab_restore(int w, int h, const uint8_t *rgba, int screen);
 
 /* ResultLicense 004A7D90/004A8CB8. Resident GPU capture and cached CLUT. */
 void video_license_image(const plat_texture *t, float x, float y, float w, float h,

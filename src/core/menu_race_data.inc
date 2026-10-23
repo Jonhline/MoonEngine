@@ -378,7 +378,9 @@ static int nat_color(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val
             if (!ah_get_member(vm, argv[0].u.o, keys[i], &a) ||
                 !ah_get_member(vm, argv[1].u.o, keys[i], &b) || !ah_is_num(a) || !ah_is_num(b))
                 return ah_error(vm, "invalid color");
-            rgba[i] = ah_num(a) + (ah_num(b) - ah_num(a)) * t;
+            /* 00203A60..00203ABC: first*t + second*(1-t).
+               OilChangeRoot supplies dirty first, clear second. */
+            rgba[i] = ah_num(a) * t + ah_num(b) * (1 - t);
         }
         *ret = color_value(vm, rgba);
     }

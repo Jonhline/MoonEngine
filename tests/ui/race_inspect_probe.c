@@ -39,7 +39,7 @@ static int shot(race_game *g, const char *prefix, const char *name)
 {
     plat_video_begin_frame();
     if(getenv("PROBE_SOLAR_HOUR"))video_begin_scene();
-    if (!race_game_draw(g))
+    if (!(getenv("PROBE_PREGRID")?race_game_draw_pregrid(g):race_game_draw(g)))
         return 0;
     if(getenv("PROBE_SOLAR_HOUR"))video_end_scene();
     int w, h;
@@ -57,6 +57,21 @@ static int shot(race_game *g, const char *prefix, const char *name)
     mz_free(png);
     plat_video_end_frame();
     return o != NULL;
+}
+static uint64_t celestial_frame(race_game *g)
+{
+    plat_video_begin_frame();
+    if (!race_game_draw_scene(g))
+        return 0;
+    int w, h;
+    uint8_t *pixels = plat_sdl_read_pixels(&w, &h);
+    uint64_t hash = 1469598103934665603ull;
+    if (pixels)
+        for (int i = 0; i < w * h * 4; i++)
+            hash = (hash ^ pixels[i]) * 1099511628211ull;
+    free(pixels);
+    plat_video_end_frame();
+    return hash;
 }
 static int benchmark_race(race_game *g, const char *prefix)
 {
@@ -244,6 +259,7 @@ int main(int argc, char **argv)
     plat_video_set_view(640, 448);
     if(getenv("PROBE_WIDE"))video_set_aspect(1);
     if(getenv("PROBE_SOLAR_HOUR")){r3d_daylight_options(1,atoi(getenv("PROBE_SOLAR_HOUR")),0);video_hdr_options(!getenv("PROBE_NO_HDR"),!getenv("PROBE_NO_RAYS"));}
+    if (getenv("PROBE_REALISTIC_SKY"))r3d_night_sky(1);
     if (getenv("PROBE_MODERN_LIGHTING"))
         r3d_modern_lighting(atoi(getenv("PROBE_MODERN_LIGHTING")));
     if (getenv("PROBE_SHADOW_MAPS"))
@@ -282,6 +298,85 @@ int main(int argc, char **argv)
         ready = race_game_poll(g);
     }
     CHECK(ready==1);
+    if (getenv("PROBE_CELESTIAL_CLOCK")) {
+        r3d_night_sky(1);
+        r3d_daylight_options(1, 23, 2);
+        double live_seconds = 0;
+        for (int mode = 0; mode < 2; mode++) {
+            if (mode) {
+                CHECK(race_game_can_replay(g));
+                CHECK(race_game_replay(g,msg,sizeof msg));
+                int loaded = 0;
+                for (int i = 0; i < 4000 && !loaded; i++) {
+                    SDL_Delay(5);
+                    loaded = race_game_poll(g);
+                }
+                CHECK(loaded==1 && race_game_replaying(g));
+            }
+            for (int frame = 0; frame < 240; frame++) {
+                memset(fixture_key, 0, sizeof fixture_key);
+                fixture_key[SDL_SCANCODE_UP] = !mode;
+                race_game_update(g, 1. / 60);
+            }
+            uint64_t image = celestial_frame(g);
+            CHECK(image);
+            double seconds = race_view_daylight_seconds(g->view);
+            if (getenv("PROBE_CELESTIAL_NEGATIVE"))
+                seconds += 1;
+            double expected = gt4_race_run_frames(g->run) / 60.;
+            printf("celestial %s frame=%u seconds=%.9g hour=%.9g\n", mode ? "replay" : "live",
+                   gt4_race_run_frames(g->run), seconds, r3d_solar_hour(seconds, 1));
+            CHECK(fabs(seconds-expected)<1e-9);
+            if (!mode)
+                live_seconds = seconds;
+            else
+                CHECK(seconds==live_seconds);
+            race_game_key(g, mode ? SDLK_p : SDLK_ESCAPE);
+            CHECK(mode?g->held:race_game_is_paused(g));
+            for (int i = 0; i < 30; i++)
+                race_game_update(g, 1. / 60);
+            uint64_t paused = celestial_frame(g);
+            CHECK(paused==image);
+            CHECK(race_view_daylight_seconds(g->view)==seconds);
+            race_game_key(g, mode ? SDLK_p : SDLK_ESCAPE);
+        }
+        CHECK(shot(g,argv[2],"celestial-clock"));
+        race_game_close(g);
+        plat_video_shutdown();
+        puts("PASS live/replay solar frame clock and byte-exact paused scene");
+        return 0;
+    }
+    if (getenv("PROBE_BRAKE_LAMPS")) {
+        unsigned changes[6]={0}; int previous[6]={0};
+        for(int mode=0;mode<2;mode++) {
+            if(mode) {
+                CHECK(race_game_can_replay(g));
+                CHECK(race_game_replay(g,msg,sizeof msg));
+                int loaded=0;
+                for(int i=0;i<4000 && !loaded;i++){SDL_Delay(5);loaded=race_game_poll(g);}
+                CHECK(loaded==1 && race_game_replaying(g));
+            }
+            for(int frame=0;frame<2400;frame++) {
+                memset(fixture_key,0,sizeof fixture_key);
+                fixture_key[SDL_SCANCODE_UP]=frame%240<180;
+                fixture_key[SDL_SCANCODE_DOWN]=frame%240>=180;
+                race_game_update(g,1./60);
+                for(unsigned entry=0;entry<6;entry++) {
+                    uint32_t car=gt4_race_run_car(g->run,entry);CHECK(car);
+                    int expected=GT4_F32(car+CAR_BRAKE_PEDAL)>0;
+                    int actual=race_view_brake_lamp(g->view,entry);
+                    if(getenv("PROBE_BRAKE_NEGATIVE")) actual=!actual;
+                    CHECK(actual==expected);
+                    changes[entry]+=actual!=previous[entry];previous[entry]=actual;
+                }
+            }
+            CHECK(changes[0]>3);
+        }
+        for(int entry=0;entry<6;entry++) {printf("brake transitions entry%d=%u\n",entry,changes[entry]);CHECK(changes[entry]>0);}
+        CHECK(shot(g,argv[2],"brake-lamps"));
+        race_game_close(g);plat_video_shutdown();
+        puts("PASS live and replay brake state follows every car pedal on each tick");return 0;
+    }
     if (getenv("PROBE_CAMERA")) {
         g->camera = atoi(getenv("PROBE_CAMERA"));
         CHECK(g->camera == 0 || g->camera == 1 || g->camera == 6);
