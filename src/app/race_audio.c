@@ -5,6 +5,7 @@
    before the callback is installed; the callback neither allocates nor
    touches the race's memory. */
 #include "race_audio.h"
+#include "video_settings.h"
 #include "music_override.h"
 #include "career_license.h"
 #include "race_sound.h"
@@ -76,6 +77,9 @@ struct race_audio {
     gt4_spu_reverb reverb[2];
     int16_t *reverb_area;
     float music_volume;
+    SDL_atomic_t wind_on, wind_speed;
+    float wind_lp, wind_bp;
+    uint32_t wind_seed;
     int bgm_option;
     /* music, as before */
     gt4_pcm_music *music;
@@ -166,6 +170,21 @@ static void render(int16_t *out, int frames, void *user)
            reverb unit */
         for (int i = 0; i < VOICES; i++)
             gt4_spu_voice_render(a->voice + i, dry, wet[i >= 24], n);
+        int wind_speed = SDL_AtomicGet(&a->wind_speed);
+        if (SDL_AtomicGet(&a->wind_on) && wind_speed > 0) {
+            float speed = (float)wind_speed / 100.f;
+            float gain = fminf(1.f, speed / 260.f);
+            gain = gain * gain * .22f;
+            for (int i = 0; i < n * 2; i += 2) {
+                a->wind_seed = a->wind_seed * 1664525u + 1013904223u;
+                float white = (float)((a->wind_seed >> 9) & 0xffffu) / 32768.f - 1.f;
+                a->wind_lp += (white - a->wind_lp) * .09f;
+                a->wind_bp += (a->wind_lp - a->wind_bp) * .025f;
+                int add = (int)((a->wind_lp - a->wind_bp) * gain * 32767.f);
+                dry[i] += add;
+                dry[i + 1] += add;
+            }
+        }
         for (int c = 0; c < 2; c++)
             gt4_spu_reverb_render(a->reverb + c, wet[c], dry, n);
         SDL_LockMutex(a->mutex);
@@ -668,6 +687,11 @@ static void tick(race_audio *a, const gt4_race_run *run, const float *eye, const
         static const int engine_order[3] = {0, 1, 2};
         for (int k = 0; k < 3; k++) {
             gt4_car_sound_engine *e = out.engine + engine_order[k];
+            if (k == 1 && video_settings_speed_road_roar()) {
+                e->left = (int16_t)fminf(32767.f, e->left * 1.35f);
+                e->right = (int16_t)fminf(32767.f, e->right * 1.35f);
+                e->scale = (int32_t)(e->scale * 1.35f);
+            }
             gt4_sd_engine_tick(a->sd, &a->engine[i][k], e->rpm, e->left, e->right, e->scale,
                                e->priority, e->reverb_off, a->sine);
         }
@@ -800,6 +824,10 @@ void race_audio_update(race_audio *a, const gt4_race_run *run, const float *eye,
     memcpy(a->camera_rows, rows, sizeof a->camera_rows);
     a->camera_view = view;
     a->have_camera = 1;
+    gt4_race_hud hud;
+    float kmh = gt4_race_run_hud(run, 0, &hud) ? hud.speed * 3.6f : 0.f;
+    SDL_AtomicSet(&a->wind_on, video_settings_speed_wind());
+    SDL_AtomicSet(&a->wind_speed, (int)(kmh * 100.f));
     music_volume_update(a, run);
     if (!a->playing)
         a->playing = plat_audio_set_music(render, a) == 0;

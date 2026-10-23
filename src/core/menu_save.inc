@@ -376,16 +376,18 @@ static void pc_settings_section(menu *m, ui_widget *space, ui_widget *group_samp
 {
     static const char *const general[] = {"Race", "Replay", "Screen", "Picture Quality", "Sound"};
     static const char *const names[] = {"PcGraphics", "PcLighting", "PcControls", "PcMusic",
-                                        "PcPresets"},
+                                        "PcPresets", "PcTweaks"},
                              *const labels[] = {"Graphics", "Light & Shadow", "Controls", "Music",
-                                                "Presets"},
+                                                "Presets", "Tweaks"},
                              /* the disc's own art: Options' camera, album photo (light) and
-                                wheel, the Jukebox's Library discs, the Options' GT emblem */
+                                wheel, the Jukebox's Library discs, the Options' GT emblem and
+                                Screen icon for the Tweaks page */
                              *const icons[] = {"image/option/Camera.png",
                                                "image/option/Album.png",
                                                "image/option/Steering.png",
                                                "image/labo/folder_mus.png",
-                                               "image/option/Misc.png"};
+                                               "image/option/Misc.png",
+                                               "image/option/Screen.png"};
     ui_widget *row[5] = {0}, *screen = NULL;
     int n = 0;
     float top = 0;
@@ -408,7 +410,7 @@ static void pc_settings_section(menu *m, ui_widget *space, ui_widget *group_samp
             row[b - 1] = t;
         }
     top += 4;
-    float group_h = group_sample->h, added = group_h + screen->h + 8;
+    float group_h = group_sample->h, added = group_h + 2 * (screen->h + 8);
     for (int i = 0; i < space->nkids; i++)
         if (space->kids[i]->y >= top)
             space->kids[i]->y += added;
@@ -420,12 +422,12 @@ static void pc_settings_section(menu *m, ui_widget *space, ui_widget *group_samp
     group->y = top;
     pc_label(ui_widget_child(group, "label"), "PC Settings");
     ui_widget_append(space, group);
-    for (int k = 0; k < 5; k++) {
+    for (int k = 0; k < 6; k++) {
         ui_widget *card = ui_widget_copy(m->ui, screen);
         card->name = names[k];
         copy_script(m, screen, card);
-        card->x = row[k]->x;
-        card->y = top + group_h;
+        card->x = k < 5 ? row[k]->x : row[0]->x;
+        card->y = top + group_h + (k < 5 ? 0 : screen->h + 8);
         pc_label(ui_widget_child(card, "label"), labels[k]);
         ui_text_adjust_scale(m->ui, ui_widget_child(card, "label")); /* one line, as authored */
         ui_widget_set_image(ui_widget_child(card, "bg"), icons[k]);

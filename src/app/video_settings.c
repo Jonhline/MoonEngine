@@ -9,6 +9,7 @@
 #include "platform/renderer_backend.h"
 #include "video_gl.h"
 #include "render3d.h"
+#include "discord_presence.h"
 #ifdef __SWITCH__
 #include "launcher.h"
 #include "platform/switch_scene.h"
@@ -27,6 +28,7 @@
 #include <SDL_syswm.h>
 #endif
 
+static video_settings *settings_active;
 static const int sizes[][2] = {{1280, 720},  {1280, 960},  {1600, 900},
                                {1920, 1080}, {2560, 1440}, {3840, 2160}};
 /* Stored 0..23 keep their old hour mapping; 24 explicitly means Course. */
@@ -55,11 +57,25 @@ static void quality(const pc_video_options *v)
     video_hdr_options(v->hdr,v->sun_rays);
     video_ambient_occlusion(v->ambient_occlusion);
 #endif
+    video_set_speed_post(v->speed_blur, v->speed_blur_amount, v->speed_vignette);
+}
+
+static void apply_discord(video_settings *s)
+{
+    if (!s)
+        return;
+    discord_presence_configure(
+        s->current.discord_presence,
+        moon_options_get(&s->store, "integrations.discord_app_id", "1562846084085194752"));
 }
 
 void video_settings_init(video_settings *s, int persist, const char *config_file)
 {
     memset(s, 0, sizeof *s);
+    settings_active = s;
+#ifndef __SWITCH__
+    s->tweaks_open = 1;
+#endif
     s->persist = persist;
 #ifdef __SWITCH__
     s->current.video = (plat_video_desc){1280, 720, 1, 1, 0};
@@ -129,6 +145,19 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     s->current.smooth_cursor = moon_options_int(&s->store, "interface.smooth_mouse_cursor", strcmp(s->store.preset,"Classic")!=0, 0, 1);
     s->current.hover_feedback = moon_options_int(&s->store, "interface.mouse_hover_feedback", strcmp(s->store.preset,"Classic")!=0, 0, 1);
     int enhanced = strcmp(s->store.preset, "Classic") != 0;
+    s->current.speed_fov = moon_options_int(&s->store, "tweaks.speed_fov", 0, 0, 1);
+    s->current.speed_fov_degrees =
+        moon_options_int(&s->store, "tweaks.speed_fov_degrees", enhanced ? 8 : 0, 0, 30);
+    s->current.speed_cam_lag = moon_options_int(&s->store, "tweaks.speed_cam_lag", 0, 0, 1);
+    s->current.speed_shake = moon_options_int(&s->store, "tweaks.speed_shake", 0, 0, 1);
+    s->current.speed_wind = moon_options_int(&s->store, "tweaks.speed_wind", 0, 0, 1);
+    s->current.speed_road_roar = moon_options_int(&s->store, "tweaks.speed_road_roar", 0, 0, 1);
+    s->current.speed_blur = moon_options_int(&s->store, "tweaks.speed_blur", 0, 0, 1);
+    s->current.speed_blur_amount =
+        moon_options_int(&s->store, "tweaks.speed_blur_amount", enhanced ? 35 : 0, 0, 100);
+    s->current.speed_vignette = moon_options_int(&s->store, "tweaks.speed_vignette", 0, 0, 1);
+    s->current.discord_presence =
+        moon_options_int(&s->store, "integrations.discord_presence", 0, 0, 1);
     s->current.preset_tools = moon_options_int(&s->store,"interface.preset_tools",enhanced,0,1);
     s->current.save_tools = moon_options_int(&s->store,"interface.save_transfer_tools",enhanced,0,1);
 #if !defined(__ANDROID__)
@@ -248,6 +277,23 @@ static void save(video_settings *s)
 #endif
     moon_options_set(&s->store,"interface.preset_tools",v->preset_tools ? "1" : "0");
     moon_options_set(&s->store,"interface.save_transfer_tools",v->save_tools ? "1" : "0");
+    {
+        const char *tweak_keys[] = {"tweaks.speed_fov", "tweaks.speed_fov_degrees",
+                                    "tweaks.speed_cam_lag", "tweaks.speed_shake",
+                                    "tweaks.speed_wind", "tweaks.speed_road_roar",
+                                    "tweaks.speed_blur", "tweaks.speed_blur_amount",
+                                    "tweaks.speed_vignette"};
+        const int tweak_values[] = {v->speed_fov, v->speed_fov_degrees, v->speed_cam_lag,
+                                    v->speed_shake, v->speed_wind, v->speed_road_roar,
+                                    v->speed_blur, v->speed_blur_amount, v->speed_vignette};
+        for (unsigned i = 0; i < sizeof tweak_keys / sizeof *tweak_keys; i++) {
+            char text_value[16];
+            snprintf(text_value, sizeof text_value, "%d", tweak_values[i]);
+            moon_options_set(&s->store, tweak_keys[i], text_value);
+        }
+        moon_options_set(&s->store, "integrations.discord_presence",
+                         v->discord_presence ? "1" : "0");
+    }
     moon_options_set(&s->store, "graphics.renderer", moon_renderer_name(v->renderer));
 #ifdef __SWITCH__
     char scene_value[8];
@@ -311,7 +357,10 @@ enum {
     VS_DAYLIGHT,VS_SOLAR_HOUR,VS_SOLAR_CYCLE,VS_HDR,VS_SUN_RAYS,
     VS_PRESET_TOOLS, VS_SAVE_TOOLS, VS_AMBIENT_OCCLUSION, VS_GRAPHICS_SWAP,
     VS_CUSTOM_MUSIC, VS_JUKEBOX_FOLDERS, VS_JUKEBOX_GROUPS, VS_CONTROLLER_TILES,
-    VS_CAR_LAMPS, VS_NIGHT_SKY, VS_COUNT
+    VS_CAR_LAMPS, VS_NIGHT_SKY,
+    VS_SPEED_FOV, VS_SPEED_FOV_DEGREES, VS_SPEED_CAM_LAG, VS_SPEED_SHAKE, VS_SPEED_WIND,
+    VS_SPEED_ROAD_ROAR, VS_SPEED_BLUR, VS_SPEED_BLUR_AMOUNT, VS_SPEED_VIGNETTE, VS_DISCORD,
+    VS_COUNT
 };
 static const char *const vs_preset[] = {"Classic", "Enhanced", "Modified"};
 static const char *const vs_fps[] = {"Unlimited", "60 FPS",  "90 FPS", "120 FPS",
@@ -339,6 +388,12 @@ static const char *const vs_texture_filtering[] = {"Original", "Trilinear", "Ani
 static const char *const vs_scale[] = {"50%", "75%", "100%"};
 static const char *const vs_text[] = {"0%", "25%", "50%", "75%", "100%"};
 static const char *const vs_controller_tiles[] = {"Original", "By Player"};
+static const char *const vs_closed_open[] = {"Closed", "Open"};
+static const char *const vs_app_id_default[] = {"1562846084085194752"};
+static const char *const vs_fov_degrees[] = {"0°", "2°", "4°", "6°", "8°", "10°", "12°", "16°", "20°", "24°", "28°", "30°"};
+static const int vs_fov_degrees_values[] = {0, 2, 4, 6, 8, 10, 12, 16, 20, 24, 28, 30};
+static const char *const vs_blur_amount[] = {"0%", "10%", "20%", "30%", "35%", "40%", "50%", "60%", "75%", "100%"};
+static const int vs_blur_amount_values[] = {0, 10, 20, 30, 35, 40, 50, 60, 75, 100};
 static const video_setting_info vs_info[VS_COUNT] = {
     {"Video", "Graphics API", "The renderer. Applies the next time Moon Engine opens.", 2, vs_api},
     {"Video", "Window Mode", "A window, or the whole screen.", 2, vs_mode},
@@ -390,6 +445,16 @@ static const video_setting_info vs_info[VS_COUNT] = {
     {"Interface","Controller Tiles","By Player: one button config tile per player. Original: a tile per device and port.",2,vs_controller_tiles},
     {"Quality","Realistic Car Lamps","Headlights illuminate nearby surfaces with occlusion; rear and brake lenses emit light. Off restores the PS2 effect.",2,vs_off_on},
     {"Legacy","Night Sky","Twilight, moon and stars. Night courses start at 22:00; requires Daylight.",2,vs_off_on},
+    {"Tweaks","Dynamic FOV","Widen the chase lens with speed. Other cameras keep the original lens.",2,vs_off_on},
+    {"Tweaks","FOV Amount","Degrees added to the chase lens when Dynamic FOV is on.",12,vs_fov_degrees},
+    {"Tweaks","Camera Dynamics","A small acceleration-driven camera trail on top of the original lag.",2,vs_off_on},
+    {"Tweaks","Camera Shake","Rotational shake from speed and acceleration; no physics change.",2,vs_off_on},
+    {"Tweaks","Wind Audio","Synthesised wind in the race mix, driven by speed.",2,vs_off_on},
+    {"Tweaks","Road Roar Boost","More of the existing road-noise source; no new sample.",2,vs_off_on},
+    {"Tweaks","Radial Blur","A PC-only post pass around the screen centre. Off is the original image.",2,vs_off_on},
+    {"Tweaks","Blur Strength","Strength of the radial blur when it is on.",10,vs_blur_amount},
+    {"Tweaks","Vignette","A PC-only darkened frame edge. Off is the original image.",2,vs_off_on},
+    {"Tweaks","Discord Rich Presence","Show the current course and car on Discord. The Application ID is fixed.",2,vs_off_on},
 };
 /* A preset's values for the registered PC options; host size, mode and the API are kept. */
 void video_settings_preset_values(pc_video_options *v, int enhanced)
@@ -413,6 +478,10 @@ void video_settings_preset_values(pc_video_options *v, int enhanced)
     v->smooth_cursor = v->hover_feedback = v->compact_cars = v->graphics_swap = enhanced;
     v->controller_tiles = enhanced;
     v->spatial_visibility = v->resident_reflections = enhanced;
+    v->speed_fov = v->speed_cam_lag = v->speed_shake = v->speed_wind = v->speed_road_roar =
+        v->speed_blur = v->speed_vignette = enhanced;
+    v->speed_fov_degrees = enhanced ? 8 : 0;
+    v->speed_blur_amount = enhanced ? 35 : 0;
 }
 int video_setting_count(void)
 {
@@ -476,6 +545,26 @@ int video_setting_get(const video_settings *s, int i)
     case VS_MODERN_LIGHTING:
         return v->modern_lighting;
     case VS_PRESET_TOOLS: return v->preset_tools;
+    case VS_SPEED_FOV: return v->speed_fov;
+    case VS_SPEED_FOV_DEGREES: {
+        int n = 0;
+        for (int k = 1; k < (int)(sizeof vs_fov_degrees_values / sizeof *vs_fov_degrees_values); k++)
+            if (vs_fov_degrees_values[k] <= v->speed_fov_degrees) n = k;
+        return n;
+    }
+    case VS_SPEED_CAM_LAG: return v->speed_cam_lag;
+    case VS_SPEED_SHAKE: return v->speed_shake;
+    case VS_SPEED_WIND: return v->speed_wind;
+    case VS_SPEED_ROAD_ROAR: return v->speed_road_roar;
+    case VS_SPEED_BLUR: return v->speed_blur;
+    case VS_SPEED_BLUR_AMOUNT: {
+        int n = 0;
+        for (int k = 1; k < (int)(sizeof vs_blur_amount_values / sizeof *vs_blur_amount_values); k++)
+            if (vs_blur_amount_values[k] <= v->speed_blur_amount) n = k;
+        return n;
+    }
+    case VS_SPEED_VIGNETTE: return v->speed_vignette;
+    case VS_DISCORD: return v->discord_presence;
     case VS_SAVE_TOOLS: return v->save_tools;
     case VS_AMBIENT_OCCLUSION:return v->ambient_occlusion;
     /* P: the Jukebox's options live in the store; folders and groups follow the preset */
@@ -502,6 +591,16 @@ void video_setting_set(video_settings *s, int i, int value)
     pc_video_options *v = &s->current;
     switch (i) {
     case VS_PRESET_TOOLS: v->preset_tools=value; break;
+    case VS_SPEED_FOV: v->speed_fov=value!=0; break;
+    case VS_SPEED_FOV_DEGREES: v->speed_fov_degrees=vs_fov_degrees_values[value>=0&&value<12?value:0]; break;
+    case VS_SPEED_CAM_LAG: v->speed_cam_lag=value!=0; break;
+    case VS_SPEED_SHAKE: v->speed_shake=value!=0; break;
+    case VS_SPEED_WIND: v->speed_wind=value!=0; break;
+    case VS_SPEED_ROAD_ROAR: v->speed_road_roar=value!=0; break;
+    case VS_SPEED_BLUR: v->speed_blur=value!=0; break;
+    case VS_SPEED_BLUR_AMOUNT: v->speed_blur_amount=vs_blur_amount_values[value>=0&&value<10?value:0]; break;
+    case VS_SPEED_VIGNETTE: v->speed_vignette=value!=0; break;
+    case VS_DISCORD: v->discord_presence=value!=0; break;
     case VS_SAVE_TOOLS: v->save_tools=value; break;
     case VS_CUSTOM_MUSIC: moon_options_set(&s->store, "audio.custom_music", value ? "1" : "0"); break;
     case VS_JUKEBOX_FOLDERS: moon_options_set(&s->store, "audio.jukebox_folders", value ? "1" : "0"); break;
@@ -582,6 +681,7 @@ void video_setting_set(video_settings *s, int i, int value)
         s->draft = s->current;
         s->preset_draft = enhanced;
         save(s);
+        apply_discord(s);
         s->preset_draft = -1;
         return;
     }
@@ -590,6 +690,7 @@ void video_setting_set(video_settings *s, int i, int value)
     if (s->personal_preset[0]) s->personal_modified=1;
     s->preset_draft = -1; /* an individual change: the preset reads Modified */
     save(s);
+    apply_discord(s);
 }
 /* Transient preview of any option set: graphics only, nothing is stored. */
 void video_settings_preview_options(const pc_video_options *v)
@@ -614,6 +715,7 @@ void video_settings_preview_graphics(const video_settings *s, int classic)
 
 void video_settings_apply_current(video_settings *s)
 {
+    settings_active = s;
     if (!s)
         return;
     pc_video_options *v = &s->current;
@@ -626,6 +728,7 @@ void video_settings_apply_current(video_settings *s)
     if (!video_set_upscale(v->video.upscale))
         v->video.upscale = 0;
     quality(v);
+    apply_discord(s);
 }
 
 void video_settings_set_renderer(video_settings *s, int backend)
@@ -726,6 +829,16 @@ static void read_draft(video_settings *s)
     v->shadow_maps = s->choices[24]->focus_index;
     v->modern_lighting = s->choices[25]->focus_index;
     v->daylight=s->choices[26]->focus_index;v->solar_hour=s->choices[27]->focus_index;v->solar_cycle=s->choices[28]->focus_index;v->hdr=s->choices[29]->focus_index;v->sun_rays=s->choices[30]->focus_index;v->ambient_occlusion=s->choices[33]->focus_index;
+    v->speed_fov = s->choices[42]->focus_index;
+    v->speed_fov_degrees = vs_fov_degrees_values[s->choices[43]->focus_index >= 0 && s->choices[43]->focus_index < 12 ? s->choices[43]->focus_index : 0];
+    v->speed_cam_lag = s->choices[44]->focus_index;
+    v->speed_shake = s->choices[45]->focus_index;
+    v->speed_wind = s->choices[46]->focus_index;
+    v->speed_road_roar = s->choices[47]->focus_index;
+    v->speed_blur = s->choices[48]->focus_index;
+    v->speed_blur_amount = vs_blur_amount_values[s->choices[49]->focus_index >= 0 && s->choices[49]->focus_index < 10 ? s->choices[49]->focus_index : 0];
+    v->speed_vignette = s->choices[50]->focus_index;
+    v->discord_presence = s->choices[51]->focus_index;
 #endif
     v->compact_cars = s->choices[16]->focus_index;
     v->spatial_visibility = s->choices[11]->focus_index;
@@ -742,6 +855,8 @@ static void read_draft(video_settings *s)
     v->video.fullscreen = 1;
 #endif
 }
+static void tweaks_visibility(video_settings *s);
+
 static int idle(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv, ah_val *ret)
 {
     (void)vm;
@@ -763,6 +878,13 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
     if (s->personal_preset[0]) s->personal_modified=1;
 #ifndef __SWITCH__
     ui_widget *sender = ah_host_data(self);
+    if (sender == s->choices[41]) {
+        s->tweaks_open = sender->focus_index;
+        if (!s->tweaks_open)
+            menu_native_focus(s->owner, s->choices[41]);
+    }
+    if (sender == s->choices[42] || sender == s->choices[48])
+        tweaks_visibility(s);
 #ifndef __ANDROID__
     if(sender==s->choices[26]) {
         int on=sender->focus_index;
@@ -807,6 +929,11 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
         s->choices[24]->focus_index = enhanced * 2;
         s->choices[25]->focus_index = enhanced;
         s->choices[26]->focus_index=enhanced;s->choices[27]->focus_index=enhanced?24:5;s->choices[28]->focus_index=enhanced;s->choices[29]->focus_index=enhanced;s->choices[30]->focus_index=0;s->choices[33]->focus_index=enhanced;
+        s->choices[42]->focus_index=enhanced;s->choices[43]->focus_index=enhanced?4:0;
+        s->choices[44]->focus_index=enhanced;s->choices[45]->focus_index=enhanced;
+        s->choices[46]->focus_index=enhanced;s->choices[47]->focus_index=enhanced;
+        s->choices[48]->focus_index=enhanced;s->choices[49]->focus_index=enhanced?4:0;
+        s->choices[50]->focus_index=enhanced;
 #endif
         s->choices[3]->focus_index = enhanced ? 0 : 2;
         s->choices[4]->focus_index = 0;
@@ -876,6 +1003,7 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
     if (save_button) save_button->visible=files;
 #endif
     quality(&s->draft);
+    tweaks_visibility(s);
     *ret = ah_int(2);
     return 0;
 }
@@ -920,7 +1048,19 @@ static const char *hints[] = {
     "F7 in races and replays swaps between Classic graphics and yours. Nothing is saved.",
     "By Player: one button config tile per player for any controller or wheel. Original: one tile per device.",
     "Realistic Car Lamps: headlights illuminate nearby surfaces with shadows; rear lenses brighten with the brake pedal. Off restores the original effect.",
-    "Twilight, moon and stars, following the frame clock. Requires Daylight; Classic keeps the authored sky."};
+    "Twilight, moon and stars, following the frame clock. Requires Daylight; Classic keeps the authored sky.",
+    "Open Sense of Speed to show its individual switches. Collapsing hides them; it is not a master switch.",
+    "Widen the chase camera's lens with speed. Views on, ahead or behind the car keep the game's own lens.",
+    "Degrees added to the chase lens when Dynamic FOV is on.",
+    "A small acceleration-driven trail layered on the game's own camera lag.",
+    "Rotational noise shake, never more than 0.15 degrees; the car's motion is untouched.",
+    "Synthesised wind from speed, mixed with the race's own sound.",
+    "Boost the disc's existing road-noise source. Nothing new is sampled.",
+    "A PC-only radial blur around the screen centre, after the scene resolve.",
+    "How far the radial blur reaches when it is on.",
+    "A PC-only darkened frame edge. Off leaves the original image.",
+    "Show the current course and car on Discord. Off: nothing talks to Discord.",
+    "Read-only client id. Override it with integrations.discord_app_id if needed."};
 static int focus(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv, ah_val *ret)
 {
     (void)vm;
@@ -985,19 +1125,21 @@ static const int tab_rows[VIDEO_TAB_COUNT][11] = {
 #else
 /* P: one page per Options tile, as the game's own Options: Screen (the display), then the
    PC Settings section's Graphics, Light & Shadow, Controls, Music and Presets. */
-enum { VIDEO_TAB_COUNT = 6 };
-static const int tab_rows[VIDEO_TAB_COUNT][11] = {
+enum { VIDEO_TAB_COUNT = 7 };
+static const int tab_rows[VIDEO_TAB_COUNT][16] = {
     {0, 1, 2, 5, 6, 3, 4, -1},
     {17, 18, 19, 20, 23, 12, 11, -1},
     /* UI row indices are separate from the launcher API's VS_* enum. */
     {25, 26, 39, -1},
     {7, 10, 14, 15, 13, 9, 16, 37, 38, -1},
     {34, 35, 36, -1},
-    {8, 31, 32, -1}};
+    {8, 31, 32, -1},
+    {41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, -1}};
 static const char *const page_tiles[VIDEO_TAB_COUNT] = {"", "PcGraphics", "PcLighting",
-                                                        "PcControls", "PcMusic", "PcPresets"};
+                                                        "PcControls", "PcMusic", "PcPresets",
+                                                        "PcTweaks"};
 static const char *const page_titles[VIDEO_TAB_COUNT] = {
-    "Screen Settings", "Graphics", "Light & Shadow", "Controls", "Music", "Presets"};
+    "Screen Settings", "Graphics", "Light & Shadow", "Controls", "Music", "Presets", "Tweaks"};
 #endif
 #ifndef __ANDROID__
 static float pc_pane_center; /* the authored pane's centre; each page is sized around it */
@@ -1021,6 +1163,22 @@ static float android_row_pitch(const ui_widget *row, int count)
     return fminf(44.f, pitch);
 }
 #endif
+static void tweaks_visibility(video_settings *s)
+{
+#ifndef __SWITCH__
+    if (s->active_tab != VIDEO_TAB_COUNT - 1)
+        return;
+    int open = s->tweaks_open;
+    for (int i = 42; i <= 50; i++)
+        s->rows[i]->visible = open;
+    int fov = s->choices[42]->focus_index, blur = s->choices[48]->focus_index;
+    s->rows[43]->insensitive = !fov;
+    s->rows[43]->opacity = fov ? 1.f : .4f;
+    s->rows[49]->insensitive = !blur;
+    s->rows[49]->opacity = blur ? 1.f : .4f;
+#endif
+}
+
 static void select_tab(video_settings *s, int tab)
 {
     s->active_tab = tab;
@@ -1032,7 +1190,7 @@ static void select_tab(video_settings *s, int tab)
         if (s->rows[i])
             s->rows[i]->visible = i == always;
     int count = 0;
-    while (count < 10 && tab_rows[tab][count] >= 0)
+    while (count < 15 && tab_rows[tab][count] >= 0)
         count++;
 #ifdef __ANDROID__
     float pitch = android_row_pitch(s->rows[tab_rows[tab][0]], count);
@@ -1056,7 +1214,7 @@ static void select_tab(video_settings *s, int tab)
     /* the pane as tall as the page's rows (and the Presets file buttons), the original
        footer under them, centred where the authored pane was */
     int n = 0;
-    while (n < 10 && tab_rows[tab][n] >= 0)
+    while (n < 15 && tab_rows[tab][n] >= 0)
         n++;
     float y = top + n * 28 + 12;
     ui_widget *load = ui_widget_child(pane, "LoadPreset"), *save_button = ui_widget_child(pane, "SavePreset");
@@ -1076,6 +1234,7 @@ static void select_tab(video_settings *s, int tab)
         if (body)
             body->h = pane->h - 22;
     }
+    tweaks_visibility(s);
     menu_native_focus(s->owner, s->choices[tab_rows[tab][0]]);
     return;
 #endif
@@ -1174,6 +1333,28 @@ static int enter(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     s->choices[24]->focus_index = s->current.shadow_maps;
     s->choices[25]->focus_index = s->current.modern_lighting;
     s->choices[26]->focus_index=s->current.daylight;s->choices[27]->focus_index=s->current.solar_hour;s->choices[28]->focus_index=s->current.solar_cycle;s->choices[29]->focus_index=s->current.hdr;s->choices[30]->focus_index=s->current.sun_rays;s->choices[33]->focus_index=s->current.ambient_occlusion;
+    s->choices[41]->focus_index = s->tweaks_open;
+    s->choices[42]->focus_index = s->current.speed_fov;
+    {
+        int n = 0;
+        for (int k = 0; k < 12; k++)
+            if (vs_fov_degrees_values[k] <= s->current.speed_fov_degrees) n = k;
+        s->choices[43]->focus_index = n;
+    }
+    s->choices[44]->focus_index = s->current.speed_cam_lag;
+    s->choices[45]->focus_index = s->current.speed_shake;
+    s->choices[46]->focus_index = s->current.speed_wind;
+    s->choices[47]->focus_index = s->current.speed_road_roar;
+    s->choices[48]->focus_index = s->current.speed_blur;
+    {
+        int n = 0;
+        for (int k = 0; k < 10; k++)
+            if (vs_blur_amount_values[k] <= s->current.speed_blur_amount) n = k;
+        s->choices[49]->focus_index = n;
+    }
+    s->choices[50]->focus_index = s->current.speed_vignette;
+    s->choices[51]->focus_index = s->current.discord_presence;
+    s->choices[52]->focus_index = 0;
 #endif
     s->choices[7]->focus_index = s->current.desktop;
     s->choices[9]->focus_index = s->current.edge_pan;
@@ -1256,7 +1437,7 @@ static int preset_button_key(ah_vm *vm, ah_obj *self, void *data, int argc,
         menu_native_focus(s->owner,ui_widget_child(pane,key.u.i==0xff51 ? "LoadPreset" : "SavePreset"));
     } else if (key.u.i==0xff52) {
         int row=0;
-        while (row<9 && tab_rows[s->active_tab][row+1]>=0) row++;
+        while (row<14 && tab_rows[s->active_tab][row+1]>=0) row++;
         menu_native_focus(s->owner,s->choices[tab_rows[s->active_tab][row]]);
     } else if (key.u.i==0xff54) {
         ui_widget *buttons=ui_widget_child(pane,"Buttons");
@@ -1369,6 +1550,7 @@ static int apply(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     moon_options_set(&s->store, "audio.jukebox_groups", s->choices[36]->focus_index ? "1" : "0");
 #endif
     save(s);
+    apply_discord(s);
     if (s->message[0])
         ui_set_tooltips(s->page, s->message);
     else {
@@ -1571,6 +1753,63 @@ void video_settings_attach(video_settings *s, menu *m)
         menu_native_method(m, choice, "onFocusEnter", focus, s);
     }
 #ifndef __SWITCH__
+    {
+        static const char *const tweak_names[] = {
+            "SpeedGroup", "SpeedFov", "SpeedFovDegrees", "SpeedCamLag", "SpeedShake",
+            "SpeedWind", "SpeedRoadRoar", "SpeedBlur", "SpeedBlurAmount", "SpeedVignette",
+            "DiscordPresence", "DiscordAppId"};
+        static const char *const tweak_titles[] = {
+            "Sense of Speed", "Dynamic FOV", "FOV Amount", "Camera Dynamics", "Camera Shake",
+            "Wind Audio", "Road Roar Boost", "Radial Blur", "Blur Strength", "Vignette",
+            "Discord Rich Presence", "Discord Application ID"};
+        const char *const *tweak_lists[] = {
+            vs_closed_open, toggle, vs_fov_degrees, toggle, toggle, toggle, toggle, toggle,
+            vs_blur_amount, toggle, toggle, vs_app_id_default};
+        static const int tweak_counts[] = {2, 2, 12, 2, 2, 2, 2, 2, 10, 2, 2, 1};
+        const char *app_id = moon_options_get(&s->store, "integrations.discord_app_id",
+                                              "1562846084085194752");
+        for (int i = 0; i < 12; i++) {
+            int idx = 41 + i;
+            ui_widget *w = ui_widget_copy(ui, sample);
+            w->name = tweak_names[i];
+            w->type = "Composite";
+            w->h = (float)pitch;
+            s->rows[idx] = w;
+            w->x = 24;
+            widen(w, 512);
+            w->y = 20 + idx * pitch;
+            text(ui_widget_child(w, "label"), tweak_titles[i]);
+            ui_widget_append(pane, w);
+            ui_widget *choice = ui_widget_child(w, "OptionMenu");
+            s->choices[idx] = choice;
+            choice->x = 256;
+            widen(choice, 256);
+            ui_widget *label = ui_widget_child(w, "label");
+            if (label) {
+                label->w = choice->x - label->x - 8;
+                ui_text_adjust_scale(ui, label);
+            }
+            values(ui, choice, tweak_lists[i], tweak_counts[i]);
+            if (idx == 41)
+                choice->focus_index = s->tweaks_open;
+            if (idx == 52) {
+                text(ui_widget_child(ui_option_item(choice, 0), "label"), app_id);
+                w->insensitive = 1;
+                w->opacity = .8f;
+            }
+            ui_widget *popup = ui_widget_child(choice, "popup");
+            ui_widget *box = popup ? ui_widget_child(popup, "vbox") : NULL;
+            ui_widget *popup_bg = box ? ui_widget_child(box, "bg") : NULL;
+            if (popup_bg) {
+                popup_bg->type = "ColorFace";
+                popup_bg->has_runtime_color = 1;
+                const uint8_t gray[] = {150, 150, 155, 255};
+                memcpy(popup_bg->runtime_color, gray, 4);
+            }
+            menu_native_method(m, choice, "onValueChanged", changed, s);
+            menu_native_method(m, choice, "onFocusEnter", focus, s);
+        }
+    }
 #ifdef __ANDROID__
     s->rows[8]->y = 64;
 #else
@@ -1682,3 +1921,13 @@ void video_options_realistic_lighting(pc_video_options *v, int enabled)
     v->shadow_maps=on*2;
     v->sun_rays=0; /* clean atmosphere; shafts are not a global grey exposure lift */
 }
+
+int video_settings_speed_fov(void) { return settings_active ? settings_active->current.speed_fov : 0; }
+int video_settings_speed_fov_degrees(void) { return settings_active ? settings_active->current.speed_fov_degrees : 0; }
+int video_settings_speed_cam_lag(void) { return settings_active ? settings_active->current.speed_cam_lag : 0; }
+int video_settings_speed_shake(void) { return settings_active ? settings_active->current.speed_shake : 0; }
+int video_settings_speed_wind(void) { return settings_active ? settings_active->current.speed_wind : 0; }
+int video_settings_speed_road_roar(void) { return settings_active ? settings_active->current.speed_road_roar : 0; }
+int video_settings_speed_blur(void) { return settings_active ? settings_active->current.speed_blur : 0; }
+int video_settings_speed_blur_amount(void) { return settings_active ? settings_active->current.speed_blur_amount : 0; }
+int video_settings_speed_vignette(void) { return settings_active ? settings_active->current.speed_vignette : 0; }

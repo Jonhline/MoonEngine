@@ -143,8 +143,8 @@ int race_game_cinematic_key(race_game *g, int key)
             cinematic_angles(g, g->cinema.rows);
             g->cinema.seeded = 1;
             cinematic_mode(g, 0);
-            g->cinema.projection[0] = 1.73205f;
-            g->cinema.projection[1] = 2.25378f;
+            g->cinema.projection[0] = 1.73205f * speed_lens_scale(1);
+            g->cinema.projection[1] = 2.25378f * speed_lens_scale(1);
         }
         g->cinema.mode = g->cinema.aim = 0;
         g->cinema.mouse[0] = g->cinema.mouse[1] = 0;

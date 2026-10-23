@@ -106,6 +106,9 @@ static GLuint fbo, color_rb, depth_rb;
 static int fb_w, fb_h;
 static GLuint scene_fbo, scene_color, scene_depth, scene_tex, scene_resolve;
 static int scene_w, scene_h, scene_samples, scene_active, output_w, output_h;
+static int speed_blur, speed_blur_amount, speed_vignette, speed_post_warned;
+static GLuint speed_program, speed_fbo, speed_tex, speed_vao, speed_vbo;
+static int speed_tex_w, speed_tex_h;
 static int scene_frame_has_content;
 
 /* virtual screen and its letterbox rectangle in framebuffer pixels */
@@ -1141,6 +1144,98 @@ void video_begin_scene(void)
     scene_active = 1;
 }
 
+void video_set_speed_post(int blur, int amount, int vignette)
+{
+    speed_blur = blur != 0;
+    speed_blur_amount = amount < 0 ? 0 : amount > 100 ? 100 : amount;
+    speed_vignette = vignette != 0;
+#if defined(__SWITCH__) || defined(__ANDROID__)
+    if ((speed_blur || speed_vignette) && !speed_post_warned) {
+        speed_post_warned = 1;
+        fprintf(stderr, "speed: radial blur and vignette unavailable on this platform; "
+                        "FOV, camera and audio remain\n");
+    }
+#endif
+}
+
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+static const char *vs_speed_post =
+    "#version 330 core\n"
+    "layout(location=0) in vec2 pos; layout(location=1) in vec2 uv; out vec2 v_uv;\n"
+    "void main(){v_uv=uv;gl_Position=vec4(pos,0,1);}\n";
+static const char *fs_speed_post =
+    "#version 330 core\n"
+    "uniform sampler2D tex; uniform float blur; uniform float vignette;\n"
+    "in vec2 v_uv; out vec4 o;\n"
+    "void main(){vec2 uv=clamp(v_uv,0.,1.);vec4 c=texture(tex,uv);\n"
+    " if(blur>0.0001){vec2 d=uv-vec2(.5);vec3 sum=vec3(0);float wsum=0.;\n"
+    "  for(int i=0;i<6;i++){float t=float(i)/5.;float w=1.-t;sum+=texture(tex,clamp(uv-d*blur*t,0.,1.)).rgb*w;wsum+=w;}\n"
+    "  c.rgb=sum/wsum;}\n"
+    " if(vignette>0.5){float d=length(uv-.5);float v=smoothstep(.35,.80,d);c.rgb*=1.-v*.55;}\n"
+    " o=c;}\n";
+static GLuint speed_post_apply(GLuint source, int w, int h)
+{
+    if (!speed_program) {
+        speed_program = gl_program(vs_speed_post, fs_speed_post);
+        if (!speed_program) {
+            if (!speed_post_warned) {
+                speed_post_warned = 1;
+                fprintf(stderr, "speed: post shader unavailable; blur/vignette off\n");
+            }
+            speed_blur = speed_vignette = 0;
+            return 0;
+        }
+        glGenFramebuffers(1, &speed_fbo);
+        glGenTextures(1, &speed_tex);
+        glGenVertexArrays(1, &speed_vao);
+        glGenBuffers(1, &speed_vbo);
+        static const float verts[] = {-1, -1, 0, 0, 1, -1, 1, 0,
+                                      -1,  1, 0, 1, 1,  1, 1, 1};
+        glBindVertexArray(speed_vao);
+        glBindBuffer(GL_ARRAY_BUFFER, speed_vbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof verts, verts, GL_STATIC_DRAW);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                              (void *)(2 * sizeof(float)));
+        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(1);
+    }
+    if (w != speed_tex_w || h != speed_tex_h) {
+        glBindTexture(GL_TEXTURE_2D, speed_tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindFramebuffer(GL_FRAMEBUFFER, speed_fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, speed_tex, 0);
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+            speed_blur = speed_vignette = 0;
+            return 0;
+        }
+        speed_tex_w = w;
+        speed_tex_h = h;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, speed_fbo);
+    glViewport(0, 0, w, h);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    glUseProgram(speed_program);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, source);
+    glUniform1i(glGetUniformLocation(speed_program, "tex"), 0);
+    glUniform1f(glGetUniformLocation(speed_program, "blur"),
+                speed_blur ? (float)speed_blur_amount / 100.f * .08f : 0.f);
+    glUniform1f(glGetUniformLocation(speed_program, "vignette"), speed_vignette ? 1.f : 0.f);
+    glBindVertexArray(speed_vao);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    return speed_tex;
+}
+#endif
+
 void video_end_scene(void)
 {
     if (!scene_active)
@@ -1158,18 +1253,27 @@ void video_end_scene(void)
     if(daylight_post.allocated_hdr)resolved=daylight_post_resolve(scene_tex,scene_fbo,scene_w,scene_h);
     if(scene_antialiasing==4)resolved=edge_aa_resolve(resolved,scene_w,scene_h);
 #endif
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+    if (speed_blur || speed_vignette) {
+        GLuint posted = speed_post_apply(resolved, scene_w, scene_h);
+        if (posted)
+            resolved = posted;
+    }
+#endif
+    int source_w = scene_w, source_h = scene_h;
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)
     if (scene_upscale && (scene_w < output_w || scene_h < output_h)) {
         GLuint reconstructed = fsr_resolve(resolved, scene_w, scene_h, output_w, output_h);
-        if (reconstructed)
+        if (reconstructed) {
             resolved = reconstructed;
+            source_w = output_w;
+            source_h = output_h;
+        }
     }
 #endif
     glBindFramebuffer(GL_READ_FRAMEBUFFER, scene_resolve);
     glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, resolved, 0);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbo);
-    int source_w = resolved == scene_tex || !scene_upscale ? scene_w : output_w,
-        source_h = resolved == scene_tex || !scene_upscale ? scene_h : output_h;
     glBlitFramebuffer(0, 0, source_w, source_h, 0, 0, output_w, output_h, GL_COLOR_BUFFER_BIT,
                       GL_LINEAR);
     fb_w = output_w;

@@ -34,7 +34,14 @@ int main(int argc, char **argv)
     int aa = setting("Anti-Aliasing"), scale = setting("3D Resolution"),
         smooth = setting("Texture Smoothing"), api = setting("Graphics API"),
         fsr = setting("Upscaling"), preset = setting("PC Preset");
+    int fov = setting("Dynamic FOV"), fov_deg = setting("FOV Amount"),
+        cam_lag = setting("Camera Dynamics"), shake = setting("Camera Shake"),
+        wind = setting("Wind Audio"), roar = setting("Road Roar Boost"),
+        blur = setting("Radial Blur"), blur_amount = setting("Blur Strength"),
+        vignette = setting("Vignette"), discord = setting("Discord Rich Presence");
     CHECK(aa >= 0 && scale >= 0 && smooth >= 0 && api >= 0 && fsr >= 0 && preset >= 0);
+    CHECK(fov >= 0 && fov_deg >= 0 && cam_lag >= 0 && shake >= 0 && wind >= 0 && roar >= 0 &&
+          blur >= 0 && blur_amount >= 0 && vignette >= 0 && discord >= 0);
     CHECK(!strcmp(video_setting(aa)->group, "Quality"));
     int lamps=setting("Realistic Car Lamps"),night=setting("Night Sky");CHECK(lamps>=0 && night>=0);
     for (int backend = 0; backend < 2; backend++) {
@@ -62,9 +69,17 @@ int main(int argc, char **argv)
         CHECK(video_setting_get(&s, aa) == 0 && video_setting_get(&s, scale) == 2);
         CHECK(video_setting_get(&s, smooth) == 0);
         CHECK(video_setting_get(&s,lamps)==0 && video_setting_get(&s,night)==0);
+        CHECK(!s.current.speed_fov && !s.current.speed_cam_lag && !s.current.speed_shake &&
+              !s.current.speed_wind && !s.current.speed_road_roar && !s.current.speed_blur &&
+              !s.current.speed_vignette && s.current.speed_fov_degrees == 0 &&
+              s.current.speed_blur_amount == 0);
         video_setting_set(&s, preset, 1);
         CHECK(video_setting_get(&s, aa) == 4 && video_setting_get(&s, smooth) == 1);
         CHECK(video_setting_get(&s,lamps)==1);
+        CHECK(s.current.speed_fov && s.current.speed_cam_lag && s.current.speed_shake &&
+              s.current.speed_wind && s.current.speed_road_roar && s.current.speed_blur &&
+              s.current.speed_vignette && s.current.speed_fov_degrees == 8 &&
+              s.current.speed_blur_amount == 35);
         CHECK(video_setting_get(&s, api) == backend);
     }
     video_setting_set(&s,aa,4);

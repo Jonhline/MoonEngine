@@ -12,6 +12,7 @@
 #include "race_run.h"
 #include "race_view.h"
 #include "race_hud.h"
+#include "video_settings.h"
 #include "license_session.h"
 #include "license_presentation.h"
 #include "license_concourse.h"
@@ -105,6 +106,7 @@ struct race_game {
     int pit_package;
     int bgm_volume, bgm_enabled, se_volume;
     int unit;
+    float speed_prev_ms, speed_accel, speed_lag[3], speed_shake_trauma, speed_noise_time;
     int camera; /* the view (the car model's camera point): 1 behind the car (the start's), 0 on it, 6 the roof */
     int view_held;
     int look_back;
@@ -284,6 +286,83 @@ struct race_game {
     int open_on, open_front, open_rear;
     float open_power;
 };
+
+static float speed_lens_scale(int view)
+{
+    if (view != 1 || !video_settings_speed_fov())
+        return 1.f;
+    float deg = (float)video_settings_speed_fov_degrees();
+    if (deg < 0)
+        deg = 0;
+    if (deg > 30)
+        deg = 30;
+    const float rad = 0.017453292f;
+    return tanf((60.f + deg) * .5f * rad) / tanf(30.f * rad);
+}
+
+static float speed_noise(float x, unsigned seed)
+{
+    float fi = floorf(x);
+    int i = (int)fi;
+    float f = x - fi;
+    unsigned a = (unsigned)i * 0x9e3779b9u + seed, b = (unsigned)(i + 1) * 0x9e3779b9u + seed;
+    a ^= a >> 16;
+    a *= 0x85ebca6bu;
+    a ^= a >> 13;
+    b ^= b >> 16;
+    b *= 0x85ebca6bu;
+    b ^= b >> 13;
+    float g0 = (float)(a & 0xffffu) / 32767.5f - 1.f;
+    float g1 = (float)(b & 0xffffu) / 32767.5f - 1.f;
+    float u = f * f * (3.f - 2.f * f);
+    return (g0 * f + (g1 * (f - 1.f) - g0 * f) * u) * 2.f;
+}
+
+static void speed_camera_apply(race_game *g, int view, float eye[3], float rows[9], double dt)
+{
+    if (!g || view != 1 || g->replaying || dt <= 0)
+        return;
+    gt4_race_hud h;
+    float speed = gt4_race_run_hud(g->run, 0, &h) ? h.speed : g->speed_prev_ms;
+    float prev = g->speed_prev_ms;
+    g->speed_prev_ms = speed;
+    float accel = (speed - prev) / (float)dt;
+    g->speed_accel += (accel - g->speed_accel) * (1.f - expf((float)-dt / .05f));
+    if (video_settings_speed_cam_lag()) {
+        float target = fmaxf(-.18f, fminf(.18f, -g->speed_accel * .006f));
+        float k = 1.f - expf((float)-dt / .12f);
+        for (int i = 0; i < 3; i++) {
+            g->speed_lag[i] += (rows[6 + i] * target - g->speed_lag[i]) * k;
+            eye[i] += g->speed_lag[i];
+        }
+    } else {
+        for (int i = 0; i < 3; i++)
+            g->speed_lag[i] *= .9f;
+    }
+    if (video_settings_speed_shake()) {
+        float bump = fminf(1.f, fabsf(accel) * .01f + fabsf(speed - prev) * .02f);
+        g->speed_shake_trauma = fminf(1.f, g->speed_shake_trauma + bump * .05f);
+        g->speed_shake_trauma = fmaxf(0.f, g->speed_shake_trauma - (float)dt * .9f);
+        float amp = .15f * g->speed_shake_trauma * g->speed_shake_trauma;
+        g->speed_noise_time += (float)dt;
+        float yaw = speed_noise(g->speed_noise_time * 7.f, 0x1234u) * amp;
+        float pitch = speed_noise(g->speed_noise_time * 9.f + 13.f, 0x5678u) * amp;
+        float a = yaw * .017453292f, ca = cosf(a), sa = sinf(a);
+        for (int k = 0; k < 3; k++) {
+            float r = rows[k], f = rows[6 + k];
+            rows[k] = ca * r - sa * f;
+            rows[6 + k] = sa * r + ca * f;
+        }
+        a = pitch * .017453292f;
+        ca = cosf(a);
+        sa = sinf(a);
+        for (int k = 0; k < 3; k++) {
+            float u = rows[3 + k], f = rows[6 + k];
+            rows[3 + k] = ca * u - sa * f;
+            rows[6 + k] = sa * u + ca * f;
+        }
+    }
+}
 
 /* a licence examination or training (desc.license 1, 2); a driving
    mission (3) races with the common display and results */
@@ -2204,6 +2283,7 @@ static void split_camera(race_game *g, int port)
        times f23 (0032FDA4..AC: 0x3F999999). 004A7890 scales X/Y.
        A: the inherited single-view base lens still comes from captures. */
     float sx = view == 0 || view == 1 ? 1.73205f : 1 / tanf(atanf(1 / point[6]) * 4 / 3);
+    sx *= speed_lens_scale(view);
     float scale = gt4_f32(0x3f999999u);
     projection[0] = sx * .5f * scale;
     projection[1] = sx * 1.30122f * scale;
@@ -2290,6 +2370,8 @@ static void race_camera_audio_update(race_game *g, double dt)
                    degrees on the Ka) spread by 4/3, as the roof capture's
                    projection has it (1.44331 for 2.05) */
                     sx = 1 / tanf(atanf(1 / point[6]) * 4 / 3);
+                sx *= speed_lens_scale(view);
+                speed_camera_apply(g, view, eye, rows, dt);
                 race_view_set_camera(g->view, eye, rows, sx, sx * 1.30122f, 0.1f);
             }
             race_view_show_car(g->view, view != 0);

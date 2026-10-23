@@ -18,6 +18,9 @@ typedef struct {
     int compact_cars, preset_tools, save_tools, graphics_swap, controller_tiles;
     int spatial_visibility, resident_reflections;
     int antialiasing, render_scale, texture_smoothing, texture_filtering, car_shadows, material_shading, reflection_quality, shadow_maps, modern_lighting, daylight, solar_hour, solar_cycle, hdr, sun_rays, ambient_occlusion;
+    int speed_fov, speed_fov_degrees, speed_cam_lag, speed_shake, speed_wind, speed_road_roar;
+    int speed_blur, speed_blur_amount, speed_vignette;
+    int discord_presence;
 #ifdef __ANDROID__
     int touch_menu;
     moon_mobile_options mobile;
@@ -36,10 +39,11 @@ typedef struct {
     touch_back_state touch_back;
     uint64_t touch_back_clock;
     menu *owner;
-    ui_widget *page, *choices[41];
+    ui_widget *page, *choices[64];
 #ifndef __SWITCH__
-    ui_widget *rows[41], *tabs[6];
+    ui_widget *rows[64], *tabs[8];
     int active_tab;
+    int tweaks_open;
 #endif
     char path[1024], message[128];
 } video_settings;
@@ -68,6 +72,16 @@ void video_settings_preview_graphics(const video_settings *s, int classic);
 void video_settings_preview_options(const pc_video_options *v);
 /* The Classic (0) or Enhanced (1) preset's values, written into v only. */
 void video_settings_preset_values(pc_video_options *v, int enhanced);
+/* Engine read side for the TWEAKS page; one owner, the active settings. */
+int video_settings_speed_fov(void);
+int video_settings_speed_fov_degrees(void);
+int video_settings_speed_cam_lag(void);
+int video_settings_speed_shake(void);
+int video_settings_speed_wind(void);
+int video_settings_speed_road_roar(void);
+int video_settings_speed_blur(void);
+int video_settings_speed_blur_amount(void);
+int video_settings_speed_vignette(void);
 void video_options_realistic_skybox(pc_video_options *v, int enabled);
 void video_options_realistic_lighting(pc_video_options *v, int enabled);
 /* P: shared named-preset interchange. draft=1 waits for the in-game OK. */

@@ -4019,8 +4019,13 @@ int main(int argc, char **argv)
     app_video_settings = &settings;
     int discord_enabled =
         moon_options_int(&settings.store, "integrations.discord_presence", 0, 0, 1);
+    /* The captain's own Discord application (Developer Portal). A client id is public —
+       it is not a secret and it is what lets presence work out of the box. The toggle
+       above still ships OFF (LAW 12): nothing talks to Discord until it is switched on. */
     discord_presence_configure(
-        discord_enabled, moon_options_get(&settings.store, "integrations.discord_app_id", ""));
+        discord_enabled,
+        moon_options_get(&settings.store, "integrations.discord_app_id",
+                         "1562846084085194752"));
     char music_folder[1100];
     if (app_music_folder(settings.store.path, music_folder, sizeof music_folder))
         fprintf(stderr, "music: folder=%s\n", music_folder);
