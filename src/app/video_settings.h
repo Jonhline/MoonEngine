@@ -46,6 +46,7 @@ typedef struct {
     ui_widget *rows[64], *tabs[8];
     int active_tab;
     int tweaks_open;
+    int scroll_focus_row; /* last row the pad focused, -1 after a tab change */
 #endif
     char path[1024], message[128];
 } video_settings;

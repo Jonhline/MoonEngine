@@ -1368,16 +1368,23 @@ void video_settings_scroll_tick(void)
     if (!clip || !space || space->h <= clip->h)
         return;
     float row_y = -1, row_h = 0;
+    int focused = -1;
     for (int i = 0; i < (int)(sizeof s->rows / sizeof s->rows[0]); i++) {
         ui_widget *w = s->rows[i];
         if (!w || !w->visible || !row_has_focus(w))
             continue;
         row_y = w->y;
         row_h = w->h;
+        focused = i;
         break;
     }
     if (row_y < 0)
         return;
+    /* The wheel changes the viewport without moving focus; only a focus move
+       (the pad) pulls the viewport after it. */
+    if (focused == s->scroll_focus_row)
+        return;
+    s->scroll_focus_row = focused;
     float target = space->scroll_set ? space->scroll_ty : space->y;
     if (row_y + target < 0)
         target = -row_y;
@@ -1416,6 +1423,7 @@ static void tweaks_visibility(video_settings *s)
 static void select_tab(video_settings *s, int tab)
 {
     s->active_tab = tab;
+    s->scroll_focus_row = -1;
     const int always = -1; /* Android: the preset row is in Display; PC: its own page */
     for (int i = 0; i < (int)(sizeof s->choices / sizeof s->choices[0]); i++)
         if (s->rows[i])
