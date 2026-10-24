@@ -413,10 +413,15 @@ int gt4_assist_line_build(const gt4_course *course, gt4_assist_line *out)
         colour(&t->v[1], red[i], blue[i]);
         colour(&t->v[2], red[i + 1], blue[i + 1]);
         t->texture = -1;
-        t->state.color_mask = 0xffffffffu;
+        /* FBMSK: a set bit masks that channel out. 0xffffffff masked every
+           colour away and still wrote depth, so the line was an invisible
+           occluder cutting through the car. Write the vertex colours and keep
+           the ribbon out of the depth buffer (it must never hide the car). */
+        t->state.color_mask = 0;
         t->state.depth_test = 1;
-        t->state.depth_write = 1;
-        t->state.depth_func = 3;
+        t->state.depth_write = 0;
+        t->state.depth_func = 1; /* ALWAYS with depth-write off: the ribbon
+                                    shows on the road and can never cut the car */
         t->state.cull = 0;
         m->count++;
         t = &m->triangles[m->count];
