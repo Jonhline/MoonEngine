@@ -939,8 +939,10 @@ static void studio_options_draw(const studio_dock *d, int tab, int row, int them
                    0, 1, 1, hl);
     int visible = studio_options_visible(&p, S);
     studio_options_follow(row, n, visible);
-    /* two columns: the guide's line between them, the scroll bar on it */
-    float bar = guided ? p.right + 7.f * S : p.x + p.w - 5.f * S;
+    /* two columns: the guide's line between them, the scroll bar on it.
+       The long Tweaks list marks its scroll on the left edge, clear of labels. */
+    int tweaks = tab == STUDIO_TABS - 1;
+    float bar = tweaks ? p.x + 2.f * S : guided ? p.right + 7.f * S : p.x + p.w - 5.f * S;
     if (guided && n <= visible)
         plat_draw_quad(NULL, p.right + 8.f * S, p.tab_y + 18.f * S, fmaxf(1.f, .5f * S),
                        p.y + p.h - p.tab_y - 26.f * S, 0, 0, 1, 1, hl);

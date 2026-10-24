@@ -77,6 +77,7 @@ struct ui_widget {
     double strip_ticks;
     float scroll_tx, scroll_ty; /* scrolled "space": eased target position */
     int scroll_set;
+    int scroll_indicator; /* a "clip" that draws the thin left-edge scroll marker */
     /* MScaleBar 00239018/20: float value, clamped by script min/max. */
     float photo_value, photo_min, photo_max, photo_step, photo_current, photo_repeat;
     float photo_saved; /* ScaleBar value kept while its popup is open (00238BE0), back on Cancel */

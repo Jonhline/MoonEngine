@@ -3236,6 +3236,27 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
         strcmp(type, "SelectBox") && (!w->parent || strcmp(w->parent->type, "SelectBox"))) {
         cursor_target(p, w, f.x, f.y, f.w, f.h);
     }
+    /* A scrolling list can mark itself on the left edge: a thin track and a
+       thumb sized by the visible fraction. Nothing draws when it all fits. */
+    if (w->scroll_indicator && w->name && !strcmp(w->name, "clip")) {
+        ui_widget *space = ui_widget_child(w, "space");
+        if (space && space->h > w->h && f.h > 8) {
+            const float x = f.x + 1, top = f.y + 3, track = f.h - 6;
+            float thumb = track * w->h / space->h;
+            float travel = space->h - w->h, offset = -space->y;
+            if (thumb < 3)
+                thumb = 3;
+            if (offset < 0)
+                offset = 0;
+            if (offset > travel)
+                offset = travel;
+            float at = top + (track - thumb) * (travel > 0 ? offset / travel : 0);
+            const uint8_t track_col[4] = {255, 255, 255, (uint8_t)(26 * f.alpha)},
+                          thumb_col[4] = {255, 255, 255, (uint8_t)(130 * f.alpha)};
+            plat_draw_quad(NULL, x, top, 2, track, 0, 0, 1, 1, track_col);
+            plat_draw_quad(NULL, x, at, 2, thumb, 0, 0, 1, 1, thumb_col);
+        }
+    }
     if (clips)
         set_clip(clip);
 }

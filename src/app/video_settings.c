@@ -1340,6 +1340,9 @@ static void layout_tab_rows(video_settings *s, int tab)
             clip->w = 560;
             clip->h = (float)(fit * pitch + 6);
             space->h = fmaxf(clip->h, (float)(shown * pitch));
+            /* The Tweaks list is the one page that scrolls inside its viewport;
+               mark it on the left edge, out of the labels' way. */
+            clip->scroll_indicator = tab == VIDEO_TAB_COUNT - 1;
         }
     }
 }
