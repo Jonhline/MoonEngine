@@ -2657,72 +2657,25 @@ static float fade_curve(float t)
 }
 
 /* ---- the launcher's cameras (P: PC presentation, not game camera data) ----
-   Idle, the room plays the 18 authored cinematic shots of the earlier launcher: a
-   twelve-second dolly each, in the car's own frame (x, y, z eye; x, y, z aim; lens in
-   degrees), dipping through black at every cut. Any input brings the camera back, and each
-   dock slot frames the car its own way: MODS closes in, OPTIONS looks down on it, START is
-   the room's own framing, EXIT pulls back. The free rig (L) is never animated. */
-#define LCAM_SHOT_SECONDS 12.f
-#define LCAM_SHOTS 18
+   Idle, the room makes one continuous, slow orbit of the parked car: a low, close
+   lens looking up at it, no cuts and no time limit. Any input eases the camera back
+   to the dock's framing. Each dock slot frames the car its own way: MODS closes in,
+   OPTIONS looks down on it, START is the room's own framing, EXIT pulls back. The
+   free rig (L) is never animated. */
 #define LCAM_IDLE_SECONDS 20.f
-#define LCAM_DIP_SECONDS .35f
+#define LCAM_ORBIT_RADIUS 4.2f   /* metres from the car's middle */
+#define LCAM_ORBIT_PERIOD 120.f  /* seconds per revolution */
+#define LCAM_ORBIT_EYE_Y .45f    /* the lens sits low, under the car's shoulder */
+#define LCAM_ORBIT_TARGET_Y .95f /* and looks up at the body */
+#define LCAM_ORBIT_EASE 2.f      /* seconds to ease in and back out */
 #define LCAM_MID_Z 0.f /* the body's middle along its length, in the car's frame */
 static const float LCAM_HOME_EYE[3] = {-7.6f, .75f, LCAM_MID_Z}, LCAM_HOME_TARGET[3] = {0, .55f, LCAM_MID_Z};
 /* The rig file's own camera (the room's first framing, the car leaving to the right) has
    the studio's lens: camera.mot's focal 979.88 over 224 lines is 25.7 degrees. */
 #define LCAM_RIG_FOV 25.7f
 #define LCAM_HOME_FOV 32.f
-/* START chosen: the front three-quarter, the first cinematic shot's opening */
+/* START chosen: the front three-quarter, the room's first framing of the car */
 static const float LCAM_PLAY_EYE[3] = {-4.8f, 1.35f, -5.6f}, LCAM_PLAY_TARGET[3] = {.27f, .55f, -.23f};
-static float lcam_shots[LCAM_SHOTS][2][7];
-static int lcam_shots_ready;
-/* One slow revolution over the 18 shots (20 degrees each): the GT intro read
-   the captain asked for, still cut by the same twelve-second dolly and the same
-   dip. Radius and height vary a little so the car's shoulders, wheels and roof
-   all pass the lens. */
-static void lcam_shots_init(void)
-{
-    if (lcam_shots_ready)
-        return;
-    lcam_shots_ready = 1;
-    for (int i = 0; i < LCAM_SHOTS; i++) {
-        float a0 = (float)i * 6.28318530718f / (float)LCAM_SHOTS;
-        float a1 = (float)(i + 1) * 6.28318530718f / (float)LCAM_SHOTS;
-        const float radius = 5.4f - .23077f * (float)(i % 6);
-        const float height = .92f + .28f * (float)((i * 5) % 4);
-        const float lens = 30.f + (float)(i % 4) * 2.f;
-        lcam_shots[i][0][0] = sinf(a0) * radius;
-        lcam_shots[i][0][1] = height;
-        lcam_shots[i][0][2] = cosf(a0) * radius;
-        lcam_shots[i][1][0] = sinf(a1) * radius;
-        lcam_shots[i][1][1] = height + .08f;
-        lcam_shots[i][1][2] = cosf(a1) * radius;
-        for (int k = 0; k < 2; k++) {
-            lcam_shots[i][k][3] = 0;
-            lcam_shots[i][k][4] = .55f;
-            lcam_shots[i][k][5] = 0;
-            lcam_shots[i][k][6] = lens;
-        }
-    }
-}
-/* One shot at `seconds` into the cycle, in the car's frame; returns the shot's index. */
-static int lcam_shot(float seconds, float eye[3], float aim[3], float *fov)
-{
-    lcam_shots_init();
-    float time = fmodf(fmaxf(0, seconds), LCAM_SHOT_SECONDS * LCAM_SHOTS);
-    int shot = (int)(time / LCAM_SHOT_SECONDS);
-    if (shot >= LCAM_SHOTS)
-        shot = LCAM_SHOTS - 1;
-    float t = (time - shot * LCAM_SHOT_SECONDS) / LCAM_SHOT_SECONDS;
-    t = t * t * (3 - 2 * t);
-    const float *a = lcam_shots[shot][0], *b = lcam_shots[shot][1];
-    for (int i = 0; i < 3; i++) {
-        eye[i] = a[i] + (b[i] - a[i]) * t;
-        aim[i] = a[3 + i] + (b[3 + i] - a[3 + i]) * t;
-    }
-    *fov = a[6] + (b[6] - a[6]) * t;
-    return shot;
-}
 /* The car's frame to the room: the showroom places the car as rot(angle) * p + offset. */
 static void lcam_place(const float car[3], float angle, const float in[3], float out[3])
 {
@@ -2731,13 +2684,20 @@ static void lcam_place(const float car[3], float angle, const float in[3], float
     out[1] = in[1] + car[1];
     out[2] = -sn * in[0] + cs * in[2] + car[2];
 }
-/* Black over the frame around a cut: out over the shot's last moment, in over the next's first. */
-static float lcam_dip(float seconds)
+/* The idle orbit: a low lens on a fixed radius, looking up at the car. `yaw` is in
+   the car's frame; rig_orbit turns the eye about the car's vertical axis and keeps
+   the pitch sane, so the camera can never fall through the floor. */
+static void lcam_orbit(float yaw, float eye[3], float aim[3], float *fov)
 {
-    float in_shot = fmodf(fmaxf(0, seconds), LCAM_SHOT_SECONDS);
-    float a = fmaxf(0, 1 - in_shot / LCAM_DIP_SECONDS),
-          b = fmaxf(0, 1 - (LCAM_SHOT_SECONDS - in_shot) / LCAM_DIP_SECONDS);
-    return fade_curve(fmaxf(a, b));
+    const float axis[3] = {0, LCAM_ORBIT_EYE_Y, LCAM_MID_Z};
+    eye[0] = 0;
+    eye[1] = LCAM_ORBIT_EYE_Y;
+    eye[2] = LCAM_ORBIT_RADIUS;
+    rig_orbit(eye, axis, -yaw, 0.f);
+    aim[0] = 0;
+    aim[1] = LCAM_ORBIT_TARGET_Y;
+    aim[2] = LCAM_MID_Z;
+    *fov = LCAM_HOME_FOV;
 }
 /* Where each dock slot puts the camera, from the room's own framing (eye, target). */
 static void lcam_slot(int slot, const float eye[3], const float target[3], const float car[3],
@@ -2989,7 +2949,9 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
     int dragging = 0, dirty = 0;
     uint64_t saved_at = 0;
     /* the launcher's cameras: where the camera is now, idle time, the cinematic's clock */
-    float cam_eye[3], cam_target[3], cam_fov = 0, idle = 0, cine_time = 0, dip = 0;
+    float cam_eye[3], cam_target[3], cam_fov = 0, idle = 0, cine_time = 0;
+    float dock_eye[3], dock_target[3], dock_fov = LCAM_HOME_FOV;
+    float orbit_yaw0 = 0, orbit_time = 0, orbit_mix = 0;
     float clock_alpha = 0;
     int cinematic = 0, window_full = 0, activated = 0, pad_mode = 0, exit_fade = 0, reopen = 0;
     SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
@@ -3095,13 +3057,20 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
     int mouse_moved = 0, mouse_x0 = -1, mouse_y0 = -1;
     int mouse_seen = 0;
     SDL_ShowCursor(SDL_DISABLE); /* the game's pointer stands in for the system cursor */
-    lcam_place(car, angle, LCAM_HOME_EYE, cam_eye);
-    lcam_place(car, angle, LCAM_HOME_TARGET, cam_target);
-    cam_fov = LCAM_HOME_FOV;
-    const char *cine_at = getenv("MOONSTUDIO_CINE_AT"); /* dev: open on a cinematic shot */
+    lcam_place(car, angle, LCAM_HOME_EYE, dock_eye);
+    lcam_place(car, angle, LCAM_HOME_TARGET, dock_target);
+    memcpy(cam_eye, dock_eye, sizeof cam_eye);
+    memcpy(cam_target, dock_target, sizeof cam_target);
+    cam_fov = dock_fov;
+    const char *cine_at = getenv("MOONSTUDIO_CINE_AT"); /* dev: open on the idle orbit */
     if (cine_at) {
         cinematic = 1;
         cine_time = strtof(cine_at, NULL);
+        orbit_time = cine_time;
+        orbit_mix = 1;
+        float dx = dock_eye[0] - car[0], dz = dock_eye[2] - car[2];
+        float cs = cosf(angle), sn = sinf(angle);
+        orbit_yaw0 = atan2f(cs * dx - sn * dz, sn * dx + cs * dz);
     }
     const char *slot_at = getenv("MOONSTUDIO_SLOT"); /* dev: capture a dock slot's framing */
 #ifndef __SWITCH__
@@ -3578,43 +3547,69 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
             if (!cinematic && idle >= LCAM_IDLE_SECONDS && start_fade == 0) {
                 cinematic = 1;
                 cine_time = 0;
+                orbit_time = 0;
+                /* begin where the dock's camera is pointing now: no snap into the orbit */
+                float dx = cam_eye[0] - car[0], dz = cam_eye[2] - car[2];
+                float cs = cosf(angle), sn = sinf(angle);
+                orbit_yaw0 = atan2f(cs * dx - sn * dz, sn * dx + cs * dz);
+                orbit_mix = 0;
             }
-            dip = 0;
-            if (cinematic) {
-                float e[3], a[3];
-                lcam_shot(cine_time, e, a, &cam_fov);
-                lcam_place(car, angle, e, cam_eye);
-                lcam_place(car, angle, a, cam_target);
-                dip = lcam_dip(cine_time);
+            /* ease the orbit in, and back out again when input clears `cinematic` */
+            float orbit_goal = cinematic ? 1.f : 0.f;
+            float orbit_step = dt / LCAM_ORBIT_EASE;
+            if (orbit_mix < orbit_goal)
+                orbit_mix = fminf(orbit_goal, orbit_mix + orbit_step);
+            else if (orbit_mix > orbit_goal)
+                orbit_mix = fmaxf(orbit_goal, orbit_mix - orbit_step);
+
+            /* the dock's framing, eased: a critically damped follow toward the slot. The
+               room's own framing is the front three-quarter (lens 32) on whatever car is
+               parked, so any car and any window frame alike. */
+            float home_eye[3], home_target[3];
+            lcam_place(car, angle, LCAM_HOME_EYE, home_eye);
+            lcam_place(car, angle, LCAM_HOME_TARGET, home_target);
+            lcam_slot(slot_picked ? dock_sel : -1, home_eye, home_target, car, goal_eye,
+                      goal_target);
+            goal_fov = LCAM_HOME_FOV;
+            if (slot_picked && dock_sel == DOCK_START) {
+                lcam_place(car, angle, LCAM_PLAY_EYE, goal_eye);
+                lcam_place(car, angle, LCAM_PLAY_TARGET, goal_target);
+            }
+            if (slot_picked && dock_sel == DOCK_EXIT) {
+                /* EXIT: from the profile the camera only turns aside, so the car slides
+                   out of frame to the right - no swing round the car */
+                const float aside[3] = {LCAM_HOME_TARGET[0], LCAM_HOME_TARGET[1],
+                                        LCAM_HOME_TARGET[2] - 2.6f};
+                memcpy(goal_eye, home_eye, sizeof goal_eye);
+                lcam_place(car, angle, aside, goal_target);
+            }
+            float k = 1 - expf(-dt * 3.5f);
+            for (int j = 0; j < 3; j++) {
+                dock_eye[j] += (goal_eye[j] - dock_eye[j]) * k;
+                dock_target[j] += (goal_target[j] - dock_target[j]) * k;
+            }
+            dock_fov += (goal_fov - dock_fov) * k;
+
+            if (orbit_mix > .0001f) {
+                float e[3], a[3], lens;
+                lcam_orbit(orbit_yaw0 + 6.28318530718f * orbit_time / LCAM_ORBIT_PERIOD, e, a,
+                           &lens);
+                float orbit_eye[3], orbit_aim[3];
+                lcam_place(car, angle, e, orbit_eye);
+                lcam_place(car, angle, a, orbit_aim);
+                float m = orbit_mix * orbit_mix * (3.f - 2.f * orbit_mix);
+                for (int j = 0; j < 3; j++) {
+                    cam_eye[j] = dock_eye[j] + (orbit_eye[j] - dock_eye[j]) * m;
+                    cam_target[j] = dock_target[j] + (orbit_aim[j] - dock_target[j]) * m;
+                }
+                cam_fov = dock_fov + (lens - dock_fov) * m;
+                if (cinematic)
+                    orbit_time += dt;
                 cine_time += dt;
             } else {
-                /* the dock's framing, eased: a critically damped follow toward the slot. The
-                   room's own framing is the first cinematic shot's opening (front three-quarter,
-                   lens 32) on whatever car is parked, so any car and any window frame alike. */
-                float home_eye[3], home_target[3];
-                lcam_place(car, angle, LCAM_HOME_EYE, home_eye);
-                lcam_place(car, angle, LCAM_HOME_TARGET, home_target);
-                lcam_slot(slot_picked ? dock_sel : -1, home_eye, home_target, car, goal_eye,
-                          goal_target);
-                goal_fov = LCAM_HOME_FOV;
-                if (slot_picked && dock_sel == DOCK_START) {
-                    lcam_place(car, angle, LCAM_PLAY_EYE, goal_eye);
-                    lcam_place(car, angle, LCAM_PLAY_TARGET, goal_target);
-                }
-                if (slot_picked && dock_sel == DOCK_EXIT) {
-                    /* EXIT: from the profile the camera only turns aside, so the car slides
-                       out of frame to the right - no swing round the car */
-                    const float aside[3] = {LCAM_HOME_TARGET[0], LCAM_HOME_TARGET[1],
-                                            LCAM_HOME_TARGET[2] - 2.6f};
-                    memcpy(goal_eye, home_eye, sizeof goal_eye);
-                    lcam_place(car, angle, aside, goal_target);
-                }
-                float k = 1 - expf(-dt * 3.5f);
-                for (int j = 0; j < 3; j++) {
-                    cam_eye[j] += (goal_eye[j] - cam_eye[j]) * k;
-                    cam_target[j] += (goal_target[j] - cam_target[j]) * k;
-                }
-                cam_fov += (goal_fov - cam_fov) * k;
+                memcpy(cam_eye, dock_eye, sizeof cam_eye);
+                memcpy(cam_target, dock_target, sizeof cam_target);
+                cam_fov = dock_fov;
             }
             showroom_set_rig(cars, cam_eye, cam_target, car, angle);
             showroom_set_rig_fov(cars, cam_fov);
@@ -3770,10 +3765,6 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
         }
         dock_cursor_step(&dock, dt);
         plat_video_set_view((float)fw, (float)fh);
-        if (dip > 0) {
-            uint8_t blk[4] = {0, 0, 0, (uint8_t)(255 * dip)};
-            plat_draw_quad(NULL, 0, 0, (float)fw, (float)fh, 0, 0, 1, 1, blk);
-        }
         if (clock_alpha > .004f)
             studio_clock_draw(&dock, clock_alpha, cine_time);
         if (dock_sel != last_sel || activated)
