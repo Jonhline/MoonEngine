@@ -135,6 +135,52 @@ static void observed_audio_step(race_audio *a, const gt4_race_run *run)
 int main(int argc, char **argv)
 {
     CHECK(argc>=2);
+    if (argc == 3 && (!strcmp(argv[2], "--wind-pause") ||
+                      !strcmp(argv[2], "--wind-pause-negative"))) {
+        int negative = !strcmp(argv[2], "--wind-pause-negative");
+        race_audio a = {0};
+        a.mutex = SDL_CreateMutex();
+        CHECK(a.mutex);
+        SDL_AtomicSet(&a.music_paused, 1); /* isolate the wind: music stays silent */
+        SDL_AtomicSet(&a.wind_speed, 20000); /* 200 km/h, clear gain */
+        SDL_AtomicSet(&a.wind_on, 1);
+        int16_t pcm[1024];
+        render(pcm, 512, &a);
+        int moving = 0;
+        for (int i = 0; i < 1024; i++)
+            moving |= pcm[i] != 0;
+        CHECK(moving);
+        race_audio_pause(&a, negative ? 0 : 1);
+        SDL_AtomicSet(&a.music_paused, 1);
+        if (negative)
+            SDL_AtomicSet(&a.wind_on, 1); /* the stale wind the fix must not leave */
+        memset(pcm, 0, sizeof pcm);
+        render(pcm, 512, &a);
+        int ringing = 0;
+        for (int i = 0; i < 1024; i++)
+            ringing |= pcm[i] != 0;
+        CHECK(!ringing);
+        CHECK(SDL_AtomicGet(&a.wind_on) == 0);
+        race_audio_pause(&a, 0);
+        CHECK(SDL_AtomicGet(&a.wind_on) == 0); /* no stale restore */
+        SDL_AtomicSet(&a.music_paused, 1);
+        memset(pcm, 0, sizeof pcm);
+        render(pcm, 512, &a);
+        int stale = 0;
+        for (int i = 0; i < 1024; i++)
+            stale |= pcm[i] != 0;
+        CHECK(!stale);
+        /* the next camera update is the one source of truth for the wind */
+        SDL_AtomicSet(&a.wind_on, 1);
+        render(pcm, 512, &a);
+        int back = 0;
+        for (int i = 0; i < 1024; i++)
+            back |= pcm[i] != 0;
+        CHECK(back);
+        SDL_DestroyMutex(a.mutex);
+        puts("PASS race wind: silent while paused, no stale restore, live again from speed.");
+        return 0;
+    }
     if(argc==3 && (!strcmp(argv[2],"--pause-music") || !strcmp(argv[2],"--pause-music-negative"))) {
         gt4_vol *vol=gt4_vol_open(argv[1],NULL);CHECK(vol);
         race_audio audio={0};

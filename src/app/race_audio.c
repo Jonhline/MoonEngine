@@ -855,8 +855,11 @@ void race_audio_step(race_audio *a, const gt4_race_run *run)
             loud += a->regs[i].voll || a->regs[i].volr;
         }
         SDL_UnlockMutex(a->mutex);
-        fprintf(stderr, "race sound: frame %d master %.3f voices on %d with volume %d, view %d\n",
-                a->frames, a->setup.master, on, loud, a->camera_view);
+        fprintf(stderr,
+                "race sound: frame %d master %.3f voices on %d with volume %d, view %d, "
+                "wind %d speed %d\n",
+                a->frames, a->setup.master, on, loud, a->camera_view,
+                SDL_AtomicGet(&a->wind_on), SDL_AtomicGet(&a->wind_speed));
     }
 }
 
@@ -927,6 +930,14 @@ void race_audio_pause(race_audio *a, int on)
 {
     if (!a) return;
     SDL_AtomicSet(&a->music_paused,on!=0);
+    /* The wind is synthesised in the callback from these atomics, and only
+       race_audio_update() refreshes them - which the pause stops calling.
+       Silence it with the engines. On resume leave it at 0: the next camera
+       update sets it from the live speed, so there is one source of truth. */
+    if (on)
+        SDL_AtomicSet(&a->wind_on, 0);
+    if (getenv("MOON_SOUND_TRACE"))
+        fprintf(stderr, "race sound: pause %d wind %d\n", on, SDL_AtomicGet(&a->wind_on));
     if (!a->sd) return;
     if (on) {
         gt4_sd_stop(a->sd, &a->refueling);
