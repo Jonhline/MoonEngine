@@ -194,6 +194,39 @@ int main(int argc, char **argv)
     char msg[256];
     gt4_race_run *run = gt4_race_run_open(argv[1], &d, msg, sizeof msg);
     CHECK(run);
+    if (argc == 3 && !strcmp(argv[2], "--field-audit")) {
+        /* The six entry blocks, as race_run.c places them (mirrored here: the
+           table is static). Their next stride slots are free scratch, but the
+           conductor's own arrays are not. */
+        static const uint32_t slots[6] = {0x01bd7710u, 0x01bdacf0u, 0x01cd9190u,
+                                          0x01cdc770u, 0x01cdfd50u, 0x01ce3330u};
+        uint32_t cond = gt4_race_run_conductor(run);
+        uint32_t blocks = cond + 0x98u, states = cond + 0x6698u;
+        printf("field audit: conductor 0x%08x, %d cars\n", cond, gt4_race_run_cars(run));
+        printf("  entry blocks: 0x%08x..0x%08x, stride 0x35e0\n", slots[0],
+               slots[5] + 0x35e0u);
+        printf("  next slot after entry 1: 0x%08x; after entry 5: 0x%08x (= WORLD)\n",
+               slots[1] + 0x35e0u, slots[5] + 0x35e0u);
+        printf("  per-car blocks: 0x%08x..0x%08x (6 x 0x1100)\n", blocks,
+               blocks + 6u * 0x1100u);
+        printf("  car states:     0x%08x..0x%08x (6 x 0x10a0)\n", states,
+               states + 6u * 0x10a0u);
+        printf("  a 7th block would start at 0x%08x (= car state 0)\n",
+               blocks + 6u * 0x1100u);
+        printf("  a 7th state would start at 0x%08x (= driver/FFB +0xca58)\n",
+               states + 6u * 0x10a0u);
+        CHECK(slots[1] + 0x35e0u == 0x01bde2d0u);
+        CHECK(slots[5] + 0x35e0u == 0x01ce6910u);
+        CHECK(blocks + 6u * 0x1100u == states);
+        CHECK(states + 6u * 0x10a0u == cond + 0xca58u);
+        CHECK(gt4_race_run_cars(run) == 6);
+        puts("PASS field audit: entry scratch exists beyond six, but the six per-car "
+             "blocks and six car states each end exactly on the next conductor field.");
+        gt4_race_run_close(run);
+        gt4_vol_close(v);
+        SDL_Quit();
+        return 0;
+    }
     gt4_phys_pad.read = pad_read;
     gt4_phys_pad.wheel_state = pad_wheel;
     gt4_phys_pad.write = pad_write;
