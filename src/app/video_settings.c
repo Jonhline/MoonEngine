@@ -441,7 +441,6 @@ static const char *const vs_scale[] = {"50%", "75%", "100%"};
 static const char *const vs_text[] = {"0%", "25%", "50%", "75%", "100%"};
 static const char *const vs_controller_tiles[] = {"Original", "By Player"};
 static const char *const vs_closed_open[] = {"Closed", "Open"};
-static const char *const vs_app_id_default[] = {"1562846084085194752"};
 static const char *const vs_fov_degrees[] = {"0°", "2°", "4°", "6°", "8°", "10°", "12°", "16°", "20°", "24°", "28°", "30°"};
 static const int vs_fov_degrees_values[] = {0, 2, 4, 6, 8, 10, 12, 16, 20, 24, 28, 30};
 static const char *const vs_blur_amount[] = {"0%", "10%", "20%", "30%", "35%", "40%", "50%", "60%", "75%", "100%"};
@@ -897,8 +896,8 @@ static void read_draft(video_settings *s)
     v->speed_blur_amount = vs_blur_amount_values[s->choices[49]->focus_index >= 0 && s->choices[49]->focus_index < 10 ? s->choices[49]->focus_index : 0];
     v->speed_vignette = s->choices[50]->focus_index;
     v->discord_presence = s->choices[51]->focus_index;
-    v->skip_intro = s->choices[53]->focus_index;
-    v->assist_line = s->choices[54]->focus_index;
+    v->skip_intro = s->choices[52]->focus_index;
+    v->assist_line = s->choices[53]->focus_index;
 #endif
     v->compact_cars = s->choices[16]->focus_index;
     v->spatial_visibility = s->choices[11]->focus_index;
@@ -994,7 +993,7 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
         s->choices[46]->focus_index=enhanced;s->choices[47]->focus_index=enhanced;
         s->choices[48]->focus_index=enhanced;s->choices[49]->focus_index=enhanced?4:0;
         s->choices[50]->focus_index=enhanced;
-        s->choices[54]->focus_index=0; /* the assist line is never a preset default */
+        s->choices[53]->focus_index=0; /* the assist line is never a preset default */
 #endif
         s->choices[3]->focus_index = enhanced ? 0 : 2;
         s->choices[4]->focus_index = 0;
@@ -1121,7 +1120,7 @@ static const char *hints[] = {
     "How far the radial blur reaches when it is on.",
     "A PC-only darkened frame edge. Off leaves the original image.",
     "Show the current course and car on Discord. Off: nothing talks to Discord.",
-    "Read-only client id. Override it with integrations.discord_app_id if needed.",
+    "Skip the GT splash and the opening movie; boot straight to the main menu.",
     "Racing line with braking zones on every track and race."};
 static int focus(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv, ah_val *ret)
 {
@@ -1196,7 +1195,7 @@ static const int tab_rows[VIDEO_TAB_COUNT][16] = {
     {7, 10, 14, 15, 13, 9, 16, 37, 38, -1},
     {34, 35, 36, -1},
     {8, 31, 32, -1},
-    {41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, -1}};
+    {41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, -1}};
 static const char *const page_tiles[VIDEO_TAB_COUNT] = {"", "PcGraphics", "PcLighting",
                                                         "PcControls", "PcMusic", "PcPresets",
                                                         "PcTweaks"};
@@ -1416,9 +1415,8 @@ static int enter(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     }
     s->choices[50]->focus_index = s->current.speed_vignette;
     s->choices[51]->focus_index = s->current.discord_presence;
-    s->choices[52]->focus_index = 0;
-    s->choices[53]->focus_index = s->current.skip_intro;
-    s->choices[54]->focus_index = s->current.assist_line;
+    s->choices[52]->focus_index = s->current.skip_intro;
+    s->choices[53]->focus_index = s->current.assist_line;
 #endif
     s->choices[7]->focus_index = s->current.desktop;
     s->choices[9]->focus_index = s->current.edge_pan;
@@ -1821,19 +1819,16 @@ void video_settings_attach(video_settings *s, menu *m)
         static const char *const tweak_names[] = {
             "SpeedGroup", "SpeedFov", "SpeedFovDegrees", "SpeedCamLag", "SpeedShake",
             "SpeedWind", "SpeedRoadRoar", "SpeedBlur", "SpeedBlurAmount", "SpeedVignette",
-            "DiscordPresence", "DiscordAppId", "SkipIntro", "AssistLine"};
+            "DiscordPresence", "SkipIntro", "AssistLine"};
         static const char *const tweak_titles[] = {
             "Sense of Speed", "Dynamic FOV", "FOV Amount", "Camera Dynamics", "Camera Shake",
             "Wind Audio", "Road Roar Boost", "Radial Blur", "Blur Strength", "Vignette",
-            "Discord Rich Presence", "Discord Application ID", "Skip Intro",
-            "Assist Line"};
+            "Discord Rich Presence", "Skip Intro", "Assist Line"};
         const char *const *tweak_lists[] = {
             vs_closed_open, toggle, vs_fov_degrees, toggle, toggle, toggle, toggle, toggle,
-            vs_blur_amount, toggle, toggle, vs_app_id_default, toggle, toggle};
-        static const int tweak_counts[] = {2, 2, 12, 2, 2, 2, 2, 2, 10, 2, 2, 1, 2, 2};
-        const char *app_id = moon_options_get(&s->store, "integrations.discord_app_id",
-                                              "1562846084085194752");
-        for (int i = 0; i < 14; i++) {
+            vs_blur_amount, toggle, toggle, toggle, toggle};
+        static const int tweak_counts[] = {2, 2, 12, 2, 2, 2, 2, 2, 10, 2, 2, 2, 2};
+        for (int i = 0; i < 13; i++) {
             int idx = 41 + i;
             ui_widget *w = ui_widget_copy(ui, sample);
             w->name = tweak_names[i];
@@ -1857,11 +1852,6 @@ void video_settings_attach(video_settings *s, menu *m)
             values(ui, choice, tweak_lists[i], tweak_counts[i]);
             if (idx == 41)
                 choice->focus_index = s->tweaks_open;
-            if (idx == 52) {
-                text(ui_widget_child(ui_option_item(choice, 0), "label"), app_id);
-                w->insensitive = 1;
-                w->opacity = .8f;
-            }
             ui_widget *popup = ui_widget_child(choice, "popup");
             ui_widget *box = popup ? ui_widget_child(popup, "vbox") : NULL;
             ui_widget *popup_bg = box ? ui_widget_child(box, "bg") : NULL;
