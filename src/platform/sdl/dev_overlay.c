@@ -30,6 +30,17 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(_WIN32)
+#include <windows.h>
+#include <pdh.h>
+#ifndef PDH_MORE_DATA
+#define PDH_MORE_DATA ((PDH_STATUS)0x800007D2L)
+#endif
+#else
+#include <dlfcn.h>
+#include <unistd.h>
+#endif
+
 /* 5x7 glyphs, ASCII 32..126; each row is 5 bits, bit 4 leftmost. */
 static const uint8_t overlay_font[95][7] = {
     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, /* space */
@@ -135,6 +146,7 @@ static int overlay_ready;
 
 /* ---- measurement ---- */
 #define OVERLAY_WINDOW_NS 1000000000ull
+#define OVERLAY_SAMPLE_NS 250000000ull /* 4 Hz: never once per frame */
 #define OVERLAY_SAMPLE_MAX 1024
 static uint64_t last_frame_ns;
 static struct {
@@ -147,9 +159,12 @@ static uint64_t sample_last_ns;
 static float overlay_kmh = -1;
 static int overlay_assist, overlay_speed_percent;
 static double cpu_percent = -1;
-static uint64_t rss_bytes, ram_bytes;
+static uint64_t ram_used, ram_total;
+static double gpu_percent = -1;
+static double vram_used = -1, vram_total = -1;
 static double gpu_ms = -1;
-static double gpu_vendor_percent = -1;
+static double overlay_cost_ms = -1, overlay_cost_sum;
+static unsigned overlay_cost_count;
 #if defined(MOON_PC_VULKAN)
 static uint64_t gpu_ns_prev;
 static uint64_t gpu_samples_prev;
@@ -162,8 +177,13 @@ static void reset_sampling(void)
     frame_sample_count = frame_sample_next = 0;
     sample_last_ns = 0;
     cpu_percent = -1;
+    ram_used = ram_total = 0;
+    gpu_percent = -1;
+    vram_used = vram_total = -1;
     gpu_ms = -1;
-    gpu_vendor_percent = -1;
+    overlay_cost_ms = -1;
+    overlay_cost_sum = 0;
+    overlay_cost_count = 0;
 #if defined(MOON_PC_VULKAN)
     gpu_have_prev = 0;
 #endif
@@ -176,15 +196,262 @@ void moon_debug_overlay_set_race(float kmh, int assist_line, int speed_percent)
     overlay_speed_percent = speed_percent;
 }
 
-/* Best-effort vendor GPU load, each node guarded; 0 = absent (prints n/a). */
-static int gpu_vendor_load(double *out)
+/* ---- CPU and RAM: the whole machine, once per slow sample ---- */
+static int system_cpu(double *out)
 {
-#if defined(__SWITCH__)
+    if (!out)
+        return 0;
+#if defined(_WIN32)
+    static int have;
+    static uint64_t prev_idle, prev_total;
+    FILETIME idle, kernel, user;
+    if (!GetSystemTimes(&idle, &kernel, &user))
+        return 0;
+    ULARGE_INTEGER i, k, u;
+    i.LowPart = idle.dwLowDateTime, i.HighPart = idle.dwHighDateTime;
+    k.LowPart = kernel.dwLowDateTime, k.HighPart = kernel.dwHighDateTime;
+    u.LowPart = user.dwLowDateTime, u.HighPart = user.dwHighDateTime;
+    uint64_t idle_ticks = i.QuadPart, total_ticks = k.QuadPart + u.QuadPart;
+    int ok = 0;
+    if (have && total_ticks > prev_total) {
+        double dtotal = (double)(total_ticks - prev_total);
+        double didle = (double)(idle_ticks - prev_idle);
+        *out = 100.0 * (dtotal - didle) / dtotal;
+        if (*out < 0)
+            *out = 0;
+        if (*out > 100)
+            *out = 100;
+        ok = 1;
+    }
+    prev_idle = idle_ticks;
+    prev_total = total_ticks;
+    have = 1;
+    return ok;
+#elif defined(__SWITCH__)
     (void)out;
     return 0;
 #else
+    static int have;
+    static uint64_t prev_idle, prev_total;
+    FILE *f = fopen("/proc/stat", "r");
+    if (!f)
+        return 0;
+    char line[256];
+    if (!fgets(line, sizeof line, f)) {
+        fclose(f);
+        return 0;
+    }
+    fclose(f);
+    unsigned long long user = 0, nice = 0, system = 0, idle = 0, iowait = 0, irq = 0,
+                       softirq = 0, steal = 0;
+    if (sscanf(line, "cpu %llu %llu %llu %llu %llu %llu %llu %llu", &user, &nice, &system, &idle,
+               &iowait, &irq, &softirq, &steal) < 4)
+        return 0;
+    uint64_t total = user + nice + system + idle + iowait + irq + softirq + steal;
+    uint64_t idle_all = idle + iowait;
+    int ok = 0;
+    if (have && total > prev_total) {
+        double dtotal = (double)(total - prev_total);
+        double didle = (double)(idle_all - prev_idle);
+        *out = 100.0 * (dtotal - didle) / dtotal;
+        if (*out < 0)
+            *out = 0;
+        if (*out > 100)
+            *out = 100;
+        ok = 1;
+    }
+    prev_idle = idle_all;
+    prev_total = total;
+    have = 1;
+    return ok;
+#endif
+}
+
+static int system_memory(uint64_t *used, uint64_t *total)
+{
+    if (!used || !total)
+        return 0;
+#if defined(_WIN32)
+    MEMORYSTATUSEX m;
+    memset(&m, 0, sizeof m);
+    m.dwLength = sizeof m;
+    if (!GlobalMemoryStatusEx(&m))
+        return 0;
+    *total = (uint64_t)m.ullTotalPhys;
+    *used = (uint64_t)(m.ullTotalPhys - m.ullAvailPhys);
+    return 1;
+#elif defined(__SWITCH__)
+    return 0;
+#else
+    FILE *f = fopen("/proc/meminfo", "r");
+    if (!f)
+        return 0;
+    unsigned long long total_kb = 0, avail_kb = 0;
+    char key[32];
+    unsigned long long value;
+    char unit[16];
+    while (fscanf(f, "%31s %llu %15s", key, &value, unit) == 3) {
+        if (!strcmp(key, "MemTotal:"))
+            total_kb = value;
+        else if (!strcmp(key, "MemAvailable:"))
+            avail_kb = value;
+        if (total_kb && avail_kb)
+            break;
+        /* skip the rest of the line */
+        int c;
+        while ((c = fgetc(f)) != '\n' && c != EOF)
+            ;
+    }
+    fclose(f);
+    if (!total_kb)
+        return 0;
+    *total = total_kb * 1024ull;
+    *used = (total_kb > avail_kb ? total_kb - avail_kb : 0) * 1024ull;
+    return 1;
+#endif
+}
+
+/* ---- GPU: Windows PDH counters, Linux NVIDIA NVML (dlopen) ---- */
+#if defined(_WIN32)
+typedef PDH_STATUS(WINAPI *pdh_open_query_fn)(LPCWSTR, DWORD_PTR, PDH_HQUERY *);
+typedef PDH_STATUS(WINAPI *pdh_add_english_fn)(PDH_HQUERY, LPCWSTR, DWORD_PTR, PDH_HCOUNTER *);
+typedef PDH_STATUS(WINAPI *pdh_add_counter_fn)(PDH_HQUERY, LPCWSTR, DWORD_PTR, PDH_HCOUNTER *);
+typedef PDH_STATUS(WINAPI *pdh_collect_fn)(PDH_HQUERY);
+typedef PDH_STATUS(WINAPI *pdh_array_fn)(PDH_HCOUNTER, DWORD, LPDWORD, LPDWORD,
+                                         PDH_FMT_COUNTERVALUE_ITEM_W *);
+static struct {
+    int tried, ok;
+    HMODULE lib;
+    pdh_open_query_fn open;
+    pdh_add_english_fn add_english;
+    pdh_add_counter_fn add_counter;
+    pdh_collect_fn collect;
+    pdh_array_fn array;
+    PDH_HQUERY query;
+    PDH_HCOUNTER engine, vram_used_counter, vram_total_counter;
+} pdh;
+static int pdh_counter_sum(PDH_HCOUNTER counter, double *sum)
+{
+    if (!counter || !pdh.array)
+        return 0;
+    DWORD size = 0, count = 0;
+    PDH_STATUS status = pdh.array(counter, PDH_FMT_DOUBLE, &size, &count, NULL);
+    if (status != PDH_MORE_DATA && status != ERROR_SUCCESS)
+        return 0;
+    if (!size)
+        return 0;
+    PDH_FMT_COUNTERVALUE_ITEM_W *items = malloc(size);
+    if (!items)
+        return 0;
+    status = pdh.array(counter, PDH_FMT_DOUBLE, &size, &count, items);
+    double total = 0;
+    int got = 0;
+    if (status == ERROR_SUCCESS) {
+        for (DWORD i = 0; i < count; i++)
+            if (items[i].FmtValue.CStatus == ERROR_SUCCESS) {
+                total += items[i].FmtValue.doubleValue;
+                got = 1;
+            }
+    }
+    free(items);
+    if (got)
+        *sum = total;
+    return got;
+}
+static void gpu_sample(void)
+{
+    if (!pdh.tried) {
+        pdh.tried = 1;
+        pdh.lib = LoadLibraryW(L"pdh.dll");
+        if (pdh.lib) {
+            pdh.open = (pdh_open_query_fn)GetProcAddress(pdh.lib, "PdhOpenQueryW");
+            pdh.add_english =
+                (pdh_add_english_fn)GetProcAddress(pdh.lib, "PdhAddEnglishCounterW");
+            pdh.add_counter = (pdh_add_counter_fn)GetProcAddress(pdh.lib, "PdhAddCounterW");
+            pdh.collect = (pdh_collect_fn)GetProcAddress(pdh.lib, "PdhCollectQueryData");
+            pdh.array =
+                (pdh_array_fn)GetProcAddress(pdh.lib, "PdhGetFormattedCounterArrayW");
+            if (pdh.open && pdh.collect && pdh.array &&
+                (pdh.add_english || pdh.add_counter) &&
+                pdh.open(NULL, 0, &pdh.query) == ERROR_SUCCESS) {
+                pdh_add_english_fn add = pdh.add_english;
+                if (!add) {
+                    /* PdhAddCounterW takes the same arguments; on an English
+                       Windows the counter path is already readable anyway. */
+                    add = (pdh_add_english_fn)pdh.add_counter;
+                }
+                if (add(pdh.query, L"\\GPU Engine(*)\\Utilization Percentage", 0,
+                        &pdh.engine) != ERROR_SUCCESS)
+                    pdh.engine = NULL;
+                if (add(pdh.query, L"\\GPU Adapter Memory(*)\\Dedicated Usage", 0,
+                        &pdh.vram_used_counter) != ERROR_SUCCESS)
+                    pdh.vram_used_counter = NULL;
+                if (add(pdh.query, L"\\GPU Adapter Memory(*)\\Dedicated Limit", 0,
+                        &pdh.vram_total_counter) != ERROR_SUCCESS)
+                    pdh.vram_total_counter = NULL;
+                pdh.ok = 1;
+            }
+        }
+    }
+    if (!pdh.ok || pdh.collect(pdh.query) != ERROR_SUCCESS)
+        return;
+    double value;
+    if (pdh_counter_sum(pdh.engine, &value)) {
+        if (value < 0)
+            value = 0;
+        if (value > 100)
+            value = 100;
+        gpu_percent = value;
+    } else
+        gpu_percent = -1;
+    if (pdh_counter_sum(pdh.vram_used_counter, &value)) {
+        vram_used = value / (1024.0 * 1024.0 * 1024.0);
+        if (pdh_counter_sum(pdh.vram_total_counter, &value) && value > 0)
+            vram_total = value / (1024.0 * 1024.0 * 1024.0);
+        else
+            vram_total = -1;
+    } else {
+        vram_used = vram_total = -1;
+    }
+}
+#elif !defined(__SWITCH__)
+typedef struct {
+    unsigned int gpu, memory;
+} nvml_utilization;
+typedef struct {
+    unsigned long long total, free, used;
+} nvml_memory;
+static struct {
+    int tried, ok;
+    void *lib, *device;
+    int (*init)(void);
+    int (*shutdown)(void);
+    int (*handle)(unsigned int, void **);
+    int (*util)(void *, nvml_utilization *);
+    int (*mem)(void *, nvml_memory *);
+} nvml;
+static void nvml_load(void)
+{
+    if (nvml.tried)
+        return;
+    nvml.tried = 1;
+    nvml.lib = dlopen("libnvidia-ml.so.1", RTLD_LAZY | RTLD_LOCAL);
+    if (!nvml.lib)
+        return;
+    nvml.init = (int (*)(void))dlsym(nvml.lib, "nvmlInit_v2");
+    nvml.shutdown = (int (*)(void))dlsym(nvml.lib, "nvmlShutdown");
+    nvml.handle = (int (*)(unsigned int, void **))dlsym(nvml.lib, "nvmlDeviceGetHandleByIndex_v2");
+    nvml.util = (int (*)(void *, nvml_utilization *))dlsym(nvml.lib,
+                                                           "nvmlDeviceGetUtilizationRates");
+    nvml.mem = (int (*)(void *, nvml_memory *))dlsym(nvml.lib, "nvmlDeviceGetMemoryInfo");
+    if (nvml.init && nvml.handle && nvml.util && nvml.mem && nvml.init() == 0 &&
+        nvml.handle(0, &nvml.device) == 0)
+        nvml.ok = 1;
+}
+/* Best-effort non-NVIDIA fallback: AMD and Mali sysfs percentages. */
+static int gpu_sysfs(double *out)
+{
     unsigned long long a = 0, b = 0;
-    /* Qualcomm Adreno: two counters, busy and total, in one sysfs node. */
     FILE *f = fopen("/sys/class/kgsl/kgsl-3d0/gpubusy", "r");
     if (f) {
         int got = fscanf(f, "%llu %llu", &a, &b);
@@ -194,7 +461,6 @@ static int gpu_vendor_load(double *out)
             return 1;
         }
     }
-    /* ARM Mali: a single percentage node, under a few kernel names. */
     static const char *mali[] = {"/sys/kernel/gpu/gpu_busy",
                                  "/sys/class/misc/mali0/device/utilisation",
                                  "/sys/devices/platform/mali.0/utilisation"};
@@ -209,7 +475,6 @@ static int gpu_vendor_load(double *out)
             return 1;
         }
     }
-    /* AMD: per-card busy percentage. */
     for (int card = 0; card < 8; card++) {
         char path[128];
         snprintf(path, sizeof path, "/sys/class/drm/card%d/device/gpu_busy_percent", card);
@@ -224,22 +489,54 @@ static int gpu_vendor_load(double *out)
         }
     }
     return 0;
-#endif
 }
+static void gpu_sample(void)
+{
+    nvml_load();
+    if (nvml.ok) {
+        nvml_utilization u;
+        if (nvml.util(nvml.device, &u) == 0)
+            gpu_percent = (double)u.gpu;
+        else
+            gpu_percent = -1;
+        nvml_memory m;
+        if (nvml.mem(nvml.device, &m) == 0 && m.total) {
+            vram_used = (double)m.used / (1024.0 * 1024.0 * 1024.0);
+            vram_total = (double)m.total / (1024.0 * 1024.0 * 1024.0);
+        } else {
+            vram_used = vram_total = -1;
+        }
+        return;
+    }
+    double percent;
+    if (gpu_sysfs(&percent)) {
+        gpu_percent = percent;
+        vram_used = vram_total = -1;
+    } else {
+        gpu_percent = -1;
+        vram_used = vram_total = -1;
+    }
+}
+#else
+static void gpu_sample(void)
+{
+}
+#endif
 
 static void sample_slow(uint64_t now)
 {
-    if (sample_last_ns && now - sample_last_ns < 1000000000ull)
+    if (sample_last_ns && now - sample_last_ns < OVERLAY_SAMPLE_NS)
         return;
     sample_last_ns = now;
     double cpu;
-    if (plat_process_cpu(&cpu))
+    if (system_cpu(&cpu))
         cpu_percent = cpu;
-    uint64_t rss = 0, ram = 0;
-    if (plat_process_memory(&rss, &ram))
-        rss_bytes = rss;
-    if (ram)
-        ram_bytes = ram;
+    uint64_t used, total;
+    if (system_memory(&used, &total)) {
+        ram_used = used;
+        ram_total = total;
+    }
+    gpu_sample();
 #if defined(MOON_PC_VULKAN)
     if (moon_vk_render_active()) {
         moon_vk_render_stats s = moon_vk_render_statistics();
@@ -252,8 +549,6 @@ static void sample_slow(uint64_t now)
     } else
         gpu_ms = -1;
 #endif
-    double vendor;
-    gpu_vendor_percent = gpu_vendor_load(&vendor) ? vendor : -1;
 }
 
 /* ---- drawing ---- */
@@ -343,7 +638,8 @@ void moon_debug_overlay_draw(void)
 {
     if (!overlay_on)
         return;
-    uint64_t now = plat_time_ns();
+    uint64_t draw_started = plat_time_ns();
+    uint64_t now = draw_started;
     double last_ms = -1;
     if (last_frame_ns) {
         double ms = (double)(now - last_frame_ns) / 1e6;
@@ -359,7 +655,6 @@ void moon_debug_overlay_draw(void)
     last_frame_ns = now;
     sample_slow(now);
 
-    /* The same samples for last, 1 s average, 1 s worst and FPS. */
     double sum = 0, worst = 0;
     int count = 0;
     for (int i = 0; i < frame_sample_count; i++) {
@@ -374,10 +669,6 @@ void moon_debug_overlay_draw(void)
     double mean = count ? sum / (double)count : -1;
 
     r3d_stats st = r3d_frame_stats();
-    unsigned late = 0;
-#if defined(MOON_PC_VULKAN)
-    late = (unsigned)video_frame_late_count();
-#endif
 
     int out_w = 0, out_h = 0, scene_w = 0, scene_h = 0;
     {
@@ -397,108 +688,70 @@ void moon_debug_overlay_draw(void)
     scene_w = scene_h = 0; /* the deko3d backend has no scene-target accessor */
 #endif
 
-    char api[64], device[72];
-    overlay_api_strings(api, sizeof api, device, sizeof device);
-    const char *renderer =
-#if defined(MOON_PC_VULKAN)
-        moon_vk_render_active() ? moon_renderer_name(MOON_RENDERER_VULKAN)
-                                : moon_renderer_name(MOON_RENDERER_OPENGL);
-#else
-        moon_renderer_name(MOON_RENDERER_OPENGL);
-#endif
-    char api_short[20];
-    if (!strcmp(renderer, "vulkan"))
-        snprintf(api_short, sizeof api_short, "vulkan");
-    else {
-        size_t i = 0;
-        while (api[i] && api[i] != ' ' && i + 1 < sizeof api_short) {
-            api_short[i] = api[i];
-            i++;
-        }
-        api_short[i] = 0;
-        if (!api_short[0])
-            snprintf(api_short, sizeof api_short, "n/a");
-    }
-    char device_short[28];
-    if (device[0])
-        snprintf(device_short, sizeof device_short, "%.26s", device);
-    else
-        snprintf(device_short, sizeof device_short, "n/a");
+    char labels[16][28], values[16][56];
+    int n = 0, separate_after = -1, race_start = -1;
 
-    char labels[24][28], values[24][56];
-    int n = 0;
-    overlay_row(labels, values, &n, "", "DEBUG OVERLAY   F4");
-    overlay_row(labels, values, &n, "", "FRAME");
-    if (last_ms >= 0)
-        overlay_rowf(labels, values, &n, "Last frame", "%.2f ms", last_ms);
-    else
-        overlay_row(labels, values, &n, "Last frame", "n/a");
-    if (count)
-        overlay_rowf(labels, values, &n, "1 s average", "%.2f ms", mean);
-    else
-        overlay_row(labels, values, &n, "1 s average", "n/a");
-    if (count)
-        overlay_rowf(labels, values, &n, "1 s worst", "%.2f ms", worst);
-    else
-        overlay_row(labels, values, &n, "1 s worst", "n/a");
     if (count && sum > 0)
-        overlay_rowf(labels, values, &n, "FPS (1 s)", "%.1f", (double)count * 1000.0 / sum);
+        overlay_rowf(labels, values, &n, "FPS", "%d  %.1f/%.1f ms", (int)(count * 1000.0 / sum + .5),
+                     mean, worst);
+    else if (last_ms >= 0)
+        overlay_rowf(labels, values, &n, "FPS", "-  %.1f/n/a ms", last_ms);
     else
-        overlay_row(labels, values, &n, "FPS (1 s)", "n/a");
+        overlay_row(labels, values, &n, "FPS", "n/a");
+    separate_after = n - 1;
 
-    overlay_row(labels, values, &n, "", "SCENE");
-    overlay_rowf(labels, values, &n, "Draw calls", "%u", st.draws);
-    overlay_rowf(labels, values, &n, "Triangles", "%u", st.triangles);
-    if (scene_w > 0 && scene_h > 0)
-        overlay_rowf(labels, values, &n, "Scene render", "%d x %d", scene_w, scene_h);
-    else
-        overlay_row(labels, values, &n, "Scene render", "n/a");
-    if (out_w > 0 && out_h > 0)
-        overlay_rowf(labels, values, &n, "Output", "%d x %d", out_w, out_h);
-    else
-        overlay_row(labels, values, &n, "Output", "n/a");
-    overlay_rowf(labels, values, &n, "Culled groups", "%u", st.culled_groups);
+    if (gpu_percent >= 0) {
+        if (gpu_ms >= 0)
+            overlay_rowf(labels, values, &n, "GPU", "%.0f%%  %.1f ms", gpu_percent, gpu_ms);
+        else
+            overlay_rowf(labels, values, &n, "GPU", "%.0f%%", gpu_percent);
+    } else
+        overlay_row(labels, values, &n, "GPU", "n/a");
 
-    overlay_row(labels, values, &n, "", "RACE");
-    if (overlay_kmh >= 0)
-        overlay_rowf(labels, values, &n, "Speed", "%.0f km/h", overlay_kmh);
-    else
-        overlay_row(labels, values, &n, "Speed", "n/a");
-    if (overlay_kmh >= 0)
-        overlay_row(labels, values, &n, "Assist line", overlay_assist ? "on" : "off");
-    else
-        overlay_row(labels, values, &n, "Assist line", "n/a");
-    if (overlay_kmh >= 0 && overlay_assist && overlay_speed_percent >= 0)
-        overlay_rowf(labels, values, &n, "Speed level", "%d%%", overlay_speed_percent);
-    else
-        overlay_row(labels, values, &n, "Speed level",
-                    overlay_kmh >= 0 && overlay_assist ? "n/a" : "off");
-
-    overlay_row(labels, values, &n, "", "SYSTEM");
     if (cpu_percent >= 0)
         overlay_rowf(labels, values, &n, "CPU", "%.0f%%", cpu_percent);
     else
         overlay_row(labels, values, &n, "CPU", "n/a");
-    if (rss_bytes)
-        overlay_rowf(labels, values, &n, "Memory (RSS)", "%.1f MB",
-                     (double)rss_bytes / (1024.0 * 1024.0));
+
+    if (vram_used >= 0 && vram_total > 0)
+        overlay_rowf(labels, values, &n, "VRAM", "%.1f/%.1f GB", vram_used, vram_total);
+    else if (vram_used >= 0)
+        overlay_rowf(labels, values, &n, "VRAM", "%.1f GB", vram_used);
     else
-        overlay_row(labels, values, &n, "Memory (RSS)", "n/a");
-    if (gpu_ms >= 0)
-        overlay_rowf(labels, values, &n, "GPU time", "%.2f ms", gpu_ms);
+        overlay_row(labels, values, &n, "VRAM", "n/a");
+
+    if (ram_total)
+        overlay_rowf(labels, values, &n, "RAM", "%.1f/%.1f GB",
+                     (double)ram_used / (1024.0 * 1024.0 * 1024.0),
+                     (double)ram_total / (1024.0 * 1024.0 * 1024.0));
     else
-        overlay_row(labels, values, &n, "GPU time", "n/a");
-    if (gpu_vendor_percent >= 0)
-        overlay_rowf(labels, values, &n, "GPU load", "%.0f%%", gpu_vendor_percent);
+        overlay_row(labels, values, &n, "RAM", "n/a");
+
+    overlay_rowf(labels, values, &n, "draws", "%u  tris %.1fk", st.draws,
+                 (double)st.triangles / 1000.0);
+    if (scene_w > 0 && scene_h > 0 && out_w > 0 && out_h > 0)
+        overlay_rowf(labels, values, &n, "scene", "%dx%d  out %dx%d", scene_w, scene_h, out_w,
+                     out_h);
     else
-        overlay_row(labels, values, &n, "GPU load", "n/a");
-#if defined(MOON_PC_VULKAN)
-    overlay_rowf(labels, values, &n, "Late frames", "%u", late);
-#else
-    overlay_row(labels, values, &n, "Late frames", "n/a");
-#endif
-    overlay_rowf(labels, values, &n, "Renderer", "%s %s", renderer, api_short);
-    overlay_rowf(labels, values, &n, "Device", "%s", device_short);
+        overlay_row(labels, values, &n, "scene", "n/a");
+
+    race_start = n;
+    if (overlay_kmh >= 0) {
+        overlay_rowf(labels, values, &n, "km/h", "%.0f", overlay_kmh);
+        if (overlay_assist)
+            overlay_rowf(labels, values, &n, "assist",
+                         "on  speed %.2f", (double)overlay_speed_percent / 100.0);
+        else
+            overlay_row(labels, values, &n, "assist", "off");
+    } else {
+        overlay_row(labels, values, &n, "km/h", "n/a");
+        overlay_row(labels, values, &n, "assist", "n/a");
+    }
+
+    if (overlay_cost_ms >= 0)
+        overlay_rowf(labels, values, &n, "ovl", "%.2f ms", overlay_cost_ms);
+    else
+        overlay_row(labels, values, &n, "ovl", "n/a");
 
     /* Fixed 640x480 UI space; the platform scales it to the window. */
     plat_video_set_view(640, 480);
@@ -508,34 +761,46 @@ void moon_debug_overlay_draw(void)
     if (p > 2)
         p = 2;
     const float lh = 9.5f * p;
-    const float pad = 4 * p, margin = 8;
-    const int label_col = 20; /* characters */
+    const float pad = 4 * p, margin = 8 * p;
+    const int label_col = 8; /* characters */
     size_t max_value = 0;
     for (int i = 0; i < n; i++) {
         size_t len = strlen(values[i]);
         if (len > max_value)
             max_value = len;
     }
-    size_t limit = (size_t)((640 - 2 * margin - 2 * pad) / (6 * p));
-    if (limit < (size_t)label_col + 8)
-        limit = (size_t)label_col + 8;
-    if (max_value + label_col > limit)
-        max_value = limit - label_col;
+    /* <= ~40 characters per line, even on the longest row. */
+    if (max_value + (size_t)label_col > 40)
+        max_value = 40 - (size_t)label_col;
     float width = (float)(label_col + (int)max_value) * 6 * p + 2 * pad;
     float height = (float)n * lh + 2 * pad;
     overlay_plate(margin, margin, width, height);
-    const uint8_t ink[4] = {235, 238, 242, 255};
+    const uint8_t ink[4] = {238, 241, 245, 255};
     const uint8_t dim[4] = {150, 156, 166, 255};
     const uint8_t accent[4] = {255, 190, 80, 255};
+    const uint8_t rule[4] = {255, 255, 255, 46};
     for (int i = 0; i < n; i++) {
         float y = margin + pad + i * lh;
-        if (!labels[i][0]) {
-            overlay_text(values[i], margin + pad, y, p, accent);
-            continue;
-        }
         values[i][max_value] = 0;
         overlay_text(labels[i], margin + pad, y, p, dim);
-        overlay_text(values[i], margin + pad + label_col * 6 * p, y, p, ink);
+        overlay_text(values[i], margin + pad + label_col * 6 * p, y, p,
+                     i == 0 ? accent : ink);
+        if (i == separate_after || i + 1 == race_start)
+            plat_draw_quad(NULL, margin + pad, y + lh - 1, width - 2 * pad, 1, 0, 0, 1, 1, rule);
+    }
+
+    double cost = (double)(plat_time_ns() - draw_started) / 1e6;
+    overlay_cost_sum += cost;
+    if (++overlay_cost_count >= 8) {
+        overlay_cost_ms = overlay_cost_sum / (double)overlay_cost_count;
+        overlay_cost_sum = 0;
+        overlay_cost_count = 0;
+    }
+    static uint64_t reported_ns;
+    if (now - reported_ns > 2000000000ull) {
+        reported_ns = now;
+        if (overlay_cost_ms >= 0)
+            fprintf(stderr, "overlay: draw %.3f ms\n", overlay_cost_ms);
     }
 }
 
