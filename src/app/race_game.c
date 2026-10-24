@@ -112,6 +112,10 @@ struct race_game {
     int look_back;
     int ghost_button, ghost_hidden;
     int best_line, best_line_button; /* R3's retained state; Tweaks may force it */
+    /* Double-tap brake, gated by the HUD speed: hold the second press to
+       select reverse instead of the brake (release restores braking). */
+    uint64_t brake_tap_ms;
+    int brake_was_down, reverse_tap_armed;
     char hud_course[32]; /* the course whose map the display takes next */
     race_result *result; /* the results over the race, from the player's finish */
     int mission_presentation;

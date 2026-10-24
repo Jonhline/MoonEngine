@@ -1028,6 +1028,8 @@ target_link_libraries(controller_input PRIVATE moon_replay_state moon_race_sound
 add_test(NAME controller_input COMMAND controller_input)
 add_test(NAME controller_input_negative COMMAND controller_input --negative)
 set_tests_properties(controller_input_negative PROPERTIES WILL_FAIL TRUE)
+add_test(NAME controller_reverse_tap_negative COMMAND controller_input)
+set_tests_properties(controller_reverse_tap_negative PROPERTIES WILL_FAIL TRUE ENVIRONMENT "GT4_REVERSE_TAP_NEGATIVE=1")
 add_test(NAME controller_start_key_negative COMMAND controller_input)
 set_tests_properties(controller_start_key_negative PROPERTIES WILL_FAIL TRUE ENVIRONMENT "GT4_START_KEY_NEGATIVE=1")
 add_test(NAME controller_right_stick_negative COMMAND controller_input)

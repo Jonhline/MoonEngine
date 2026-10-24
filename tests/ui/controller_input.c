@@ -225,6 +225,24 @@ int main(int argc, char **argv)
     CHECK(!plat_sdl_controller_key(&e));
     CHECK(!SDL_JoystickSetVirtualButton(joy,SDL_CONTROLLER_BUTTON_LEFTSHOULDER,1));
     CHECK((plat_sdl_menu_buttons()&0x900)==0x900); /* shoulder chord; other keys from preceding cases remain held */
+    /* Two brake presses inside 350 ms at 0 km/h: the held second press is
+       reverse, not the brake; release returns to normal braking. */
+    g.brake_tap_ms = 0;
+    g.brake_was_down = g.reverse_tap_armed = 0;
+    CHECK(!SDL_JoystickSetVirtualButton(joy,SDL_CONTROLLER_BUTTON_X,1));
+    read_controls(&g);
+    CHECK(command.brake > 0 && command.reverse == 0);
+    CHECK(!SDL_JoystickSetVirtualButton(joy,SDL_CONTROLLER_BUTTON_X,0));
+    read_controls(&g);
+    CHECK(!command.reverse);
+    CHECK(!SDL_JoystickSetVirtualButton(joy,SDL_CONTROLLER_BUTTON_X,1));
+    read_controls(&g);
+    if (getenv("GT4_REVERSE_TAP_NEGATIVE"))
+        CHECK(command.reverse == 0);
+    CHECK(command.brake == 0 && command.reverse > 0);
+    CHECK(!SDL_JoystickSetVirtualButton(joy,SDL_CONTROLLER_BUTTON_X,0));
+    read_controls(&g);
+    CHECK(!command.reverse);
     SDL_JoystickClose(joy);
     CHECK(!SDL_JoystickDetachVirtual(index));
     SDL_PumpEvents();

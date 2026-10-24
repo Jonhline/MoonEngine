@@ -1,3 +1,8 @@
+/* Two brake presses inside this window, with the HUD at or below the speed
+   gate, change the held second press into GT4_PAD_REVERSE. */
+#define REVERSE_TAP_WINDOW_MS 350ull
+#define REVERSE_TAP_MAX_KMH 5.f
+
 /* 0032F028 +0x8C..0x120 / 00426D50: port 1 belongs to entry 1.
    P: WASD/Q/E/C/Left Ctrl are PC bindings; port config is the original's. */
 static void read_second_controls(race_game *g, const uint8_t *keys)
@@ -132,6 +137,31 @@ static void read_controls(race_game *g)
         command.shift = (int8_t)(command.shift + (pad.action[GT4_PAD_SHIFTUP] > 0) -
                                  (pad.action[GT4_PAD_SHIFTDOWN] > 0));
     }
+    /* Two presses of the brake (keyboard Down or the pad's brake) inside the
+       window, while the HUD reads at most REVERSE_TAP_MAX_KMH: the held second
+       press is a downshift into reverse, not a second brake. Release restores
+       normal braking. Above the gate the taps do nothing special. */
+    float reverse_kmh = 0.f;
+    if (g->run) {
+        gt4_race_hud reverse_hud;
+        if (gt4_race_run_hud(g->run, 0, &reverse_hud))
+            reverse_kmh = reverse_hud.speed * 3.6f;
+    }
+    int brake_pressed = brake > .5f;
+    if (brake_pressed && !g->brake_was_down) {
+        uint64_t now_ms = SDL_GetTicks64();
+        if (g->brake_tap_ms && now_ms - g->brake_tap_ms <= REVERSE_TAP_WINDOW_MS &&
+            reverse_kmh <= REVERSE_TAP_MAX_KMH)
+            g->reverse_tap_armed = 1;
+        g->brake_tap_ms = now_ms;
+    }
+    if (!brake_pressed)
+        g->reverse_tap_armed = 0;
+    g->brake_was_down = brake_pressed;
+    int reverse_hold = g->reverse_tap_armed && brake_pressed;
+    if (reverse_hold)
+        brake = 0.f;
+
     /* Each channel carries its own analog flag (driver.c/00349F48), so
        moving a stick cannot turn digital pedals off or make 1 mean 1/4096. */
     command.flags = (uint8_t)((analog ? 1 : 0) | (pad.analog & (1u << GT4_PAD_ACCEL) ? 2 : 0) |
@@ -143,6 +173,11 @@ static void read_controls(race_game *g)
     command.throttle = (int16_t)(throttle * (command.flags & 2 ? 4096 : 1));
     command.brake = (int16_t)(brake * (command.flags & 4 ? 4096 : 1));
     command.reverse = (int16_t)(pad.action[GT4_PAD_REVERSE] * (command.flags & 8 ? 4096 : 1));
+    if (reverse_hold) {
+        command.brake = 0;
+        command.reverse = 1;
+        command.flags &= (uint8_t)~(1u << 2); /* digital, not an analog brake */
+    }
     command.handbrake = (int16_t)(hand * (command.flags & 16 ? 4096 : 1));
     command.special = pad.action[GT4_PAD_SPECIAL] > 0;
     if (pad.action[GT4_PAD_GHOST] > 0 && !g->ghost_button)
