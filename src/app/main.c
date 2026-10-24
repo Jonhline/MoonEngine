@@ -4438,6 +4438,16 @@ int main(int argc, char **argv)
         proj = 7;
         startup_intro = 0;
     }
+    /* Tweaks: skip the boot chain entirely. show_opening above already moved the
+       start to arcade, but startup_intro stayed on, which still drew the boot
+       notices and then let the boot project (LoadRoot, MovieRoot, CheckRoot)
+       run. Clear it before any boot screen is opened. */
+    if (video_settings_skip_intro() && startup_intro) {
+        startup_intro = 0;
+        show_opening = 0;
+        proj = 0;
+        root = 0;
+    }
     if (settings_preview) {
         proj = 3;
         startup_intro = 0;
@@ -6418,7 +6428,13 @@ int main(int argc, char **argv)
         if (video_export_fixed_step())
             elapsed = 1.0 / 60.0;
         float notice_level = 0;
+        static int logged_notice = -2;
         if (notice < GT4_NOTICE_COUNT) {
+            if (notice != logged_notice) {
+                app_startup_log("screen: boot notice %s",
+                                notice == GT4_NOTICE_LEGAL ? "legal" : "presents");
+                logged_notice = notice;
+            }
             if (!notice_start)
                 notice_start = now;
             notice_level = gt4_boot_notice_level(notice, (now - notice_start) / 1e9);
