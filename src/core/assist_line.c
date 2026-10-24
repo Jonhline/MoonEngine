@@ -15,6 +15,7 @@
 #include "assist_line.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <time.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,17 +29,24 @@
 #define LINE_MAX_SPEED 80.0f    /* m/s, 288 km/h */
 #define LINE_RED_RADIUS 280.f   /* m: a tighter arc is a braking corner */
 
+/* The authored licence ribbon (/crs/bestline/usl0a0007) carries the GT
+   blue and red as GS colours in units of 128: (0, 0, 255) and (255, 0, 0).
+   Counted from that mesh, not picked by eye. */
+#define LINE_BLUE_R 0.0f
+#define LINE_BLUE_G 0.0f
+#define LINE_BLUE_B (255.f / 128.f)
+#define LINE_RED_R (255.f / 128.f)
+#define LINE_RED_G 0.0f
+#define LINE_RED_B 0.0f
+
 static void colour(gt4_vertex *v, int red, int blue)
 {
-    float r = .65f, g = .88f, b = .66f;
+    (void)blue;
+    float r = LINE_BLUE_R, g = LINE_BLUE_G, b = LINE_BLUE_B;
     if (red) {
-        r = 244.f / 255.f;
-        g = 36.f / 255.f;
-        b = 61.f / 255.f;
-    } else if (blue) {
-        r = 0;
-        g = 0;
-        b = 1;
+        r = LINE_RED_R;
+        g = LINE_RED_G;
+        b = LINE_RED_B;
     }
     v->rgb[0] = r;
     v->rgb[1] = g;
@@ -130,6 +138,12 @@ int gt4_assist_line_build(const gt4_course *course, const gt4_ai_line_point *poi
         return 0;
 
     clock_t started = clock();
+    static int colours_reported;
+    if (!colours_reported) {
+        colours_reported = 1;
+        fprintf(stderr, "assist: colours %.3f %.3f %.3f / %.3f %.3f %.3f (from usl0a0007)\n",
+                LINE_BLUE_R, LINE_BLUE_G, LINE_BLUE_B, LINE_RED_R, LINE_RED_G, LINE_RED_B);
+    }
     float(*p)[3] = calloc((size_t)count, sizeof *p);
     unsigned char *red = calloc((size_t)count, 1), *blue = calloc((size_t)count, 1);
     if (!p || !red || !blue) {
