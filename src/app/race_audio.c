@@ -688,9 +688,10 @@ static void tick(race_audio *a, const gt4_race_run *run, const float *eye, const
         for (int k = 0; k < 3; k++) {
             gt4_car_sound_engine *e = out.engine + engine_order[k];
             if (k == 1 && video_settings_speed_road_roar()) {
-                e->left = (int16_t)fminf(32767.f, e->left * 1.35f);
-                e->right = (int16_t)fminf(32767.f, e->right * 1.35f);
-                e->scale = (int32_t)(e->scale * 1.35f);
+                float roar = 1.f + .35f * video_settings_speed_level();
+                e->left = (int16_t)fminf(32767.f, e->left * roar);
+                e->right = (int16_t)fminf(32767.f, e->right * roar);
+                e->scale = (int32_t)(e->scale * roar);
             }
             gt4_sd_engine_tick(a->sd, &a->engine[i][k], e->rpm, e->left, e->right, e->scale,
                                e->priority, e->reverb_off, a->sine);

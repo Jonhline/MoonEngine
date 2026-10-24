@@ -291,13 +291,15 @@ static float speed_lens_scale(int view)
 {
     if (view != 1 || !video_settings_speed_fov())
         return 1.f;
-    float deg = (float)video_settings_speed_fov_degrees();
-    if (deg < 0)
-        deg = 0;
-    if (deg > 30)
-        deg = 30;
+    float deg = (float)video_settings_speed_fov_degrees() * video_settings_speed_level();
+    if (deg <= 0.f)
+        return 1.f;
+    if (deg > 30.f)
+        deg = 30.f;
     const float rad = 0.017453292f;
-    return tanf((60.f + deg) * .5f * rad) / tanf(30.f * rad);
+    /* focal for 60+deg, relative to the stock 60-degree chase lens:
+       1/tan(30) is the stock sx, so the reciprocal below widens, not narrows. */
+    return tanf(30.f * rad) / tanf((60.f + deg) * .5f * rad);
 }
 
 static float speed_noise(float x, unsigned seed)
@@ -2643,6 +2645,11 @@ void race_game_update(race_game *g, double dt)
             race_audio_hold(g->audio, dt);
         }
         return;
+    }
+    {
+        gt4_race_hud hud;
+        float kmh = gt4_race_run_hud(g->run, 0, &hud) ? hud.speed * 3.6f : 0.f;
+        video_settings_speed_frame(kmh, dt);
     }
     read_controls(g);
     bspec_frame(g, dt);

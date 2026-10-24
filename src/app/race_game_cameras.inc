@@ -153,7 +153,8 @@ static int dive_camera(race_game *g)
         sx = v.fov > 0     ? 1 / tanf(v.fov * .5f * 0.017453292f)
              : v.shot == 1 ? 1.73205f
                            : 1 / tanf(atanf(1 / point[6]) * 4 / 3);
-        sx *= speed_lens_scale(v.shot);
+        if (v.fov <= 0)
+            sx *= speed_lens_scale(v.shot);
         if (v.heading != 0) { /* the hand's turn (func_004A79B0) about the camera's up */
             float a = v.heading * 0.017453292f, cs = cosf(a), sn = sinf(a), r[3], b[3];
             memcpy(r, rows, sizeof r);

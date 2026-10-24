@@ -84,6 +84,10 @@ int video_settings_speed_blur(void);
 int video_settings_speed_blur_amount(void);
 int video_settings_speed_vignette(void);
 int video_settings_skip_intro(void);
+/* The one speed intensity every speed-driven effect reads: smoothstep 60..240 km/h,
+   smoothed over SPEED_FEEL_SMOOTH_SECONDS. The race calls the frame once. */
+void video_settings_speed_frame(float kmh, double dt);
+float video_settings_speed_level(void);
 void video_options_realistic_skybox(pc_video_options *v, int enabled);
 void video_options_realistic_lighting(pc_video_options *v, int enabled);
 /* P: shared named-preset interchange. draft=1 waits for the in-game OK. */

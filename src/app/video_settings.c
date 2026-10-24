@@ -36,6 +36,52 @@ int video_settings_solar_hour(const pc_video_options *v)
 {
     return v->solar_hour==24?-1:(v->solar_hour+7)%24;
 }
+/* The one sense-of-speed curve: stationary below MIN, full effect at MAX.
+   Every speed-driven effect (FOV, blur, vignette, road roar) reads the same
+   smoothed level, so tuning is this one edit. */
+#define SPEED_FEEL_MIN_KMH 60.f
+#define SPEED_FEEL_MAX_KMH 240.f
+#define SPEED_FEEL_SMOOTH_SECONDS .25f
+static volatile float speed_level;
+static float speed_traced = -1.f;
+static float speed_feel_target(float kmh)
+{
+    float f = (kmh - SPEED_FEEL_MIN_KMH) / (SPEED_FEEL_MAX_KMH - SPEED_FEEL_MIN_KMH);
+    f = f < 0.f ? 0.f : f > 1.f ? 1.f : f;
+    return f * f * (3.f - 2.f * f);
+}
+void video_settings_speed_frame(float kmh, double dt)
+{
+    float target = speed_feel_target(kmh);
+    float a = dt > 0 ? (float)(dt / SPEED_FEEL_SMOOTH_SECONDS) : 1.f;
+    a = a < 0.f ? 0.f : a > 1.f ? 1.f : a;
+    speed_level += (target - speed_level) * a;
+    video_set_speed_level(speed_level);
+    if (getenv("MOON_SPEED_TRACE") && fabsf(speed_level - speed_traced) > .02f) {
+        const pc_video_options *v = settings_active ? &settings_active->current : NULL;
+        float fov = 60.f, blur = 0.f, vignette = 0.f, roar = 1.f;
+        if (v) {
+            if (v->speed_fov) {
+                float deg = (float)v->speed_fov_degrees;
+                deg = deg < 0.f ? 0.f : deg > 30.f ? 30.f : deg;
+                fov += deg * speed_level;
+            }
+            if (v->speed_blur)
+                blur = (float)v->speed_blur_amount * speed_level;
+            if (v->speed_vignette)
+                vignette = speed_level * 100.f;
+            if (v->speed_road_roar)
+                roar = 1.f + .35f * speed_level;
+        }
+        fprintf(stderr, "speed: kmh=%.0f f=%.2f fov=%.1f blur=%.0f vignette=%.0f roar=%.2f\n",
+                kmh, speed_level, fov, blur, vignette, roar);
+        speed_traced = speed_level;
+    }
+}
+float video_settings_speed_level(void)
+{
+    return speed_level;
+}
 static void quality(const pc_video_options *v)
 {
     video_ui_quality(v->filter, v->text / 100.f);

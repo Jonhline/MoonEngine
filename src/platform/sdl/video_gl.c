@@ -107,6 +107,7 @@ static int fb_w, fb_h;
 static GLuint scene_fbo, scene_color, scene_depth, scene_tex, scene_resolve;
 static int scene_w, scene_h, scene_samples, scene_active, output_w, output_h;
 static int speed_blur, speed_blur_amount, speed_vignette, speed_post_warned;
+static float speed_level;
 static GLuint speed_program, speed_fbo, speed_tex, speed_vao, speed_vbo;
 static int speed_tex_w, speed_tex_h;
 static int scene_frame_has_content;
@@ -1158,6 +1159,11 @@ void video_set_speed_post(int blur, int amount, int vignette)
 #endif
 }
 
+void video_set_speed_level(float level)
+{
+    speed_level = level < 0.f ? 0.f : level > 1.f ? 1.f : level;
+}
+
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
 static const char *vs_speed_post =
     "#version 330 core\n"
@@ -1171,7 +1177,7 @@ static const char *fs_speed_post =
     " if(blur>0.0001){vec2 d=uv-vec2(.5);vec3 sum=vec3(0);float wsum=0.;\n"
     "  for(int i=0;i<6;i++){float t=float(i)/5.;float w=1.-t;sum+=texture(tex,clamp(uv-d*blur*t,0.,1.)).rgb*w;wsum+=w;}\n"
     "  c.rgb=sum/wsum;}\n"
-    " if(vignette>0.5){float d=length(uv-.5);float v=smoothstep(.35,.80,d);c.rgb*=1.-v*.55;}\n"
+    " if(vignette>0.001){float d=length(uv-.5);float v=smoothstep(.35,.80,d);c.rgb*=1.-v*.55*vignette;}\n"
     " o=c;}\n";
 static GLuint speed_post_apply(GLuint source, int w, int h)
 {
@@ -1227,8 +1233,9 @@ static GLuint speed_post_apply(GLuint source, int w, int h)
     glBindTexture(GL_TEXTURE_2D, source);
     glUniform1i(glGetUniformLocation(speed_program, "tex"), 0);
     glUniform1f(glGetUniformLocation(speed_program, "blur"),
-                speed_blur ? (float)speed_blur_amount / 100.f * .08f : 0.f);
-    glUniform1f(glGetUniformLocation(speed_program, "vignette"), speed_vignette ? 1.f : 0.f);
+                speed_blur ? (float)speed_blur_amount / 100.f * .08f * speed_level : 0.f);
+    glUniform1f(glGetUniformLocation(speed_program, "vignette"),
+                speed_vignette ? speed_level : 0.f);
     glBindVertexArray(speed_vao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -1254,7 +1261,7 @@ void video_end_scene(void)
     if(scene_antialiasing==4)resolved=edge_aa_resolve(resolved,scene_w,scene_h);
 #endif
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
-    if (speed_blur || speed_vignette) {
+    if ((speed_blur || speed_vignette) && speed_level > 0.0001f) {
         GLuint posted = speed_post_apply(resolved, scene_w, scene_h);
         if (posted)
             resolved = posted;
