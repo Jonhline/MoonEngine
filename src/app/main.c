@@ -1634,6 +1634,91 @@ static void wiz_text_center(const char *s, float cx, float y, float sc, const ui
     wiz_text(s, cx - wiz_text_width(s, sc) / 2.f, y, sc, col);
 }
 
+/* The AFK clock: a small piece of the room, not a HUD readout. Same baked
+   launcher face as the wizard, with deliberate tracking; the colon breathes
+   once a second and the whole block fades with the cinematic. */
+static float clock_text_width(const char *s, float sc, float tracking)
+{
+    float x = 0;
+    for (; *s; s++) {
+        int c = (unsigned char)*s - 32;
+        if (c < 0 || c >= 96)
+            continue;
+        x += wiz_ch[c].xadvance * sc + tracking;
+    }
+    return x > tracking ? x - tracking : x;
+}
+static void clock_text(const char *s, float x, float y, float sc, float tracking,
+                       const uint8_t col[4])
+{
+    for (; *s; s++) {
+        int c = (unsigned char)*s - 32;
+        if (c < 0 || c >= 96)
+            continue;
+        char one[2] = {(char)*s, 0};
+        wiz_text(one, x, y, sc, col);
+        x += wiz_ch[c].xadvance * sc + tracking;
+    }
+}
+static void studio_clock_draw(const studio_dock *d, float alpha, double seconds)
+{
+    if (!d || alpha <= .004f || !wiz_font_init())
+        return;
+    const float unit = d->fh > 0 ? (float)d->fh / 720.f : 1.f;
+    const float big = 1.15f * unit, small = .38f * unit;
+    const float track_big = 4.4f * unit, track_small = 2.6f * unit;
+    const float x = 34.f * unit, y = 54.f * unit;
+    time_t now = time(NULL);
+    struct tm tm;
+#ifdef _WIN32
+    localtime_s(&tm, &now);
+#else
+    localtime_r(&now, &tm);
+#endif
+    char hh[4], mm[4], date[32];
+    snprintf(hh, sizeof hh, "%02d", tm.tm_hour);
+    snprintf(mm, sizeof mm, "%02d", tm.tm_min);
+    static const char *const weekday[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+    static const char *const month[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                                        "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+    int wd = tm.tm_wday >= 0 && tm.tm_wday < 7 ? tm.tm_wday : 0;
+    int mo = tm.tm_mon >= 0 && tm.tm_mon < 12 ? tm.tm_mon : 0;
+    snprintf(date, sizeof date, "%s %02d %s", weekday[wd], tm.tm_mday, month[mo]);
+
+    float time_w = clock_text_width(hh, big, track_big) + track_big +
+                   clock_text_width(":", big, track_big) + track_big +
+                   clock_text_width(mm, big, track_big);
+    float date_w = clock_text_width(date, small, track_small);
+    float block_w = fmaxf(time_w, date_w);
+
+    /* A soft left-edge fade, then a shadow pass: legible on the white room. */
+    uint8_t fade[4][4] = {{0, 0, 0, (uint8_t)(118 * alpha)}, {0, 0, 0, 0},
+                          {0, 0, 0, (uint8_t)(72 * alpha)}, {0, 0, 0, 0}};
+    plat_draw_quad4(NULL, 0, 0, block_w + 72.f * unit, 160.f * unit, 0, 0, 1, 1, fade);
+    uint8_t shadow[4] = {0, 0, 0, (uint8_t)(150 * alpha)};
+    float sx = x + 2.f * unit, sy = y + 2.f * unit;
+    clock_text(hh, sx, sy, big, track_big, shadow);
+    sx += clock_text_width(hh, big, track_big) + track_big;
+    clock_text(":", sx, sy, big, track_big, shadow);
+    sx += clock_text_width(":", big, track_big) + track_big;
+    clock_text(mm, sx, sy, big, track_big, shadow);
+    clock_text(date, x + 2.f * unit, y + 66.f * unit, small, track_small, shadow);
+
+    const uint8_t ink[4] = {238, 240, 244, (uint8_t)(250 * alpha)},
+                  dim[4] = {205, 208, 214, (uint8_t)(220 * alpha)},
+                  red[4] = {244, 36, 61, (uint8_t)(235 * alpha)};
+    float tx = x;
+    clock_text(hh, tx, y, big, track_big, ink);
+    tx += clock_text_width(hh, big, track_big) + track_big;
+    float pulse = .55f + .45f * (float)(.5 + .5 * cos(6.28318530718 * seconds));
+    uint8_t colon[4] = {ink[0], ink[1], ink[2], (uint8_t)(ink[3] * pulse)};
+    clock_text(":", tx, y, big, track_big, colon);
+    tx += clock_text_width(":", big, track_big) + track_big;
+    clock_text(mm, tx, y, big, track_big, ink);
+    clock_text(date, x, y + 66.f * unit, small, track_small, dim);
+    plat_draw_quad(NULL, x, y + 108.f * unit, block_w * .62f, fmaxf(1.f, unit), 0, 0, 1, 1, red);
+}
+
 /* Both Windows toolchains have _putenv; only POSIX has setenv/unsetenv, and the
    MinGW build is the one that notices. An empty value removes the variable in the
    Windows CRT, which is what the POSIX branch does explicitly. */
@@ -2589,30 +2674,41 @@ static const float LCAM_HOME_EYE[3] = {-7.6f, .75f, LCAM_MID_Z}, LCAM_HOME_TARGE
 #define LCAM_HOME_FOV 32.f
 /* START chosen: the front three-quarter, the first cinematic shot's opening */
 static const float LCAM_PLAY_EYE[3] = {-4.8f, 1.35f, -5.6f}, LCAM_PLAY_TARGET[3] = {.27f, .55f, -.23f};
-    static const float lcam_shots[LCAM_SHOTS][2][7] = {
-        {{-4.8f, 1.35f, -5.6f, 0, .55f, 0, 32}, {-4.1f, 1.1f, -5.0f, 0, .55f, 0, 32}},
-        {{-2.7f, .7f, -2.8f, -.72f, .4f, -1.25f, 30},
-         {-2.05f, .55f, -2.35f, -.72f, .4f, -1.25f, 30}},
-        {{-5.8f, 1.3f, -1.2f, 0, .6f, 0, 36}, {-5.5f, 1.1f, .7f, 0, .6f, 0, 36}},
-        {{4.8f, 1.45f, 5.7f, 0, .65f, .3f, 32}, {4.0f, 1.15f, 5.0f, 0, .65f, .3f, 32}},
-        {{.8f, 1.05f, 3.8f, 0, .7f, 1.6f, 30}, {-.3f, .85f, 3.4f, 0, .7f, 1.6f, 30}},
-        {{-5.2f, 1.8f, -6.0f, 0, .55f, 0, 32}, {-4.8f, 1.35f, -5.6f, 0, .55f, 0, 32}},
-        {{4.8, 1.2, -5.7, 0, 0.55, 0, 32}, {4.1, 1, -5, 0, 0.55, 0, 32}},
-        {{2.6, 0.65, -2.9, 0.72, 0.4, -1.25, 30}, {2.1, 0.55, -2.4, 0.72, 0.4, -1.25, 30}},
-        {{5.8, 1.25, 1, 0, 0.6, 0, 36}, {5.5, 1.05, -0.8, 0, 0.6, 0, 36}},
-        {{-4.8, 1.5, 5.8, 0, 0.6, 0.3, 32}, {-4.1, 1.2, 5, 0, 0.6, 0.3, 32}},
-        {{0, 1, -5, 0, 0.55, -0.5, 32}, {0.5, 0.8, -4.6, 0, 0.55, -0.5, 32}},
-        {{0, 1.3, 5.6, 0, 0.7, 1, 32}, {-0.6, 1.1, 5.2, 0, 0.7, 1, 32}},
-        {{-2.9, 4.8, -3.6, 0, 0.4, 0, 36}, {-1.5, 4.5, -3.8, 0, 0.4, 0, 36}},
-        {{2.5, 4.5, 3.5, 0, 0.6, 0.4, 36}, {1, 4.3, 3.8, 0, 0.6, 0.4, 36}},
-        {{-1.9, 0.8, -3.4, -0.65, 0.65, -1.75, 30}, {-1.5, 0.7, -3, -0.65, 0.65, -1.75, 30}},
-        {{1.8, 0.9, 3.5, 0.6, 0.7, 1.65, 30}, {1.4, 0.8, 3.1, 0.6, 0.7, 1.65, 30}},
-        {{-3, 0.75, 2.7, -0.7, 0.45, 1.2, 30}, {-2.5, 0.6, 2.3, -0.7, 0.45, 1.2, 30}},
-        {{2.6, 2.5, -2.8, 0, 1, 0, 36}, {1.8, 2.2, -2.9, 0, 1, 0, 36}}};
-
+static float lcam_shots[LCAM_SHOTS][2][7];
+static int lcam_shots_ready;
+/* One slow revolution over the 18 shots (20 degrees each): the GT intro read
+   the captain asked for, still cut by the same twelve-second dolly and the same
+   dip. Radius and height vary a little so the car's shoulders, wheels and roof
+   all pass the lens. */
+static void lcam_shots_init(void)
+{
+    if (lcam_shots_ready)
+        return;
+    lcam_shots_ready = 1;
+    for (int i = 0; i < LCAM_SHOTS; i++) {
+        float a0 = (float)i * 6.28318530718f / (float)LCAM_SHOTS;
+        float a1 = (float)(i + 1) * 6.28318530718f / (float)LCAM_SHOTS;
+        const float radius = 5.4f - .23077f * (float)(i % 6);
+        const float height = .92f + .28f * (float)((i * 5) % 4);
+        const float lens = 30.f + (float)(i % 4) * 2.f;
+        lcam_shots[i][0][0] = sinf(a0) * radius;
+        lcam_shots[i][0][1] = height;
+        lcam_shots[i][0][2] = cosf(a0) * radius;
+        lcam_shots[i][1][0] = sinf(a1) * radius;
+        lcam_shots[i][1][1] = height + .08f;
+        lcam_shots[i][1][2] = cosf(a1) * radius;
+        for (int k = 0; k < 2; k++) {
+            lcam_shots[i][k][3] = 0;
+            lcam_shots[i][k][4] = .55f;
+            lcam_shots[i][k][5] = 0;
+            lcam_shots[i][k][6] = lens;
+        }
+    }
+}
 /* One shot at `seconds` into the cycle, in the car's frame; returns the shot's index. */
 static int lcam_shot(float seconds, float eye[3], float aim[3], float *fov)
 {
+    lcam_shots_init();
     float time = fmodf(fmaxf(0, seconds), LCAM_SHOT_SECONDS * LCAM_SHOTS);
     int shot = (int)(time / LCAM_SHOT_SECONDS);
     if (shot >= LCAM_SHOTS)
@@ -2894,6 +2990,7 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
     uint64_t saved_at = 0;
     /* the launcher's cameras: where the camera is now, idle time, the cinematic's clock */
     float cam_eye[3], cam_target[3], cam_fov = 0, idle = 0, cine_time = 0, dip = 0;
+    float clock_alpha = 0;
     int cinematic = 0, window_full = 0, activated = 0, pad_mode = 0, exit_fade = 0, reopen = 0;
     SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
     int pad_prev[5] = {0}; /* left, right, A, B, START of the last frame */
@@ -3522,6 +3619,13 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
             showroom_set_rig(cars, cam_eye, cam_target, car, angle);
             showroom_set_rig_fov(cars, cam_fov);
         }
+        /* The clock lives only with the cinematic; a .4 s fade both ways, so it
+           never pops in or out between states. */
+        clock_alpha += (cinematic ? 1.f : -1.f) * (float)dt / .4f;
+        if (clock_alpha < 0)
+            clock_alpha = 0;
+        if (clock_alpha > 1)
+            clock_alpha = 1;
         if (!locked && (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_A] ||
                         keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_Q] || keys[SDL_SCANCODE_E] ||
                         keys[SDL_SCANCODE_R] || keys[SDL_SCANCODE_F])) {
@@ -3670,6 +3774,8 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
             uint8_t blk[4] = {0, 0, 0, (uint8_t)(255 * dip)};
             plat_draw_quad(NULL, 0, 0, (float)fw, (float)fh, 0, 0, 1, 1, blk);
         }
+        if (clock_alpha > .004f)
+            studio_clock_draw(&dock, clock_alpha, cine_time);
         if (dock_sel != last_sel || activated)
             slot_picked = 1;
         if (dock_sel != DOCK_OPTIONS)
@@ -3707,33 +3813,35 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
 #endif
         dock_hover_step(&dock, dock_sel, dt);
         dock.mouse = !pad_mode;
-        studio_info_draw(&dock);
-#ifndef __SWITCH__
-        if (options_open || mods_open)
-            mixer.open = 0; /* SOUND in OPTIONS has the volumes */
-        studio_mixer_draw(&dock, &mixer, 1.f - fmaxf(options_alpha, mods_alpha));
-        if (!mixer.open && !options_open && !mods_open) {
-            const uint8_t hint[4] = {STUDIO_LIGHT_INK ? 180 : 96,STUDIO_LIGHT_INK ? 187 : 99,STUDIO_LIGHT_INK ? 190 : 106,255};
-            dock_text(&dock,"Graphics comparison / F7",16*dock.scale,105*dock.scale,.65f,0,hint);
-        }
-#endif
         if (pad_mode) {
             options_arrow = 0; /* the pad and the keys show no mouse arrow */
             mods_arrow = 0;
             studio_tab_hover = -1;
         }
-        if (shot && i == 1 && getenv("MOONSTUDIO_PANEL_INK_AUDIT"))
-            studio_options_ink_check(&dock, theme, mood);
-        studio_options_paint(&dock, options_tab, options_row, theme, mood, options_alpha,
-                             options_arrow);
-        studio_mods_draw(&dock, mods_row, mods_alpha, mods_arrow);
-        if(options_open && studio_binding_picker.open)studio_binding_draw(&dock);
-        dock_caption_override = options_open ? studio_tab_guided(options_tab)
-                                                   ? guide_options_help(options_ids[options_row])
-                                                   : studio_row_help(options_ids[options_row])
-                                : mods_open  ? studio_mods_help(mods_row)
-                                             : NULL;
-        dock_draw(&dock, dock_sel, dock.mouse ? mouse_seen : 1);
+        if (!cinematic) { /* the AFK cinematic shows only the room, the car and the clock */
+            studio_info_draw(&dock);
+#ifndef __SWITCH__
+            if (options_open || mods_open)
+                mixer.open = 0; /* SOUND in OPTIONS has the volumes */
+            studio_mixer_draw(&dock, &mixer, 1.f - fmaxf(options_alpha, mods_alpha));
+            if (!mixer.open && !options_open && !mods_open) {
+                const uint8_t hint[4] = {STUDIO_LIGHT_INK ? 180 : 96,STUDIO_LIGHT_INK ? 187 : 99,STUDIO_LIGHT_INK ? 190 : 106,255};
+                dock_text(&dock,"Graphics comparison / F7",16*dock.scale,105*dock.scale,.65f,0,hint);
+            }
+#endif
+            if (shot && i == 1 && getenv("MOONSTUDIO_PANEL_INK_AUDIT"))
+                studio_options_ink_check(&dock, theme, mood);
+            studio_options_paint(&dock, options_tab, options_row, theme, mood, options_alpha,
+                                 options_arrow);
+            studio_mods_draw(&dock, mods_row, mods_alpha, mods_arrow);
+            if(options_open && studio_binding_picker.open)studio_binding_draw(&dock);
+            dock_caption_override = options_open ? studio_tab_guided(options_tab)
+                                                       ? guide_options_help(options_ids[options_row])
+                                                       : studio_row_help(options_ids[options_row])
+                                    : mods_open  ? studio_mods_help(mods_row)
+                                                 : NULL;
+            dock_draw(&dock, dock_sel, dock.mouse ? mouse_seen : 1);
+        }
         /* one direction, eased: the wizard's white screen rises off the room ... */
         if (fade_in && i < FADE_FRAMES) {
             uint8_t veil[4] = {255, 255, 255,
