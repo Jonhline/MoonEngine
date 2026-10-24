@@ -21,7 +21,7 @@
 #include <string.h>
 
 #define LINE_HALF_WIDTH 0.075f
-#define LINE_LIFT 0.30f
+#define LINE_LIFT 0.03f
 #define LINE_LOOP_CLOSE 30.f /* m: close the lap when the ends already meet */
 #define LINE_LATERAL_GRIP 12.0f /* m/s^2, the cornering limit */
 #define LINE_BRAKE 9.0f         /* m/s^2, service braking */
@@ -56,6 +56,85 @@ static void colour(gt4_vertex *v, int red, int blue)
     v->normal[2] = 0;
     v->uv[0] = v->uv[1] = 0;
     v->alpha = 1;
+}
+
+/* The authored line is the AI's driving line, which is not always on the
+   tarmac. Probe the road across the ribbon and, when a sample sits off it,
+   pull that sample to the middle of the nearest run of road. The height is
+   re-read there, so the correction never leaves the surface either. */
+#define LINE_ROAD_SEARCH 15.0f /* m either side of the AI point */
+#define LINE_ROAD_STEP .5f      /* m between probes */
+#define LINE_ROAD_TOL 2.0f      /* m: height difference still the same road */
+#define LINE_ROAD_EDGE .75f     /* m kept inside the road edge */
+
+static int road_at(const gt4_course_surface *s, float x, float z, float ref, float *y)
+{
+    if (!s)
+        return 0;
+    float road, normal[3];
+    if (!gt4_course_surface_at(s, x, z, ref + LINE_ROAD_TOL, &road, normal))
+        return 0;
+    if (!isfinite(road) || fabsf(road - ref) > LINE_ROAD_TOL)
+        return 0;
+    *y = road;
+    return 1;
+}
+
+static int lateral_centre(const gt4_course_surface *s, float x, float z, float ref, float rx,
+                          float rz, float *out_x, float *out_z, float *out_y)
+{
+    int steps = (int)(LINE_ROAD_SEARCH / LINE_ROAD_STEP);
+    float y;
+    if (road_at(s, x, z, ref, &y))
+        return 0; /* already on the road: keep the AI's own line */
+    int best_lo = 0, best_hi = 0, found = 0;
+    float best_gap = 1e30f;
+    for (int k = -steps; k <= steps; k++) {
+        float t = (float)k * LINE_ROAD_STEP, yy;
+        if (!road_at(s, x + rx * t, z + rz * t, ref, &yy))
+            continue;
+        int lo = k, hi = k;
+        while (lo > -steps) {
+            float u = (float)(lo - 1) * LINE_ROAD_STEP;
+            if (!road_at(s, x + rx * u, z + rz * u, ref, &yy))
+                break;
+            lo--;
+        }
+        while (hi < steps) {
+            float u = (float)(hi + 1) * LINE_ROAD_STEP;
+            if (!road_at(s, x + rx * u, z + rz * u, ref, &yy))
+                break;
+            hi++;
+        }
+        float gap = k < 0 ? -(float)hi * LINE_ROAD_STEP : (float)lo * LINE_ROAD_STEP;
+        if (gap < 0)
+            gap = 0;
+        if (!found || gap < best_gap) {
+            found = 1;
+            best_gap = gap;
+            best_lo = lo;
+            best_hi = hi;
+        }
+        k = hi; /* the run's other samples are the same road */
+    }
+    if (!found || best_lo == best_hi)
+        return 0;
+    float lo = (float)best_lo * LINE_ROAD_STEP, hi = (float)best_hi * LINE_ROAD_STEP;
+    float centre = (lo + hi) * .5f;
+    float edge = LINE_ROAD_EDGE;
+    if (hi - lo < edge * 2.f)
+        edge = (hi - lo) * .25f;
+    if (centre < lo + edge)
+        centre = lo + edge;
+    if (centre > hi - edge)
+        centre = hi - edge;
+    float nx = x + rx * centre, nz = z + rz * centre, ny;
+    if (!road_at(s, nx, nz, ref, &ny))
+        return 0;
+    *out_x = nx;
+    *out_z = nz;
+    *out_y = ny;
+    return 1;
 }
 
 /* The AI line's own speed envelope: the point's arc radius gives the target
@@ -167,7 +246,6 @@ int gt4_assist_line_build(const gt4_course *course, const gt4_ai_line_point *poi
         p[i][1] = y + LINE_LIFT;
         p[i][2] = points[i].z;
     }
-    gt4_course_surface_free(surface);
 
     /* Does the exported lap already meet at its ends? Then close it. */
     float dx = p[count - 1][0] - p[0][0], dz = p[count - 1][2] - p[0][2];
@@ -175,6 +253,29 @@ int gt4_assist_line_build(const gt4_course *course, const gt4_ai_line_point *poi
     int closed = sqrtf(dx * dx + dz * dz) < LINE_LOOP_CLOSE;
     if (closed)
         segments = count; /* the last segment is count-1 -> 0 */
+
+    /* Pull off-road samples back onto the tarmac before the ribbon is built. */
+    int corrected = 0;
+    if (surface) {
+        for (int i = 0; i < count; i++) {
+            int prev = i > 0 ? i - 1 : (closed ? count - 1 : i);
+            int next = i + 1 < count ? i + 1 : (closed ? 0 : i);
+            float tx = p[next][0] - p[prev][0], tz = p[next][2] - p[prev][2];
+            float len = sqrtf(tx * tx + tz * tz);
+            if (len < 1e-4f)
+                continue;
+            float nx, nz, ny;
+            if (lateral_centre(surface, p[i][0], p[i][2], p[i][1] - LINE_LIFT, tz / len,
+                               -tx / len, &nx, &nz, &ny)) {
+                p[i][0] = nx;
+                p[i][2] = nz;
+                p[i][1] = ny + LINE_LIFT;
+                corrected++;
+            }
+        }
+        fprintf(stderr, "assist: %d of %d samples pulled onto the road\n", corrected, count);
+    }
+    gt4_course_surface_free(surface);
     profile(count, points, closed, red, blue);
 
     gt4_model *m = calloc(1, sizeof *m);

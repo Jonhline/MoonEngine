@@ -87,7 +87,7 @@ static void metrics(const gt4_model *authored, const gt4_assist_line *line, int 
 static int check_one(gt4_vol *vol, const char *iso, const gt4_career_race_lookup_data *lookup,
                      const char *code, int negative, double *mean, double *worst,
                      double *overlap, int *red_count, int *authored_tris, int *line_points,
-                     double *build_ms, char course_name[64])
+                     int *offroad, double *build_ms, char course_name[64])
 {
     gt4_career_license_exam exam;
     char error[256] = "";
@@ -264,6 +264,26 @@ static int check_one(gt4_vol *vol, const char *iso, const gt4_career_race_lookup
     gt4_ai_line_point *points = calloc(AI_MAX, sizeof *points);
     int active = -1;
     int npoints = points ? gt4_ai_line_export(LINES_AT, 6, points, AI_MAX, &active) : 0;
+    /* The runtime calls lines_setup, which fills each point's ground height.
+       This probe relocates the block by hand, so do the same from the road
+       surface; otherwise every point would keep the .ad file's zero. */
+    gt4_course_surface *surface = gt4_course_surface_create(&course);
+    if (surface && npoints > 0) {
+        float ref = points[0].y;
+        for (int i = 0; i < npoints; i++) {
+            float road, normal[3];
+            int hit = gt4_course_surface_at(surface, points[i].x, points[i].z, ref + 5.f, &road,
+                                            normal) &&
+                      fabsf(road - ref) < 10.f;
+            if (!hit)
+                hit = gt4_course_surface_at(surface, points[i].x, points[i].z, ref + 1000.f, &road,
+                                            normal);
+            if (hit) {
+                points[i].y = road;
+                ref = road;
+            }
+        }
+    }
     gt4_assist_line line;
     int built = npoints > 1 && gt4_assist_line_build(&course, points, npoints, &line);
     (void)active;
@@ -273,9 +293,22 @@ static int check_one(gt4_vol *vol, const char *iso, const gt4_career_race_lookup
     free(ram);
 
     if (!built) {
+        gt4_course_surface_free(surface);
         free(bytes);
         return 0;
     }
+    int off = 0;
+    if (surface) {
+        for (int i = 0; i < line.count; i++) {
+            float road, normal[3], y = line.points[i][1];
+            if (!gt4_course_surface_at(surface, line.points[i][0], line.points[i][2], y + .5f, &road,
+                                       normal) ||
+                fabsf(road - y) > .5f)
+                off++;
+        }
+        gt4_course_surface_free(surface);
+    }
+    *offroad = off;
     free(bytes);
     *line_points = line.count;
     *build_ms = line.build_ms;
@@ -320,8 +353,8 @@ int main(int argc, char **argv)
         fprintf(stderr, "assist line: %s\n", err ? err : "cannot open the disc");
         return 2;
     }
-    printf("code        course            authored  generated  build_ms  mean_m  worst_m  red_n  overlap  verdict\n");
-    printf("----------  ----------------  --------  ---------  --------  ------  -------  -----  -------  -------\n");
+    printf("code        course            authored  generated  build_ms  mean_m  worst_m  red_n  overlap  offroad  verdict\n");
+    printf("----------  ----------------  --------  ---------  --------  ------  -------  -----  -------  -------  -------\n");
     int failures = 0, covered = 0;
     for (const char *set = "ab"; *set; set++) {
         for (int n = 1; n <= 16; n++) {
@@ -329,20 +362,20 @@ int main(int argc, char **argv)
             snprintf(code, sizeof code, "l0%c%04d", *set, n);
             char course[64];
             double mean = 0, worst = 0, overlap = 0;
-            int red = 0, tris = 0, points = 0;
+            int red = 0, tris = 0, points = 0, off = 0;
             double build_ms = 0;
             if (!check_one(vol, argv[1], &lookup, code, negative, &mean, &worst, &overlap, &red, &tris,
-                           &points, &build_ms, course)) {
-                printf("%-10s  %-16s  %8s  %9s  %8s  %6s  %7s  %4s  %7s  %s\n", code, "?", "-", "-", "-", "-",
-                       "-", "-", "-", "no authored line");
+                           &points, &off, &build_ms, course)) {
+                printf("%-10s  %-16s  %8s  %9s  %8s  %6s  %7s  %4s  %7s  %7s  %s\n", code, "?", "-", "-", "-", "-",
+                       "-", "-", "-", "-", "no authored line");
                 continue;
             }
             covered++;
             int pass = mean < MEAN_LIMIT && (red == 0 || overlap > OVERLAP_LIMIT);
             if (!pass)
                 failures++;
-            printf("%-10s  %-16s  %8d  %9d  %8.2f  %6.2f  %7.2f  %5d  %6.1f%%  %s\n", code, course,
-                   tris, points, build_ms, mean, worst, red, red ? 100.0 * overlap : 100.0,
+            printf("%-10s  %-16s  %8d  %9d  %8.2f  %6.2f  %7.2f  %5d  %6.1f%%  %7d  %s\n", code, course,
+                   tris, points, build_ms, mean, worst, red, red ? 100.0 * overlap : 100.0, off,
                    pass ? "PASS" : "FAIL");
         }
     }
