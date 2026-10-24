@@ -20,6 +20,7 @@ typedef struct {
     int antialiasing, render_scale, texture_smoothing, texture_filtering, car_shadows, material_shading, reflection_quality, shadow_maps, modern_lighting, daylight, solar_hour, solar_cycle, hdr, sun_rays, ambient_occlusion;
     int speed_fov, speed_fov_degrees, speed_cam_lag, speed_shake, speed_wind, speed_road_roar;
     int speed_blur, speed_blur_amount, speed_vignette;
+    int skip_intro;
     int discord_presence;
 #ifdef __ANDROID__
     int touch_menu;
@@ -82,6 +83,7 @@ int video_settings_speed_road_roar(void);
 int video_settings_speed_blur(void);
 int video_settings_speed_blur_amount(void);
 int video_settings_speed_vignette(void);
+int video_settings_skip_intro(void);
 void video_options_realistic_skybox(pc_video_options *v, int enabled);
 void video_options_realistic_lighting(pc_video_options *v, int enabled);
 /* P: shared named-preset interchange. draft=1 waits for the in-game OK. */

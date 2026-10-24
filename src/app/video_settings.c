@@ -156,6 +156,7 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     s->current.speed_blur_amount =
         moon_options_int(&s->store, "tweaks.speed_blur_amount", enhanced ? 35 : 0, 0, 100);
     s->current.speed_vignette = moon_options_int(&s->store, "tweaks.speed_vignette", 0, 0, 1);
+    s->current.skip_intro = moon_options_int(&s->store, "tweaks.skip_intro", 0, 0, 1);
     s->current.discord_presence =
         moon_options_int(&s->store, "integrations.discord_presence", 0, 0, 1);
     s->current.preset_tools = moon_options_int(&s->store,"interface.preset_tools",enhanced,0,1);
@@ -282,10 +283,11 @@ static void save(video_settings *s)
                                     "tweaks.speed_cam_lag", "tweaks.speed_shake",
                                     "tweaks.speed_wind", "tweaks.speed_road_roar",
                                     "tweaks.speed_blur", "tweaks.speed_blur_amount",
-                                    "tweaks.speed_vignette"};
+                                    "tweaks.speed_vignette", "tweaks.skip_intro"};
         const int tweak_values[] = {v->speed_fov, v->speed_fov_degrees, v->speed_cam_lag,
                                     v->speed_shake, v->speed_wind, v->speed_road_roar,
-                                    v->speed_blur, v->speed_blur_amount, v->speed_vignette};
+                                    v->speed_blur, v->speed_blur_amount, v->speed_vignette,
+                                    v->skip_intro};
         for (unsigned i = 0; i < sizeof tweak_keys / sizeof *tweak_keys; i++) {
             char text_value[16];
             snprintf(text_value, sizeof text_value, "%d", tweak_values[i]);
@@ -360,6 +362,7 @@ enum {
     VS_CAR_LAMPS, VS_NIGHT_SKY,
     VS_SPEED_FOV, VS_SPEED_FOV_DEGREES, VS_SPEED_CAM_LAG, VS_SPEED_SHAKE, VS_SPEED_WIND,
     VS_SPEED_ROAD_ROAR, VS_SPEED_BLUR, VS_SPEED_BLUR_AMOUNT, VS_SPEED_VIGNETTE, VS_DISCORD,
+    VS_SKIP_INTRO,
     VS_COUNT
 };
 static const char *const vs_preset[] = {"Classic", "Enhanced", "Modified"};
@@ -455,6 +458,7 @@ static const video_setting_info vs_info[VS_COUNT] = {
     {"Tweaks","Blur Strength","Strength of the radial blur when it is on.",10,vs_blur_amount},
     {"Tweaks","Vignette","A PC-only darkened frame edge. Off is the original image.",2,vs_off_on},
     {"Tweaks","Discord Rich Presence","Show the current course and car on Discord. The Application ID is fixed.",2,vs_off_on},
+    {"Tweaks","Skip Intro","Skip the GT splash and the opening movie; boot straight to the main menu.",2,vs_off_on},
 };
 /* A preset's values for the registered PC options; host size, mode and the API are kept. */
 void video_settings_preset_values(pc_video_options *v, int enhanced)
@@ -564,6 +568,7 @@ int video_setting_get(const video_settings *s, int i)
         return n;
     }
     case VS_SPEED_VIGNETTE: return v->speed_vignette;
+    case VS_SKIP_INTRO: return v->skip_intro;
     case VS_DISCORD: return v->discord_presence;
     case VS_SAVE_TOOLS: return v->save_tools;
     case VS_AMBIENT_OCCLUSION:return v->ambient_occlusion;
@@ -600,6 +605,7 @@ void video_setting_set(video_settings *s, int i, int value)
     case VS_SPEED_BLUR: v->speed_blur=value!=0; break;
     case VS_SPEED_BLUR_AMOUNT: v->speed_blur_amount=vs_blur_amount_values[value>=0&&value<10?value:0]; break;
     case VS_SPEED_VIGNETTE: v->speed_vignette=value!=0; break;
+    case VS_SKIP_INTRO: v->skip_intro=value!=0; break;
     case VS_DISCORD: v->discord_presence=value!=0; break;
     case VS_SAVE_TOOLS: v->save_tools=value; break;
     case VS_CUSTOM_MUSIC: moon_options_set(&s->store, "audio.custom_music", value ? "1" : "0"); break;
@@ -839,6 +845,7 @@ static void read_draft(video_settings *s)
     v->speed_blur_amount = vs_blur_amount_values[s->choices[49]->focus_index >= 0 && s->choices[49]->focus_index < 10 ? s->choices[49]->focus_index : 0];
     v->speed_vignette = s->choices[50]->focus_index;
     v->discord_presence = s->choices[51]->focus_index;
+    v->skip_intro = s->choices[53]->focus_index;
 #endif
     v->compact_cars = s->choices[16]->focus_index;
     v->spatial_visibility = s->choices[11]->focus_index;
@@ -1134,7 +1141,7 @@ static const int tab_rows[VIDEO_TAB_COUNT][16] = {
     {7, 10, 14, 15, 13, 9, 16, 37, 38, -1},
     {34, 35, 36, -1},
     {8, 31, 32, -1},
-    {41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, -1}};
+    {41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, -1}};
 static const char *const page_tiles[VIDEO_TAB_COUNT] = {"", "PcGraphics", "PcLighting",
                                                         "PcControls", "PcMusic", "PcPresets",
                                                         "PcTweaks"};
@@ -1355,6 +1362,7 @@ static int enter(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     s->choices[50]->focus_index = s->current.speed_vignette;
     s->choices[51]->focus_index = s->current.discord_presence;
     s->choices[52]->focus_index = 0;
+    s->choices[53]->focus_index = s->current.skip_intro;
 #endif
     s->choices[7]->focus_index = s->current.desktop;
     s->choices[9]->focus_index = s->current.edge_pan;
@@ -1757,18 +1765,18 @@ void video_settings_attach(video_settings *s, menu *m)
         static const char *const tweak_names[] = {
             "SpeedGroup", "SpeedFov", "SpeedFovDegrees", "SpeedCamLag", "SpeedShake",
             "SpeedWind", "SpeedRoadRoar", "SpeedBlur", "SpeedBlurAmount", "SpeedVignette",
-            "DiscordPresence", "DiscordAppId"};
+            "DiscordPresence", "DiscordAppId", "SkipIntro"};
         static const char *const tweak_titles[] = {
             "Sense of Speed", "Dynamic FOV", "FOV Amount", "Camera Dynamics", "Camera Shake",
             "Wind Audio", "Road Roar Boost", "Radial Blur", "Blur Strength", "Vignette",
-            "Discord Rich Presence", "Discord Application ID"};
+            "Discord Rich Presence", "Discord Application ID", "Skip Intro"};
         const char *const *tweak_lists[] = {
             vs_closed_open, toggle, vs_fov_degrees, toggle, toggle, toggle, toggle, toggle,
-            vs_blur_amount, toggle, toggle, vs_app_id_default};
-        static const int tweak_counts[] = {2, 2, 12, 2, 2, 2, 2, 2, 10, 2, 2, 1};
+            vs_blur_amount, toggle, toggle, vs_app_id_default, toggle};
+        static const int tweak_counts[] = {2, 2, 12, 2, 2, 2, 2, 2, 10, 2, 2, 1, 2};
         const char *app_id = moon_options_get(&s->store, "integrations.discord_app_id",
                                               "1562846084085194752");
-        for (int i = 0; i < 12; i++) {
+        for (int i = 0; i < 13; i++) {
             int idx = 41 + i;
             ui_widget *w = ui_widget_copy(ui, sample);
             w->name = tweak_names[i];
@@ -1931,3 +1939,4 @@ int video_settings_speed_road_roar(void) { return settings_active ? settings_act
 int video_settings_speed_blur(void) { return settings_active ? settings_active->current.speed_blur : 0; }
 int video_settings_speed_blur_amount(void) { return settings_active ? settings_active->current.speed_blur_amount : 0; }
 int video_settings_speed_vignette(void) { return settings_active ? settings_active->current.speed_vignette : 0; }
+int video_settings_skip_intro(void) { return settings_active ? settings_active->current.skip_intro : 0; }

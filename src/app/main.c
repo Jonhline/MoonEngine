@@ -4331,6 +4331,8 @@ int main(int argc, char **argv)
                 proj = k;
     int show_opening =
         intro_override == 1 || menu_option_number(NULL, "opening_after_autoload", 1) != 0;
+    if (video_settings_skip_intro())
+        show_opening = 0; /* Tweaks: skip the GT splash and the opening movie */
     if (startup_intro)
         proj = show_opening ? 2 : 0;
     int first_run = first_run_override || (startup_intro && !gt4_save_active() && !gt4_save_pending_slot());
