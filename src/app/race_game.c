@@ -441,7 +441,9 @@ static void free_look_apply(race_game *g, int view, float eye[3], float rows[9],
         int dx = 0, dy = 0;
         SDL_GetRelativeMouseState(&dx, &dy);
         g->free_look.yaw -= (float)dx * FREE_LOOK_YAW_PER_PIXEL;
-        g->free_look.pitch += (float)dy * FREE_LOOK_PITCH_PER_PIXEL;
+        /* Mouse up (dy < 0) looks up: the authored camera rose when the pitch
+           grew, so the vertical axis is flipped here only. */
+        g->free_look.pitch -= (float)dy * FREE_LOOK_PITCH_PER_PIXEL;
         if (g->free_look.pitch < FREE_LOOK_PITCH_MIN)
             g->free_look.pitch = FREE_LOOK_PITCH_MIN;
         if (g->free_look.pitch > FREE_LOOK_PITCH_MAX)
