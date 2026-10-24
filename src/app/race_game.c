@@ -109,6 +109,8 @@ struct race_game {
     int bgm_volume, bgm_enabled, se_volume;
     int unit;
     float speed_prev_ms, speed_accel, speed_lag[3], speed_shake_trauma, speed_noise_time;
+    float assist_kmh; /* the live speed the assist ribbon is painted from */
+    int assist_kmh_set;
     int camera; /* the view (the car model's camera point): 1 behind the car (the start's), 0 on it, 6 the roof */
     int view_held;
     /* Right-mouse free look around the authored chase camera. */
@@ -2774,6 +2776,11 @@ void race_game_update(race_game *g, double dt)
     {
         gt4_race_hud hud;
         float kmh = gt4_race_run_hud(g->run, 0, &hud) ? hud.speed * 3.6f : 0.f;
+        if (!g->assist_kmh_set) {
+            g->assist_kmh = kmh;
+            g->assist_kmh_set = 1;
+        } else
+            g->assist_kmh += (kmh - g->assist_kmh) * (1.f - expf((float)-dt / .25f));
         video_settings_speed_frame(kmh, dt);
         moon_debug_overlay_set_race(kmh, video_settings_assist_line(),
                                     (int)(video_settings_speed_level() * 100.f + .5f));
@@ -3029,14 +3036,14 @@ static int race_game_draw_scene(race_game *g)
         int authored = show && licence &&
                        race_view_set_best_line(g->view, g->last_desc.license_code, 1);
         if (authored)
-            race_view_set_assist_line(g->view, NULL, 0);
+            race_view_set_assist_line(g->view, NULL, 0, 0);
         else if (show && g->last_course[0]) {
             if (!licence)
                 race_view_set_best_line(g->view, NULL, 0);
-            race_view_set_assist_line(g->view, g->last_course, 1);
+            race_view_set_assist_line(g->view, g->last_course, 1, g->assist_kmh);
         } else {
             race_view_set_best_line(g->view, NULL, 0);
-            race_view_set_assist_line(g->view, NULL, 0);
+            race_view_set_assist_line(g->view, NULL, 0, 0);
         }
     }
     int drawn = race_view_draw(g->view);

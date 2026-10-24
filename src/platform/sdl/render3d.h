@@ -171,6 +171,9 @@ void r3d_draw(r3d_mesh *mesh, const r3d_view *view);
    No allocation, texture upload or GPU readback during updates. */
 int r3d_mesh_update_positions(r3d_mesh *mesh, const float (*positions)[3], unsigned vertices,
                               float alpha);
+/* Re-upload a rigid mesh's vertex colours from `model` (the same triangles
+   it was created from), for ribbons whose shading changes per frame. */
+int r3d_mesh_update_colours(r3d_mesh *mesh, const gt4_model *model);
 /* ModelFace's authored light; separate from the showroom/course lighting. */
 typedef struct {
     float direction[3], ambient[3], diffuse[3], specular[3];

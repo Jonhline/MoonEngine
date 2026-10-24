@@ -2107,6 +2107,54 @@ int r3d_mesh_update_positions(r3d_mesh *m, const float (*p)[3], unsigned count, 
     glBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)(count * VFLOATS * sizeof(float)), stream);
     return 1;
 }
+int r3d_mesh_update_colours(r3d_mesh *mesh, const gt4_model *model)
+{
+    if (!mesh || !model || mesh->skinned || mesh->morph || !mesh->ngroups ||
+        (size_t)model->count * 3 != (size_t)mesh->vertices)
+        return 0;
+    size_t bytes = (size_t)mesh->vertices * VFLOATS * sizeof(float);
+    static float *stream;
+    static size_t capacity;
+    if (bytes > capacity) {
+        void *p = realloc(stream, bytes);
+        if (!p)
+            return 0;
+        stream = p;
+        capacity = bytes;
+    }
+    for (int i = 0; i < model->count; i++) {
+        const gt4_triangle *t = &model->triangles[i];
+        float e1[3], e2[3], face[3];
+        for (int k = 0; k < 3; k++) {
+            e1[k] = t->v[1].p[k] - t->v[0].p[k];
+            e2[k] = t->v[2].p[k] - t->v[0].p[k];
+        }
+        face[0] = e1[1] * e2[2] - e1[2] * e2[1];
+        face[1] = e1[2] * e2[0] - e1[0] * e2[2];
+        face[2] = e1[0] * e2[1] - e1[1] * e2[0];
+        for (int j = 0; j < 3; j++) {
+            const gt4_vertex *x = &t->v[j];
+            float *o = stream + ((size_t)i * 3 + j) * VFLOATS;
+            const float *n = x->normal;
+            float nl = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+            if (nl < 1e-6f)
+                n = face;
+            memcpy(o, x->p, 12);
+            memcpy(o + 3, n, 12);
+            memcpy(o + 6, x->uv, 8);
+            memcpy(o + 8, x->rgb, 12);
+            memcpy(o + 11, x->ambient, 12);
+            memcpy(o + 14, x->specular, 12);
+            o[17] = x->shine;
+            o[18] = x->alpha;
+        }
+    }
+    glBindVertexArray(mesh->vao);
+    glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)bytes, stream);
+    return 1;
+}
+
 void r3d_draw_ui(r3d_mesh *mesh, const r3d_view *view, const r3d_ui_light *light)
 {
     r3d_lights one = {1};

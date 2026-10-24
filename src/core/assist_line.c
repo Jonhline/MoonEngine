@@ -39,18 +39,19 @@
 #define LINE_RED_G 0.0f
 #define LINE_RED_B 0.0f
 
-static void colour(gt4_vertex *v, int red, int blue)
+/* The captain's rule: the line is blue while its own target speed is at
+   least the car's, and fades to GT red as the car approaches twice that
+   speed. 0.6..1.0 is the blend, smoothstepped so no edge pops. */
+static void shade(gt4_vertex *v, float target, float speed)
 {
-    (void)blue;
-    float r = LINE_BLUE_R, g = LINE_BLUE_G, b = LINE_BLUE_B;
-    if (red) {
-        r = LINE_RED_R;
-        g = LINE_RED_G;
-        b = LINE_RED_B;
-    }
-    v->rgb[0] = r;
-    v->rgb[1] = g;
-    v->rgb[2] = b;
+    float ratio = target / fmaxf(speed, 1.0f);
+    float t = ratio < 1.0f ? (1.0f - ratio) / .4f : 0.0f;
+    if (t > 1.0f)
+        t = 1.0f;
+    t = t * t * (3.0f - 2.0f * t);
+    v->rgb[0] = LINE_BLUE_R + (LINE_RED_R - LINE_BLUE_R) * t;
+    v->rgb[1] = LINE_BLUE_G + (LINE_RED_G - LINE_BLUE_G) * t;
+    v->rgb[2] = LINE_BLUE_B + (LINE_RED_B - LINE_BLUE_B) * t;
     v->normal[0] = 0;
     v->normal[1] = 1;
     v->normal[2] = 0;
@@ -141,10 +142,10 @@ static int lateral_centre(const gt4_course_surface *s, float x, float z, float r
    speed, then the braking/acceleration passes mark where it slows and where
    it gets back on the power. Same budgets as the old generator; the source
    is now the game's line, not a curvature guess on a road edge. */
-static void profile(int count, const gt4_ai_line_point *points, int closed,
+static void profile(int count, const gt4_ai_line_point *points, int closed, float *target,
                     unsigned char *red, unsigned char *blue)
 {
-    float *v = calloc((size_t)count, sizeof *v);
+    float *v = target;
     if (!v)
         return;
     for (int i = 0; i < count; i++) {
@@ -203,7 +204,6 @@ static void profile(int count, const gt4_ai_line_point *points, int closed,
             blue[i] = 0;
         }
     }
-    free(v);
 }
 
 int gt4_assist_line_build(const gt4_course *course, const gt4_ai_line_point *points, int count,
@@ -224,9 +224,11 @@ int gt4_assist_line_build(const gt4_course *course, const gt4_ai_line_point *poi
                 LINE_BLUE_R, LINE_BLUE_G, LINE_BLUE_B, LINE_RED_R, LINE_RED_G, LINE_RED_B);
     }
     float(*p)[3] = calloc((size_t)count, sizeof *p);
+    float *target = calloc((size_t)count, sizeof *target);
     unsigned char *red = calloc((size_t)count, 1), *blue = calloc((size_t)count, 1);
-    if (!p || !red || !blue) {
+    if (!p || !target || !red || !blue) {
         free(p);
+        free(target);
         free(red);
         free(blue);
         return 0;
@@ -276,11 +278,12 @@ int gt4_assist_line_build(const gt4_course *course, const gt4_ai_line_point *poi
         fprintf(stderr, "assist: %d of %d samples pulled onto the road\n", corrected, count);
     }
     gt4_course_surface_free(surface);
-    profile(count, points, closed, red, blue);
+    profile(count, points, closed, target, red, blue);
 
     gt4_model *m = calloc(1, sizeof *m);
     if (!m) {
         free(p);
+        free(target);
         free(red);
         free(blue);
         return 0;
@@ -290,10 +293,12 @@ int gt4_assist_line_build(const gt4_course *course, const gt4_ai_line_point *poi
     if (!m->triangles) {
         free(m);
         free(p);
+        free(target);
         free(red);
         free(blue);
         return 0;
     }
+    float *vertex_speed = calloc((size_t)m->capacity * 3, sizeof *vertex_speed);
     for (int i = 0; i < segments; i++) {
         int j = (i + 1) % count;
         float ax = p[j][0] - p[i][0], az = p[j][2] - p[i][2];
@@ -311,9 +316,14 @@ int gt4_assist_line_build(const gt4_course *course, const gt4_ai_line_point *poi
         memcpy(t->v[0].p, l0, sizeof l0);
         memcpy(t->v[1].p, r0, sizeof r0);
         memcpy(t->v[2].p, r1, sizeof r1);
-        colour(&t->v[0], red[i], blue[i]);
-        colour(&t->v[1], red[i], blue[i]);
-        colour(&t->v[2], red[j], blue[j]);
+        shade(&t->v[0], target[i], 0);
+        shade(&t->v[1], target[i], 0);
+        shade(&t->v[2], target[j], 0);
+        if (vertex_speed) {
+            vertex_speed[m->count * 3 + 0] = target[i];
+            vertex_speed[m->count * 3 + 1] = target[i];
+            vertex_speed[m->count * 3 + 2] = target[j];
+        }
         t->texture = -1;
         t->state.color_mask = 0;
         t->state.depth_test = 1;
@@ -325,16 +335,23 @@ int gt4_assist_line_build(const gt4_course *course, const gt4_ai_line_point *poi
         memcpy(t->v[0].p, l0, sizeof l0);
         memcpy(t->v[1].p, r1, sizeof r1);
         memcpy(t->v[2].p, l1, sizeof l1);
-        colour(&t->v[0], red[i], blue[i]);
-        colour(&t->v[1], red[j], blue[j]);
-        colour(&t->v[2], red[j], blue[j]);
+        shade(&t->v[0], target[i], 0);
+        shade(&t->v[1], target[j], 0);
+        shade(&t->v[2], target[j], 0);
+        if (vertex_speed) {
+            vertex_speed[m->count * 3 + 0] = target[i];
+            vertex_speed[m->count * 3 + 1] = target[j];
+            vertex_speed[m->count * 3 + 2] = target[j];
+        }
         t->texture = -1;
         t->state = m->triangles[0].state;
         m->count++;
     }
-    if (!m->count) {
+    if (!m->count || !vertex_speed) {
         gt4_model_free(m);
         free(p);
+        free(target);
+        free(vertex_speed);
         free(red);
         free(blue);
         return 0;
@@ -343,10 +360,21 @@ int gt4_assist_line_build(const gt4_course *course, const gt4_ai_line_point *poi
     out->count = count;
     out->triangles = m->count;
     out->points = p;
+    out->target = target;
+    out->vertex_speed = vertex_speed;
     out->red = red;
     out->blue = blue;
     out->build_ms = (double)(clock() - started) * 1000.0 / CLOCKS_PER_SEC;
     return 1;
+}
+
+void gt4_assist_line_paint(gt4_assist_line *line, float speed_mps)
+{
+    if (!line || !line->model || !line->vertex_speed)
+        return;
+    for (int t = 0; t < line->model->count; t++)
+        for (int k = 0; k < 3; k++)
+            shade(&line->model->triangles[t].v[k], line->vertex_speed[t * 3 + k], speed_mps);
 }
 
 void gt4_assist_line_free(gt4_assist_line *line)
@@ -355,6 +383,8 @@ void gt4_assist_line_free(gt4_assist_line *line)
         return;
     gt4_model_free(line->model);
     free(line->points);
+    free(line->target);
+    free(line->vertex_speed);
     free(line->red);
     free(line->blue);
     memset(line, 0, sizeof *line);

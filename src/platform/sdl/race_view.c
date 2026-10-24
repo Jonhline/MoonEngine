@@ -190,6 +190,9 @@ struct race_view {
     gt4_assist_line assist;        /* the AI line's ribbon, one course at a time */
     r3d_mesh *assist_mesh;
     char assist_course[64];
+    float assist_speed;            /* m/s last painted */
+    uint64_t assist_paint_ns;      /* last repaint, to keep it off every frame */
+    int assist_speed_set;
     uint32_t assist_lines;         /* the guest's lines object (car+0xEC) */
     int assist_index;              /* the line the car is running (car+0x1C) */
 
@@ -1070,6 +1073,7 @@ static void assist_line_free(race_view *v)
     v->assist_mesh = NULL;
     gt4_assist_line_free(&v->assist);
     v->assist_course[0] = 0;
+    v->assist_speed_set = 0;
 }
 
 void race_view_close(race_view *v)
@@ -1341,10 +1345,29 @@ void race_view_set_assist_source(race_view *v, uint32_t lines, int index)
     v->assist_index = index;
 }
 
+/* Repaint only when the speed moved enough to matter, at most every 50 ms:
+   the gradient is a function of the live speed, not of the frame rate. */
+static void assist_paint(race_view *v, float speed_kmh)
+{
+    if (!v->assist_mesh || !v->assist.model)
+        return;
+    float speed = speed_kmh > 0 ? speed_kmh / 3.6f : 0;
+    uint64_t now = plat_time_ns();
+    if (v->assist_speed_set && fabsf(speed - v->assist_speed) < .15f)
+        return;
+    if (v->assist_paint_ns && now - v->assist_paint_ns < 50000000ull)
+        return;
+    gt4_assist_line_paint(&v->assist, speed);
+    r3d_mesh_update_colours(v->assist_mesh, v->assist.model);
+    v->assist_speed = speed;
+    v->assist_speed_set = 1;
+    v->assist_paint_ns = now;
+}
+
 /* The line built from the game's own AI course line, cached by course name.
    The points come from the loaded race's lines object; nothing is generated
    or recorded. */
-int race_view_set_assist_line(race_view *v, const char *course, int on)
+int race_view_set_assist_line(race_view *v, const char *course, int on, float speed_kmh)
 {
     if (!v)
         return 0;
@@ -1352,8 +1375,10 @@ int race_view_set_assist_line(race_view *v, const char *course, int on)
         assist_line_free(v);
         return 0;
     }
-    if (v->assist_mesh && !strcmp(v->assist_course, course))
+    if (v->assist_mesh && !strcmp(v->assist_course, course)) {
+        assist_paint(v, speed_kmh);
         return 1;
+    }
     assist_line_free(v);
     snprintf(v->assist_course, sizeof v->assist_course, "%s", course);
     if (!v->now)
@@ -1371,7 +1396,11 @@ int race_view_set_assist_line(race_view *v, const char *course, int on)
                 active, n);
         return 0;
     }
+    gt4_assist_line_paint(&v->assist, speed_kmh > 0 ? speed_kmh / 3.6f : 0);
     v->assist_mesh = r3d_mesh_create(v->assist.model);
+    v->assist_speed = speed_kmh > 0 ? speed_kmh / 3.6f : 0;
+    v->assist_speed_set = 1;
+    v->assist_paint_ns = plat_time_ns();
     fprintf(stderr, "assist line: %s AI line %d, %d points, %d triangles, %.2f ms\n", course,
             active, v->assist.count, v->assist.triangles, v->assist.build_ms);
     return v->assist_mesh != NULL;

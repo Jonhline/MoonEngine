@@ -118,8 +118,9 @@ int race_view_step_driver(race_view *v, unsigned entry, const int transmission[4
 int race_view_set_best_line(race_view *v, const char *code, int on);
 /* The game's own AI line object (car+0xEC) and the line it is running. */
 void race_view_set_assist_source(race_view *v, uint32_t lines, int index);
-/* The line built from the AI course line, cached one course at a time. */
-int race_view_set_assist_line(race_view *v, const char *course, int on);
+/* The line built from the AI course line, cached one course at a time.
+   speed_kmh is the player's live speed; it only repaints the ribbon. */
+int race_view_set_assist_line(race_view *v, const char *course, int on, float speed_kmh);
 int race_view_set_opponents(race_view *v, const char *const *cars, const int *colors, int n);
 /* Other car i's pose and wheels as for the player's car; pos NULL hides
    it. */

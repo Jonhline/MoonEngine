@@ -21,7 +21,9 @@ typedef struct {
     gt4_model *model;       /* ribbon mesh material, owned here */
     int count;              /* points in the line */
     int triangles;          /* model->count, kept for reports */
-    float (*points)[3];     /* smoothed world positions, road + 0.30 m */
+    float (*points)[3];     /* smoothed world positions, road + 0.03 m */
+    float *target;          /* the line's own target speed at each sample, m/s */
+    float *vertex_speed;    /* target speed copied per ribbon vertex, m/s */
     unsigned char *red;     /* 1 where the line brakes into a corner */
     unsigned char *blue;    /* 1 where it accelerates out of one */
     double build_ms;        /* measured build cost, one course */
@@ -37,6 +39,9 @@ int gt4_ai_line_table_count(uint32_t lines);
    generator is gone. 0 when there is no usable line. */
 int gt4_assist_line_build(const gt4_course *course, const gt4_ai_line_point *points, int count,
                           gt4_assist_line *out);
+/* Repaint the ribbon from the player's speed: blue where the line's own
+   target speed is at least the current speed, GT red where it is far below. */
+void gt4_assist_line_paint(gt4_assist_line *line, float speed_mps);
 void gt4_assist_line_free(gt4_assist_line *line);
 
 #endif

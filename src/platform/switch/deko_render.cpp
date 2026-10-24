@@ -494,6 +494,35 @@ int r3d_mesh_update_positions(r3d_mesh *mesh, const float (*positions)[3], unsig
     std::memcpy(nd_cpu(mesh->vertices), mesh->cpu.data(), count * sizeof(Vertex));
     return 1;
 }
+int r3d_mesh_update_colours(r3d_mesh *mesh, const gt4_model *model)
+{
+    if (!mesh || !model || mesh->transient || model->skin || model->morph ||
+        mesh->cpu.size() != (size_t)model->count * 3)
+        return 0;
+    for (int i = 0; i < model->count; i++)
+        for (int j = 0; j < 3; j++) {
+            const gt4_vertex &src = model->triangles[i].v[j];
+            Vertex &v = mesh->cpu[(size_t)i * 3 + j];
+            copy3(v.values + 8, src.rgb);
+            v.values[18] = src.alpha;
+        }
+    std::vector<Vertex> unique;
+    std::vector<uint32_t> indices;
+    nd_index_vertices(mesh->cpu, unique, indices);
+    size_t vertex_bytes = unique.size() * sizeof(Vertex);
+    size_t index_bytes = indices.size() * sizeof(uint32_t);
+    nd_release(mesh->vertices);
+    mesh->vertices = nd_alloc(vertex_bytes + index_bytes,
+                              DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached);
+    std::memcpy(nd_cpu(mesh->vertices), unique.data(), vertex_bytes);
+    std::memcpy(static_cast<uint8_t *>(nd_cpu(mesh->vertices)) + vertex_bytes, indices.data(),
+                index_bytes);
+    mesh->vertices.size = vertex_bytes;
+    mesh->index_address = nd_gpu(mesh->vertices) + vertex_bytes;
+    mesh->index_count = indices.size();
+    return 1;
+}
+
 void r3d_environment_changed(void)
 {
     state.environment_dirty = true;
