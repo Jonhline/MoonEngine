@@ -1062,6 +1062,35 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
     if (load_button) load_button->visible=files;
     if (save_button) save_button->visible=files;
 #endif
+#ifndef __SWITCH__
+    /* The in-game Tweaks switches are immediate: copy what the row changed
+       from the draft into the live options and save it now, exactly as the
+       launcher does. Display rows keep their apply-on-OK behaviour. */
+    int tweak_row = 0;
+    for (int i = 42; i <= 53; i++)
+        if (ah_host_data(self) == s->choices[i]) {
+            tweak_row = 1;
+            break;
+        }
+    if (tweak_row) {
+        s->current.speed_fov = s->draft.speed_fov;
+        s->current.speed_fov_degrees = s->draft.speed_fov_degrees;
+        s->current.speed_cam_lag = s->draft.speed_cam_lag;
+        s->current.speed_shake = s->draft.speed_shake;
+        s->current.speed_wind = s->draft.speed_wind;
+        s->current.speed_road_roar = s->draft.speed_road_roar;
+        s->current.speed_blur = s->draft.speed_blur;
+        s->current.speed_blur_amount = s->draft.speed_blur_amount;
+        s->current.speed_vignette = s->draft.speed_vignette;
+        s->current.discord_presence = s->draft.discord_presence;
+        s->current.skip_intro = s->draft.skip_intro;
+        s->current.assist_line = s->draft.assist_line;
+        video_set_speed_post(s->current.speed_blur, s->current.speed_blur_amount,
+                             s->current.speed_vignette);
+        apply_discord(s);
+        save(s);
+    }
+#endif
     quality(&s->draft);
     tweaks_visibility(s);
     *ret = ah_int(2);
