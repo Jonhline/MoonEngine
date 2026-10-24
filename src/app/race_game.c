@@ -109,6 +109,13 @@ struct race_game {
     float speed_prev_ms, speed_accel, speed_lag[3], speed_shake_trauma, speed_noise_time;
     int camera; /* the view (the car model's camera point): 1 behind the car (the start's), 0 on it, 6 the roof */
     int view_held;
+    /* Right-mouse free look around the authored chase camera. */
+    struct {
+        int held;
+        float yaw, pitch;      /* radians, applied around the car */
+        float return_left;     /* seconds left of the ease-out return */
+        float gain;            /* 1 while held, eases to 0 after release */
+    } free_look;
     int look_back;
     int ghost_button, ghost_hidden;
     int best_line, best_line_button; /* R3's retained state; Tweaks may force it */
@@ -369,6 +376,113 @@ static void speed_camera_apply(race_game *g, int view, float eye[3], float rows[
             rows[6 + k] = sa * u + ca * f;
         }
     }
+}
+
+/* Right-mouse free look: orbit the authored chase pose around the car, with
+   no roll, and ease back to that pose when the button is released. Nothing
+   is touched when the button is not held. */
+#define FREE_LOOK_RETURN_SECONDS .4f
+#define FREE_LOOK_YAW_PER_PIXEL .004f
+#define FREE_LOOK_PITCH_PER_PIXEL .003f
+#define FREE_LOOK_PITCH_MIN (-12.f * .017453292f)
+#define FREE_LOOK_PITCH_MAX (60.f * .017453292f)
+#define FREE_LOOK_CLEARANCE .5f
+#define FREE_LOOK_MIN_RADIUS 2.f
+
+static void free_look_rotate_y(float v[3], float a)
+{
+    float c = cosf(a), s = sinf(a), x = v[0], z = v[2];
+    v[0] = c * x + s * z;
+    v[2] = -s * x + c * z;
+}
+
+static void free_look_rotate_axis(float v[3], const float axis[3], float a)
+{
+    float c = cosf(a), s = sinf(a), d = axis[0] * v[0] + axis[1] * v[1] + axis[2] * v[2];
+    float cx = axis[1] * v[2] - axis[2] * v[1];
+    float cy = axis[2] * v[0] - axis[0] * v[2];
+    float cz = axis[0] * v[1] - axis[1] * v[0];
+    for (int k = 0; k < 3; k++)
+        v[k] = v[k] * c + (k == 0 ? cx : k == 1 ? cy : cz) * s + axis[k] * d * (1.f - c);
+}
+
+static void free_look_apply(race_game *g, int view, float eye[3], float rows[9], double dt)
+{
+    if (!g)
+        return;
+    int can = view == 1 && g->ready && !g->replaying && !g->split && !g->cinema.on &&
+              !g->start_cam_on && !g->tv_on && !g->inspect_on && !race_game_is_paused(g);
+    if (!can) {
+        if (g->free_look.held) {
+            g->free_look.held = 0;
+            if (!g->cinema.on)
+                SDL_SetRelativeMouseMode(SDL_FALSE);
+        }
+        g->free_look.yaw = g->free_look.pitch = 0;
+        g->free_look.gain = g->free_look.return_left = 0;
+        return;
+    }
+    int rmb = (SDL_GetMouseState(NULL, NULL) & SDL_BUTTON_RMASK) != 0;
+    if (rmb && !g->free_look.held) {
+        g->free_look.held = 1;
+        g->free_look.return_left = 0;
+        g->free_look.gain = 1;
+        SDL_SetRelativeMouseMode(SDL_TRUE);
+        return; /* ignore the cursor's jump into relative mode */
+    }
+    if (!rmb && g->free_look.held) {
+        g->free_look.held = 0;
+        if (!g->cinema.on)
+            SDL_SetRelativeMouseMode(SDL_FALSE);
+        g->free_look.return_left = FREE_LOOK_RETURN_SECONDS;
+    }
+    if (g->free_look.held) {
+        int dx = 0, dy = 0;
+        SDL_GetRelativeMouseState(&dx, &dy);
+        g->free_look.yaw -= (float)dx * FREE_LOOK_YAW_PER_PIXEL;
+        g->free_look.pitch += (float)dy * FREE_LOOK_PITCH_PER_PIXEL;
+        if (g->free_look.pitch < FREE_LOOK_PITCH_MIN)
+            g->free_look.pitch = FREE_LOOK_PITCH_MIN;
+        if (g->free_look.pitch > FREE_LOOK_PITCH_MAX)
+            g->free_look.pitch = FREE_LOOK_PITCH_MAX;
+        g->free_look.gain = 1;
+    } else if (g->free_look.return_left > 0) {
+        g->free_look.return_left -= (float)dt;
+        if (g->free_look.return_left <= 0) {
+            g->free_look.return_left = 0;
+            g->free_look.yaw = g->free_look.pitch = 0;
+            g->free_look.gain = 0;
+        } else {
+            float t = g->free_look.return_left / FREE_LOOK_RETURN_SECONDS;
+            g->free_look.gain = t * t; /* ease out of the orbit, into the authored pose */
+        }
+    } else
+        g->free_look.gain = 0;
+    if (g->free_look.gain <= 0 || (!g->free_look.yaw && !g->free_look.pitch))
+        return;
+    float car[3], rot[9];
+    if (!g->run || !gt4_race_run_pose(g->run, 0, car, rot, NULL))
+        return;
+    float yaw = g->free_look.yaw * g->free_look.gain;
+    float pitch = g->free_look.pitch * g->free_look.gain;
+    float rel[3] = {eye[0] - car[0], eye[1] - car[1], eye[2] - car[2]};
+    free_look_rotate_y(rel, yaw);
+    for (int k = 0; k < 3; k++)
+        free_look_rotate_y(rows + k * 3, yaw);
+    float right[3] = {rows[0], rows[1], rows[2]};
+    free_look_rotate_axis(rel, right, pitch);
+    for (int k = 0; k < 3; k++)
+        free_look_rotate_axis(rows + k * 3, right, pitch);
+    float radius = sqrtf(rel[0] * rel[0] + rel[1] * rel[1] + rel[2] * rel[2]);
+    if (radius < FREE_LOOK_MIN_RADIUS && radius > 1e-4f) {
+        float scale = FREE_LOOK_MIN_RADIUS / radius;
+        for (int k = 0; k < 3; k++)
+            rel[k] *= scale;
+    }
+    for (int k = 0; k < 3; k++)
+        eye[k] = car[k] + rel[k];
+    if (eye[1] < car[1] + FREE_LOOK_CLEARANCE)
+        eye[1] = car[1] + FREE_LOOK_CLEARANCE;
 }
 
 /* a licence examination or training (desc.license 1, 2); a driving
@@ -2380,6 +2494,7 @@ static void race_camera_audio_update(race_game *g, double dt)
                     sx = 1 / tanf(atanf(1 / point[6]) * 4 / 3);
                 sx *= speed_lens_scale(view);
                 speed_camera_apply(g, view, eye, rows, dt);
+                free_look_apply(g, view, eye, rows, dt);
                 race_view_set_camera(g->view, eye, rows, sx, sx * 1.30122f, 0.1f);
             }
             race_view_show_car(g->view, view != 0);
