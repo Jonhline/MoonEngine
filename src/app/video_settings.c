@@ -1491,7 +1491,7 @@ static int tab_key(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
     return 0;
 }
 #endif
-#ifndef __ANDROID__
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
 /* PC Tweaks: Up/Down step through the rows this page shows. The rows beyond
    the viewport are clipped out of the generic navigation collector, so the
    page moves focus itself and the shared clip/space follows it. Dropdowns
