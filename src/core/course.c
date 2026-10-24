@@ -50,12 +50,16 @@ int gt4_course_open(gt4_course *c, const uint8_t *d, size_t n)
     c->grid_count = u16(r + 0x3a);
     c->road_vertex_count = u16(r + 0x46);
     c->road_tri_count = u16(r + 0x48);
+    /* +0x4e is the point count and +0x84 the ordered 16-byte driving line. */
+    c->path_count = u16(r + 0x4e);
+    c->path = runway + u32(r + 0x84);
     c->grids = runway + u32(r + 0x5c);
     c->road_vertices = runway + u32(r + 0x74);
     c->road_tris = runway + u32(r + 0x78);
     if (!span(n, c->grids, (size_t)c->grid_count * 16) ||
         !span(n, c->road_vertices, (size_t)c->road_vertex_count * 16) ||
-        !span(n, c->road_tris, (size_t)c->road_tri_count * 12)) {
+        !span(n, c->road_tris, (size_t)c->road_tri_count * 12) ||
+        (c->path_count && !span(n, c->path, (size_t)c->path_count * 16))) {
         memset(c, 0, sizeof *c);
         return 0;
     }

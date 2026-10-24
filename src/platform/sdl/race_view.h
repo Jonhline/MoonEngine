@@ -116,6 +116,8 @@ int race_view_step_driver(race_view *v, unsigned entry, const int transmission[4
    request; 0 when too many or a load is running. */
 /* The disc's authored licence ribbon, NULL code or off frees it. */
 int race_view_set_best_line(race_view *v, const char *code, int on);
+/* The generated line for a course (runway path), off frees it. */
+int race_view_set_assist_line(race_view *v, const char *course, int on);
 int race_view_set_opponents(race_view *v, const char *const *cars, const int *colors, int n);
 /* Other car i's pose and wheels as for the player's car; pos NULL hides
    it. */

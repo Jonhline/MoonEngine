@@ -19,7 +19,8 @@ typedef struct {
     float length;  /* course length, metres */
     int grid_count;
     int road_vertex_count, road_tri_count;
-    size_t grids, road_vertices, road_tris; /* absolute offsets */
+    int path_count;  /* the runway's ordered driving line (points) */
+    size_t grids, road_vertices, road_tris, path; /* absolute offsets */
 } gt4_course;
 
 typedef struct {

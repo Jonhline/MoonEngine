@@ -25,6 +25,7 @@
 #include "car_model.h"
 #include "driver_pose.h"
 #include "course.h"
+#include "assist_line.h"
 #include "gpb.h"
 #include "render3d.h"
 #include "daylight.h"
@@ -185,6 +186,10 @@ struct race_view {
     gt4_model *best_line;          /* the disc's authored licence ribbon */
     r3d_mesh *best_line_mesh;
     char best_line_code[32];
+    int best_line_missing;
+    gt4_assist_line assist;        /* the generated line, one course at a time */
+    r3d_mesh *assist_mesh;
+    char assist_course[64];
 
     float photo_jitter[2];
     int screen_reflect;
@@ -1052,6 +1057,17 @@ static void best_line_free(race_view *v)
     gt4_model_free(v->best_line);
     v->best_line = NULL;
     v->best_line_code[0] = 0;
+    v->best_line_missing = 0;
+}
+
+static void assist_line_free(race_view *v)
+{
+    if (!v)
+        return;
+    r3d_mesh_destroy(v->assist_mesh);
+    v->assist_mesh = NULL;
+    gt4_assist_line_free(&v->assist);
+    v->assist_course[0] = 0;
 }
 
 void race_view_close(race_view *v)
@@ -1059,6 +1075,7 @@ void race_view_close(race_view *v)
     if (!v)
         return;
     best_line_free(v);
+    assist_line_free(v);
     if (v->worker) {
         SDL_WaitThread(v->worker, NULL);
         free_asset(v->pending);
@@ -1262,6 +1279,7 @@ void race_view_clear(race_view *v)
         v->now = NULL;
         v->pose_on = v->wheels_on = 0;
         best_line_free(v);
+        assist_line_free(v);
     }
 }
 
@@ -1277,8 +1295,8 @@ int race_view_set_best_line(race_view *v, const char *code, int on)
             best_line_free(v);
         return 0;
     }
-    if (v->best_line_mesh && !strcmp(v->best_line_code, code))
-        return 1;
+    if (!strcmp(v->best_line_code, code) && (v->best_line_mesh || v->best_line_missing))
+        return v->best_line_mesh != NULL;
     best_line_free(v);
     snprintf(v->best_line_code, sizeof v->best_line_code, "%s", code);
     static const char *const regions[] = {"us", "jp", "uk", "kr"};
@@ -1306,9 +1324,33 @@ int race_view_set_best_line(race_view *v, const char *code, int on)
         fprintf(stderr, "assist line: loaded %s, %d triangles\n", path, m->count);
     }
     gt4_vol_close(vol);
-    if (!v->best_line_mesh)
+    if (!v->best_line_mesh) {
+        v->best_line_missing = 1;
         fprintf(stderr, "assist line: no authored best line for %s\n", code);
+    }
     return v->best_line_mesh != NULL;
+}
+
+/* The generated line for a course without an authored ribbon. Built once
+   from the runway's ordered path table and cached by course name. */
+int race_view_set_assist_line(race_view *v, const char *course, int on)
+{
+    if (!v)
+        return 0;
+    if (!on || !course || !*course) {
+        assist_line_free(v);
+        return 0;
+    }
+    if (v->assist_mesh && !strcmp(v->assist_course, course))
+        return 1;
+    assist_line_free(v);
+    snprintf(v->assist_course, sizeof v->assist_course, "%s", course);
+    if (!v->now || !gt4_assist_line_build(&v->now->course, &v->assist))
+        return 0;
+    v->assist_mesh = r3d_mesh_create(v->assist.model);
+    fprintf(stderr, "assist line: generated %s, %d points, %d triangles, %.2f ms\n", course,
+            v->assist.count, v->assist.triangles, v->assist.build_ms);
+    return v->assist_mesh != NULL;
 }
 
 int race_view_set_opponents(race_view *v, const char *const *cars, const int *colors, int n)
@@ -2628,12 +2670,12 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
 #ifndef MOON_DEKO3D
     road_sheen(v, &world);
 #endif /* P: native Switch forward shading replaces the road reflection passes. */
-    if (v->best_line_mesh) {
+    if (v->best_line_mesh || v->assist_mesh) {
         r3d_view line = world;
         line.unlit = 1;
         line.color_scale = 0;
         line.model_list = NULL;
-        r3d_draw(v->best_line_mesh, &line);
+        r3d_draw(v->best_line_mesh ? v->best_line_mesh : v->assist_mesh, &line);
     }
     /* 003E5338 / 003E4A28: paired shadow and normal GDGT models in the object frame,
        Env0 lighting from the original per-object RNW4 light bytes.

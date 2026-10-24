@@ -2873,9 +2873,20 @@ static int race_game_draw_scene(race_game *g)
         race_view_set_afterfire(g->view, (unsigned)i, flames, on);
     }
     {
-        int show = (g->last_desc.license == 1 || g->last_desc.license == 2) &&
-                   (video_settings_assist_line() || g->best_line);
-        race_view_set_best_line(g->view, show ? g->last_desc.license_code : NULL, show);
+        int licence = g->last_desc.license == 1 || g->last_desc.license == 2;
+        int show = video_settings_assist_line() || (licence && g->best_line);
+        int authored = show && licence &&
+                       race_view_set_best_line(g->view, g->last_desc.license_code, 1);
+        if (authored)
+            race_view_set_assist_line(g->view, NULL, 0);
+        else if (show && g->last_course[0]) {
+            if (!licence)
+                race_view_set_best_line(g->view, NULL, 0);
+            race_view_set_assist_line(g->view, g->last_course, 1);
+        } else {
+            race_view_set_best_line(g->view, NULL, 0);
+            race_view_set_assist_line(g->view, NULL, 0);
+        }
     }
     int drawn = race_view_draw(g->view);
     if (drawn && g->pit_scene) {

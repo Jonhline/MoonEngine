@@ -102,6 +102,7 @@ add_library(moon_core STATIC
   src/core/driver_model.c
   src/core/driver_pose.c
   src/core/course.c
+  src/core/assist_line.c
   src/core/course_gadget.c
   src/core/photo_mode.c
   src/core/album_slide.c
@@ -772,6 +773,9 @@ add_test(NAME mod_car_function_export_negative COMMAND "${Python3_EXECUTABLE}" "
 set_tests_properties(mod_car_function_export_negative PROPERTIES WILL_FAIL TRUE)
 add_executable(gt4model_write tools/c/gt4model_write.c)
 target_link_libraries(gt4model_write PRIVATE ${MOON_CORE_STACK})
+add_executable(assist_line_check tools/c/assist_line_check.c)
+target_include_directories(assist_line_check PRIVATE src/core/physics)
+target_link_libraries(assist_line_check PRIVATE ${MOON_CORE_STACK})
 add_executable(moonmod_glbcar tools/c/moonmod_glbcar.c)
 target_link_libraries(moonmod_glbcar PRIVATE ${MOON_CORE_STACK})
 if(MOON_TEST_DISC)
