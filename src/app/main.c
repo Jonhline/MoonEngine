@@ -184,6 +184,30 @@ static const char *app_presence_car_name(menu *m, const char *label)
     return label;
 }
 
+static void app_startup_log(const char *fmt, ...)
+{
+    char pref[1200], path[1300], line[512];
+    if (!plat_pref_dir(pref, sizeof pref))
+        return;
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof line, fmt, ap);
+    va_end(ap);
+    snprintf(path, sizeof path, "%sstartup.log", pref);
+    FILE *f = fopen(path, "rb");
+    long size = 0;
+    if (f) {
+        if (!fseek(f, 0, SEEK_END))
+            size = ftell(f);
+        fclose(f);
+    }
+    f = fopen(path, size > 64 * 1024 ? "wb" : "ab");
+    if (!f)
+        return;
+    fprintf(f, "%s\n", line);
+    fflush(f);
+    fclose(f);
+}
 static void app_presence_log(const char *line)
 {
     char pref[1200], path[1300];
@@ -3936,6 +3960,19 @@ int main(int argc, char **argv)
     int front_end = (prepared == 2); /* no-argument launch: the studio front-end */
     fprintf(stderr, "launcher: %s (arguments %d)\n",
             front_end ? "studio front-end" : "game", argc); /* the Android no-arg proof */
+    {
+        char args[512];
+        size_t used = 0;
+        args[0] = 0;
+        for (int i = 1; i < argc && used + 2 < sizeof args; i++) {
+            int n = snprintf(args + used, sizeof args - used, "%s%s", i > 1 ? " " : "", argv[i]);
+            if (n < 0 || (size_t)n >= sizeof args - used)
+                break;
+            used += (size_t)n;
+        }
+        app_startup_log("launcher: prepared=%d front_end=%d argc=%d args=%s", prepared, front_end,
+                        argc, args);
+    }
     const char *front_disc = startup.preferences.disc;
     const char *front_shot = getenv("MOONSTUDIO_FRONT_SHOT"); /* dev: capture the room headless */
     wiz_shot_prefix = getenv("MOONSTUDIO_SETUP_SHOT");        /* dev: capture the wizard headless */
@@ -4347,6 +4384,9 @@ int main(int argc, char **argv)
         startup_intro = 0;
         first_run = 0;
     }
+    app_startup_log("startup: skip_intro=%d intro_override=%d startup_intro=%d show_opening=%d "
+                    "proj=%s argc=%d", video_settings_skip_intro(), intro_override, startup_intro,
+                    show_opening, proj >= 0 && proj < NPROJECTS ? projects[proj] : "?", argc);
 
     plat_video_desc desc = {window_w, window_h, window_full, video_vsync, upscale};
 #ifndef __SWITCH__
@@ -4618,6 +4658,15 @@ int main(int argc, char **argv)
                     shot_delay = atof(d);
             }
         } /* dev: capture after the handover */
+    }
+    /* The studio OPTIONS page can change the Tweaks switch after the startup
+       decision above; apply it here, before the boot project or the movie. */
+    if (video_settings_skip_intro() && startup_intro && proj == 2) {
+        startup_intro = 0;
+        show_opening = 0;
+        proj = 0;
+        root = 0;
+        app_startup_log("startup: launcher path forced arcade / TopRoot (skip_intro=1)");
     }
     /* the race itself (the physics with the player's controls): driving 1
        while its models load, 2 racing */
@@ -6838,6 +6887,8 @@ int main(int argc, char **argv)
                      projects[proj], p ? ui_root_name(p, root) : "?", root + 1,
                      p ? ui_root_count(p) : 0, drawn, skipped);
             printf("%s\n", title);
+            app_startup_log("menu: %s / %s", projects[proj],
+                            p ? ui_root_name(p, root) : "?");
             last_root = root;
             last_proj = proj;
         }
