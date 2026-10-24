@@ -21,7 +21,7 @@ static const video_preset_field video_preset_fields[] = {
     PF("tweaks.speed_cam_lag",speed_cam_lag,1), PF("tweaks.speed_shake",speed_shake,1),
     PF("tweaks.speed_wind",speed_wind,1), PF("tweaks.speed_road_roar",speed_road_roar,1),
     PF("tweaks.speed_blur",speed_blur,1), PF("tweaks.speed_blur_amount",speed_blur_amount,100),
-    PF("tweaks.speed_vignette",speed_vignette,1)
+    PF("tweaks.speed_vignette",speed_vignette,1), PF("tweaks.assist_line",assist_line,1)
 };
 #undef PF
 int video_settings_preset_export(video_settings *s, const char *path, const char *name, int draft)

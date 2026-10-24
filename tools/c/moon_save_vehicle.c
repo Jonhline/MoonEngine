@@ -38,7 +38,7 @@ static int nearest(gt4_career_vehicle *v,uint8_t body[0x4b8],int which,double ta
         double actual=stats[which==0?0:2]/scale,d=fabs(actual-target);if(d<distance){distance=d;best=mid;}if(actual<target)lo=mid+1;else hi=mid-1;}
     body[at]=(uint8_t)best;return gt4_career_vehicle_stats(v,body,result);
 }
-static void sync(ah_vm *vm,ah_obj *game,ah_obj *car,int index,const uint8_t body[0x4b8],const int32_t stats[3])
+static void save_vehicle_sync(ah_vm *vm,ah_obj *game,ah_obj *car,int index,const uint8_t body[0x4b8],const int32_t stats[3])
 {
     gt4_career_blob_set(vm,car,"full_car_ps2",body,0x4b8);
     ah_obj *wear=ah_array_new(vm);for(int i=0;i<32;i++)ah_array_push(vm,wear,ah_int(body[0x498+i]));ah_set_member(vm,car,"oil_state",ah_objv(wear));
@@ -77,9 +77,9 @@ int main(int argc,char **argv)
             if(!strcmp(action,"tune")){
                 double cv,kg;if(argc!=8||!decimal(argv[6],&cv)||!decimal(argv[7],&kg)||kg>8191)return fail("Enter positive power (cv) and mass (kg, up to 8191).");
                 if(!nearest(factory,body,0,cv,stats)||!nearest(factory,body,1,kg,stats))return 1;
-                sync(vm,game,car,index,body,stats);
+                save_vehicle_sync(vm,game,car,index,body,stats);
             }
-            if(!strcmp(action,"refresh"))sync(vm,game,car,index,body,stats);
+            if(!strcmp(action,"refresh"))save_vehicle_sync(vm,game,car,index,body,stats);
             printf("{\"power_cv\":%.2f,\"weight_kg\":%d,\"torque\":%.2f,\"power_percent\":%u,\"weight_percent\":%u}\n",stats[0]/100.0,stats[2],stats[1]/100.0,body[(unsigned)(body[0x488]|body[0x489]<<8)*0x178+0x163],body[(unsigned)(body[0x488]|body[0x489]<<8)*0x178+0x162]);
             if(!strcmp(action,"stats")){gt4_career_vehicle_close(factory);ah_vm_free(vm);return 0;}
         }else return fail("Unknown vehicle action.");

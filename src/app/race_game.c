@@ -111,6 +111,7 @@ struct race_game {
     int view_held;
     int look_back;
     int ghost_button, ghost_hidden;
+    int best_line, best_line_button; /* R3's retained state; Tweaks may force it */
     char hud_course[32]; /* the course whose map the display takes next */
     race_result *result; /* the results over the race, from the player's finish */
     int mission_presentation;
@@ -1107,6 +1108,7 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
     g->replay_end = -1;
     g->replay_open = -1;
     g->held = 0;
+    g->best_line = g->best_line_button = 0;
     g->bgm_off = g->fast = g->car_cam = g->focus = 0;
     g->zoom = 1;
     g->zoom_on = 0;
@@ -2869,6 +2871,11 @@ static int race_game_draw_scene(race_game *g)
         float flames[4][3];
         int on = race_audio_afterfire(g->audio, (unsigned)i, flames);
         race_view_set_afterfire(g->view, (unsigned)i, flames, on);
+    }
+    {
+        int show = (g->last_desc.license == 1 || g->last_desc.license == 2) &&
+                   (video_settings_assist_line() || g->best_line);
+        race_view_set_best_line(g->view, show ? g->last_desc.license_code : NULL, show);
     }
     int drawn = race_view_draw(g->view);
     if (drawn && g->pit_scene) {

@@ -182,6 +182,10 @@ struct race_view {
     unsigned gadget_types;
     int grade_on;
     float grade[6]; /* race_view_set_grade */
+    gt4_model *best_line;          /* the disc's authored licence ribbon */
+    r3d_mesh *best_line_mesh;
+    char best_line_code[32];
+
     float photo_jitter[2];
     int screen_reflect;
     photo_frame photo_current, photo_previous, photo_saved;
@@ -1039,10 +1043,22 @@ race_view *race_view_open(const char *disc)
     return v;
 }
 
+static void best_line_free(race_view *v)
+{
+    if (!v)
+        return;
+    r3d_mesh_destroy(v->best_line_mesh);
+    v->best_line_mesh = NULL;
+    gt4_model_free(v->best_line);
+    v->best_line = NULL;
+    v->best_line_code[0] = 0;
+}
+
 void race_view_close(race_view *v)
 {
     if (!v)
         return;
+    best_line_free(v);
     if (v->worker) {
         SDL_WaitThread(v->worker, NULL);
         free_asset(v->pending);
@@ -1245,7 +1261,54 @@ void race_view_clear(race_view *v)
     free_asset(v->now);
         v->now = NULL;
         v->pose_on = v->wheels_on = 0;
+        best_line_free(v);
     }
+}
+
+/* The disc's own licence ribbon (/crs/bestline/<region><code>), authored
+   in world coordinates with vertex colours: blue acceleration, red braking.
+   Loaded only while wanted; OFF means no read, no mesh, no allocation. */
+int race_view_set_best_line(race_view *v, const char *code, int on)
+{
+    if (!v)
+        return 0;
+    if (!on || !code || !*code) {
+        if (v->best_line_mesh || v->best_line)
+            best_line_free(v);
+        return 0;
+    }
+    if (v->best_line_mesh && !strcmp(v->best_line_code, code))
+        return 1;
+    best_line_free(v);
+    snprintf(v->best_line_code, sizeof v->best_line_code, "%s", code);
+    static const char *const regions[] = {"us", "jp", "uk", "kr"};
+    const char *err = NULL;
+    gt4_vol *vol = gt4_vol_open(v->disc, &err);
+    if (!vol)
+        return 0;
+    for (unsigned r = 0; r < sizeof regions / sizeof *regions && !v->best_line; r++) {
+        char path[64];
+        snprintf(path, sizeof path, "/crs/bestline/%s%s", regions[r], code);
+        size_t size = 0;
+        uint8_t *bytes = gt4_vol_read(vol, path, &size);
+        if (!bytes)
+            continue;
+        gt4_model_stats stats;
+        gt4_model *m = gt4_model_decode_stats(bytes, size, -1, 0, &stats);
+        free(bytes);
+        if (!m) {
+            fprintf(stderr, "assist line: %s did not decode (op %d at 0x%zx)\n", path,
+                    stats.fail_op, stats.fail_offset);
+            continue;
+        }
+        v->best_line = m;
+        v->best_line_mesh = r3d_mesh_create(m);
+        fprintf(stderr, "assist line: loaded %s, %d triangles\n", path, m->count);
+    }
+    gt4_vol_close(vol);
+    if (!v->best_line_mesh)
+        fprintf(stderr, "assist line: no authored best line for %s\n", code);
+    return v->best_line_mesh != NULL;
 }
 
 int race_view_set_opponents(race_view *v, const char *const *cars, const int *colors, int n)
@@ -2565,6 +2628,13 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
 #ifndef MOON_DEKO3D
     road_sheen(v, &world);
 #endif /* P: native Switch forward shading replaces the road reflection passes. */
+    if (v->best_line_mesh) {
+        r3d_view line = world;
+        line.unlit = 1;
+        line.color_scale = 0;
+        line.model_list = NULL;
+        r3d_draw(v->best_line_mesh, &line);
+    }
     /* 003E5338 / 003E4A28: paired shadow and normal GDGT models in the object frame,
        Env0 lighting from the original per-object RNW4 light bytes.
        Geometry/textures stay resident; each draw changes only its pose. */

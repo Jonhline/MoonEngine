@@ -93,6 +93,15 @@ static void read_controls(race_game *g)
     if (connected) {
         menu_pad_configuration(NULL, 0, &config);
         gt4_pad_evaluate(&config, &state, &pad);
+        /* R3 is BUTTON_LICENCE_BEST_LINE; the Tweaks switch holds the action on. */
+        int line_pressed = pad.action[GT4_PAD_BEST_LINE] > .5f;
+        if (line_pressed && !g->best_line_button)
+            g->best_line = !g->best_line;
+        g->best_line_button = line_pressed;
+        if (video_settings_assist_line())
+            pad.action[GT4_PAD_BEST_LINE] = 1.f;
+    } else {
+        g->best_line_button = 0;
     }
     if (plat_input_is_wheel(0)) {
         pad.steer = -state.axes[0];

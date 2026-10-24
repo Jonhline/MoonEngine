@@ -4,7 +4,9 @@
 #define main daylight_fixture_main
 #include "daylight.c"
 #undef main
+#ifdef _WIN32
 #define main SDL_main
+#endif
 static int authored_fixture,hdr_fixture=1;
 static int baked_frame(int enabled, int hour, float source, int face, uint8_t pixel[3])
 {

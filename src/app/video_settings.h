@@ -21,6 +21,7 @@ typedef struct {
     int speed_fov, speed_fov_degrees, speed_cam_lag, speed_shake, speed_wind, speed_road_roar;
     int speed_blur, speed_blur_amount, speed_vignette;
     int skip_intro;
+    int assist_line;
     int discord_presence;
 #ifdef __ANDROID__
     int touch_menu;
@@ -84,6 +85,7 @@ int video_settings_speed_blur(void);
 int video_settings_speed_blur_amount(void);
 int video_settings_speed_vignette(void);
 int video_settings_skip_intro(void);
+int video_settings_assist_line(void);
 /* The one speed intensity every speed-driven effect reads: smoothstep 60..240 km/h,
    smoothed over SPEED_FEEL_SMOOTH_SECONDS. The race calls the frame once. */
 void video_settings_speed_frame(float kmh, double dt);

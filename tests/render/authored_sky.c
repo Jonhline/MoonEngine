@@ -4,7 +4,9 @@
 #undef main
 #include "../../src/platform/sdl/race_view.c"
 #include "miniz.h"
+#ifdef _WIN32
 #define main SDL_main
+#endif
 #define CHECK(x)                                                                                   \
     do {                                                                                           \
         if (!(x)) {                                                                                \

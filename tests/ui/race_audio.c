@@ -15,6 +15,17 @@
             exit(1);                                                                               \
         }                                                                                          \
     } while (0)
+/* The speed-feel switches are off for this offline transport; the race audio
+   only asks the getters for their gains. */
+int video_settings_speed_fov(void) { return 0; }
+int video_settings_speed_fov_degrees(void) { return 0; }
+int video_settings_speed_cam_lag(void) { return 0; }
+int video_settings_speed_shake(void) { return 0; }
+int video_settings_speed_wind(void) { return 0; }
+int video_settings_speed_road_roar(void) { return 0; }
+float video_settings_speed_level(void) { return 0.f; }
+void video_settings_speed_frame(float kmh, double dt) { (void)kmh; (void)dt; }
+int video_settings_assist_line(void) { return 0; }
 static plat_audio_cb callback;
 static void *owner;
 static uint64_t test_clock;

@@ -53,6 +53,8 @@ void gt4_pad_defaults(gt4_pad_config *out, int port)
     out->button[GT4_PAD_L2] = GT4_PAD_SHIFTDOWN;
     out->button[GT4_PAD_L1] = GT4_PAD_BACKVIEW;
     out->button[GT4_PAD_SELECT] = GT4_PAD_PLAYVIEW;
+    /* The disc's own licence best-line action: R3 on both ports. */
+    out->button[GT4_PAD_R3] = GT4_PAD_BEST_LINE;
     if (!port) {
         out->button[GT4_PAD_R1] = GT4_PAD_SPECIAL;
         out->button[GT4_PAD_UP] = GT4_PAD_GHOST;

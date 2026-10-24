@@ -4,7 +4,9 @@
 #define main daylight_fixture_main
 #include "daylight.c"
 #undef main
+#ifdef _WIN32
 #define main SDL_main
+#endif
 #include "miniz.h"
 static int authored_fixture,night_fixture;
 static int clouds(int enabled,float seconds,uint8_t out[128*128*4]) {
