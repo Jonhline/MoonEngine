@@ -12,6 +12,7 @@
 #include "assist_line.h"
 #include "career_license_disc.h"
 #include "career_race_lookup.h"
+#include "car.h"
 #include "course.h"
 #include "model.h"
 #include "vol.h"
@@ -57,8 +58,8 @@ static void metrics(const gt4_model *authored, const gt4_assist_line *line, int 
             for (int i = 0; i + 1 < line->count; i++) {
                 float ax = line->points[i][0] - line->points[i + 1][0];
                 float az = line->points[i][2] - line->points[i + 1][2];
-                if (ax * ax + az * az > 400.f)
-                    continue; /* an authored section jump, not a road */
+                if (ax * ax + az * az > 250000.f)
+                    continue; /* a real section jump (>500 m), not an AI line segment */
                 float d = seg_dist2(px, pz, line->points[i], line->points[i + 1]);
                 if (d < best) {
                     best = d;
@@ -107,8 +108,171 @@ static int check_one(gt4_vol *vol, const char *iso, const gt4_career_race_lookup
         return 0;
     }
 
+    /* The AI line lives in the guest's lines object, so stand the course's
+       runway and .ad blocks in a private 32 MB guest image, build the lines
+       exactly as the race does, then export the active line. */
+    char adpath[128];
+    snprintf(adpath, sizeof adpath, "/crs/%s.ad", exam.desc.course);
+    size_t an = 0;
+    uint8_t *adf = gt4_vol_read(vol, adpath, &an);
+    uint8_t *ram = calloc(0x02000000u, 1);
+    if (!adf || !ram || an < 24) {
+        free(bytes);
+        free(adf);
+        free(ram);
+        return 0;
+    }
+    gt4_phys_mem = ram;
+    enum {
+        COURSE_AT = 0x00100000u,
+        DATA_AT = 0x00110000u,
+        RW_AT = 0x00300000u,
+        AD_AT = 0x01000000u,
+        LINES_AT = 0x01800000u
+    };
+    uint32_t rw_size = (uint32_t)(bytes[course.runway + 8] | bytes[course.runway + 9] << 8 |
+                                  bytes[course.runway + 10] << 16 |
+                                  bytes[course.runway + 11] << 24);
+    if (rw_size == 0 || RW_AT + rw_size > AD_AT || AD_AT + an > LINES_AT) {
+        gt4_phys_mem = NULL;
+        free(bytes);
+        free(adf);
+        free(ram);
+        return 0;
+    }
+    memcpy(gt4_ptr(RW_AT), bytes + course.runway, rw_size);
+    memcpy(gt4_ptr(AD_AT), adf, an);
+    gt4_runway_relocate(RW_AT);
+    GT4_U32(COURSE_AT + 4) = DATA_AT;
+    GT4_U32(DATA_AT + 0xdc) = RW_AT;
+    for (uint32_t k = 0; k < 5; k++) {
+        uint32_t off = (uint32_t)adf[4 + k * 4] | (uint32_t)adf[5 + k * 4] << 8 |
+                       (uint32_t)adf[6 + k * 4] << 16 | (uint32_t)adf[7 + k * 4] << 24;
+        GT4_U32(COURSE_AT + 0x9c + k * 4) = off ? AD_AT + off : 0;
+    }
+    /* Lines_setup would recompute every point's distance from the course's
+       kd tree, which this probe does not build. Relocate the authored line
+       block the way lines.c does, then give points a monotonic distance for
+       line_at's segment search. Both authored formats are handled: the wide
+       ADLN block and the older fixed-point licence format. */
+    uint32_t adln = GT4_U32(COURSE_AT + 0x9c);
+    static const float pi = 3.14159265358979f;
+    int wide = GT4_U32(adln) == 0x4e4c4441u;
+    int entries;
+    uint32_t table;
+    size_t stride;
+    if (wide) {
+        entries = (int)GT4_U32(adln + 0x14);
+        stride = 0x40;
+        if (!GT4_U32(adln + 4)) {
+            GT4_U32(adln + 4) = adln;
+            GT4_U32(adln + 0x18) += adln;
+            for (int k = 0; k < entries; k++) {
+                uint32_t e = GT4_U32(adln + 0x18) + (uint32_t)k * 4;
+                if (!GT4_U32(e))
+                    continue;
+                uint32_t line = GT4_U32(adln + 4) + GT4_U32(e);
+                GT4_U32(e) = line;
+                int32_t n = (int32_t)GT4_U32(line);
+                if (!n) {
+                    GT4_U32(e) = 0;
+                    continue;
+                }
+                for (uint32_t p = line + 0x40; n > 0; n--, p += 0x40) {
+                    GT4_F32(p + 4) = -GT4_F32(p + 4);
+                    GT4_F32(p + 8) = -GT4_F32(p + 8);
+                    float h = GT4_F32(p + 0x24);
+                    uint32_t bits;
+                    memcpy(&bits, &h, 4);
+                    if ((bits & 0x7f800000u) == 0x7f800000u)
+                        bits = (bits & 0x80000000u) | 0x7f7fffffu;
+                    memcpy(&h, &bits, 4);
+                    GT4_F32(p + 0x24) = h + pi;
+                }
+            }
+        }
+        table = GT4_U32(adln + 0x18);
+        GT4_U32(LINES_AT) = COURSE_AT;
+        GT4_U32(LINES_AT + 4) = GT4_U32(adln + 0x14);
+        GT4_U32(LINES_AT + 8) = table;
+    } else {
+        /* legacy: the negative count marks the block, entries are at +8,
+           points start at +4 and stride 0x28, and x/z are 1/4096 fixed */
+        entries = 8;
+        stride = 0x28;
+        if ((int32_t)GT4_U32(adln) >= 0) {
+            GT4_U32(adln) = 0u - GT4_U32(adln);
+            for (int k = 0; k < entries; k++) {
+                uint32_t e = adln + 8 + (uint32_t)k * 4;
+                if (!GT4_U32(e))
+                    continue;
+                uint32_t line = adln + GT4_U32(e);
+                GT4_U32(e) = line;
+                int32_t n = (int32_t)GT4_U32(line);
+                if (!n) {
+                    GT4_U32(e) = 0;
+                    continue;
+                }
+                for (uint32_t p = line + 4; n > 0; n--, p += 0x28) {
+                    GT4_F32(p + 4) = -(float)(int32_t)GT4_U32(p + 4) * (1.f / 4096.f);
+                    GT4_F32(p + 8) = -(float)(int32_t)GT4_U32(p + 8) * (1.f / 4096.f);
+                    GT4_F32(p + 0x18) =
+                        (float)(int32_t)GT4_U32(p + 0x18) * (1.f / 4096.f);
+                    GT4_F32(p + 0x24) = ((float)(int32_t)GT4_U32(p + 0x24) * 6.28318530718f) *
+                                            (1.f / 4096.f) +
+                                        pi;
+                }
+            }
+        }
+        table = adln + 8;
+        GT4_U32(LINES_AT) = COURSE_AT;
+        GT4_U32(LINES_AT + 4) = GT4_U32(adln + 4);
+        GT4_U32(LINES_AT + 8) = table;
+    }
+    GT4_U16(LINES_AT + 0xc) = 1;
+    float line_len = 0;
+    for (int k = 0; k < entries; k++) {
+        uint32_t e = table + (uint32_t)k * 4;
+        uint32_t line = GT4_U32(e);
+        int32_t n = line ? (int32_t)GT4_U32(line) : 0;
+        if (n < 2)
+            continue;
+        uint32_t start = line + (uint32_t)(wide ? 0x40 : 4);
+        float d = 0;
+        for (int i = 0; i < n; i++) {
+            uint32_t a = start + (uint32_t)i * (uint32_t)stride,
+                     b = start + (uint32_t)((i + 1) % n) * (uint32_t)stride;
+            GT4_F32(a + 0x14) = d;
+            uint8_t kind = GT4_U8(a);
+            float dx = GT4_F32(b + 4) - GT4_F32(a + 4),
+                  dy = GT4_F32(b + 8) - GT4_F32(a + 8);
+            /* Segment selection only needs a monotonic distance. Use the
+               arc's own chord and radius (no heading wrap): this keeps the
+               sampling even along a long corner. */
+            float chord = sqrtf(dx * dx + dy * dy), seg = chord;
+            float r = fabsf(GT4_F32(a + 0x18));
+            if ((uint8_t)(kind - 1) < 2 && r > chord * .5f && chord > 1e-3f)
+                seg = r * 2.f * asinf(fminf(1.f, chord / (2.f * r)));
+            d += seg;
+        }
+        if (d > line_len)
+            line_len = d;
+    }
+    if (line_len > 1)
+        GT4_F32(RW_AT + 0x14) = line_len;
+    enum { AI_MAX = 16384 };
+    gt4_ai_line_point *points = calloc(AI_MAX, sizeof *points);
+    int active = -1;
+    int npoints = points ? gt4_ai_line_export(LINES_AT, 6, points, AI_MAX, &active) : 0;
     gt4_assist_line line;
-    if (!gt4_assist_line_build(&course, &line)) {
+    int built = npoints > 1 && gt4_assist_line_build(&course, points, npoints, &line);
+    (void)active;
+    free(points);
+    gt4_phys_mem = NULL;
+    free(adf);
+    free(ram);
+
+    if (!built) {
         free(bytes);
         return 0;
     }

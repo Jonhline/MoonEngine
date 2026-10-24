@@ -10,6 +10,7 @@
    the aim's lateral offset, +0xe4 session, +0xe8 car, +0xec the lines. */
 #include "car.h"
 #include "fields_conductor.h"
+#include "assist_line.h"
 
 #include <string.h>
 
@@ -1524,6 +1525,99 @@ static int line_pick(uint32_t lines, uint32_t i)
             return e; /* func_0046A050 */
     }
     return -1;
+}
+
+/* --- the assist line's read side: the game's own ADLN points ---
+   The line is already in the guest's memory (car+0xEC); this only copies it
+   into the render frame. No generation, no recording, no disc asset. */
+static int line_present(uint32_t lines, int index)
+{
+    uint32_t table = GT4_U32(lines + 8);
+    if (!table || !GT4_U32(table + (uint32_t)index * 4))
+        return 0;
+    return GT4_U32(GT4_U32(table + (uint32_t)index * 4)) > 1;
+}
+
+int gt4_ai_line_table_count(uint32_t lines)
+{
+    uint32_t table = GT4_U32(lines + 8);
+    int n = 0;
+    if (!table)
+        return 0;
+    for (int i = 0; i < 32; i++)
+        n += GT4_U32(table + (uint32_t)i * 4) != 0;
+    return n;
+}
+
+int gt4_ai_line_export(uint32_t lines, int index, gt4_ai_line_point *out, int cap, int *active)
+{
+    if (!lines || !out || cap <= 0)
+        return 0;
+    /* The pit line is line 4. A race's active line is car+0x1C; if that is
+       the pit (or absent) take the middle line's first present fallback. */
+    int chosen = index;
+    if (chosen == 4 || chosen < 0 || !line_present(lines, chosen)) {
+        static const int fallback[] = {6, 1, 2, 3, 5, 7};
+        chosen = -1;
+        for (size_t k = 0; k < sizeof fallback / sizeof *fallback; k++)
+            if (line_present(lines, fallback[k])) {
+                chosen = fallback[k];
+                break;
+            }
+    }
+    if (chosen < 0)
+        return 0;
+    line_t l = line_get(lines, chosen);
+    int count = (int)l.count;
+    if (count < 2)
+        return 0;
+    /* The authored points are sparse: a straight or an arc is described by
+       its radius/angle, not by a point every metre. Sample the game's own
+       interpolator (line_at) so the ribbon follows those arcs, and cover the
+       whole lap (the gap from the last point back to the first included). */
+    float len = course_length(lines);
+    if (!(len > 1.f))
+        return 0;
+    float d0 = GT4_F32(line_point(&l, 0) + 0x14);
+    float step = 1.0f;
+    int n = 0;
+    for (float d = d0; d < d0 + len - step * .5f && n < cap; d += step) {
+        float x, y, z;
+        if (!line_at(lines, chosen, 0, &x, &y, &z, d))
+            continue;
+        if (!isfinite(x) || !isfinite(y) || !isfinite(z))
+            continue;
+        float dn = d;
+        if (dn >= len)
+            dn -= len;
+        int near = 0;
+        float best = 1e30f;
+        for (int i = 0; i < count; i++) {
+            float pd = GT4_F32(line_point(&l, i) + 0x14);
+            float delta = fabsf(dn - pd);
+            if (delta > len * .5f)
+                delta = len - delta;
+            if (delta < best) {
+                best = delta;
+                near = i;
+            }
+        }
+        uint32_t pt = line_point(&l, near);
+        int skip = (int8_t)GT4_U8(pt + 2);
+        int kind = GT4_U8(pt);
+        gt4_ai_line_point *p = &out[n++];
+        p->x = x;
+        p->y = z; /* line_at's z is the ground height */
+        p->z = -y;
+        p->distance = d;
+        p->arc_radius = GT4_F32(pt + 0x18);
+        p->speed_trim = (int8_t)GT4_U8(pt + 1);
+        p->kind = kind;
+        p->skip = skip;
+    }
+    if (active)
+        *active = chosen;
+    return n;
 }
 
 /* func_0034C518's line part: line i (through its fallbacks,

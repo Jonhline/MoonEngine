@@ -6,6 +6,17 @@
 #include "course.h"
 #include "model.h"
 
+/* One point of the game's own AI course line (ADLN), already in the render
+   frame: x, y up, z. Read from the guest's lines object, never guessed. */
+typedef struct {
+    float x, y, z;
+    float distance;   /* along the course, metres */
+    float arc_radius; /* metres, 0 for a straight */
+    int speed_trim;   /* the point's s8 speed trim, percent */
+    int kind;          /* 0 straight, else arc */
+    int skip;          /* the s8 -128 marker: drop this point */
+} gt4_ai_line_point;
+
 typedef struct {
     gt4_model *model;       /* ribbon mesh material, owned here */
     int count;              /* points in the line */
@@ -16,10 +27,16 @@ typedef struct {
     double build_ms;        /* measured build cost, one course */
 } gt4_assist_line;
 
-/* Builds the ribbon from the runway's ordered path table (+0x4e count,
-   +0x84 offset, 16-byte x,y,z,tag entries), then moves it onto the racing
-   line inside the road. 0 when the course has none. */
-int gt4_assist_line_build(const gt4_course *course, gt4_assist_line *out);
+/* Reads the AI course line `index` of the guest's lines object (car+0xEC)
+   into points, dropping the pit line and every -128 skip point. Returns the
+   number written; *active is the line actually read. */
+int gt4_ai_line_export(uint32_t lines, int index, gt4_ai_line_point *out, int cap, int *active);
+/* How many lines the table holds (non-null entries), for the STEP 0 dump. */
+int gt4_ai_line_table_count(uint32_t lines);
+/* Builds the ribbon from the game's own AI line. The old RNW4-section
+   generator is gone. 0 when there is no usable line. */
+int gt4_assist_line_build(const gt4_course *course, const gt4_ai_line_point *points, int count,
+                          gt4_assist_line *out);
 void gt4_assist_line_free(gt4_assist_line *line);
 
 #endif

@@ -187,9 +187,11 @@ struct race_view {
     r3d_mesh *best_line_mesh;
     char best_line_code[32];
     int best_line_missing;
-    gt4_assist_line assist;        /* the generated line, one course at a time */
+    gt4_assist_line assist;        /* the AI line's ribbon, one course at a time */
     r3d_mesh *assist_mesh;
     char assist_course[64];
+    uint32_t assist_lines;         /* the guest's lines object (car+0xEC) */
+    int assist_index;              /* the line the car is running (car+0x1C) */
 
     float photo_jitter[2];
     int screen_reflect;
@@ -1331,13 +1333,22 @@ int race_view_set_best_line(race_view *v, const char *code, int on)
     return v->best_line_mesh != NULL;
 }
 
-/* The generated line for a course without an authored ribbon. Built once
-   from the runway's ordered path table and cached by course name. */
+void race_view_set_assist_source(race_view *v, uint32_t lines, int index)
+{
+    if (!v)
+        return;
+    v->assist_lines = lines;
+    v->assist_index = index;
+}
+
+/* The line built from the game's own AI course line, cached by course name.
+   The points come from the loaded race's lines object; nothing is generated
+   or recorded. */
 int race_view_set_assist_line(race_view *v, const char *course, int on)
 {
     if (!v)
         return 0;
-    if (!on || !course || !*course) {
+    if (!on || !course || !*course || !v->assist_lines) {
         assist_line_free(v);
         return 0;
     }
@@ -1345,11 +1356,24 @@ int race_view_set_assist_line(race_view *v, const char *course, int on)
         return 1;
     assist_line_free(v);
     snprintf(v->assist_course, sizeof v->assist_course, "%s", course);
-    if (!v->now || !gt4_assist_line_build(&v->now->course, &v->assist))
+    if (!v->now)
         return 0;
+    enum { AI_LINE_MAX = 16384 };
+    gt4_ai_line_point *points = calloc(AI_LINE_MAX, sizeof *points);
+    if (!points)
+        return 0;
+    int active = -1;
+    int n = gt4_ai_line_export(v->assist_lines, v->assist_index, points, AI_LINE_MAX, &active);
+    int built = n > 1 && gt4_assist_line_build(&v->now->course, points, n, &v->assist);
+    free(points);
+    if (!built) {
+        fprintf(stderr, "assist line: no usable AI line for %s (active %d, %d points)\n", course,
+                active, n);
+        return 0;
+    }
     v->assist_mesh = r3d_mesh_create(v->assist.model);
-    fprintf(stderr, "assist line: generated %s, %d points, %d triangles, %.2f ms\n", course,
-            v->assist.count, v->assist.triangles, v->assist.build_ms);
+    fprintf(stderr, "assist line: %s AI line %d, %d points, %d triangles, %.2f ms\n", course,
+            active, v->assist.count, v->assist.triangles, v->assist.build_ms);
     return v->assist_mesh != NULL;
 }
 

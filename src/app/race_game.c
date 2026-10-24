@@ -44,6 +44,7 @@
 #include "course_pregrid.h"
 #include "course_tvcam.h"
 #include "car.h"
+#include "assist_line.h"
 #include "specdb.h"
 #include "arcade.h"
 #include "vol.h"
@@ -2999,6 +3000,32 @@ static int race_game_draw_scene(race_game *g)
     {
         int licence = g->last_desc.license == 1 || g->last_desc.license == 2;
         int show = video_settings_assist_line() || (licence && g->best_line);
+        uint32_t player = g->run ? gt4_race_run_car(g->run, 0) : 0;
+        uint32_t lines = player ? GT4_U32(player + CAR_FIELD_DRIVER_MODEL + 0xec) : 0;
+        int line_index = player ? GT4_U8(player + CAR_FIELD_DRIVER_MODEL + 0x1c) : 6;
+        race_view_set_assist_source(g->view, lines, line_index);
+        static int assist_dumped;
+        if (lines && !assist_dumped && getenv("MOON_ASSIST_DUMP")) {
+            assist_dumped = 1;
+            enum { DUMP_MAX = 16384 };
+            gt4_ai_line_point *pts = calloc(DUMP_MAX, sizeof *pts);
+            if (pts) {
+                int active = -1;
+                int n = gt4_ai_line_export(lines, line_index, pts, DUMP_MAX, &active);
+                fprintf(stderr,
+                        "assist dump: course=%s active_line=%d table_lines=%d points=%d\n",
+                        g->last_course, active, gt4_ai_line_table_count(lines), n);
+                for (int i = 0; i < n && i < 3; i++)
+                    fprintf(stderr, "  first[%d] x=%.3f y=%.3f z=%.3f d=%.2f trim=%d r=%.1f kind=%d\n",
+                            i, pts[i].x, pts[i].y, pts[i].z, pts[i].distance, pts[i].speed_trim,
+                            pts[i].arc_radius, pts[i].kind);
+                for (int i = n > 3 ? n - 3 : 0; i < n; i++)
+                    fprintf(stderr, "  last[%d] x=%.3f y=%.3f z=%.3f d=%.2f trim=%d r=%.1f kind=%d\n",
+                            i, pts[i].x, pts[i].y, pts[i].z, pts[i].distance, pts[i].speed_trim,
+                            pts[i].arc_radius, pts[i].kind);
+                free(pts);
+            }
+        }
         int authored = show && licence &&
                        race_view_set_best_line(g->view, g->last_desc.license_code, 1);
         if (authored)
