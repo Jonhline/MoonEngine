@@ -3,6 +3,7 @@
 #endif
 #include "discord_presence.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -72,6 +73,20 @@ typedef struct {
 } dp_state;
 
 static dp_state dp = {.fd = DP_INVALID_FD};
+static discord_presence_log_fn dp_log_sink;
+
+static void dp_log(const char *fmt, ...)
+{
+    char line[1600];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof line, fmt, ap);
+    va_end(ap);
+    if (dp_log_sink)
+        dp_log_sink(line);
+    else
+        fprintf(stderr, "%s\n", line);
+}
 
 #ifdef MOON_DISCORD_PRESENCE_TEST
 static char test_search_dir[512];
@@ -210,14 +225,14 @@ static int dp_slug(char *out, size_t cap, const char *in)
 
 static int dp_build_activity(const gen_presence *p, char *out, size_t cap, uint64_t start)
 {
-    char course[768], mode[192], car[512], slug[192], details[1100], state[512];
-    size_t dl = 0;
+    char course[768], mode[192], car[512], slug[192], details[1100], state[512], fields[1700];
+    size_t dl = 0, fl = 0;
     int has_course = p && p->course && *p->course;
     if (!dp_escape(course, sizeof course, has_course ? p->course : "") ||
         !dp_escape(mode, sizeof mode, p && p->mode ? p->mode : "") ||
         !dp_escape(car, sizeof car, p && p->car ? p->car : ""))
         return 0;
-    details[0] = state[0] = 0;
+    details[0] = state[0] = fields[0] = 0;
     if (mode[0] && !dp_puts(details, sizeof details, &dl, mode))
         return 0;
     if (has_course) {
@@ -227,25 +242,44 @@ static int dp_build_activity(const gen_presence *p, char *out, size_t cap, uint6
             return 0;
     }
     snprintf(state, sizeof state, "%s", car);
-    int w;
+    /* Discord validates a present field's length: an empty details/state string
+       makes it drop the whole activity. Omit the field instead (the console
+       build starts in menus where there is no car yet). */
+    if (details[0]) {
+        if (!dp_puts(fields, sizeof fields, &fl, "\"details\":\"") ||
+            !dp_puts(fields, sizeof fields, &fl, details) ||
+            !dp_puts(fields, sizeof fields, &fl, "\","))
+            return 0;
+    }
+    if (state[0]) {
+        if (!dp_puts(fields, sizeof fields, &fl, "\"state\":\"") ||
+            !dp_puts(fields, sizeof fields, &fl, state) ||
+            !dp_puts(fields, sizeof fields, &fl, "\","))
+            return 0;
+    }
     if (has_course) {
         if (!dp_slug(slug, sizeof slug, p->course))
             return 0;
-        w = snprintf(
-            out, cap,
-            "{\"details\":\"%s\",\"state\":\"%s\",\"timestamps\":{\"start\":%llu},"
+        char assets[1400];
+        int aw = snprintf(
+            assets, sizeof assets,
             "\"assets\":{\"large_image\":\"track-%s\",\"large_text\":\"%s\","
-            "\"small_image\":\"moonengine\",\"small_text\":\"Moon Engine\"},"
-            "\"instance\":false}",
-            details, state, (unsigned long long)start, slug, course);
-    } else {
-        w = snprintf(
-            out, cap,
-            "{\"details\":\"%s\",\"state\":\"%s\",\"timestamps\":{\"start\":%llu},"
-            "\"assets\":{\"large_image\":\"moonengine\",\"large_text\":\"Moon Engine\"},"
-            "\"instance\":false}",
-            details, state, (unsigned long long)start);
-    }
+            "\"small_image\":\"moonengine\",\"small_text\":\"Moon Engine\"},",
+            slug, course);
+        if (aw <= 0 || (size_t)aw >= sizeof assets ||
+            !dp_puts(fields, sizeof fields, &fl, assets))
+            return 0;
+    } else if (!dp_puts(fields, sizeof fields, &fl,
+                        "\"assets\":{\"large_image\":\"moonengine\","
+                        "\"large_text\":\"Moon Engine\"},"))
+        return 0;
+    char tail[128];
+    int tw = snprintf(tail, sizeof tail, "\"timestamps\":{\"start\":%llu},\"instance\":false",
+                      (unsigned long long)start);
+    if (tw <= 0 || (size_t)tw >= sizeof tail ||
+        !dp_puts(fields, sizeof fields, &fl, tail))
+        return 0;
+    int w = snprintf(out, cap, "{%s}", fields);
     return w > 0 && (size_t)w < cap;
 }
 
@@ -295,7 +329,7 @@ static void dp_fail(void)
     dp.disabled_until_ms = dp_now_ms() + DP_BACKOFF_MS;
     if (!dp.reported) {
         dp.reported = 1;
-        fprintf(stderr, "discord presence: unavailable, retrying in 60 s\n");
+        dp_log("discord presence: unavailable, retrying in 60 s");
     }
 }
 
@@ -381,9 +415,15 @@ static int dp_process_rx(void)
         if (dp.rx_len - off - 8 < len)
             break;
         const unsigned char *json = dp.rx + off + 8;
-        if (opcode == 1 && dp_mem_has(json, len, "READY"))
+        if (opcode == 1 && dp_mem_has(json, len, "READY")) {
             dp.ready = 1;
-        else if (opcode == 3) {
+            dp_log("discord presence: Discord READY");
+        } else if (opcode == 1) {
+            dp_log("discord presence: Discord reply: %.*s", (int)len, (const char *)json);
+        } else if (opcode == 2) {
+            dp_log("discord presence: Discord closed the pipe");
+        }
+        if (opcode == 3) {
             char pong[DP_PAYLOAD_MAX + 1];
             size_t n = len < sizeof pong - 1 ? len : sizeof pong - 1;
             memcpy(pong, json, n);
@@ -519,6 +559,7 @@ static int dp_connect_unix(void)
                 dp.fd = fd;
                 dp.connected = 1;
                 dp.rx_len = 0;
+                dp_log("discord presence: connected to %s", path);
                 return 1;
             }
             close(fd);
@@ -542,6 +583,7 @@ static int dp_connect_windows(void)
         dp.fd = h;
         dp.connected = 1;
         dp.rx_len = 0;
+        dp_log("discord presence: connected to %s", path);
         return 1;
     }
     return 0;
@@ -555,6 +597,11 @@ static int dp_connect(void)
 #else
     return dp_connect_unix();
 #endif
+}
+
+void discord_presence_set_log(discord_presence_log_fn fn)
+{
+    dp_log_sink = fn;
 }
 
 void discord_presence_configure(int enabled, const char *app_id)
@@ -575,7 +622,7 @@ void discord_presence_configure(int enabled, const char *app_id)
     dp.enabled = enabled && dp.app_id[0] != 0;
     if (enabled && !dp.enabled && !dp.reported) {
         dp.reported = 1;
-        fprintf(stderr, "discord presence: integrations.discord_app_id is empty\n");
+        dp_log("discord presence: integrations.discord_app_id is empty");
     }
 }
 
@@ -595,12 +642,12 @@ void discord_presence_tick(const gen_presence *p)
             return;
         }
     }
-    if (!dp.ready) {
-        if (!dp_read_some())
-            return;
-        if (!dp.ready)
-            return;
-    }
+    /* Read every tick, not only before READY: Discord answers a rejected
+       SET_ACTIVITY (a missing/empty field, a bad asset) on this same pipe. */
+    if (!dp_read_some())
+        return;
+    if (!dp.ready)
+        return;
 
     char activity[DP_PAYLOAD_MAX];
     int live = p != NULL;
@@ -630,9 +677,15 @@ void discord_presence_tick(const gen_presence *p)
         dp_fail();
         return;
     }
+    dp_log("discord presence: SET_ACTIVITY sent: %.300s", payload);
     snprintf(dp.last_activity, sizeof dp.last_activity, "%s", activity);
     dp.has_last = 1;
     dp.last_send_ms = now;
+}
+
+int discord_presence_linked(void)
+{
+    return dp.enabled && dp.connected && dp.ready;
 }
 
 void discord_presence_shutdown(void)
@@ -698,6 +751,16 @@ void discord_presence_tick(const gen_presence *p)
 
 void discord_presence_shutdown(void)
 {
+}
+
+int discord_presence_linked(void)
+{
+    return 0;
+}
+
+void discord_presence_set_log(discord_presence_log_fn fn)
+{
+    (void)fn;
 }
 
 #endif

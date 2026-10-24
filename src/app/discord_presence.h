@@ -17,6 +17,11 @@ typedef struct {
 void discord_presence_configure(int enabled, const char *app_id);
 void discord_presence_tick(const gen_presence *p);
 void discord_presence_shutdown(void);
+/* 1 once Discord has answered READY (the presence can be set). */
+int discord_presence_linked(void);
+/* Route the transport's own diagnostics somewhere (the app writes presence.log). */
+typedef void (*discord_presence_log_fn)(const char *line);
+void discord_presence_set_log(discord_presence_log_fn fn);
 
 int discord_presence_encode_frame(uint32_t opcode, const char *json, size_t json_len,
                                   unsigned char *out, size_t cap, size_t *out_len);

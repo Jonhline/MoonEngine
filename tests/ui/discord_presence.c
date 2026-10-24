@@ -124,6 +124,24 @@ static void encoder_test(void)
     assert(!strstr(json, "track-"));
     discord_presence_test_reset();
     close(sv[1]);
+
+    /* Menus before a car is chosen: Discord rejects an empty state field, so
+       the field must be absent, not "state":"" . */
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    discord_presence_test_reset();
+    discord_presence_configure(1, "123456789012345678");
+    discord_presence_test_set_fd(sv[0], 1);
+    p.course = NULL;
+    p.mode = "Save";
+    p.car = NULL;
+    discord_presence_tick(&p);
+    len = read_frame(sv[1], json, sizeof json);
+    assert(len == strlen(json));
+    assert(strstr(json, "\"details\":\"Save\""));
+    assert(!strstr(json, "\"state\""));
+    assert(strstr(json, "\"large_image\":\"moonengine\""));
+    discord_presence_test_reset();
+    close(sv[1]);
 }
 
 static void negative_test(void)

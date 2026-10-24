@@ -145,6 +145,7 @@ static int guide_options_busy(void);
 
 /* Discord presence: one gate and one context build for every render loop. */
 static int app_presence_enabled;
+static void app_presence_log(const char *line);
 
 static const char *app_presence_car_name(menu *m, const char *label)
 {
@@ -292,6 +293,15 @@ static void app_presence_poll(const char *mode, const char *course, menu *car_me
         app_presence_log(trace);
     }
     discord_presence_tick(&presence);
+    static int last_linked = -1;
+    int linked = discord_presence_linked();
+    if (linked != last_linked) {
+        last_linked = linked;
+        char trace[96];
+        snprintf(trace, sizeof trace, "discord presence: link %s", linked ? "ready" : "not connected");
+        fprintf(stderr, "%s\n", trace);
+        app_presence_log(trace);
+    }
 }
 
 #define DOCK_COUNT 4
@@ -4135,6 +4145,7 @@ int main(int argc, char **argv)
     /* The captain's own Discord application (Developer Portal). A client id is public —
        it is not a secret and it is what lets presence work out of the box. The toggle
        above still ships OFF (LAW 12): nothing talks to Discord until it is switched on. */
+    discord_presence_set_log(app_presence_log);
     discord_presence_configure(
         discord_enabled,
         moon_options_get(&settings.store, "integrations.discord_app_id",
