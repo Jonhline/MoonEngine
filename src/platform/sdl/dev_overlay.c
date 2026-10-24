@@ -2,7 +2,7 @@
  * G6.40 — the debug overlay.
  *
  * One compact readout drawn over whatever is on screen (launcher, menus and
- * races), off at every start, toggled by F3 on the desktop and by the
+ * races), off at every start, toggled by F4 on the desktop and by the
  * volume-up + volume-down chord on Android. It reads and draws only: the
  * renderers, the frame's own work and the physics step are untouched.
  *
@@ -25,6 +25,7 @@
 
 #include <SDL.h>
 #include <math.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -133,10 +134,18 @@ static int overlay_on;
 static int overlay_ready;
 
 /* ---- measurement ---- */
+#define OVERLAY_WINDOW_NS 1000000000ull
+#define OVERLAY_SAMPLE_MAX 1024
 static uint64_t last_frame_ns;
-static double frame_ms[60];
-static int frame_ms_count, frame_ms_next;
+static struct {
+    uint64_t ns;
+    double ms;
+} frame_samples[OVERLAY_SAMPLE_MAX];
+static int frame_sample_count, frame_sample_next;
 static uint64_t sample_last_ns;
+/* The race state the app publishes for the RACE rows. kmh < 0 = not racing. */
+static float overlay_kmh = -1;
+static int overlay_assist, overlay_speed_percent;
 static double cpu_percent = -1;
 static uint64_t rss_bytes, ram_bytes;
 static double gpu_ms = -1;
@@ -150,7 +159,7 @@ static int gpu_have_prev;
 static void reset_sampling(void)
 {
     last_frame_ns = 0;
-    frame_ms_count = frame_ms_next = 0;
+    frame_sample_count = frame_sample_next = 0;
     sample_last_ns = 0;
     cpu_percent = -1;
     gpu_ms = -1;
@@ -158,6 +167,13 @@ static void reset_sampling(void)
 #if defined(MOON_PC_VULKAN)
     gpu_have_prev = 0;
 #endif
+}
+
+void moon_debug_overlay_set_race(float kmh, int assist_line, int speed_percent)
+{
+    overlay_kmh = kmh;
+    overlay_assist = assist_line;
+    overlay_speed_percent = speed_percent;
 }
 
 /* Best-effort vendor GPU load, each node guarded; 0 = absent (prints n/a). */
@@ -302,31 +318,60 @@ static const char *overlay_platform(void)
 #endif
 }
 
+static void overlay_row(char labels[][28], char values[][56], int *n, const char *label,
+                        const char *value)
+{
+    if (*n >= 24)
+        return;
+    snprintf(labels[*n], 28, "%s", label ? label : "");
+    snprintf(values[*n], 56, "%s", value ? value : "");
+    (*n)++;
+}
+
+static void overlay_rowf(char labels[][28], char values[][56], int *n, const char *label,
+                         const char *fmt, ...)
+{
+    char value[56];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(value, sizeof value, fmt, ap);
+    va_end(ap);
+    overlay_row(labels, values, n, label, value);
+}
+
 void moon_debug_overlay_draw(void)
 {
     if (!overlay_on)
         return;
     uint64_t now = plat_time_ns();
+    double last_ms = -1;
     if (last_frame_ns) {
         double ms = (double)(now - last_frame_ns) / 1e6;
         if (ms > 0 && ms < 10000.0) {
-            frame_ms[frame_ms_next] = ms;
-            frame_ms_next = (frame_ms_next + 1) % 60;
-            if (frame_ms_count < 60)
-                frame_ms_count++;
+            last_ms = ms;
+            frame_samples[frame_sample_next].ns = now;
+            frame_samples[frame_sample_next].ms = ms;
+            frame_sample_next = (frame_sample_next + 1) % OVERLAY_SAMPLE_MAX;
+            if (frame_sample_count < OVERLAY_SAMPLE_MAX)
+                frame_sample_count++;
         }
     }
     last_frame_ns = now;
     sample_slow(now);
 
+    /* The same samples for last, 1 s average, 1 s worst and FPS. */
     double sum = 0, worst = 0;
-    for (int i = 0; i < frame_ms_count; i++) {
-        sum += frame_ms[i];
-        if (frame_ms[i] > worst)
-            worst = frame_ms[i];
+    int count = 0;
+    for (int i = 0; i < frame_sample_count; i++) {
+        int at = (frame_sample_next - 1 - i + OVERLAY_SAMPLE_MAX) % OVERLAY_SAMPLE_MAX;
+        if (now - frame_samples[at].ns > OVERLAY_WINDOW_NS)
+            break;
+        sum += frame_samples[at].ms;
+        if (frame_samples[at].ms > worst)
+            worst = frame_samples[at].ms;
+        count++;
     }
-    double mean = frame_ms_count ? sum / frame_ms_count : 0;
-    double fps = mean > 0 ? 1000.0 / mean : 0;
+    double mean = count ? sum / (double)count : -1;
 
     r3d_stats st = r3d_frame_stats();
     unsigned late = 0;
@@ -334,23 +379,19 @@ void moon_debug_overlay_draw(void)
     late = (unsigned)video_frame_late_count();
 #endif
 
-    int fw = 640, fh = 480;
+    int out_w = 0, out_h = 0, scene_w = 0, scene_h = 0;
     {
-        int dw = 0, dh = 0;
         SDL_Window *win = plat_sdl_window();
         if (win) {
 #if defined(MOON_PC_VULKAN)
             if (moon_vk_render_active())
-                moon_vk_render_size(win, &dw, &dh);
+                moon_vk_render_size(win, &out_w, &out_h);
             else
 #endif
-                SDL_GL_GetDrawableSize(win, &dw, &dh);
+                SDL_GL_GetDrawableSize(win, &out_w, &out_h);
         }
-        if (dw >= 1)
-            fw = dw;
-        if (dh >= 1)
-            fh = dh;
     }
+    video_scene_target_size(&scene_w, &scene_h);
 
     char api[64], device[72];
     overlay_api_strings(api, sizeof api, device, sizeof device);
@@ -361,7 +402,6 @@ void moon_debug_overlay_draw(void)
 #else
         moon_renderer_name(MOON_RENDERER_OPENGL);
 #endif
-    /* Keep line 4 compact: one short API token and a bounded device name. */
     char api_short[20];
     if (!strcmp(renderer, "vulkan"))
         snprintf(api_short, sizeof api_short, "vulkan");
@@ -381,65 +421,118 @@ void moon_debug_overlay_draw(void)
     else
         snprintf(device_short, sizeof device_short, "n/a");
 
-    char gpu[40];
-    if (gpu_ms >= 0)
-        snprintf(gpu, sizeof gpu, "%.2fMS", gpu_ms);
+    char labels[24][28], values[24][56];
+    int n = 0;
+    overlay_row(labels, values, &n, "", "DEBUG OVERLAY   F4");
+    overlay_row(labels, values, &n, "", "FRAME");
+    if (last_ms >= 0)
+        overlay_rowf(labels, values, &n, "Last frame", "%.2f ms", last_ms);
     else
-        snprintf(gpu, sizeof gpu, "n/a");
+        overlay_row(labels, values, &n, "Last frame", "n/a");
+    if (count)
+        overlay_rowf(labels, values, &n, "1 s average", "%.2f ms", mean);
+    else
+        overlay_row(labels, values, &n, "1 s average", "n/a");
+    if (count)
+        overlay_rowf(labels, values, &n, "1 s worst", "%.2f ms", worst);
+    else
+        overlay_row(labels, values, &n, "1 s worst", "n/a");
+    if (count && sum > 0)
+        overlay_rowf(labels, values, &n, "FPS (1 s)", "%.1f", (double)count * 1000.0 / sum);
+    else
+        overlay_row(labels, values, &n, "FPS (1 s)", "n/a");
 
-    char cpu[24];
+    overlay_row(labels, values, &n, "", "SCENE");
+    overlay_rowf(labels, values, &n, "Draw calls", "%u", st.draws);
+    overlay_rowf(labels, values, &n, "Triangles", "%u", st.triangles);
+    if (scene_w > 0 && scene_h > 0)
+        overlay_rowf(labels, values, &n, "Scene render", "%d x %d", scene_w, scene_h);
+    else
+        overlay_row(labels, values, &n, "Scene render", "n/a");
+    if (out_w > 0 && out_h > 0)
+        overlay_rowf(labels, values, &n, "Output", "%d x %d", out_w, out_h);
+    else
+        overlay_row(labels, values, &n, "Output", "n/a");
+    overlay_rowf(labels, values, &n, "Culled groups", "%u", st.culled_groups);
+
+    overlay_row(labels, values, &n, "", "RACE");
+    if (overlay_kmh >= 0)
+        overlay_rowf(labels, values, &n, "Speed", "%.0f km/h", overlay_kmh);
+    else
+        overlay_row(labels, values, &n, "Speed", "n/a");
+    if (overlay_kmh >= 0)
+        overlay_row(labels, values, &n, "Assist line", overlay_assist ? "on" : "off");
+    else
+        overlay_row(labels, values, &n, "Assist line", "n/a");
+    if (overlay_kmh >= 0 && overlay_assist && overlay_speed_percent >= 0)
+        overlay_rowf(labels, values, &n, "Speed level", "%d%%", overlay_speed_percent);
+    else
+        overlay_row(labels, values, &n, "Speed level",
+                    overlay_kmh >= 0 && overlay_assist ? "n/a" : "off");
+
+    overlay_row(labels, values, &n, "", "SYSTEM");
     if (cpu_percent >= 0)
-        snprintf(cpu, sizeof cpu, "%.0f%%", cpu_percent);
+        overlay_rowf(labels, values, &n, "CPU", "%.0f%%", cpu_percent);
     else
-        snprintf(cpu, sizeof cpu, "n/a");
-    char rss[24];
+        overlay_row(labels, values, &n, "CPU", "n/a");
     if (rss_bytes)
-        snprintf(rss, sizeof rss, "%.1fMB", (double)rss_bytes / (1024.0 * 1024.0));
+        overlay_rowf(labels, values, &n, "Memory (RSS)", "%.1f MB",
+                     (double)rss_bytes / (1024.0 * 1024.0));
     else
-        snprintf(rss, sizeof rss, "n/a");
-
-    char lines[4][100];
-    snprintf(lines[0], sizeof lines[0], "FPS %5.1f  %6.2fMS  WORST %6.2fMS", fps, mean, worst);
+        overlay_row(labels, values, &n, "Memory (RSS)", "n/a");
+    if (gpu_ms >= 0)
+        overlay_rowf(labels, values, &n, "GPU time", "%.2f ms", gpu_ms);
+    else
+        overlay_row(labels, values, &n, "GPU time", "n/a");
     if (gpu_vendor_percent >= 0)
-        snprintf(lines[1], sizeof lines[1], "CPU %s  RSS %s  GPU %s  LOAD %.0f%%", cpu, rss, gpu,
-                 gpu_vendor_percent);
+        overlay_rowf(labels, values, &n, "GPU load", "%.0f%%", gpu_vendor_percent);
     else
-        snprintf(lines[1], sizeof lines[1], "CPU %s  RSS %s  GPU %s", cpu, rss, gpu);
-    snprintf(lines[2], sizeof lines[2], "DRAWS %u  TRIS %u  CULL %u  STATE %u  TEX %u", st.draws,
-             st.triangles, st.culled_groups, st.state_cache_hits, st.texture_cache_hits);
-    snprintf(lines[3], sizeof lines[3], "%s %s | %dx%d | %s %s | LATE %u", renderer, api_short, fw,
-             fh, overlay_platform(), device_short, late);
+        overlay_row(labels, values, &n, "GPU load", "n/a");
+#if defined(MOON_PC_VULKAN)
+    overlay_rowf(labels, values, &n, "Late frames", "%u", late);
+#else
+    overlay_row(labels, values, &n, "Late frames", "n/a");
+#endif
+    overlay_rowf(labels, values, &n, "Renderer", "%s %s", renderer, api_short);
+    overlay_rowf(labels, values, &n, "Device", "%s", device_short);
 
-    /* Fixed 640x480 UI space (the same one the touch overlay uses); the platform
-       scales it to the window, so a font pixel grows with the display. */
+    /* Fixed 640x480 UI space; the platform scales it to the window. */
     plat_video_set_view(640, 480);
-    float p = (float)fh / 720.0f;
+    float p = (float)out_h / 720.0f;
     if (p < 1)
         p = 1;
     if (p > 2)
         p = 2;
-    float pad = 4 * p, margin = 8;
-    size_t maxlen = 0;
-    for (int i = 0; i < 4; i++) {
-        size_t len = strlen(lines[i]);
-        if (len > maxlen)
-            maxlen = len;
+    const float lh = 9.5f * p;
+    const float pad = 4 * p, margin = 8;
+    const int label_col = 20; /* characters */
+    size_t max_value = 0;
+    for (int i = 0; i < n; i++) {
+        size_t len = strlen(values[i]);
+        if (len > max_value)
+            max_value = len;
     }
-    /* Keep the panel inside the 640-wide UI space. */
     size_t limit = (size_t)((640 - 2 * margin - 2 * pad) / (6 * p));
-    if (limit < 8)
-        limit = 8;
-    if (maxlen > limit) {
-        maxlen = limit;
-        for (int i = 0; i < 4; i++)
-            lines[i][limit] = 0;
-    }
-    float lh = 9 * p;
-    float width = maxlen * 6 * p + 2 * pad, height = 4 * lh + 2 * pad;
+    if (limit < (size_t)label_col + 8)
+        limit = (size_t)label_col + 8;
+    if (max_value + label_col > limit)
+        max_value = limit - label_col;
+    float width = (float)(label_col + (int)max_value) * 6 * p + 2 * pad;
+    float height = (float)n * lh + 2 * pad;
     overlay_plate(margin, margin, width, height);
     const uint8_t ink[4] = {235, 238, 242, 255};
-    for (int i = 0; i < 4; i++)
-        overlay_text(lines[i], margin + pad, margin + pad + i * lh, p, ink);
+    const uint8_t dim[4] = {150, 156, 166, 255};
+    const uint8_t accent[4] = {255, 190, 80, 255};
+    for (int i = 0; i < n; i++) {
+        float y = margin + pad + i * lh;
+        if (!labels[i][0]) {
+            overlay_text(values[i], margin + pad, y, p, accent);
+            continue;
+        }
+        values[i][max_value] = 0;
+        overlay_text(labels[i], margin + pad, y, p, dim);
+        overlay_text(values[i], margin + pad + label_col * 6 * p, y, p, ink);
+    }
 }
 
 /* ---- the toggle ---- */
@@ -458,7 +551,7 @@ static int overlay_event_watch(void *user, SDL_Event *event)
 {
     (void)user;
     if (event->type == SDL_KEYDOWN && !event->key.repeat &&
-        event->key.keysym.scancode == SDL_SCANCODE_F3)
+        event->key.keysym.scancode == SDL_SCANCODE_F4)
         moon_debug_overlay_toggle();
     return 1;
 }

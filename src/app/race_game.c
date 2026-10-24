@@ -31,6 +31,7 @@
 #include "race_mission.h"
 #include "render3d.h"
 #include "video_gl.h"
+#include "dev_overlay.h"
 #include "screen_setting.h"
 #include "race_pause.h"
 #include "race_bspec.h"
@@ -2771,6 +2772,8 @@ void race_game_update(race_game *g, double dt)
         gt4_race_hud hud;
         float kmh = gt4_race_run_hud(g->run, 0, &hud) ? hud.speed * 3.6f : 0.f;
         video_settings_speed_frame(kmh, dt);
+        moon_debug_overlay_set_race(kmh, video_settings_assist_line(),
+                                    (int)(video_settings_speed_level() * 100.f + .5f));
     }
     read_controls(g);
     bspec_frame(g, dt);

@@ -4489,7 +4489,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "cannot open a window: %s\n", SDL_GetError());
         return 1;
     }
-    moon_debug_overlay_init(); /* F3 / volume chord; off until toggled */
+    moon_debug_overlay_init(); /* F4 / volume chord; off until toggled */
 #ifdef __SWITCH__
     video_switch_scene_resolution(settings.current.scene_resolution);
 #endif
@@ -6849,6 +6849,8 @@ int main(int argc, char **argv)
             shot_wait = 0; /* each movie transition gets a fresh loading deadline */
         /* G6.40: the frame's last drawing — the debug overlay, over launcher,
            menus and race alike. Its one hook in this loop. */
+        if (driving != 2)
+            moon_debug_overlay_set_race(-1, 0, 0);
         moon_debug_overlay_draw();
         int shot_due = shot != NULL && !app_jukebox_fixture(mn);
         if (shot && shot_delay > 0) {
