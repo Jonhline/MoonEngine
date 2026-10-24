@@ -269,3 +269,41 @@ or *close a door he has already walked into once*.
 - Commits author **`Or Golan <or024662@gmail.com>`**; **never push** — he gates every push.
 - Never write his state files: `launcher.ini`, `video.ini`, `mods.ini`, `saves/`, `studio-rig.txt`.
 - He is PC-less: the deliverable is an APK on the share + the log he can attach.
+
+## Q4 — WINDOW GEOMETRY REMEMBERED (Boss, 2026-10-22, after fix 3)
+Boss verbatim: "when u for example. i expand the launcher. the launcher will remember what size it was and next time i launch the game it will be on that size even if i do maximize button it will remember i did and start of maximized."
+Status: QUEUED behind fix 3 (welcome-screen fullscreen). Save launcher window x/y/w/h + maximized state and restore on next launch.
+
+## Q5 — SKIP SPLASH + CUTSCENE, BOOT STRAIGHT TO THE MENU (Boss, 2026-10-24)
+Boss verbatim: "add a tweak that lets me skip both the splash screen and the cutscene. so the game boots to the main menu instantly."
+Status: OPEN — not dispatched.
+Measured (2026-10-24): the boot sequence is the DISC's own `BootProject` — `LoadRoot` = splash,
+`MovieRoot` = opening cutscene (named in `src/app/main_support.inc:361-374`, which already knows both pages).
+Engine-side doors: `src/core/menu.c:91` (`menu_request_project(m, "boot:MovieRoot")`),
+`src/app/main.c:4705` (MovieRoot detection), `src/app/save_ui.c:78` (resume path).
+Shape: one Tweaks-tab switch (off by default), read before the boot project runs, that goes straight to the
+main menu. Open question for Boss: should it also skip the GT logo/starter movies, or only splash + opening?
+
+## Q5 — (ANSWERED) SKIP INTRO = GT SPLASH **AND** OPENING MOVIE
+Boss: "both gt splash and opening movie. the safety one lol." Scope locked. Most of it already exists:
+`main.c:4332-4336` `show_opening == 0` → proj 0 ("arcade") instead of 2 ("boot"), so neither `LoadRoot`
+(splash) nor `MovieRoot` (safety-car movie) runs. The dish exposes it as `tweaks.skip_intro` in the Tweaks tab.
+
+## Q6 — ALL SENSE-OF-SPEED EFFECTS MUST BE SPEED-DRIVEN (Boss, 2026-10-24)
+Boss verbatim: "all the constant when on need to be speed driven... dynamic fov cant be dynamic when its
+constantly on. all of those things need to be speed driven. thats how u get the sense of speed."
+Measured today: constant when on = FOV (`race_game.c:290`), blur+vignette (`video_gl.c:1233-1237`),
+road roar (`race_audio.c:690-694`). Already speed/accel driven = wind, camera dynamics, shake.
+Fix shape: ONE intensity curve `smoothstep((kmh-60)/(240-60))` smoothed 0.25 s, applied to all three.
+
+## Q7 — RACING LINE + BRAKING ZONES (Boss, 2026-10-24)
+Boss verbatim: "add back the race assist lines on tracks. once u turn it on every track or race u go
+into the assist lines show including the break lines."
+Status: OPEN. This is WISHLIST G6.15 (THE BRAKE POINT). Data exists: `course.h:14-29` carries RNW4 runway
+length + road vertices + road triangles; `r3d_mesh_create(gt4_model*)` can draw a synthesised ribbon.
+Dish starts with a STEP 0 report: can an ordered loop be recovered from the triangles — if no, STOP.
+
+## Q8 — RESEARCH: CUSTOM RACE MODES (Boss, 2026-10-24)
+Boss verbatim: "research on the new gamemodes thing."
+Read as WISHLIST **G6.26 — CUSTOM RACE MODES** (elimination, reverse grid, one-make, no-contact).
+Deliverable: `docs/vulcan4/RESEARCH-CUSTOM-RACE-MODES.md`, no code.
