@@ -1288,23 +1288,36 @@ static float android_row_pitch(const ui_widget *row, int count)
 /* Positions every visible row of a tab in order, then sizes the pane to the
    rows that are actually shown: collapsing a group closes the gap instead of
    leaving empty slots and a pane taller than its content. */
+/* In-game rows are 22 units, not the old 28/32: the Tweaks list is the longest
+   page and must fit the 480-line view. The viewport shows this many rows; the
+   open Sense of Speed group scrolls inside it instead of growing the pane. */
+#define VIDEO_ROW_TOP 38
+#define VIDEO_ROW_PITCH 22
+#define VIDEO_TWEAKS_VIEW_ROWS 9
 static void layout_tab_rows(video_settings *s, int tab)
 {
-    const int top = 32, pitch = 28;
+    const int top = VIDEO_ROW_TOP, pitch = VIDEO_ROW_PITCH;
     int n = 0, shown = 0;
     while (n < 15 && tab_rows[tab][n] >= 0)
         n++;
+    ui_widget *pane = ui_widget_child(s->page, "Pane");
+    if (!pane)
+        return;
+    ui_widget *clip = ui_widget_child(pane, "clip"),
+              *space = clip ? ui_widget_child(clip, "space") : NULL;
     for (int row = 0; row < n; row++) {
         ui_widget *w = s->rows[tab_rows[tab][row]];
         if (!w || !w->visible)
             continue;
-        w->y = (float)(top + shown * pitch);
+        w->y = (float)(shown * pitch);
         shown++;
     }
-    ui_widget *pane = ui_widget_child(s->page, "Pane");
-    if (!pane)
-        return;
-    float y = (float)(top + shown * pitch + 12);
+    /* Keep the pane at the closed-size height on Tweaks: toggling the group
+       must not move the title or the Cancel/OK buttons. */
+    int fit = shown;
+    if (tab == VIDEO_TAB_COUNT - 1)
+        fit = VIDEO_TWEAKS_VIEW_ROWS;
+    float y = (float)(top + fit * pitch + 12);
     ui_widget *load = ui_widget_child(pane, "LoadPreset"),
               *save_button = ui_widget_child(pane, "SavePreset");
     if (load && save_button) {
@@ -1322,7 +1335,61 @@ static void layout_tab_rows(video_settings *s, int tab)
             bg->h = pane->h;
         if (body)
             body->h = pane->h - 22;
+        if (clip && space) {
+            clip->y = (float)top;
+            clip->w = 560;
+            clip->h = (float)(fit * pitch + 6);
+            space->h = fmaxf(clip->h, (float)(shown * pitch));
+        }
     }
+}
+/* Keep the focused row inside the Tweaks viewport: the pad's Up/Down move the
+   focus through the same generic path as every page, so the viewport follows it
+   instead of adding a second scroll mechanism. */
+static int row_has_focus(const ui_widget *w)
+{
+    if (!w)
+        return 0;
+    if (w->focused)
+        return 1;
+    for (int i = 0; i < w->nkids; i++)
+        if (row_has_focus(w->kids[i]))
+            return 1;
+    return 0;
+}
+void video_settings_scroll_tick(void)
+{
+    video_settings *s = settings_active;
+    if (!s || !s->page)
+        return;
+    ui_widget *pane = ui_widget_child(s->page, "Pane");
+    ui_widget *clip = pane ? ui_widget_child(pane, "clip") : NULL;
+    ui_widget *space = clip ? ui_widget_child(clip, "space") : NULL;
+    if (!clip || !space || space->h <= clip->h)
+        return;
+    float row_y = -1, row_h = 0;
+    for (int i = 0; i < (int)(sizeof s->rows / sizeof s->rows[0]); i++) {
+        ui_widget *w = s->rows[i];
+        if (!w || !w->visible || !row_has_focus(w))
+            continue;
+        row_y = w->y;
+        row_h = w->h;
+        break;
+    }
+    if (row_y < 0)
+        return;
+    float target = space->scroll_set ? space->scroll_ty : space->y;
+    if (row_y + target < 0)
+        target = -row_y;
+    else if (row_y + row_h + target > clip->h)
+        target = clip->h - row_y - row_h;
+    target = fminf(0, fmaxf(clip->h - space->h, target));
+    if (fabsf(target - (space->scroll_set ? space->scroll_ty : space->y)) < .5f)
+        return;
+    space->scroll_ty = target;
+    if (!space->scroll_set)
+        space->scroll_tx = space->x;
+    space->scroll_set = 1;
 }
 #endif
 #endif
@@ -1421,6 +1488,69 @@ static int tab_key(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
     select_tab(s, (s->active_tab + (key.u.i == 0xffc8 ? VIDEO_TAB_COUNT - 1 : 1)) % VIDEO_TAB_COUNT);
     menu_play_effect(s->owner, "cursor");
     *ret = ah_int(2);
+    return 0;
+}
+#endif
+#ifndef __ANDROID__
+/* PC Tweaks: Up/Down step through the rows this page shows. The rows beyond
+   the viewport are clipped out of the generic navigation collector, so the
+   page moves focus itself and the shared clip/space follows it. Dropdowns
+   keep their own Up/Down while open. */
+static int tweak_key(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
+                     ah_val *ret)
+{
+    (void)self;
+    *ret = ah_int(0);
+    video_settings *s = data;
+    if (!s || s->active_tab != VIDEO_TAB_COUNT - 1 || argc < 2)
+        return 0;
+    ah_val key;
+    if (!ah_get_member(vm, argv[1].u.o, "keysym", &key))
+        return 0;
+    int sym = (int)key.u.i;
+    if (sym != 0xffd2 && sym != 0xffd4) /* Up, Down */
+        return 0;
+    for (int i = 0; i < (int)(sizeof s->choices / sizeof s->choices[0]); i++)
+        if (s->choices[i] && s->choices[i]->option_open)
+            return 0;
+    ah_val widget;
+    if (!ah_get_member(vm, argv[1].u.o, "widget", &widget))
+        return 0;
+    ui_widget *focused = ah_host_data(widget.u.o);
+    int at = -1;
+    for (int i = 0; i < (int)(sizeof s->rows / sizeof s->rows[0]); i++) {
+        ui_widget *row = s->rows[i];
+        if (!row || !row->visible)
+            continue;
+        for (ui_widget *p = focused; p; p = p->parent)
+            if (p == row) {
+                at = i;
+                break;
+            }
+        if (at >= 0)
+            break;
+    }
+    if (at < 0)
+        return 0;
+    int n = 0, pos = -1;
+    const int *rows = tab_rows[VIDEO_TAB_COUNT - 1];
+    while (n < 15 && rows[n] >= 0)
+        n++;
+    for (int i = 0; i < n; i++)
+        if (rows[i] == at)
+            pos = i;
+    if (pos < 0)
+        return 0;
+    int step = sym == 0xffd2 ? -1 : 1;
+    for (int i = pos + step; i >= 0 && i < n; i += step) {
+        ui_widget *row = s->rows[rows[i]];
+        if (!row || !row->visible || row->insensitive)
+            continue;
+        menu_native_focus(s->owner, s->choices[rows[i]]);
+        menu_play_effect(s->owner, "cursor");
+        *ret = ah_int(2);
+        break;
+    }
     return 0;
 }
 #endif
@@ -1722,6 +1852,7 @@ void video_settings_attach(video_settings *s, menu *m)
     /* Reuse the authored Screen Settings pane, frame, fonts, dropdowns and
        Cancel/OK buttons. Keep its authored centre clear of the tooltip bar. */
     float pane_center = pane->y + pane->h * .5f;
+    ui_widget *space = NULL;
 #ifdef __SWITCH__
     const int rows = 10;
 #else
@@ -1751,7 +1882,7 @@ void video_settings_attach(video_settings *s, menu *m)
     int pitch = 44;
     pane->type = "Composite";
 #else
-    int pitch = 32;
+    int pitch = VIDEO_ROW_PITCH;
 #endif
     pane->y = rows == 7 ? 78 : fmaxf(0, pane_center - 370 * .5f);
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
@@ -1804,6 +1935,19 @@ void video_settings_attach(video_settings *s, menu *m)
     ui_widget *body=ui_widget_from_text(ui,s->root,
         "ColorFace { name string {\"PCBody\"} geometry rectangle {2 20 556 348} color [1] { RGBA {150 150 155 255} } }");
     ui_widget_append(pane,body);
+    /* One viewport for the option rows, shared by every PC page. The generic
+       clip/space pair is the same scroll the rest of the UI uses: the wheel and
+       touch drags move the space, and the title/footer stay outside it. */
+    ui_widget *clip = ui_widget_from_text(ui, s->root,
+        "Composite { name string {\"clip\"} geometry rectangle {0 38 560 204} clip digit {1} }");
+    space = ui_widget_from_text(ui, s->root,
+        "Composite { name string {\"space\"} geometry rectangle {0 0 560 204} }");
+    if (clip && space) {
+        ui_widget_append(clip, space);
+        ui_widget_append(pane, clip);
+    } else
+        space = NULL;
+
 #endif
     const char *ratios[] = {"4:3", "16:9"};
     const char *modes[] = {"Windowed", "Full Screen"},
@@ -1863,9 +2007,9 @@ void video_settings_attach(video_settings *s, menu *m)
 #ifdef __SWITCH__
         w->h = (float)pitch;
 #endif
-        w->y = 20 + i * pitch;
+        w->y = 0;
         text(ui_widget_child(w, "label"), titles[i]);
-        ui_widget_append(pane, w);
+        ui_widget_append(space ? space : pane, w);
         ui_widget *choice = ui_widget_child(w, "OptionMenu");
         s->choices[i] = choice;
 #ifndef __SWITCH__
@@ -1908,9 +2052,9 @@ void video_settings_attach(video_settings *s, menu *m)
             s->rows[idx] = w;
             w->x = 24;
             widen(w, 512);
-            w->y = 20 + idx * pitch;
+            w->y = 0;
             text(ui_widget_child(w, "label"), in->label);
-            ui_widget_append(pane, w);
+            ui_widget_append(space ? space : pane, w);
             ui_widget *choice = ui_widget_child(w, "OptionMenu");
             s->choices[idx] = choice;
             choice->x = 256;
@@ -1998,6 +2142,8 @@ void video_settings_attach(video_settings *s, menu *m)
     cancel_button->x=left;ok_button->x=left+cancel_button->w+16;
 #ifdef __ANDROID__
     menu_native_method(m, s->page, "onKeyPress", tab_key, s);
+#else
+    menu_native_method(m, s->page, "onKeyPress", tweak_key, s);
 #endif
 #endif
 #ifdef _WIN32

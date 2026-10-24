@@ -6740,6 +6740,7 @@ int main(int argc, char **argv)
 #endif
         int drawn = 0, skipped = 0;
         movie.seen = movie.drawn = 0;
+        video_settings_scroll_tick();
         if (p && !race_active && driving != 2 && !notice_active) {
             ui_set_movie_renderer(p, draw_movie, &movie);
             if (driving == 5 && proj == 14)

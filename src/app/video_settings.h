@@ -92,6 +92,8 @@ int video_settings_speed_blur_amount(void);
 int video_settings_speed_vignette(void);
 int video_settings_skip_intro(void);
 int video_settings_assist_line(void);
+/* Keeps the focused in-game settings row inside its viewport (pad Up/Down). */
+void video_settings_scroll_tick(void);
 /* The one speed intensity every speed-driven effect reads: smoothstep 60..240 km/h,
    smoothed over SPEED_FEEL_SMOOTH_SECONDS. The race calls the frame once. */
 void video_settings_speed_frame(float kmh, double dt);
