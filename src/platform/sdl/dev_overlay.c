@@ -391,7 +391,11 @@ void moon_debug_overlay_draw(void)
                 SDL_GL_GetDrawableSize(win, &out_w, &out_h);
         }
     }
+#if !defined(MOON_DEKO3D)
     video_scene_target_size(&scene_w, &scene_h);
+#else
+    scene_w = scene_h = 0; /* the deko3d backend has no scene-target accessor */
+#endif
 
     char api[64], device[72];
     overlay_api_strings(api, sizeof api, device, sizeof device);
