@@ -1224,61 +1224,30 @@ static float android_row_pitch(const ui_widget *row, int count)
     return fminf(44.f, pitch);
 }
 #endif
-static void tweaks_visibility(video_settings *s)
-{
 #ifndef __SWITCH__
-    if (s->active_tab != VIDEO_TAB_COUNT - 1)
-        return;
-    int open = s->tweaks_open;
-    for (int i = 42; i <= 50; i++)
-        s->rows[i]->visible = open;
-    int fov = s->choices[42]->focus_index, blur = s->choices[48]->focus_index;
-    s->rows[43]->insensitive = !fov;
-    s->rows[43]->opacity = fov ? 1.f : .4f;
-    s->rows[49]->insensitive = !blur;
-    s->rows[49]->opacity = blur ? 1.f : .4f;
-#endif
-}
-
-static void select_tab(video_settings *s, int tab)
+#ifndef __ANDROID__
+/* Positions every visible row of a tab in order, then sizes the pane to the
+   rows that are actually shown: collapsing a group closes the gap instead of
+   leaving empty slots and a pane taller than its content. */
+static void layout_tab_rows(video_settings *s, int tab)
 {
-    s->active_tab = tab;
-    const int always = -1; /* Android: the preset row is in Display; PC: its own page */
-#ifndef __ANDROID__
-    const int top = 32;
-#endif
-    for (int i = 0; i < (int)(sizeof s->choices / sizeof s->choices[0]); i++)
-        if (s->rows[i])
-            s->rows[i]->visible = i == always;
-    int count = 0;
-    while (count < 15 && tab_rows[tab][count] >= 0)
-        count++;
-#ifdef __ANDROID__
-    float pitch = android_row_pitch(s->rows[tab_rows[tab][0]], count);
-#endif
-    for (int row = 0; row < count; row++) {
-        ui_widget *w = s->rows[tab_rows[tab][row]];
-        w->visible = 1;
-#ifdef __ANDROID__
-        w->h = pitch;
-        w->y = 64.f + row * pitch;
-#else
-        w->y = top + row * 28;
-#endif
-    }
-#ifndef __ANDROID__
-    ui_widget *pane = ui_widget_child(s->page, "Pane");
-    ui_widget *title = ui_widget_child(pane, "Title");
-    for (int i = 0; title && i < title->nkids; i++)
-        if (title->kids[i]->text || title->kids[i]->text_key)
-            text(title->kids[i], page_titles[tab]);
-    /* the pane as tall as the page's rows (and the Presets file buttons), the original
-       footer under them, centred where the authored pane was */
-    int n = 0;
+    const int top = 32, pitch = 28;
+    int n = 0, shown = 0;
     while (n < 15 && tab_rows[tab][n] >= 0)
         n++;
-    float y = top + n * 28 + 12;
-    ui_widget *load = ui_widget_child(pane, "LoadPreset"), *save_button = ui_widget_child(pane, "SavePreset");
+    for (int row = 0; row < n; row++) {
+        ui_widget *w = s->rows[tab_rows[tab][row]];
+        if (!w || !w->visible)
+            continue;
+        w->y = (float)(top + shown * pitch);
+        shown++;
+    }
+    ui_widget *pane = ui_widget_child(s->page, "Pane");
+    if (!pane)
+        return;
+    float y = (float)(top + shown * pitch + 12);
+    ui_widget *load = ui_widget_child(pane, "LoadPreset"),
+              *save_button = ui_widget_child(pane, "SavePreset");
     if (load && save_button) {
         load->y = save_button->y = y;
         if (tab == VIDEO_TAB_COUNT - 1)
@@ -1295,6 +1264,57 @@ static void select_tab(video_settings *s, int tab)
         if (body)
             body->h = pane->h - 22;
     }
+}
+#endif
+#endif
+static void tweaks_visibility(video_settings *s)
+{
+#ifndef __SWITCH__
+    if (s->active_tab != VIDEO_TAB_COUNT - 1)
+        return;
+    int open = s->tweaks_open;
+    for (int i = 42; i <= 50; i++)
+        if (s->rows[i])
+            s->rows[i]->visible = open;
+    int fov = s->choices[42]->focus_index, blur = s->choices[48]->focus_index;
+    s->rows[43]->insensitive = !fov;
+    s->rows[43]->opacity = fov ? 1.f : .4f;
+    s->rows[49]->insensitive = !blur;
+    s->rows[49]->opacity = blur ? 1.f : .4f;
+#ifndef __ANDROID__
+    layout_tab_rows(s, s->active_tab);
+#endif
+#endif
+}
+
+static void select_tab(video_settings *s, int tab)
+{
+    s->active_tab = tab;
+    const int always = -1; /* Android: the preset row is in Display; PC: its own page */
+    for (int i = 0; i < (int)(sizeof s->choices / sizeof s->choices[0]); i++)
+        if (s->rows[i])
+            s->rows[i]->visible = i == always;
+    int count = 0;
+    while (count < 15 && tab_rows[tab][count] >= 0)
+        count++;
+#ifdef __ANDROID__
+    float pitch = android_row_pitch(s->rows[tab_rows[tab][0]], count);
+#endif
+    for (int row = 0; row < count; row++) {
+        ui_widget *w = s->rows[tab_rows[tab][row]];
+        w->visible = 1;
+#ifdef __ANDROID__
+        w->h = pitch;
+        w->y = 64.f + row * pitch;
+#endif
+    }
+#ifndef __ANDROID__
+    ui_widget *pane = ui_widget_child(s->page, "Pane");
+    ui_widget *title = ui_widget_child(pane, "Title");
+    for (int i = 0; title && i < title->nkids; i++)
+        if (title->kids[i]->text || title->kids[i]->text_key)
+            text(title->kids[i], page_titles[tab]);
+    layout_tab_rows(s, tab);
     tweaks_visibility(s);
     menu_native_focus(s->owner, s->choices[tab_rows[tab][0]]);
     return;
