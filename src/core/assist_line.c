@@ -20,7 +20,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define LINE_HALF_WIDTH 0.075f
+/* usl0a0007 measures 0.400 m across (one 0.400 m edge in every triangle)
+   and alpha 0.148438 (19/128), the authored licence ribbon's own values. */
+#define LINE_HALF_WIDTH 0.20f
+#define LINE_ALPHA (19.f / 128.f)
 #define LINE_LIFT 0.03f
 #define LINE_LOOP_CLOSE 30.f /* m: close the lap when the ends already meet */
 #define LINE_LATERAL_GRIP 12.0f /* m/s^2, the cornering limit */
@@ -56,7 +59,7 @@ static void shade(gt4_vertex *v, float target, float speed)
     v->normal[1] = 1;
     v->normal[2] = 0;
     v->uv[0] = v->uv[1] = 0;
-    v->alpha = 1;
+    v->alpha = LINE_ALPHA;
 }
 
 /* The authored line is the AI's driving line, which is not always on the
@@ -325,7 +328,12 @@ int gt4_assist_line_build(const gt4_course *course, const gt4_ai_line_point *poi
             vertex_speed[m->count * 3 + 2] = target[j];
         }
         t->texture = -1;
-        t->state.color_mask = 0;
+        t->blend_enabled = 1;
+        t->state.color_mask = 0xff000000; /* RGB only, as the authored ribbon */
+        t->state.blend = 68;              /* SRC_ALPHA / ONE_MINUS_SRC_ALPHA */
+        t->state.alpha_test = 1;
+        t->state.alpha_func = 1;          /* ALWAYS, the authored state */
+        t->state.alpha_ref = 32;
         t->state.depth_test = 1;
         t->state.depth_write = 0;
         t->state.depth_func = 3; /* LEQUAL: the car and the road's furniture hide it */
@@ -344,6 +352,7 @@ int gt4_assist_line_build(const gt4_course *course, const gt4_ai_line_point *poi
             vertex_speed[m->count * 3 + 2] = target[j];
         }
         t->texture = -1;
+        t->blend_enabled = 1;
         t->state = m->triangles[0].state;
         m->count++;
     }
