@@ -615,9 +615,20 @@ static int studio_tab_rows(int tab, int rows[24])
         rows[n++] = -4; /* Open the actual custom-music folder. */
 #endif
     }
-    if (tab <= 3 || tab >= 5) {
-        const char *group = tab == 6   ? "Tweaks"
-                            : tab == 5 ? "Quality"
+    if (tab == 6) {
+        /* The same ordered rows as the in-game Tweaks page, from one table.
+           Closing Sense of Speed hides its children; the rows below move up
+           because the list is built without them. */
+        int open = !app_video_settings || app_video_settings->tweaks_open;
+        int group = video_setting_tweak_group();
+        for (int i = 0; i < video_settings_tweak_count() && n < 24; i++) {
+            int id = group + i;
+            if (!open && video_setting_tweak_is_child(id))
+                continue;
+            rows[n++] = id;
+        }
+    } else if (tab <= 3 || tab >= 5) {
+        const char *group = tab == 5 ? "Quality"
                             : tab == 0 ? "General"
                             : tab == 1 ? "Video"
                             : tab == 3 ? "Sound" /* P: the Jukebox's options, after the volumes */
@@ -629,6 +640,44 @@ static int studio_tab_rows(int tab, int rows[24])
         for (int k = 0; k < 12; k++)
             rows[n++] = 2000 + k;
     return n;
+}
+/* Debug gate: both settings pages must expose the same ordered Tweaks rows.
+   MOON_SETTINGS_PARITY=1 prints the listing and exits non-zero on a drift. */
+static int studio_tweaks_parity(void)
+{
+    if (!app_video_settings)
+        return 0;
+    video_settings base = *app_video_settings;
+    video_settings_preset_values(&base.current, 0);
+    base.current.skip_intro = 0;
+    base.current.assist_line = 0;
+    base.current.discord_presence = 0;
+    base.tweaks_open = 1;
+    int saved = app_video_settings->tweaks_open, ok = 1;
+    for (int open = 1; open >= 0; open--) {
+        app_video_settings->tweaks_open = open;
+        int ids[24], n = studio_tab_rows(6, ids), k = 0;
+        for (int i = 0; i < video_settings_tweak_count(); i++) {
+            int id = video_setting_tweak_group() + i;
+            if (!open && video_setting_tweak_is_child(id))
+                continue;
+            if (k >= n || ids[k] != id) {
+                ok = 0;
+                break;
+            }
+            const video_setting_info *in = video_setting(id);
+            int cur = video_setting_get(app_video_settings, id);
+            int def = video_setting_get(&base, id);
+            printf("parity: %s row=%d %s default=%s current=%s\n", open ? "open" : "closed", k,
+                   in->label, def >= 0 && def < in->count ? in->names[def] : "-",
+                   cur >= 0 && cur < in->count ? in->names[cur] : "-");
+            k++;
+        }
+        if (k != n)
+            ok = 0;
+    }
+    app_video_settings->tweaks_open = saved;
+    return ok;
 }
 /* P: Load and Save Preset are buttons (they open a file window), not choices */
 static int studio_row_button(int id)
@@ -2888,7 +2937,13 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
     do {                                                                                           \
         int id_ = options_ids[(row_)];                                                             \
         if (id_ >= 0 || id_ == -4) {                                                                            \
+            int was_group_ = id_ == video_setting_tweak_group();                                   \
             studio_row_change(id_, (delta_));                                                      \
+            if (was_group_) {                                                                       \
+                options_rows = studio_tab_rows(options_tab, options_ids);                           \
+                if (options_row >= options_rows)                                                    \
+                    options_row = options_rows > 0 ? options_rows - 1 : 0;                          \
+            }                                                                                       \
         } else {                                                                                   \
             if (id_ == -1)                                                                         \
                 theme = !theme;                                                                    \
@@ -4071,6 +4126,10 @@ int main(int argc, char **argv)
     }
 #endif
     app_video_settings = &settings;
+    if (getenv("MOON_SETTINGS_PARITY") && !studio_tweaks_parity()) {
+        fprintf(stderr, "settings parity: the two Tweaks pages differ\n");
+        return 3;
+    }
     int discord_enabled =
         moon_options_int(&settings.store, "integrations.discord_presence", 0, 0, 1);
     /* The captain's own Discord application (Developer Portal). A client id is public —

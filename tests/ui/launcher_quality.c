@@ -43,9 +43,38 @@ int main(int argc, char **argv)
     CHECK(fov >= 0 && fov_deg >= 0 && cam_lag >= 0 && shake >= 0 && wind >= 0 && roar >= 0 &&
           blur >= 0 && blur_amount >= 0 && vignette >= 0 && discord >= 0);
     CHECK(!strcmp(video_setting(aa)->group, "Quality"));
+    /* Both settings pages consume this one ordered list; a row added to one
+       page only must fail here. */
+    static const char *const tweak_order[] = {
+        "Sense of Speed", "Dynamic FOV", "FOV Amount", "Camera Dynamics", "Camera Shake",
+        "Wind Audio", "Road Roar Boost", "Radial Blur", "Blur Strength", "Vignette",
+        "Discord Rich Presence", "Skip Intro", "Assist Line"};
+    int tweak_group = video_setting_tweak_group();
+    CHECK(tweak_group >= 0 && tweak_group < video_setting_count());
+    CHECK(!strcmp(video_setting(tweak_group)->label, "Sense of Speed"));
+    CHECK(video_settings_tweak_count() == (int)(sizeof tweak_order / sizeof *tweak_order));
+    int listed = 0;
+    for (int i = 0; i < video_setting_count(); i++) {
+        if (strcmp(video_setting(i)->group, "Tweaks"))
+            continue;
+        CHECK(listed < video_settings_tweak_count());
+        CHECK(i == tweak_group + listed);
+        CHECK(!strcmp(video_setting(i)->label, tweak_order[listed]));
+        listed++;
+    }
+    CHECK(listed == video_settings_tweak_count());
+    for (int i = 0; i < video_settings_tweak_count(); i++) {
+        int id = tweak_group + i;
+        CHECK(video_setting_tweak_is_child(id) == (i >= 1 && i <= 9));
+        CHECK(!strcmp(video_settings_tweak(i)->label, tweak_order[i]));
+    }
     int lamps=setting("Realistic Car Lamps"),night=setting("Night Sky");CHECK(lamps>=0 && night>=0);
     for (int backend = 0; backend < 2; backend++) {
         video_settings_init(&s, 1, argv[1]);
+        video_setting_set(&s, tweak_group, 0);
+        CHECK(video_setting_get(&s, tweak_group) == 0);
+        video_setting_set(&s, tweak_group, 1);
+        CHECK(video_setting_get(&s, tweak_group) == 1);
         video_setting_set(&s, api, backend);
         video_setting_set(&s, fsr, 3);
         video_setting_set(&s, aa, 3);

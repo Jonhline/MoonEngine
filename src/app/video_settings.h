@@ -64,6 +64,12 @@ typedef struct {
 } video_setting_info;
 int video_setting_count(void);
 const video_setting_info *video_setting(int i);
+/* The Tweaks rows (group header then its switches), shared by both settings
+   pages so they cannot drift apart. */
+int video_settings_tweak_count(void);
+const video_setting_info *video_settings_tweak(int i);
+int video_setting_tweak_group(void);
+int video_setting_tweak_is_child(int id);
 int video_setting_get(const video_settings *s, int i);
 void video_setting_set(video_settings *s, int i, int value);
 /* Applies what can change on a running window (vsync, upscaling, filters, performance,

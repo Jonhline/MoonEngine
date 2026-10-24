@@ -408,6 +408,7 @@ enum {
     VS_PRESET_TOOLS, VS_SAVE_TOOLS, VS_AMBIENT_OCCLUSION, VS_GRAPHICS_SWAP,
     VS_CUSTOM_MUSIC, VS_JUKEBOX_FOLDERS, VS_JUKEBOX_GROUPS, VS_CONTROLLER_TILES,
     VS_CAR_LAMPS, VS_NIGHT_SKY,
+    VS_SPEED_GROUP,
     VS_SPEED_FOV, VS_SPEED_FOV_DEGREES, VS_SPEED_CAM_LAG, VS_SPEED_SHAKE, VS_SPEED_WIND,
     VS_SPEED_ROAD_ROAR, VS_SPEED_BLUR, VS_SPEED_BLUR_AMOUNT, VS_SPEED_VIGNETTE, VS_DISCORD,
     VS_SKIP_INTRO,
@@ -496,6 +497,7 @@ static const video_setting_info vs_info[VS_COUNT] = {
     {"Interface","Controller Tiles","By Player: one button config tile per player. Original: a tile per device and port.",2,vs_controller_tiles},
     {"Quality","Realistic Car Lamps","Headlights illuminate nearby surfaces with occlusion; rear and brake lenses emit light. Off restores the PS2 effect.",2,vs_off_on},
     {"Legacy","Night Sky","Twilight, moon and stars. Night courses start at 22:00; requires Daylight.",2,vs_off_on},
+    {"Tweaks","Sense of Speed","Open to show its individual switches. Collapsing hides them; it is not a master switch.",2,vs_closed_open},
     {"Tweaks","Dynamic FOV","Widen the chase lens with speed. Other cameras keep the original lens.",2,vs_off_on},
     {"Tweaks","FOV Amount","Degrees added to the chase lens when Dynamic FOV is on.",12,vs_fov_degrees},
     {"Tweaks","Camera Dynamics","A small acceleration-driven camera trail on top of the original lag.",2,vs_off_on},
@@ -539,6 +541,23 @@ void video_settings_preset_values(pc_video_options *v, int enhanced)
 int video_setting_count(void)
 {
     return VS_COUNT;
+}
+/* The Tweaks rows, in order, are the single source both settings pages use. */
+int video_settings_tweak_count(void)
+{
+    return VS_ASSIST_LINE - VS_SPEED_GROUP + 1;
+}
+const video_setting_info *video_settings_tweak(int i)
+{
+    return i >= 0 && i < video_settings_tweak_count() ? &vs_info[VS_SPEED_GROUP + i] : NULL;
+}
+int video_setting_tweak_group(void)
+{
+    return VS_SPEED_GROUP;
+}
+int video_setting_tweak_is_child(int id)
+{
+    return id > VS_SPEED_GROUP && id <= VS_SPEED_VIGNETTE;
 }
 const video_setting_info *video_setting(int i)
 {
@@ -598,6 +617,12 @@ int video_setting_get(const video_settings *s, int i)
     case VS_MODERN_LIGHTING:
         return v->modern_lighting;
     case VS_PRESET_TOOLS: return v->preset_tools;
+    case VS_SPEED_GROUP:
+#ifdef __SWITCH__
+        return 1;
+#else
+        return s->tweaks_open;
+#endif
     case VS_SPEED_FOV: return v->speed_fov;
     case VS_SPEED_FOV_DEGREES: {
         int n = 0;
@@ -646,6 +671,11 @@ void video_setting_set(video_settings *s, int i, int value)
     pc_video_options *v = &s->current;
     switch (i) {
     case VS_PRESET_TOOLS: v->preset_tools=value; break;
+    case VS_SPEED_GROUP:
+#ifndef __SWITCH__
+        s->tweaks_open = value != 0;
+#endif
+        return; /* UI state only: never marks the preset modified or saves */
     case VS_SPEED_FOV: v->speed_fov=value!=0; break;
     case VS_SPEED_FOV_DEGREES: v->speed_fov_degrees=vs_fov_degrees_values[value>=0&&value<12?value:0]; break;
     case VS_SPEED_CAM_LAG: v->speed_cam_lag=value!=0; break;
@@ -1865,29 +1895,21 @@ void video_settings_attach(video_settings *s, menu *m)
     }
 #ifndef __SWITCH__
     {
-        static const char *const tweak_names[] = {
-            "SpeedGroup", "SpeedFov", "SpeedFovDegrees", "SpeedCamLag", "SpeedShake",
-            "SpeedWind", "SpeedRoadRoar", "SpeedBlur", "SpeedBlurAmount", "SpeedVignette",
-            "DiscordPresence", "SkipIntro", "AssistLine"};
-        static const char *const tweak_titles[] = {
-            "Sense of Speed", "Dynamic FOV", "FOV Amount", "Camera Dynamics", "Camera Shake",
-            "Wind Audio", "Road Roar Boost", "Radial Blur", "Blur Strength", "Vignette",
-            "Discord Rich Presence", "Skip Intro", "Assist Line"};
-        const char *const *tweak_lists[] = {
-            vs_closed_open, toggle, vs_fov_degrees, toggle, toggle, toggle, toggle, toggle,
-            vs_blur_amount, toggle, toggle, toggle, toggle};
-        static const int tweak_counts[] = {2, 2, 12, 2, 2, 2, 2, 2, 10, 2, 2, 2, 2};
-        for (int i = 0; i < 13; i++) {
+        const int tweaks = video_settings_tweak_count();
+        for (int i = 0; i < tweaks; i++) {
             int idx = 41 + i;
+            const video_setting_info *in = video_settings_tweak(i);
+            if (!in)
+                continue;
             ui_widget *w = ui_widget_copy(ui, sample);
-            w->name = tweak_names[i];
+            w->name = in->label;
             w->type = "Composite";
             w->h = (float)pitch;
             s->rows[idx] = w;
             w->x = 24;
             widen(w, 512);
             w->y = 20 + idx * pitch;
-            text(ui_widget_child(w, "label"), tweak_titles[i]);
+            text(ui_widget_child(w, "label"), in->label);
             ui_widget_append(pane, w);
             ui_widget *choice = ui_widget_child(w, "OptionMenu");
             s->choices[idx] = choice;
@@ -1898,7 +1920,7 @@ void video_settings_attach(video_settings *s, menu *m)
                 label->w = choice->x - label->x - 8;
                 ui_text_adjust_scale(ui, label);
             }
-            values(ui, choice, tweak_lists[i], tweak_counts[i]);
+            values(ui, choice, in->names, in->count);
             if (idx == 41)
                 choice->focus_index = s->tweaks_open;
             ui_widget *popup = ui_widget_child(choice, "popup");
