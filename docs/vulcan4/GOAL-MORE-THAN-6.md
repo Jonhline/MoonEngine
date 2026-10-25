@@ -152,5 +152,31 @@ So 7 cars = rewrite `0x6698 → 0x7798` at 3 sites and `0xCA58 → 0xC158` at
 stay untouched. Room to 0xC158+0x10*7 is well inside the conductor.
 Remaining risk: code that assumes the states follow the blocks contiguously
 without computing 0x6698 at all — the next scan.
+- 2026-10-24: that scan is done. Every 16-bit immediate `0x6698` in the image
+  was classified: 3 `addiu` base computations (above) and 3 `sw` that are
+  **unrelated absolutes** — `sw v1,0x6698(v0)` with `lui v0,0x6d / 0x82 / 0x83`
+  = writes to 0x006D6698, 0x00826698, 0x00836698. No load reads the state array
+  relative to a bare pointer without a base computation. Nothing else claims
+  the constant.
+- Our own six-ceilings located: `main.c:5900` (menu_race_entries … 5),
+  `race_game.c:970-971` (nothers > 5), `race_game.c:261 last_colors[5]`.
+
+## 6b. THE PATCH, PHASED
+
+1. **Guest constants (7 cars).** At load time, rewrite the three `addiu`
+   immediates `0x6698 → 0x7798` (0x1572B4, 0x34BF54, 0x34C1AC) and the three
+   `0xCA58` bases `→ 0xC158` (0x14FDF0, 0x2D0CB0, 0x2D43B8). Guard: if the
+   image at those addresses does not match the expected instruction word,
+   refuse to patch and say so — never write a different disc's code.
+2. **Our structures.** `CONDUCTOR_FIELD_CARS` 0x6698 → 0x7798, the `0xCA58`
+   definition → 0xC158, `RACE_BSPEC_CARS` 6 → 7, arrays sized 7, clamps in
+   `race_game.c` / `main.c` raised to 6 opponents, results/HUD to 7 rows.
+3. **Seventh entry.** Fill `entries[6]` with a block at `0x01CE6910` (measured
+   free), profile/grid fields set the same way `make_race` does for slots 1-5.
+4. **Gates.** (a) 6-car race must be byte-identical to today. (b) 7-car race:
+   seven cars start, seven finish, results show seven rows, no conductor
+   corruption after 5 minutes. (c) replay refuses >6 with a visible message.
+5. **Only then** the auto-scrolling grid (`~/.hermes/recipes/moon-grid-autoscroll.txt`).
+
 
 
