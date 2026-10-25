@@ -161,7 +161,43 @@ without computing 0x6698 at all — the next scan.
 - Our own six-ceilings located: `main.c:5900` (menu_race_entries … 5),
   `race_game.c:970-971` (nothers > 5), `race_game.c:261 last_colors[5]`.
 
-## 6b. THE PATCH, PHASED
+## 6c. CORRECTION — THE FIRST PATCH PLAN WAS WRONG (measured same night)
+
+The conductor is not "three arrays then free space". Everything from `0xCA58`
+upwards is a dense tail of named fields (`CONDUCTOR_FIELD_COURSE 0xCBD8`,
+`PAIR_LAP_GAPS 0xCCC8`, `LINES 0xDA50`, `RULES 0xF818`, `CAR_COUNT 0xF8A0`, the
+vtable at `0x10140`, …). A 7th car needs one more block (`0x1100`) **and** one
+more state (`0x10A0`) inserted mid-struct, so **the whole tail shifts by
+`0x21A0`** — the guest reads those fields by fixed offsets too.
+
+Measured patch surface (addiu/addi sites whose immediate equals a named field
+above `0x6698`): **38 sites across 12 fields**, plus the 3 car-base sites.
+
+| field | sites |
+|-------|-------|
+| `0xCA58` CA58 | 3 (but see below) |
+| `0xCAB8` CAB8 | 1 |
+| `0xCBD8` COURSE | 5 |
+| `0xCBE0` COURSE_FLAG_14 | 1 |
+| `0xCCC8` PAIR_LAP_GAPS | 2 |
+| `0xDA50` LINES | 5 |
+| `0xF818` RULES | 1 |
+| `0xF830` UNK_F830 | 10 |
+| `0xF858` ALL_CAR_FINISH | 1 |
+| `0xF860` UNK_F860 | 4 |
+| `0xF898` RACE_CLOCK | 1 |
+| `0xF8A0` CAR_COUNT | 4 |
+
+**The trap:** matching on the immediate alone is unsafe. The three `0xCA58`
+sites are `lui 0x15/0x6a` + `addiu …,-13736` = absolute addresses `0x0015CA58`
+and `0x006ACA58`, not conductor offsets. A blind `+0x21A0` rewrite would corrupt
+unrelated code. Every one of the 38 sites must be traced to a conductor-based
+register before it is patched, and the patcher must refuse if the expected
+instruction word does not match.
+
+Status: machinery not built yet; probe reverted, tree clean, 6-car behaviour
+untouched.
+
 
 1. **Guest constants (7 cars).** At load time, rewrite the three `addiu`
    immediates `0x6698 → 0x7798` (0x1572B4, 0x34BF54, 0x34C1AC) and the three
