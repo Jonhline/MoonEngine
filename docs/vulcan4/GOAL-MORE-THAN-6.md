@@ -145,11 +145,24 @@ Keep both strides exactly as they are and only move the two bases:
 | array | now | 7 cars |
 |-------|-----|--------|
 | per-car blocks (6 × 0x1100 from 0x98) | states at 0x6698 | blocks end 0x98+0x7700 → states at **0x7798** |
-| car states (6 × 0x10A0) | 0xCA58 array | states end 0x7798+0x49C0 → **0xC158** |
+| car states (7 × 0x10A0) | 0xCA58 array | states end 0x7798+0x7460 → **0xEBF8** |
 
-So 7 cars = rewrite `0x6698 → 0x7798` at 3 sites and `0xCA58 → 0xC158` at
-3 sites, plus our own `CONDUCTOR_FIELD_CARS` and friends. Strides 0x1100/0x10A0
-stay untouched. Room to 0xC158+0x10*7 is well inside the conductor.
+So 7 cars = rewrite `0x6698 → 0x7798` at 3 sites, plus our own
+`CONDUCTOR_FIELD_CARS` and friends. Strides 0x1100/0x10A0 stay untouched.
+
+**CORRECTION 2026-10-25 (Sanji, then verified by Caine against `extracted/core.bin`,
+little-endian):** the old `0xCA58 → 0xC158` line was arithmetic garbage.
+`0xC158` came from a bogus `0x49C0`; the real states base for N cars is
+`0x98 + N*0x1100 + N*0x10A0`, so 7 cars → **`0xEBF8`** (tail shift `0x21A0`).
+Worse, **all three 0xCA58 "sites" are decoys**, proven by the instruction words:
+- `0x14FDF0` `24C6CA58` after `3C060015 lui r6,0x0015` → absolute `0x0015CA58`
+- `0x2D0CB0` `2442CA58` after `3C02006A lui r2,0x006a` → absolute `0x006ACA58`
+- `0x2D43B8` `24A5CA58` after `3C05006A lui r5,0x006a` → absolute `0x006ACA58`
+
+The three `0x6698` sites are genuine (`254A6698`, `26506698`, `24426698`), so only
+they move. The 38 tail sites of §6c still shift, and **their addresses are not yet
+enumerated** — that is the next measurement, together with the conductor's
+allocation size and the free space above its tail.
 Remaining risk: code that assumes the states follow the blocks contiguously
 without computing 0x6698 at all — the next scan.
 - 2026-10-24: that scan is done. Every 16-bit immediate `0x6698` in the image
