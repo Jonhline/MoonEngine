@@ -67,39 +67,34 @@ gone.
 - **The GPU doing too much**: the driver symbols are 8%, and the GPU-side cost
   measured through `glFinish` sits under the pacing window.
 
-## 6. THE BIGGER FINDING — THE FRAME RATE IS QUANTISED (measured 2026-10-25)
+## 6. CORRECTION (measured 2026-10-25, later the same night)
 
-Same race, same draw count (43 draws / 191 quads at every size), NVIDIA GTX
-1060:
+My first read of this was wrong and the post to issue #26 has been corrected.
+The engine is **not** locked to a 60 Hz tick. With vsync off *and* the pacer
+off, the same race gives:
 
-| window | ms/frame | fps |
-|--------|----------|-----|
-| 1280×720 | 16.34 | 60.1 |
-| 1920×1080 | 33.09 | 29.8 |
-| 2560×1440 | 33.14 | 29.9 |
+| window | pixels | ms/frame | fps |
+|--------|--------|----------|-----|
+| 640×480 | 307 k | 12.3 | 79 |
+| 1280×720 | 922 k | 20.4 | 47 |
+| 1920×1080 | 2.07 M | 32.5 | 31 |
 
-1080p costs **twice** 720p in reported frame time while submitting **the same
-43 draws**, and the result lands exactly on 30.0 — not 41, not 27. The engine
-is not reporting a measured frame rate; it is running a **fixed 60 Hz tick and
-dropping to every second tick when a frame overruns**. 60 or 30, nothing
-between.
+Draw count is identical (41–43) at every size, so this is **pixel cost, not draw
+cost**. The earlier "exactly 60 / exactly 30" reading came from vsync: at 60 Hz
+a frame under 16.7 ms shows 60, a frame over it halves to 30. That is a vsync
+ladder, not a tick lock.
 
-That is also the answer to "100 fps sometimes 50": on a 100 Hz display the same
-ladder gives 100 and 50. And it explains "GPU 50%, CPU 10%" — the engine is
-waiting, not working.
+The number that matters: **12.3 ms at 640×480 with 41 draws.** 307 k pixels
+should cost well under a millisecond on a GTX 1060. Fit the three points and the
+curve is roughly `8–9 ms fixed + ~11 µs per 1 k pixels`:
 
-**Consequences for anyone benchmarking this engine:**
+- the fixed ~8–9 ms is CPU-side or per-frame driver work (matches the 22%
+  `clock_gettime`, 10.6% `render_synth`, and the `glFinish` inside the profiler),
+- the per-pixel part is genuinely heavy — two full-resolution blits per frame
+  (scene→texture, then output→swapchain) plus the shadow pass and SDF text.
 
-1. Any fps number is a step function. Comparing 58 vs 61 is meaningless; it is
-   60 or 30.
-2. A micro-optimisation that saves 2 ms inside a 16.7 ms frame shows **exactly
-   zero** improvement until it crosses the whole tick. Measure ms, never fps.
-3. The real fix is architectural: decouple drawing from the 60 Hz tick (draw as
-   fast as the display allows, step physics on the tick). Until then nothing can
-   exceed 60 and every missed frame costs half.
-4. The pacer's busy-wait (`video_gl.c:744-757`) is visible as 22% of samples in
-   `perf`; it was tested with a 1 ms sleep headroom and made no difference to
-   throughput, because the tick — not the pacer — is the limiter.
+So: not a tick lock, and not "the GPU is too slow" either. It is a heavy
+per-frame fixed cost plus an expensive per-pixel path.
 
 ## 7. FOR JONHLINE (Vulkan, issue #11)
 
