@@ -303,8 +303,8 @@ static void make_phantoms(gt4_race_run *r, const gt4_race_desc *d)
             GT4_U32(obj + 0xec) = PHANTOM_COND + CONDUCTOR_FIELD_LINES_U;
         }
         /* A second row behind the official grid: the last official car's
-           step repeated, offset a little to the side. Safe on the track
-           and outside the conductor's grid slots. */
+           step repeated, offset a little to the side. It stays outside the
+           conductor's six grid slots and behind the start camera. */
         {
             int last = official - 1, prev = last > 0 ? last - 1 : last;
             uint32_t ref = COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)last * CAR_SIZE;
