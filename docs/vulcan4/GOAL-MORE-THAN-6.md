@@ -183,10 +183,20 @@ That kills the fixed-stride patch as the long-term design, because of two hard
 numbers:
 
 1. **16-bit offsets.** Guest instructions reach a field with `addiu rt,base,imm`,
-   and `imm` is 16 bits. Today `CAR_COUNT` sits at `0x6698 + 6*0x10A0`. At
-   7 cars the tail shifts by `0x21A0` (fine), but at 12 cars it shifts by
-   `0xE000`, at 16 by `0x12C00` — past what one instruction can address, so the
-   compiled code cannot express it at all.
+   and `imm` is 16 bits (signed: max 32767). Today `CAR_COUNT` sits at
+   `0x6698 + 6*0x10A0`. The tail shifts by `(N-6) * 0x21A0`:
+
+   | N | shift | fits one `addiu` imm? |
+   |---|-------|------------------------|
+   | 7 | `0x21A0` (8608) | yes |
+   | 8 | `0x4340` (17216) | yes |
+   | **9** | **`0x64E0` (25824)** | **yes — last one that does** |
+   | 10 | `0x8680` (34432) | **no** |
+
+   **CORRECTED 2026-10-25 (Caine, arithmetic): the single-immediate ceiling is
+   N = 9, not 12.** The old "12 fits in 16 bits" line was wrong by 0xC9C0 vs
+   32767. N ≥ 10 needs the constant built in two instructions (`lui`+`ori`) at
+   every shifted site, or straight to the pool design.
 2. **Per-car cost.** block `0x1100` + state `0x10A0` = `0x21A0` = 8,608 B per
    car. 100 cars = ~860 KB, plus O(N²) contact work and 100 cars of AI, on a
    32 MB guest.
