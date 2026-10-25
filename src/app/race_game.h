@@ -13,9 +13,11 @@ typedef struct race_game race_game;
 
 race_game *race_game_open(const char *disc);
 void race_game_close(race_game *g);
+/* race.field_size for the next menu race (default 6, validated 1..MOON_MAX_CARS). */
+void race_game_set_field_size(int field_size);
 
 /* A race on `course` with the player's car (GENERIC_CAR label, paint) and
-   the other cars (labels and paints, colors may be NULL; up to 5). The physics is set up at once; the
+   the other cars (labels and paints, colors may be NULL; up to MOON_CONDUCTOR_CARS-1). The physics is set up at once; the
    models load on a thread (race_game_poll). 0 with msg on failure. */
 int race_game_start(race_game *g, const char *course, const char *car, int color,
                     const char *const *others, const int *colors, int nothers, char *msg,

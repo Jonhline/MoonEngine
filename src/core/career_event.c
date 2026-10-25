@@ -1,5 +1,6 @@
 /* Disc-backed GT event grid; production never executes recompiled EE code. */
 #include "career_event.h"
+#include "race_limits.h"
 #include "inflate.h"
 #include "career_original.h"
 #include "spectables.h"
@@ -237,7 +238,7 @@ int gt4_career_championship_restore(gt4_career_event *event, const char *iso,
     if (!gt4_career_active_setup(player_body, active))
         return 0;
     gt4_race_desc grid = {0};
-    grid.cars = 6;
+    grid.cars = MOON_CONDUCTOR_CARS;
     grid.championship = 1;
     grid.event_rng = rng;
     grid.car[0] = word(active);
@@ -245,7 +246,7 @@ int gt4_career_championship_restore(gt4_career_event *event, const char *iso,
     gt4_vol *v = gt4_vol_open(iso, &error);
     gt4_spec_tables *tables = v ? gt4_spec_tables_open(v, NULL) : NULL;
     int ok = tables != NULL;
-    for (unsigned i = 1; ok && i < 6; i++) {
+    for (unsigned i = 1; ok && i < MOON_CONDUCTOR_CARS; i++) {
         uint8_t prepared[32];
         uint64_t car = key(context + 0x30 + i * 16);
         int32_t paint;

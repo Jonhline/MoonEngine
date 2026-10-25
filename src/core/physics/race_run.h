@@ -11,16 +11,17 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "course_gadget.h"
+#include "race_limits.h"
 
 typedef struct {
     char course[32]; /* a /crs name, e.g. "tsukuba" */
     int cars;        /* 1..6, the player's first */
-    uint32_t car[6]; /* GENERIC_CAR ids */
+    uint32_t car[MOON_CONDUCTOR_CARS]; /* GENERIC_CAR ids */
     /* Optional serialized owned-car body (0x4b8 bytes, class header removed).
        Consumed synchronously by open; NULL constructs the stock setup. */
-    const uint8_t *owned_car[6];
+    const uint8_t *owned_car[MOON_CONDUCTOR_CARS];
     /* Original GT4M entry records (003DDAD8), borrowed through open. */
-    const uint8_t *disc_entry[6];
+    const uint8_t *disc_entry[MOON_CONDUCTOR_CARS];
     const uint8_t *disc_settings;     /* Decoded RACE row, independent of world class. */
     const uint8_t *disc_race_options; /* GT4M +0x50, 0x60 bytes */
     int legacy_recording;             /* Playback compatibility for native GT4R version 1 only. */
@@ -30,8 +31,8 @@ typedef struct {
     int championship;        /* event world: 003EF498 mode 14 instead of 13 */
     char license_code[32];   /* original RACE label for result title (003BCB38) */
     int license;             /* 1: 003BBF90 RaceLicense; 2: 003ED298 RaceTraining */
-    uint64_t tuned_car[6];   /* optional ENEMY_CARS key (namespace 0x26) */
-    uint64_t event_paint[6]; /* RACES second qword: one-based, 0/-1 random */
+    uint64_t tuned_car[MOON_CONDUCTOR_CARS];   /* optional ENEMY_CARS key (namespace 0x26) */
+    uint64_t event_paint[MOON_CONDUCTOR_CARS]; /* RACES second qword: one-based, 0/-1 random */
     /* State after opponent selection; consumed synchronously and advanced
        by 0040AA48. Required for a prepared event grid. */
     uint32_t *event_rng;
@@ -63,6 +64,10 @@ typedef struct {
        top speed (setup +0x12A, 0 keeps the ratios) */
     int quick_tuned;
     int quick_power, quick_weight, quick_front_tire, quick_rear_tire, quick_gear;
+    /* The race's requested field size, player included. 0 keeps d.cars.
+       d.cars is the official conductor field (1..MOON_CONDUCTOR_CARS); the
+       rest of field_size are phantoms outside the conductor. */
+    int field_size;
 } gt4_race_desc;
 
 typedef struct gt4_race_run gt4_race_run;
@@ -72,6 +77,12 @@ const gt4_course_gadgets *gt4_race_run_objects(const gt4_race_run *run);
    (the race records the player's commands itself; func_003F5B80) */
 #define GT4_GHOST_CAR 0x10a0
 int gt4_race_run_ghost_on(const gt4_race_run *r);
+/* the requested field and the phantom cars outside the conductor */
+int gt4_race_run_field_size(const gt4_race_run *r);
+int gt4_race_run_phantom_count(const gt4_race_run *r);
+int gt4_race_run_phantom_pose(const gt4_race_run *r, int i, float pos[3], float rot[9],
+                              float wheels[4][3]);
+uint32_t gt4_race_run_phantom_car(const gt4_race_run *r, int i);
 /* the simulation frames run so far (read only) */
 unsigned gt4_race_run_frames(const gt4_race_run *r);
 /* The ghost's best lap (the best-lap replay a Time Trial saves): the

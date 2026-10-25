@@ -10,6 +10,7 @@
 #define MOON_RACE_HUD_H
 
 #include <stdint.h>
+#include "race_limits.h"
 #include "vol.h"
 #include "race_display.h"
 
@@ -41,8 +42,8 @@ typedef struct {
     int oil_sign; /* 0039E308: 0 off, 2 lit, from the watched car's wear. */
     int aid, brake_lock;      /* the signs' sources */
     int driving;              /* the player drives: the signs and fuel shown */
-    float map_x[6], map_y[6]; /* each car on the course (the render frame's x, z) */
-    int map_show[6];          /* how it shows on the map: 3, 2 faded, else not */
+    float map_x[MOON_CONDUCTOR_CARS], map_y[MOON_CONDUCTOR_CARS]; /* each car on the course (the render frame's x, z) */
+    int map_show[MOON_CONDUCTOR_CARS];          /* how it shows on the map: 3, 2 faded, else not */
     int start_frames;         /* frames to the start: START when it reaches 0 */
     int count_frames;         /* func_0034C1C8: watched car's countdown */
     int rolling;              /* the rolling start uses a different display sequence */
@@ -99,7 +100,7 @@ void race_hud_draw_sectors(const uint32_t *colors, int n, int current, float x, 
                            float hh, float alpha);
 /* B-Spec's monitor map: the course about (cx, cy), each car's letter, `lit` orange */
 void race_hud_draw_map_cars(race_hud *h, const race_hud_state *s, float cx, float cy, float box,
-                            const int letter[6], int lit, float alpha);
+                            const int letter[MOON_CONDUCTOR_CARS], int lit, float alpha);
 /* the replay's pause: "Press SELECT to resume" on the darkened bottom */
 void race_hud_draw_simple_pause(race_hud *h);
 /* the playing track (each frame); its title is shown once per track:

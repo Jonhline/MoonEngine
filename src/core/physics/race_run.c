@@ -70,10 +70,12 @@ struct gt4_race_run {
     gt4_specdb_src db;
     uint32_t cond;
     int cars;
+    int field_size;   /* the requested field, official cars plus phantoms */
+    int phantom_count;
     int legacy_recording;
     unsigned frames;                /* display time since the start event, at 60 Hz */
     int aspec_points;               /* func_003C0FF8, computed after the entries start */
-    float height[6], travel0[6][4]; /* at the start: ride height, suspension travel */
+    float height[MOON_CONDUCTOR_CARS], travel0[MOON_CONDUCTOR_CARS][4]; /* at the start */
     /* The Time Trial's ghost (the world's objects at vt+0x240): the
        player's commands as the replay records them (func_003F59A0 ->
        00426C50), the lap being recorded and the best one, each the
@@ -94,8 +96,8 @@ struct gt4_race_run {
     gt4_phys_pads outer; /* the caller's controller, around the ghost's */
 };
 
-static const uint32_t entry_at[6] = {0x01bd7710u, 0x01bdacf0u, 0x01cd9190u,
-                                     0x01cdc770u, 0x01cdfd50u, 0x01ce3330u};
+static const uint32_t entry_at[MOON_CONDUCTOR_CARS] = {
+    0x01bd7710u, 0x01bdacf0u, 0x01cd9190u, 0x01cdc770u, 0x01cdfd50u, 0x01ce3330u};
 
 static void w32(uint32_t a, uint32_t v)
 {
@@ -325,10 +327,25 @@ gt4_race_run *gt4_race_run_open(const char *disc, const gt4_race_desc *d, char *
         tt.event_paint[1] = d->event_paint[0];
         d = &tt;
     }
-    if (!d || d->cars < 1 || d->cars > 6 ||
+    if (!d || d->cars < 1 || d->cars > MOON_CONDUCTOR_CARS ||
         (d->split_battle && (d->cars != 2 || d->time_trial || d->event_row))) {
-        snprintf(msg, len, "a race has 1 to 6 cars");
+        snprintf(msg, len, "a race has 1 to %d official cars", MOON_CONDUCTOR_CARS);
         return NULL;
+    }
+    {
+        int field_size = d->field_size ? d->field_size : d->cars;
+        if (field_size < d->cars || field_size > MOON_MAX_CARS) {
+            snprintf(msg, len,
+                     "race.field_size=%d refused: allowed %d..%d (the prepared field has %d)",
+                     field_size, d->cars, MOON_MAX_CARS, d->cars);
+            return NULL;
+        }
+        if (field_size > d->cars) {
+            snprintf(msg, len,
+                     "race.field_size=%d refused: phantom cars are step 2 (the official field has %d)",
+                     field_size, d->cars);
+            return NULL;
+        }
     }
     r = calloc(1, sizeof *r);
     if (!r || !(r->ram = calloc(1, RAM_SIZE))) {
@@ -338,6 +355,7 @@ gt4_race_run *gt4_race_run_open(const char *disc, const gt4_race_desc *d, char *
     }
     r->cond = COND;
     r->cars = d->cars;
+    r->field_size = d->field_size ? d->field_size : d->cars;
     r->legacy_recording = d->legacy_recording;
     r->ghost_time = 0x157529ffu;
     gt4_phys_mem = r->ram;
@@ -858,6 +876,25 @@ static int ghost_write(void *u, uint32_t car, const uint8_t *out)
 unsigned gt4_race_run_frames(const gt4_race_run *r)
 {
     return r ? (unsigned)r->frames : 0;
+}
+int gt4_race_run_field_size(const gt4_race_run *r)
+{
+    return r ? r->field_size : 0;
+}
+int gt4_race_run_phantom_count(const gt4_race_run *r)
+{
+    return r ? r->phantom_count : 0;
+}
+int gt4_race_run_phantom_pose(const gt4_race_run *r, int i, float pos[3], float rot[9],
+                              float wheels[4][3])
+{
+    (void)r; (void)i; (void)pos; (void)rot; (void)wheels;
+    return 0;
+}
+uint32_t gt4_race_run_phantom_car(const gt4_race_run *r, int i)
+{
+    (void)r; (void)i;
+    return 0;
 }
 int gt4_race_run_ghost_on(const gt4_race_run *r)
 {

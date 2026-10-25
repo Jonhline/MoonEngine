@@ -5115,6 +5115,11 @@ int main(int argc, char **argv)
             static const char *const others[] = {"_1100_standard_type11_49", "z_act_70",
                                                  "today_g_85", "midget2_d_type_98", "s500_63"};
             char msg[256];
+            int field_size = race_field_size_request();
+            int preview_others = field_size - 1;
+            if (preview_others > MOON_CONDUCTOR_CARS - 1)
+                preview_others = MOON_CONDUCTOR_CARS - 1;
+            race_game_set_field_size(field_size);
             race_game_set_time_trial(game, race_time_trial);
             gt4_race_desc split = {0};
             split.tire_2p = 1;
@@ -5143,7 +5148,7 @@ int main(int argc, char **argv)
 #endif
                                                  split_preview     ? 1
                                                  : race_time_trial ? 0
-                                                                   : 5,
+                                                                   : preview_others,
                                                  msg, sizeof msg)) {
                 fprintf(stderr, "race: %s\n", msg);
                 exit_code = 1;
@@ -5897,7 +5902,11 @@ int main(int argc, char **argv)
                MCarData.PickUpEnemyCars, game.setEntryCarCode) */
                 const char *others[5];
                 int other_colors[5];
-                int nothers = menu_race_entries(mn, others, other_colors, 5);
+                int field_size = race_field_size_request();
+                int max_others = field_size - 1;
+                if (max_others > MOON_CONDUCTOR_CARS - 1)
+                    max_others = MOON_CONDUCTOR_CARS - 1;
+                int nothers = menu_race_entries(mn, others, other_colors, max_others);
                 if (split) {
                     others[0] = menu_split_car(mn, 1);
                     other_colors[0] = split_colors[1];
@@ -6003,10 +6012,12 @@ int main(int argc, char **argv)
                         } else
                             snprintf(msg, sizeof msg,
                                      "Cannot read Photo Drive rules or equipped car.");
-                    } else
+                    } else {
+                        race_game_set_field_size(field_size);
                         started =
                             race_game_start(game, race_course, race_car, race_color, race_other_ptr,
                                             race_other_colors, nothers, msg, sizeof msg);
+                    }
                     if (started) {
                         /* the race sequence: its quick menu first (the grid), the race on its Start */
                         loading_screen_begin();

@@ -54,6 +54,31 @@ static struct {
 
 static uint64_t presentation_clock;
 static video_settings *app_video_settings;
+/* race.field_size: the request, validated 1..MOON_MAX_CARS. A refused value
+   says its value, the range and the reason, then the stock six is used. */
+static int race_field_size_request(void)
+{
+    const char *raw = getenv("MOON_RACE_FIELD_SIZE");
+    const char *why = NULL;
+    char *end;
+    long n;
+    if (!raw && app_video_settings)
+        raw = moon_options_get(&app_video_settings->store, "race.field_size", "");
+    if (!raw || !*raw)
+        return MOON_CONDUCTOR_CARS;
+    n = strtol(raw, &end, 10);
+    if (!*raw || *end)
+        why = "not an integer";
+    else if (n < 1 || n > MOON_MAX_CARS)
+        why = "outside the allowed range";
+    if (!why)
+        return (int)n;
+    fprintf(stderr,
+            "race.field_size=%s refused: allowed 1..%d (%s; the conductor holds %d, phantoms "
+            "fill the rest)\n",
+            raw, MOON_MAX_CARS, why, MOON_CONDUCTOR_CARS);
+    return MOON_CONDUCTOR_CARS;
+}
 static save_ui save_screen;
 static int present_profile_picker(menu *m);
 static gt4_replay_file replay_to_save; /* the race the memory card's save screen writes */

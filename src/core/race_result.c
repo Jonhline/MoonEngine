@@ -29,11 +29,11 @@ struct race_result {
     uint8_t *rt_data;
     gt4_rtext rt;
     int rt_ok;
-    row rows[6];
+    row rows[MOON_MAX_CARS];
     int nrows;          /* +0x4F4 */
     int player_row;     /* +0x4F0 */
-    int done_car[6];    /* +0x14: the car's finish taken */
-    int timed[6];       /* +0x2C: its time set */
+    int done_car[MOON_MAX_CARS];    /* +0x14: the car's finish taken */
+    int timed[MOON_MAX_CARS];       /* +0x2C: its time set */
     uint32_t lead_time; /* +0x4E8 */
     int lead_laps;      /* +0x4EC */
     int exit_ok;        /* +0x4FC */
@@ -90,7 +90,7 @@ static int call(void *user, const char *name, const strb_value *args, int nargs,
 {
     race_result *r = user;
     int at = nargs > 0 ? (int)(args[0].t == STRB_STR ? atof(args[0].s) : args[0].n) : 0;
-    const row *w = at >= 0 && at < 6 ? &r->rows[at] : NULL;
+    const row *w = at >= 0 && at < MOON_MAX_CARS ? &r->rows[at] : NULL;
     memset(ret, 0, sizeof *ret);
     if (r->license) {
         /* 003E0A50 accepts case-insensitive command names (005FBDD0).
@@ -252,7 +252,7 @@ static race_result *board_open(gt4_vol *vol, race_result_icon icon, void *user, 
     r->rt_ok = r->rt_data && gt4_rtext_open(&r->rt, r->rt_data, n);
     /* func_003E0530: each row empty, its time the race's "Running..."
        (the game's text table D_00621870 +0x134; +0x138/+0x13C the laps') */
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < MOON_MAX_CARS; i++) {
         r->rows[i].car = -1;
         snprintf(r->rows[i].time, sizeof r->rows[i].time, "Running...");
     }
@@ -344,7 +344,7 @@ void race_result_close(race_result *r)
 
 void race_result_update(race_result *r, const race_result_state *s, double dt)
 {
-    int order[6], n;
+    int order[MOON_MAX_CARS], n;
     if (!r || !s)
         return;
     if (r->license) {
@@ -357,7 +357,7 @@ void race_result_update(race_result *r, const race_result_state *s, double dt)
             strb_tick(r->movie, movie_dt);
         return;
     }
-    n = s->cars < 6 ? s->cars : 6;
+    n = s->cars < MOON_MAX_CARS ? s->cars : MOON_MAX_CARS;
     r->nrows = n;
     for (int i = 0; i < n; i++)
         order[i] = i;
