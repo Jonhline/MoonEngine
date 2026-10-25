@@ -161,6 +161,46 @@ without computing 0x6698 at all — the next scan.
 - Our own six-ceilings located: `main.c:5900` (menu_race_entries … 5),
   `race_game.c:970-971` (nothers > 5), `race_game.c:261 last_colors[5]`.
 
+## 7. CAPTAIN'S DIRECTION (2026-10-24): VERSATILE, NOT SEVEN
+
+*"Adjust it to be versatile. Even up to 50-100 opponents… if we do 7 opponents
+instead of 6, we work more and more to give u the ability to do 10-12."*
+
+That kills the fixed-stride patch as the long-term design, because of two hard
+numbers:
+
+1. **16-bit offsets.** Guest instructions reach a field with `addiu rt,base,imm`,
+   and `imm` is 16 bits. Today `CAR_COUNT` sits at `0x6698 + 6*0x10A0`. At
+   7 cars the tail shifts by `0x21A0` (fine), but at 12 cars it shifts by
+   `0xE000`, at 16 by `0x12C00` — past what one instruction can address, so the
+   compiled code cannot express it at all.
+2. **Per-car cost.** block `0x1100` + state `0x10A0` = `0x21A0` = 8,608 B per
+   car. 100 cars = ~860 KB, plus O(N²) contact work and 100 cars of AI, on a
+   32 MB guest.
+
+### The design that scales (three tiers, one field-size value)
+
+- **Tier 0 (N ≤ 6):** today's layout, untouched. Byte-identical.
+- **Tier 1 (7 ≤ N ≤ 12):** the shift, done as a *computed* constant:
+  `tail_shift = (N-6) * 0x21A0`, applied by the verified site table. Fits in
+  16 bits; no pointer indirection.
+- **Tier 2 (N > 12):** cars move OUT of the conductor into a **car pool** in
+  free guest RAM, and the conductor holds a pointer per car instead of a
+  contiguous stride. The few readers that compute `base + i*stride` are
+  redirected through the pool (a lookup function in C + a patched accessor in
+  the guest). This is the only shape that can reach 50-100 without running out
+  of addressable offsets.
+
+So the deliverable is not "7 cars" — it is **one field-size variable** that
+selects the tier, with 6, 8, 10, 12, then pool mode behind it. Every tier keeps
+the same gates: 6 cars byte-identical, then N cars start/finish/score/show N
+rows.
+
+Honest ceiling: 10-12 will race properly. 50-100 is chaos mode — it will run,
+it will thrash the physics and the HUD, and it is a stress test, not a
+simulation.
+
+
 ## 6c. CORRECTION — THE FIRST PATCH PLAN WAS WRONG (measured same night)
 
 The conductor is not "three arrays then free space". Everything from `0xCA58`
