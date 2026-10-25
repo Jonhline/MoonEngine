@@ -67,7 +67,41 @@ gone.
 - **The GPU doing too much**: the driver symbols are 8%, and the GPU-side cost
   measured through `glFinish` sits under the pacing window.
 
-## 5. FOR JONHLINE (Vulkan, issue #11)
+## 6. THE BIGGER FINDING — THE FRAME RATE IS QUANTISED (measured 2026-10-25)
+
+Same race, same draw count (43 draws / 191 quads at every size), NVIDIA GTX
+1060:
+
+| window | ms/frame | fps |
+|--------|----------|-----|
+| 1280×720 | 16.34 | 60.1 |
+| 1920×1080 | 33.09 | 29.8 |
+| 2560×1440 | 33.14 | 29.9 |
+
+1080p costs **twice** 720p in reported frame time while submitting **the same
+43 draws**, and the result lands exactly on 30.0 — not 41, not 27. The engine
+is not reporting a measured frame rate; it is running a **fixed 60 Hz tick and
+dropping to every second tick when a frame overruns**. 60 or 30, nothing
+between.
+
+That is also the answer to "100 fps sometimes 50": on a 100 Hz display the same
+ladder gives 100 and 50. And it explains "GPU 50%, CPU 10%" — the engine is
+waiting, not working.
+
+**Consequences for anyone benchmarking this engine:**
+
+1. Any fps number is a step function. Comparing 58 vs 61 is meaningless; it is
+   60 or 30.
+2. A micro-optimisation that saves 2 ms inside a 16.7 ms frame shows **exactly
+   zero** improvement until it crosses the whole tick. Measure ms, never fps.
+3. The real fix is architectural: decouple drawing from the 60 Hz tick (draw as
+   fast as the display allows, step physics on the tick). Until then nothing can
+   exceed 60 and every missed frame costs half.
+4. The pacer's busy-wait (`video_gl.c:744-757`) is visible as 22% of samples in
+   `perf`; it was tested with a 1 ms sleep headroom and made no difference to
+   throughput, because the tick — not the pacer — is the limiter.
+
+## 7. FOR JONHLINE (Vulkan, issue #11)
 
 His "struggled to hold 60 on a GTX" is consistent with the CPU side above, not
 with the GPU: the pacing spin plus text redraw plus min/max PLT calls are all
