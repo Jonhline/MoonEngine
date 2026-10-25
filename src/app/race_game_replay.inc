@@ -21,6 +21,12 @@ int race_game_replay(race_game *g, char *msg, size_t len)
         snprintf(msg, len, "no replay");
         return 0;
     }
+    if (g->run && gt4_race_run_phantom_count(g->run) > 0) {
+        snprintf(msg, len,
+                 "replay refused: %d phantom cars are not in the replay format (official field %d)",
+                 gt4_race_run_phantom_count(g->run), gt4_race_run_cars(g->run));
+        return 0;
+    }
     g->replay_next = 1;
     g->disc_segment = g->disc_segment_2p = 0;
     return race_game_restart(g, msg, len);
@@ -116,6 +122,12 @@ int race_game_replay_export(const race_game *g, gt4_replay_file *r, int kind)
 {
     if (!g || !r || !g->tape_n || !g->last_course[0])
         return 0;
+    if (g->run && gt4_race_run_phantom_count(g->run) > 0) {
+        fprintf(stderr,
+                "replay refused: %d phantom cars are not in the replay format (official field %d)\n",
+                gt4_race_run_phantom_count(g->run), gt4_race_run_cars(g->run));
+        return 0;
+    }
     memset(r, 0, sizeof *r);
     r->kind = kind;
     r->legacy_math = g->replaying && g->legacy_replay_math;

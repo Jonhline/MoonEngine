@@ -1314,8 +1314,25 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
         !nothers) { /* the ghost: the player's car again */
         const char *ghost = car;
         race_view_set_opponents(g->view, &ghost, &color, 1);
-    } else
-        race_view_set_opponents(g->view, others, colors, nothers);
+    } else {
+        int phantoms = gt4_race_run_phantom_count(g->run);
+        if (phantoms > 0) {
+            const char *render_others[MOON_MAX_OPPONENTS];
+            int render_colors[MOON_MAX_OPPONENTS];
+            int n = nothers;
+            for (int i = 0; i < n; i++) {
+                render_others[i] = others[i];
+                render_colors[i] = colors ? colors[i] : 0;
+            }
+            for (int j = 0; j < phantoms; j++) {
+                int src = n ? j % n : 0;
+                render_others[n + j] = n ? others[src] : car;
+                render_colors[n + j] = n ? (colors ? colors[src] : 0) : color;
+            }
+            race_view_set_opponents(g->view, render_others, render_colors, n + phantoms);
+        } else
+            race_view_set_opponents(g->view, others, colors, nothers);
+    }
     { /* 00390200/00390340 load fitted parts for each owned entry, not
            only P1. TT's duplicated ghost also uses the player's body. */
         char wheel[32] = "", wing[32] = "";
@@ -2719,6 +2736,9 @@ static void publish_photo_poses(race_game *g)
             race_view_set_opponent(g->view, i - 1, pos, rot, wheels);
             update_wheel_motion(g, i, rot);
         }
+    for (int j = 0; j < gt4_race_run_phantom_count(g->run); j++)
+        if (gt4_race_run_phantom_pose(g->run, j, pos, rot, wheels))
+            race_view_set_opponent(g->view, g->others + j, pos, rot, wheels);
     if (licence_exam_run(g) && !g->ghost_car && !g->split) {
         unsigned frame = gt4_race_run_frames(g->run);
         float now[LIC_SAMPLE];

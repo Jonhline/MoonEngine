@@ -278,6 +278,8 @@ int main(int argc, char **argv)
     race_game *g = race_game_open(argv[1]);
     char msg[256];
     CHECK(g);
+    if (getenv("PROBE_FIELD_SIZE"))
+        race_game_set_field_size(atoi(getenv("PROBE_FIELD_SIZE")));
     const char *others[] = {getenv("PROBE_RIVAL") ? getenv("PROBE_RIVAL") : "ka_01", "z_act_70",
                             "today_g_85", "midget2_d_type_98", "s500_63"};
     if (getenv("PROBE_FULL_GRID"))
@@ -377,12 +379,60 @@ int main(int argc, char **argv)
         race_game_close(g);plat_video_shutdown();
         puts("PASS live and replay brake state follows every car pedal on each tick");return 0;
     }
-    if (getenv("PROBE_CAMERA")) {
-        g->camera = atoi(getenv("PROBE_CAMERA"));
-        CHECK(g->camera == 0 || g->camera == 1 || g->camera == 6);
-    }
     if (getenv("PROBE_BENCHMARK"))
         return benchmark_race(g, argv[2]);
+    if (getenv("PROBE_PHANTOM_RUN")) {
+        uint32_t cond = gt4_race_run_conductor(g->run);
+        size_t nb = (size_t)MOON_CONDUCTOR_CARS * 0x1100u,
+               ns = (size_t)MOON_CONDUCTOR_CARS * CAR_SIZE,
+               nt = (size_t)MOON_CONDUCTOR_CARS * 16u;
+        uint8_t *before = malloc(nb + ns + nt);
+        CHECK(before);
+        memcpy(before, gt4_ptr(cond + 0x98), nb);
+        memcpy(before + nb, gt4_ptr(cond + 0x6698), ns);
+        memcpy(before + nb + ns, gt4_ptr(cond + 0xCA58), nt);
+        uint32_t cb = mz_crc32(0, before, nb), cs = mz_crc32(0, before + nb, ns),
+                 ct = mz_crc32(0, before + nb + ns, nt);
+        fprintf(stderr, "phantom run: start cars=%u count=%u phantoms=%d crc=%08x/%08x/%08x\n",
+                gt4_race_run_cars(g->run), GT4_U32(cond + CONDUCTOR_FIELD_CAR_COUNT),
+                gt4_race_run_phantom_count(g->run), cb, cs, ct);
+        for (int f = 0; f < 18000; f++)
+            CHECK(gt4_race_run_frame(g->run));
+        uint32_t ab = mz_crc32(0, gt4_ptr(cond + 0x98), nb),
+                 as = mz_crc32(0, gt4_ptr(cond + 0x6698), ns),
+                 at = mz_crc32(0, gt4_ptr(cond + 0xCA58), nt);
+        int good = GT4_U32(cond + CONDUCTOR_FIELD_CAR_COUNT) == MOON_CONDUCTOR_CARS;
+        for (int i = 0; i < MOON_CONDUCTOR_CARS; i++)
+            good &= GT4_U32(cond + 0x6698 + (uint32_t)i * CAR_SIZE + 4) == cond;
+        for (int j = 0; j < gt4_race_run_phantom_count(g->run); j++) {
+            uint32_t pc = gt4_race_run_phantom_car(g->run, j);
+            good &= pc && GT4_U32(pc + 4) != cond;
+        }
+        fprintf(stderr,
+                "phantom run: end cars=%u count=%u phantoms=%d crc=%08x/%08x/%08x good=%d\n",
+                gt4_race_run_cars(g->run), GT4_U32(cond + CONDUCTOR_FIELD_CAR_COUNT),
+                gt4_race_run_phantom_count(g->run), ab, as, at, good);
+        for (int i = 0; i < MOON_CONDUCTOR_CARS; i++)
+            fprintf(stderr, "phantom run: ten[%d]=%08x\n", i,
+                    GT4_U32(cond + CONDUCTOR_FIELD_UNK_CA58_U + (uint32_t)i * 16u));
+        char path[600];
+        snprintf(path, sizeof path, "%s-phantom-before.bin", argv[2]);
+        FILE *o = fopen(path, "wb");
+        if (o) { fwrite(before, 1, nb + ns + nt, o); fclose(o); }
+        uint8_t *after = malloc(nb + ns + nt);
+        CHECK(after);
+        memcpy(after, gt4_ptr(cond + 0x98), nb);
+        memcpy(after + nb, gt4_ptr(cond + 0x6698), ns);
+        memcpy(after + nb + ns, gt4_ptr(cond + 0xCA58), nt);
+        snprintf(path, sizeof path, "%s-phantom-after.bin", argv[2]);
+        o = fopen(path, "wb");
+        if (o) { fwrite(after, 1, nb + ns + nt, o); fclose(o); }
+        free(before);
+        free(after);
+        race_game_close(g);
+        plat_video_shutdown();
+        return good ? 0 : 1;
+    }
     if (getenv("PROBE_CINEMA_TEST")) {
         race_game_update(g, 0);
         uint8_t *before = malloc(0x2000000);
