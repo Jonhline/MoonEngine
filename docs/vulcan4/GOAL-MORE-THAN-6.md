@@ -129,6 +129,28 @@ Captain playtests after that.
   - `0xCA58` (after states): **3 sites** — 0x14FDF0, 0x2D0CB0, 0x2D43B8
   Only a handful of places COMPUTE those bases (the rest inherit a register
   already offset), which makes strategy A (widen + patch) far cheaper than the
-  earlier estimate. Next action = disassemble those sites and confirm each one
-  is a base computation, not an unrelated constant.
+  earlier estimate.
+- 2026-10-24 (measurement 1 answered): all three `0x6698` sites are genuine
+  base computations, disassembled from the image:
+  - `0x1572B4  addiu t2,t2,0x6698`
+  - `0x34BF54  addiu s0,s2,0x6698` (then indexes `+0x6DC`, `+0x9A0`, …)
+  - `0x34C1AC  addiu v0,v0,0x6698` (then `lbu -1946(v0)` = the `+0x6698-0x79A` byte)
+  Nothing exotic; each one makes the array base once and everything else is
+  register + smaller offset. **Strategy A is viable.**
+
+### The concrete patch for 7 cars
+
+Keep both strides exactly as they are and only move the two bases:
+
+| array | now | 7 cars |
+|-------|-----|--------|
+| per-car blocks (6 × 0x1100 from 0x98) | states at 0x6698 | blocks end 0x98+0x7700 → states at **0x7798** |
+| car states (6 × 0x10A0) | 0xCA58 array | states end 0x7798+0x49C0 → **0xC158** |
+
+So 7 cars = rewrite `0x6698 → 0x7798` at 3 sites and `0xCA58 → 0xC158` at
+3 sites, plus our own `CONDUCTOR_FIELD_CARS` and friends. Strides 0x1100/0x10A0
+stay untouched. Room to 0xC158+0x10*7 is well inside the conductor.
+Remaining risk: code that assumes the states follow the blocks contiguously
+without computing 0x6698 at all — the next scan.
+
 
