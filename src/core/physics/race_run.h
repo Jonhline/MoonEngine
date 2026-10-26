@@ -103,6 +103,8 @@ int gt4_race_run_phantom_count(const gt4_race_run *r);
 int gt4_race_run_phantom_pose(const gt4_race_run *r, int i, float pos[3], float rot[9],
                               float wheels[4][3]);
 uint32_t gt4_race_run_phantom_car(const gt4_race_run *r, int i);
+/* Phantom i's display name (set by race_game before the grid screen), "" if none. */
+const char *gt4_race_run_phantom_name(const gt4_race_run *r, int i);
 /* The merged live classification, in place order. 0 without phantoms. */
 int gt4_race_run_classification(const gt4_race_run *r, gt4_race_entrant *out, int max);
 /* The stable entrant ids in place order, for prize/points. 0 without phantoms. */

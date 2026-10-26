@@ -1069,6 +1069,12 @@ uint32_t gt4_race_run_phantom_car(const gt4_race_run *r, int i)
 {
     return r && i >= 0 && i < r->phantom_count ? r->phantom_car[i] : 0;
 }
+const char *gt4_race_run_phantom_name(const gt4_race_run *r, int i)
+{
+    if (!r || i < 0 || i >= r->phantom_count || r->cars + i >= MOON_MAX_CARS)
+        return "";
+    return r->entrant_name[r->cars + i];
+}
 int gt4_race_run_ghost_on(const gt4_race_run *r)
 {
     return r && r->ghost_on;
