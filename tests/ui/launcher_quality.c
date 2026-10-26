@@ -48,7 +48,8 @@ int main(int argc, char **argv)
     static const char *const tweak_order[] = {
         "Sense of Speed", "Dynamic FOV", "FOV Amount", "Camera Dynamics", "Camera Shake",
         "Wind Audio", "Road Roar Boost", "Radial Blur", "Blur Strength", "Vignette",
-        "Discord Rich Presence", "Skip Intro", "Assist Line"};
+        "Discord Rich Presence", "Skip Intro", "Assist Line", "Phantom Opponents",
+        "Field Size"};
     int tweak_group = video_setting_tweak_group();
     CHECK(tweak_group >= 0 && tweak_group < video_setting_count());
     CHECK(!strcmp(video_setting(tweak_group)->label, "Sense of Speed"));
@@ -114,6 +115,15 @@ int main(int argc, char **argv)
     video_setting_set(&s,aa,4);
     video_settings_init(&loaded,1,argv[1]);
     CHECK(video_setting_get(&loaded,aa)==4);
+    int phantom = setting("Phantom Opponents"), field = setting("Field Size");
+    CHECK(phantom >= 0 && field >= 0);
+    video_setting_set(&s, phantom, 1);
+    video_setting_set(&s, field, 2); /* MOON_CONDUCTOR_CARS + 2 */
+    video_settings_init(&loaded,1,argv[1]);
+    CHECK(video_setting_get(&loaded, phantom) == 1);
+    CHECK(video_setting_get(&loaded, field) == 2);
+    CHECK(video_settings_field_size_warning(20) == 0);
+    CHECK(video_settings_field_size_warning(21) == 1);
     make_directory("build");   /* the preset path below is relative to the test working dir */
     CHECK(video_settings_preset_export(&s,"build/edge-aa.moonpreset","Edge",0));
     video_setting_set(&s,aa,1);

@@ -29,6 +29,7 @@
 #endif
 
 static video_settings *settings_active;
+static void vs_info_init(void);
 static const int sizes[][2] = {{1280, 720},  {1280, 960},  {1600, 900},
                                {1920, 1080}, {2560, 1440}, {3840, 2160}};
 /* Stored 0..23 keep their old hour mapping; 24 explicitly means Course. */
@@ -118,6 +119,7 @@ static void apply_discord(video_settings *s)
 void video_settings_init(video_settings *s, int persist, const char *config_file)
 {
     memset(s, 0, sizeof *s);
+    vs_info_init();
     settings_active = s;
 #ifndef __SWITCH__
     s->tweaks_open = 1;
@@ -204,6 +206,22 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     s->current.speed_vignette = moon_options_int(&s->store, "tweaks.speed_vignette", 0, 0, 1);
     s->current.skip_intro = moon_options_int(&s->store, "tweaks.skip_intro", 0, 0, 1);
     s->current.assist_line = moon_options_int(&s->store, "tweaks.assist_line", 0, 0, 1);
+    s->current.phantom_opponents = moon_options_int(&s->store, "race.phantoms", 0, 0, 1);
+    {
+        const char *raw = moon_options_get(&s->store, "race.field_size", "");
+        int field_size = MOON_CONDUCTOR_CARS;
+        if (raw && *raw) {
+            char *end = NULL;
+            long n = strtol(raw, &end, 10);
+            if (!*raw || (end && *end) || n < MOON_CONDUCTOR_CARS || n > MOON_MAX_CARS)
+                fprintf(stderr,
+                        "race.field_size=%s refused: allowed %d..%d; using %d\n",
+                        raw, MOON_CONDUCTOR_CARS, MOON_MAX_CARS, MOON_CONDUCTOR_CARS);
+            else
+                field_size = (int)n;
+        }
+        s->current.field_size = field_size;
+    }
     s->current.discord_presence =
         moon_options_int(&s->store, "integrations.discord_presence", 0, 0, 1);
     s->current.preset_tools = moon_options_int(&s->store,"interface.preset_tools",enhanced,0,1);
@@ -331,11 +349,12 @@ static void save(video_settings *s)
                                     "tweaks.speed_wind", "tweaks.speed_road_roar",
                                     "tweaks.speed_blur", "tweaks.speed_blur_amount",
                                     "tweaks.speed_vignette", "tweaks.skip_intro",
-                                    "tweaks.assist_line"};
+                                    "tweaks.assist_line", "race.phantoms", "race.field_size"};
         const int tweak_values[] = {v->speed_fov, v->speed_fov_degrees, v->speed_cam_lag,
                                     v->speed_shake, v->speed_wind, v->speed_road_roar,
                                     v->speed_blur, v->speed_blur_amount, v->speed_vignette,
-                                    v->skip_intro, v->assist_line};
+                                    v->skip_intro, v->assist_line, v->phantom_opponents,
+                                    v->field_size};
         for (unsigned i = 0; i < sizeof tweak_keys / sizeof *tweak_keys; i++) {
             char text_value[16];
             snprintf(text_value, sizeof text_value, "%d", tweak_values[i]);
@@ -413,6 +432,8 @@ enum {
     VS_SPEED_ROAD_ROAR, VS_SPEED_BLUR, VS_SPEED_BLUR_AMOUNT, VS_SPEED_VIGNETTE, VS_DISCORD,
     VS_SKIP_INTRO,
     VS_ASSIST_LINE,
+    VS_PHANTOM_OPPONENTS,
+    VS_FIELD_SIZE,
     VS_COUNT
 };
 static const char *const vs_preset[] = {"Classic", "Enhanced", "Modified"};
@@ -446,7 +467,25 @@ static const char *const vs_fov_degrees[] = {"0°", "2°", "4°", "6°", "8°", 
 static const int vs_fov_degrees_values[] = {0, 2, 4, 6, 8, 10, 12, 16, 20, 24, 28, 30};
 static const char *const vs_blur_amount[] = {"0%", "10%", "20%", "30%", "35%", "40%", "50%", "60%", "75%", "100%"};
 static const int vs_blur_amount_values[] = {0, 10, 20, 30, 35, 40, 50, 60, 75, 100};
-static const video_setting_info vs_info[VS_COUNT] = {
+#define VS_FIELD_CHOICES (MOON_MAX_CARS - MOON_CONDUCTOR_CARS + 1)
+static char vs_field_size_names[VS_FIELD_CHOICES][8];
+static const char *vs_field_size_name_ptrs[VS_FIELD_CHOICES];
+static int vs_field_size_names_ready;
+static video_setting_info vs_info[VS_COUNT];
+static void field_size_names_init(void)
+{
+    if (vs_field_size_names_ready)
+        return;
+    for (int i = 0; i < VS_FIELD_CHOICES; i++) {
+        snprintf(vs_field_size_names[i], sizeof vs_field_size_names[i], "%d",
+                 MOON_CONDUCTOR_CARS + i);
+        vs_field_size_name_ptrs[i] = vs_field_size_names[i];
+    }
+    vs_info[VS_FIELD_SIZE].count = VS_FIELD_CHOICES;
+    vs_info[VS_FIELD_SIZE].names = vs_field_size_name_ptrs;
+    vs_field_size_names_ready = 1;
+}
+static const video_setting_info vs_info_values[VS_COUNT] = {
     {"Video", "Graphics API", "The renderer. Applies the next time Moon Engine opens.", 2, vs_api},
     {"Video", "Window Mode", "A window, or the whole screen.", 2, vs_mode},
     {"Video", "Resolution", "The window's size.", 6, vs_size},
@@ -510,7 +549,19 @@ static const video_setting_info vs_info[VS_COUNT] = {
     {"Tweaks","Discord Rich Presence","Show the current course and car on Discord. The Application ID is fixed.",2,vs_off_on},
     {"Tweaks","Skip Intro","Skip the GT splash and the opening movie; boot straight to the main menu.",2,vs_off_on},
     {"Tweaks","Assist Line","Racing line with braking zones on every track and race.",2,vs_off_on},
+    {"Tweaks","Phantom Opponents","Off is the original six-car race. On adds extra cars in a second conductor; they can win.",2,vs_off_on},
+    {"Tweaks","Field Size","Total cars when Phantom Opponents is on, including the player's six-car conductor.",0,NULL},
 };
+/* The mutable table starts as the compiled one; the field-size row's names and
+   count are filled from MOON_MAX_CARS by field_size_names_init(). */
+static void vs_info_init(void)
+{
+    if (vs_info[VS_RENDERER].label)
+        return;
+    memcpy(vs_info, vs_info_values, sizeof vs_info);
+    field_size_names_init();
+}
+
 /* A preset's values for the registered PC options; host size, mode and the API are kept. */
 void video_settings_preset_values(pc_video_options *v, int enhanced)
 {
@@ -540,15 +591,22 @@ void video_settings_preset_values(pc_video_options *v, int enhanced)
 }
 int video_setting_count(void)
 {
+    vs_info_init();
     return VS_COUNT;
+}
+int video_setting_is_field_size(int id)
+{
+    return id == VS_FIELD_SIZE;
 }
 /* The Tweaks rows, in order, are the single source both settings pages use. */
 int video_settings_tweak_count(void)
 {
-    return VS_ASSIST_LINE - VS_SPEED_GROUP + 1;
+    vs_info_init();
+    return VS_FIELD_SIZE - VS_SPEED_GROUP + 1;
 }
 const video_setting_info *video_settings_tweak(int i)
 {
+    vs_info_init();
     return i >= 0 && i < video_settings_tweak_count() ? &vs_info[VS_SPEED_GROUP + i] : NULL;
 }
 int video_setting_tweak_group(void)
@@ -561,10 +619,12 @@ int video_setting_tweak_is_child(int id)
 }
 const video_setting_info *video_setting(int i)
 {
+    vs_info_init();
     return i >= 0 && i < VS_COUNT ? &vs_info[i] : NULL;
 }
 int video_setting_get(const video_settings *s, int i)
 {
+    vs_info_init();
     const pc_video_options *v = &s->current;
     switch (i) {
     case VS_RENDERER: return v->renderer == MOON_RENDERER_VULKAN;
@@ -644,6 +704,15 @@ int video_setting_get(const video_settings *s, int i)
     case VS_SPEED_VIGNETTE: return v->speed_vignette;
     case VS_SKIP_INTRO: return v->skip_intro;
     case VS_ASSIST_LINE: return v->assist_line;
+    case VS_PHANTOM_OPPONENTS: return v->phantom_opponents != 0;
+    case VS_FIELD_SIZE: {
+        int n = v->field_size - MOON_CONDUCTOR_CARS;
+        if (n < 0)
+            n = 0;
+        if (n >= VS_FIELD_CHOICES)
+            n = VS_FIELD_CHOICES - 1;
+        return n;
+    }
     case VS_DISCORD: return v->discord_presence;
     case VS_SAVE_TOOLS: return v->save_tools;
     case VS_AMBIENT_OCCLUSION:return v->ambient_occlusion;
@@ -664,6 +733,7 @@ int video_setting_get(const video_settings *s, int i)
 }
 void video_setting_set(video_settings *s, int i, int value)
 {
+    vs_info_init();
     if (!s || i < 0 || i >= VS_COUNT)
         return;
     int n = vs_info[i].count;
@@ -687,6 +757,8 @@ void video_setting_set(video_settings *s, int i, int value)
     case VS_SPEED_VIGNETTE: v->speed_vignette=value!=0; break;
     case VS_SKIP_INTRO: v->skip_intro=value!=0; break;
     case VS_ASSIST_LINE: v->assist_line=value!=0; break;
+    case VS_PHANTOM_OPPONENTS: v->phantom_opponents=value!=0; break;
+    case VS_FIELD_SIZE: v->field_size=MOON_CONDUCTOR_CARS + value; break;
     case VS_DISCORD: v->discord_presence=value!=0; break;
     case VS_SAVE_TOOLS: v->save_tools=value; break;
     case VS_CUSTOM_MUSIC: moon_options_set(&s->store, "audio.custom_music", value ? "1" : "0"); break;
@@ -866,6 +938,10 @@ static void values(ui_project *ui, ui_widget *choice, const char *const *names, 
         ui_widget_append(box, item);
     }
 }
+static int tweak_row_index(int id)
+{
+    return 41 + id - VS_SPEED_GROUP;
+}
 static void read_draft(video_settings *s)
 {
     pc_video_options *v = &s->draft;
@@ -928,6 +1004,8 @@ static void read_draft(video_settings *s)
     v->discord_presence = s->choices[51]->focus_index;
     v->skip_intro = s->choices[52]->focus_index;
     v->assist_line = s->choices[53]->focus_index;
+    v->phantom_opponents = s->choices[tweak_row_index(VS_PHANTOM_OPPONENTS)]->focus_index;
+    v->field_size = MOON_CONDUCTOR_CARS + s->choices[tweak_row_index(VS_FIELD_SIZE)]->focus_index;
 #endif
     v->compact_cars = s->choices[16]->focus_index;
     v->spatial_visibility = s->choices[11]->focus_index;
@@ -945,6 +1023,7 @@ static void read_draft(video_settings *s)
 #endif
 }
 static void tweaks_visibility(video_settings *s);
+static void update_field_size_ui(video_settings *s);
 
 static int idle(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv, ah_val *ret)
 {
@@ -965,6 +1044,7 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
     video_settings *s = data;
     read_draft(s);
     if (s->personal_preset[0]) s->personal_modified=1;
+    update_field_size_ui(s);
 #ifndef __SWITCH__
     ui_widget *sender = ah_host_data(self);
     if (sender == s->choices[41]) {
@@ -1254,7 +1334,7 @@ static const int tab_rows[VIDEO_TAB_COUNT][16] = {
     {7, 10, 14, 15, 13, 9, 16, 37, 38, -1},
     {34, 35, 36, -1},
     {8, 31, 32, -1},
-    {41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, -1}};
+    {41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, -1}};
 static const char *const page_tiles[VIDEO_TAB_COUNT] = {"", "PcGraphics", "PcLighting",
                                                         "PcControls", "PcMusic", "PcPresets",
                                                         "PcTweaks"};
@@ -1403,6 +1483,37 @@ void video_settings_scroll_tick(void)
 }
 #endif
 #endif
+static void update_field_size_ui(video_settings *s)
+{
+#ifndef __SWITCH__
+    if (!s || !s->field_size_row)
+        return;
+    int toggle = tweak_row_index(VS_PHANTOM_OPPONENTS), field = tweak_row_index(VS_FIELD_SIZE);
+    int on = s->choices[toggle] ? s->choices[toggle]->focus_index != 0 : s->current.phantom_opponents;
+    int index = s->choices[field] ? s->choices[field]->focus_index : video_setting_get(s, VS_FIELD_SIZE);
+    int value = MOON_CONDUCTOR_CARS + index;
+    int warn = video_settings_field_size_warning(value);
+    s->field_size_row->insensitive = !on;
+    s->field_size_row->opacity = on ? 1.f : .4f;
+    if (s->field_size_label) {
+        if (warn) {
+            const uint8_t red[] = {235, 54, 54, 255};
+            s->field_size_label->has_runtime_color = 1;
+            memcpy(s->field_size_label->runtime_color, red, 4);
+            text(s->field_size_label, "Field Size - Experimental above 20 cars");
+        } else {
+            s->field_size_label->has_runtime_color = 0;
+            text(s->field_size_label, "Field Size");
+        }
+        if (s->owner)
+            ui_text_adjust_scale(menu_ui(s->owner), s->field_size_label);
+    }
+    for (int i = 0; i < 4; i++)
+        if (s->field_size_warn[i])
+            s->field_size_warn[i]->visible = warn;
+#endif
+}
+
 static void tweaks_visibility(video_settings *s)
 {
 #ifndef __SWITCH__
@@ -1420,6 +1531,7 @@ static void tweaks_visibility(video_settings *s)
 #ifndef __ANDROID__
     layout_tab_rows(s, s->active_tab);
 #endif
+    update_field_size_ui(s);
 #endif
 }
 
@@ -1637,6 +1749,8 @@ static int enter(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     s->choices[51]->focus_index = s->current.discord_presence;
     s->choices[52]->focus_index = s->current.skip_intro;
     s->choices[53]->focus_index = s->current.assist_line;
+    s->choices[tweak_row_index(VS_PHANTOM_OPPONENTS)]->focus_index = s->current.phantom_opponents;
+    s->choices[tweak_row_index(VS_FIELD_SIZE)]->focus_index = video_setting_get(s, VS_FIELD_SIZE);
 #endif
     s->choices[7]->focus_index = s->current.desktop;
     s->choices[9]->focus_index = s->current.edge_pan;
@@ -1686,7 +1800,21 @@ static int enter(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     if (getenv("MOON_SETTINGS_PAGE"))
         page = abs(atoi(getenv("MOON_SETTINGS_PAGE"))) % VIDEO_TAB_COUNT;
     fprintf(stderr, "video settings: page %s\n", page_titles[page]);
+    if (getenv("MOON_SETTINGS_TWEAKS_CLOSED")) {
+        s->tweaks_open = 0;
+        s->choices[41]->focus_index = 0;
+    }
     select_tab(s, page);
+    { /* tests: MOON_SETTINGS_ROW focuses one row (and the viewport follows it) */
+        const char *row = getenv("MOON_SETTINGS_ROW");
+        if (row) {
+            int at = atoi(row);
+            if (at >= 0 && at < (int)(sizeof s->choices / sizeof s->choices[0]) &&
+                s->choices[at]) {
+                menu_native_focus(s->owner, s->choices[at]);
+            }
+        }
+    }
 #elif !defined(__SWITCH__)
     select_tab(s, 0);
 #else
@@ -2078,6 +2206,28 @@ void video_settings_attach(video_settings *s, menu *m)
             values(ui, choice, in->names, in->count);
             if (idx == 41)
                 choice->focus_index = s->tweaks_open;
+            if (idx == tweak_row_index(VS_FIELD_SIZE)) {
+                static const char *const edge_names[4] = {"warn_top", "warn_bottom",
+                                                          "warn_left", "warn_right"};
+                const uint8_t red[] = {235, 54, 54, 255};
+                s->field_size_row = w;
+                s->field_size_label = label;
+                ui_widget *bg = ui_widget_child(w, "bg");
+                for (int e = 0; e < 4 && bg; e++) {
+                    ui_widget *edge = ui_widget_copy(ui, bg);
+                    edge->name = edge_names[e];
+                    edge->has_geometry = 1;
+                    edge->visible = 0;
+                    edge->has_runtime_color = 1;
+                    memcpy(edge->runtime_color, red, 4);
+                    edge->x = e == 3 ? 511.f : 0.f;
+                    edge->y = e == 1 ? 21.f : 0.f;
+                    edge->w = e < 2 ? 512.f : 1.f;
+                    edge->h = e < 2 ? 1.f : 22.f;
+                    ui_widget_append(w, edge);
+                    s->field_size_warn[e] = edge;
+                }
+            }
             ui_widget *popup = ui_widget_child(choice, "popup");
             ui_widget *box = popup ? ui_widget_child(popup, "vbox") : NULL;
             ui_widget *popup_bg = box ? ui_widget_child(box, "bg") : NULL;
@@ -2216,3 +2366,7 @@ int video_settings_speed_blur_amount(void) { return settings_active ? settings_a
 int video_settings_speed_vignette(void) { return settings_active ? settings_active->current.speed_vignette : 0; }
 int video_settings_skip_intro(void) { return settings_active ? settings_active->current.skip_intro : 0; }
 int video_settings_assist_line(void) { return settings_active ? settings_active->current.assist_line : 0; }
+int video_settings_field_size_warning(int field_size)
+{
+    return field_size > 20;
+}

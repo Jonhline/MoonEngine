@@ -5,6 +5,7 @@
 #include "menu.h"
 #include "options_store.h"
 #include "desktop_input.h"
+#include "race_limits.h"
 #ifdef __ANDROID__
 #include "mobile_controls.h"
 #endif
@@ -22,6 +23,8 @@ typedef struct {
     int speed_blur, speed_blur_amount, speed_vignette;
     int skip_intro;
     int assist_line;
+    int phantom_opponents; /* opt-in: the stock six plus phantoms */
+    int field_size;        /* total field when phantoms are on (conductor..MOON_MAX_CARS) */
     int discord_presence;
 #ifdef __ANDROID__
     int touch_menu;
@@ -42,6 +45,7 @@ typedef struct {
     uint64_t touch_back_clock;
     menu *owner;
     ui_widget *page, *choices[64];
+    ui_widget *field_size_row, *field_size_label, *field_size_warn[4];
 #ifndef __SWITCH__
     ui_widget *rows[64], *tabs[8];
     int active_tab;
@@ -93,6 +97,9 @@ int video_settings_speed_blur_amount(void);
 int video_settings_speed_vignette(void);
 int video_settings_skip_intro(void);
 int video_settings_assist_line(void);
+/* The one experimental warning both settings pages use. */
+int video_settings_field_size_warning(int field_size);
+int video_setting_is_field_size(int id);
 /* Keeps the focused in-game settings row inside its viewport (pad Up/Down). */
 void video_settings_scroll_tick(void);
 /* The one speed intensity every speed-driven effect reads: smoothstep 60..240 km/h,

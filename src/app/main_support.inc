@@ -62,7 +62,13 @@ static int race_field_size_request(void)
     const char *why = NULL;
     char *end;
     long n;
-    if (!raw && app_video_settings)
+    if (!app_video_settings)
+        return MOON_CONDUCTOR_CARS;
+    if (!moon_options_int(&app_video_settings->store, "race.phantoms", 0, 0, 1)) {
+        fprintf(stderr, "race: phantom opponents off; field_size=%d\n", MOON_CONDUCTOR_CARS);
+        return MOON_CONDUCTOR_CARS; /* off: the original six-car race */
+    }
+    if (!raw)
         raw = moon_options_get(&app_video_settings->store, "race.field_size", "");
     if (!raw || !*raw)
         return MOON_CONDUCTOR_CARS;
