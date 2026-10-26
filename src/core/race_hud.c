@@ -754,6 +754,27 @@ static float rank_digits(const hud_font *f, float x, float y, const uint8_t c[4]
     return (float)f->face.height * sized.sy;
 }
 
+int race_hud_text(race_hud *h, const char *spec, float x, float y, int flags, const uint8_t color[4],
+                  const char *s)
+{
+    hud_font *f;
+    if (!h || !spec || !s)
+        return 0;
+    f = font(h, spec);
+    if (!f)
+        return 0;
+    text(f, x, y, flags, color, s);
+    return 1;
+}
+
+float race_hud_text_width(race_hud *h, const char *spec, const char *s)
+{
+    hud_font *f;
+    if (!h || !spec || !s || !(f = font(h, spec)))
+        return 0;
+    return text_width(f, s);
+}
+
 /* func_003A3B58: the box, and the rank's figure rolling to the new one
    (a fifth of the way each frame, at least 0.01) in FC_26 inside it */
 static void draw_rank(race_hud *h, int rank, const place *p)

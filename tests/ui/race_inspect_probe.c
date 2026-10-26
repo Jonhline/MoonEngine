@@ -461,14 +461,44 @@ int main(int argc, char **argv)
             plat_video_shutdown();
             return 1;
         }
-        for (int f = 0; f < 900; f++) {
+        if (gt4_race_run_phantom_count(g->run)) {
+            for (int f = 0; f < 3600; f++) {
+                race_game_update(g, 1. / 60);
+                gt4_race_entrant ents[MOON_MAX_CARS];
+                int n = gt4_race_run_classification(g->run, ents, MOON_MAX_CARS);
+                int all = n > 0;
+                for (int i = 0; i < n; i++)
+                    if (!ents[i].finished)
+                        all = 0;
+                if (all && n > 6)
+                    break;
+            }
+        }
+        int draw_frames = getenv("PROBE_RESULT_DRAW") ? atoi(getenv("PROBE_RESULT_DRAW")) : 900;
+        for (int f = 0; f < draw_frames; f++) {
             plat_video_begin_frame();
             if (!race_game_draw(g))
                 break;
             race_game_draw_hud(g, 1. / 60);
             plat_video_end_frame();
         }
-        CHECK(shot_hud(g, argv[2], "result", 0));
+        CHECK(shot_hud(g, argv[2], "result-top", 0));
+        if (getenv("PROBE_RESULT_SCROLL")) {
+            int steps = atoi(getenv("PROBE_RESULT_SCROLL"));
+            for (int k = 0; k < steps; k++) {
+                fixture_key[SDL_SCANCODE_DOWN] = 1;
+                plat_video_begin_frame();
+                race_game_draw(g);
+                race_game_draw_hud(g, 1. / 60);
+                plat_video_end_frame();
+                fixture_key[SDL_SCANCODE_DOWN] = 0;
+                plat_video_begin_frame();
+                race_game_draw(g);
+                race_game_draw_hud(g, 1. / 60);
+                plat_video_end_frame();
+            }
+            CHECK(shot_hud(g, argv[2], "result-bottom", 0));
+        }
         race_game_close(g);
         plat_video_shutdown();
         puts("result run: board drawn");

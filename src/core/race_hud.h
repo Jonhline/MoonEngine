@@ -80,6 +80,11 @@ void race_hud_close(race_hud *h);
 /* One frame of the display over the race view (dt seconds). Leaves the
    2D view at 640x448. */
 void race_hud_draw(race_hud *h, const race_hud_state *s, float dt);
+/* Native text with one of the display's faces (for the extended result
+   board). flags: 0 left/baseline, 2 right, 3 centred; 4 top, 0xC middle. */
+int race_hud_text(race_hud *h, const char *spec, float x, float y, int flags, const uint8_t color[4],
+                  const char *s);
+float race_hud_text_width(race_hud *h, const char *spec, const char *s);
 /* the start (race event 4 of the watched car, func_0039E9B0): START */
 void race_hud_start(race_hud *h);
 /* message 0x13: a top speed in the option's unit (Power & Speed, 003A12A0) */

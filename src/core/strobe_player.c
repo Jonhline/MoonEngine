@@ -1245,6 +1245,12 @@ static void draw_text(strb_player *p, const xform *m, unsigned id, const char *s
     else if (align == 2)
         x -= w * 0.5f;
     base = y + f->face.baseline * sy;
+    if (getenv("MOON_RESULT_STYLE"))
+        fprintf(stderr,
+                "style text: id=%u font=%s bounds=%.2f,%.2f,%.2f,%.2f x=%.2f y=%.2f align=%d "
+                "color=%u,%u,%u,%u text=%s\n",
+                id, f->name, l, t, r, 0.0, x, y, align, color[0], color[1], color[2], color[3],
+                s);
     for (int pass = f->palette == 1 ? 1 : 0; pass < 2; pass++) {
         static const uint8_t black[4] = {0, 0, 0, 255};
         const tex1_image *a = &f->face.atlases[0];
@@ -1443,6 +1449,12 @@ static void draw_embedded_text(strb_player *p, const xform *m, size_t e, size_t 
         x = f32(p, e + 8) - width;
     else if (align == 2)
         x = (x + f32(p, e + 8) - width) * .5f;
+    if (getenv("MOON_RESULT_STYLE"))
+        fprintf(stderr,
+                "style embedded: bounds=%.2f,%.2f,%.2f,%.2f x=%.2f y=%.2f align=%d "
+                "color=%u,%u,%u,%u text=%s\n",
+                f32(p, e), f32(p, e + 4), f32(p, e + 8), 0.0, x, y, align, color[0], color[1],
+                color[2], color[3], text);
     for (const char *q = text; *q; q++)
         for (unsigned k = 0; k < count; k++) {
             size_t g = table + k * 12;

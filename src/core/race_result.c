@@ -230,6 +230,9 @@ static void ext(void *user, const char *name, float x, float y, float w, float h
 
     size_t n = strlen(name);
     int at = n ? name[n - 1] - '1' : -1;
+    if (getenv("MOON_RESULT_STYLE"))
+        fprintf(stderr, "style ext: name=%s at=%d x=%.2f y=%.2f w=%.2f h=%.2f\n", name, at, x, y,
+                w, h);
     if (!r->icon || at < 0 || at >= r->nrows || r->rows[at].car < 0)
         return;
     r->icon(r->user, r->rows[at].car, x, y, w, h, color);

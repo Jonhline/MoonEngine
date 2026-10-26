@@ -966,6 +966,7 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
     const char *prepared_others[MOON_CONDUCTOR_CARS - 1];
     int prepared_colors[MOON_CONDUCTOR_CARS - 1];
     int phantom_n = 0;
+    char phantom_names[MOON_MAX_PHANTOMS][128] = {{0}};
     memset(&d, 0, sizeof d);
     msg[0] = 0;
     if (!g)
@@ -1153,6 +1154,18 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
                     (uint32_t)row[10] << 16 | (uint32_t)row[11] << 24);
             snprintf(g->hud_names[i], sizeof g->hud_names[i], "%s", short_name ? short_name : "");
         }
+        for (int j = 0; j < phantom_n; j++) {
+            uint8_t row[256];
+            const char *short_name = NULL;
+            int row_size = names && strs
+                               ? gt4_specdb_row(names, nn, d.phantom_car[j], row, sizeof row) : 0;
+            if (row_size >= 12)
+                short_name = gt4_specdb_string(
+                    strs, ns, (uint32_t)row[8] | (uint32_t)row[9] << 8 |
+                                  (uint32_t)row[10] << 16 | (uint32_t)row[11] << 24);
+            snprintf(phantom_names[j], sizeof phantom_names[j], "%s",
+                     short_name ? short_name : d.phantom_label[j]);
+        }
         free(names);
         free(strs);
     }
@@ -1173,7 +1186,7 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
         gt4_race_run_set_entrant_identity(g->run, i, g->hud_names[i] ? g->hud_names[i] : "",
                                           (uint32_t)(i ? (colors ? colors[i - 1] : 0) : color));
     for (int j = 0; j < phantom_n; j++)
-        gt4_race_run_set_entrant_identity(g->run, d.cars + j, d.phantom_label[j],
+        gt4_race_run_set_entrant_identity(g->run, d.cars + j, phantom_names[j],
                                           (uint32_t)d.phantom_color[j]);
     player = gt4_race_run_car(g->run, 0);
     player_2p = g->split ? gt4_race_run_car(g->run, 1) : 0;
