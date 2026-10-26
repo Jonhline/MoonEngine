@@ -978,8 +978,11 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
         race_game_apply_units(g, NULL);
     g->finished = -1;
     if (nothers > MOON_CONDUCTOR_CARS - 1) {
-        snprintf(msg, len, "a race has at most %d official opponents", MOON_CONDUCTOR_CARS - 1);
-        return 0;
+        fprintf(stderr,
+                "race: %d opponents requested; the conductor takes %d official opponents, the "
+                "rest are phantoms\n",
+                nothers, MOON_CONDUCTOR_CARS - 1);
+        nothers = MOON_CONDUCTOR_CARS - 1;
     }
     vol = gt4_vol_open(g->disc, &err);
     labels = vol ? gt4_vol_read(vol, "/specdb/GT4_US2560/GENERIC_CAR.idi", &n) : NULL;

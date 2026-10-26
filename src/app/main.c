@@ -5922,9 +5922,9 @@ int main(int argc, char **argv)
                 const char *others[5];
                 int other_colors[5];
                 int field_size = race_field_size_request();
+                /* Ask for the whole field's opponents. The menu's own six entries
+                   yield at most five official opponents; the rest are phantoms. */
                 int max_others = field_size - 1;
-                if (max_others > MOON_CONDUCTOR_CARS - 1)
-                    max_others = MOON_CONDUCTOR_CARS - 1;
                 int nothers = menu_race_entries(mn, others, other_colors, max_others);
                 if (split) {
                     others[0] = menu_split_car(mn, 1);
@@ -6052,8 +6052,8 @@ int main(int argc, char **argv)
                     } else {
                         fprintf(stderr, "race: %s\n", msg);
                         present_dialog(mn, "Info",
-                                       "Nao foi possivel montar esta corrida. Veja o log.", 0, NULL,
-                                       NULL);
+                                       msg[0] ? msg : "Nao foi possivel montar esta corrida. Veja o log.",
+                                       0, NULL, NULL);
                     }
                 }
             }
