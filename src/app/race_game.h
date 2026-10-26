@@ -178,6 +178,8 @@ int race_game_quick_grid(const race_game *g, menu_quick_race *grid);
 int race_game_quick_points(const race_game *g, menu_quick_race *grid, const int32_t points[6]);
 int race_game_quick_results(const race_game *g, menu_quick_race *grid);
 int race_game_event_position(const race_game *g);
+/* The merged place order (official and phantom ids) for prize/points. */
+int race_game_classification_order(const race_game *g, uint8_t *ids, int max);
 
 struct race_view;
 struct race_view *race_game_photo_view(race_game *);

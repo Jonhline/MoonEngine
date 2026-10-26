@@ -68,7 +68,27 @@ typedef struct {
        d.cars is the official conductor field (1..MOON_CONDUCTOR_CARS); the
        rest of field_size are phantoms outside the conductor. */
     int field_size;
+    /* The distinct opponents the phantoms use. Filled by the caller from a
+       pool that excludes the official field; 0 keeps the source entry. */
+    uint32_t phantom_car[MOON_MAX_PHANTOMS];
+    char phantom_label[MOON_MAX_PHANTOMS][96];
+    int phantom_color[MOON_MAX_PHANTOMS];
 } gt4_race_desc;
+
+/* One entrant in the live classification, in place order. id is stable:
+   0..cars-1 official, cars.. the phantoms. */
+typedef struct {
+    int id, official;
+    uint32_t car, cond;
+    char name[96];
+    uint32_t color;
+    int finished;
+    uint32_t finish_time;
+    int laps;
+    float distance;
+    int live_rank;
+    int place;
+} gt4_race_entrant;
 
 typedef struct gt4_race_run gt4_race_run;
 const gt4_course_gadgets *gt4_race_run_objects(const gt4_race_run *run);
@@ -83,6 +103,16 @@ int gt4_race_run_phantom_count(const gt4_race_run *r);
 int gt4_race_run_phantom_pose(const gt4_race_run *r, int i, float pos[3], float rot[9],
                               float wheels[4][3]);
 uint32_t gt4_race_run_phantom_car(const gt4_race_run *r, int i);
+/* The merged live classification, in place order. 0 without phantoms. */
+int gt4_race_run_classification(const gt4_race_run *r, gt4_race_entrant *out, int max);
+/* The stable entrant ids in place order, for prize/points. 0 without phantoms. */
+int gt4_race_run_classification_order(const gt4_race_run *r, uint8_t *ids, int max);
+/* The player's 0-based place in the merged field, or -1 without phantoms. */
+int gt4_race_run_player_place(const gt4_race_run *r);
+/* Names/colours for the classification and the renderer. Slot is the
+   stable id (official cars first, then phantoms). */
+void gt4_race_run_set_entrant_identity(gt4_race_run *r, int slot, const char *name,
+                                       uint32_t color);
 /* the simulation frames run so far (read only) */
 unsigned gt4_race_run_frames(const gt4_race_run *r);
 /* The ghost's best lap (the best-lap replay a Time Trial saves): the

@@ -71,8 +71,10 @@ static int merged_ranks(gt4_race_run *r, unsigned frame, int verbose)
         int lap = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
         float dist = GT4_F32(car + CAR_POSITION + CAR_BLOCK_COURSE_DISTANCE);
         if (verbose)
-            fprintf(stderr, "rank frame=%u official[%d] rank=%d lap=%d dist=%.3f\n", frame, i,
-                    rank, lap, dist);
+            fprintf(stderr,
+                    "rank frame=%u official[%d] rank=%d lap=%d dist=%.3f fin=%u t614=%08x t718=%08x\n",
+                    frame, i, rank, lap, dist, GT4_U8(car + CAR_5B6),
+                    GT4_U32(car + CAR_POSITION + 0x614), GT4_U32(car + CAR_FIELD_UNK_718));
         if (rank < 1 || rank > n || shown[rank - 1]++)
             return 0;
     }
@@ -82,8 +84,10 @@ static int merged_ranks(gt4_race_run *r, unsigned frame, int verbose)
         int lap = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
         float dist = GT4_F32(car + CAR_POSITION + CAR_BLOCK_COURSE_DISTANCE);
         if (verbose)
-            fprintf(stderr, "rank frame=%u phantom[%d] rank=%d lap=%d dist=%.3f\n", frame, j, rank,
-                    lap, dist);
+            fprintf(stderr,
+                    "rank frame=%u phantom[%d] rank=%d lap=%d dist=%.3f fin=%u t614=%08x t718=%08x\n",
+                    frame, j, rank, lap, dist, GT4_U8(car + CAR_5B6),
+                    GT4_U32(car + CAR_POSITION + 0x614), GT4_U32(car + CAR_FIELD_UNK_718));
         if (rank < 1 || rank > n || shown[rank - 1]++)
             return 0;
     }
@@ -439,6 +443,59 @@ int main(int argc, char **argv)
     }
     if (getenv("PROBE_BENCHMARK"))
         return benchmark_race(g, argv[2]);
+    if (getenv("PROBE_POOL")) {
+        gt4_vol *v = gt4_vol_open(argv[1], NULL);
+        size_t n = 0;
+        uint8_t *d = v ? gt4_vol_read(v, "/specdb/GT4_US2560/GENERIC_CAR.idi", &n) : NULL;
+        printf("pool: generic_size=%zu\n", n);
+        for (unsigned id = 0; id < 512 && d; id++) {
+            const char *l = gt4_specdb_label_for_id(d, n, id);
+            if (l && *l)
+                printf("pool: %u %s\n", id, l);
+        }
+        free(d);
+        if (v) gt4_vol_close(v);
+        race_game_close(g);
+        plat_video_shutdown();
+        return 0;
+    }
+    if (getenv("PROBE_TAIL_SCAN")) {
+        uint8_t *m = gt4_phys_mem;
+        size_t begin = 0x1d10000, end = 0x2000000, run = 0;
+        size_t best = 0, best_at = 0, first = 0;
+        for (size_t a = begin; a < end; a++) {
+            if (!m[a]) {
+                if (!run)
+                    first = a;
+                run++;
+                if (run > best) {
+                    best = run;
+                    best_at = first;
+                }
+            } else
+                run = 0;
+        }
+        printf("tail scan: begin=%zx end=%zx best_zero=%zu at=%zx first_nonzero_after_best=%zx\n",
+               begin, end, best, best_at, best_at + best < end ? best_at + best : end);
+        run = 0;
+        first = 0;
+        for (size_t a = begin; a < end; a++) {
+            if (!m[a]) {
+                if (!run)
+                    first = a;
+                run++;
+            } else if (run) {
+                if (run >= 0x8000)
+                    printf("tail run: %zx..%zx len=%zu\n", first, a, run);
+                run = 0;
+            }
+        }
+        if (run >= 0x8000)
+            printf("tail run: %zx..%zx len=%zu\n", first, end, run);
+        race_game_close(g);
+        plat_video_shutdown();
+        return 0;
+    }
     if (getenv("PROBE_HUD_RANK")) {
         int rank = atoi(getenv("PROBE_HUD_RANK"));
         race_hud *h = race_hud_open(g->vol);
@@ -546,6 +603,13 @@ int main(int argc, char **argv)
         if (gt4_race_run_phantom_count(g->run) && !first_over)
             good = 0;
         good &= ranks;
+        for (int j = 0; j < gt4_race_run_phantom_count(g->run); j++) {
+            uint32_t pc = gt4_race_run_phantom_car(g->run, j);
+            uint32_t pcond = GT4_U32(pc + CAR_SESSION);
+            fprintf(stderr, "phantom clock[%d]: cond=%08x clock=%u ms=%u\n", j, pcond,
+                    GT4_U32(pcond + CONDUCTOR_FIELD_RACE_CLOCK_U),
+                    GT4_U32(pcond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3u);
+        }
         fprintf(stderr,
                 "phantom run: end cars=%u count=%u phantoms=%d crc=%08x/%08x/%08x ranks=%d good=%d\n",
                 gt4_race_run_cars(g->run), GT4_U32(cond + CONDUCTOR_FIELD_CAR_COUNT),

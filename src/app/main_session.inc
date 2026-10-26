@@ -183,10 +183,14 @@ static int career_race_result(race_game *game, menu *career, menu *quick)
         int n = race_game_finish_order(game, order);
         if (n != 6)
             return 0;
+        uint8_t class_order[MOON_MAX_CARS];
+        int class_n = race_game_classification_order(game, class_order, MOON_MAX_CARS);
         int32_t before[6];
         memcpy(before, career_race.points, sizeof before);
         const gt4_career_race_lookup_data *rules = gt4_game_race_lookup_data();
-        gt4_career_championship_points(career_race.points, order, 6, hud.finished,
+        gt4_career_championship_points(career_race.points,
+                                       class_n > 0 ? class_order : order,
+                                       class_n > 0 ? (unsigned)class_n : 6, hud.finished,
                                        (const int8_t *)rules->driver_points);
         int16_t units;
         memcpy(&units, career_race.row + 0x2c, 2);

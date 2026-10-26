@@ -965,6 +965,7 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
     char prepared_labels[MOON_CONDUCTOR_CARS][96];
     const char *prepared_others[MOON_CONDUCTOR_CARS - 1];
     int prepared_colors[MOON_CONDUCTOR_CARS - 1];
+    int phantom_n = 0;
     memset(&d, 0, sizeof d);
     msg[0] = 0;
     if (!g)
@@ -1082,6 +1083,51 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
             return 0;
         }
         d.field_size = field_size;
+        phantom_n = field_size - d.cars;
+        if (phantom_n > 0) {
+            char used[MOON_CONDUCTOR_CARS + MOON_MAX_PHANTOMS][96];
+            uint8_t used_color[64] = {0};
+            int nu = 0, got = 0;
+            for (int i = 0; i < d.cars; i++) {
+                const char *l = i ? others[i - 1] : car;
+                snprintf(used[nu++], sizeof used[0], "%s", l ? l : "");
+                int c = i ? (colors ? colors[i - 1] : 0) : color;
+                if (c >= 0 && c < 64)
+                    used_color[c] = 1;
+            }
+            for (uint32_t id = 0; id < 4096 && got < phantom_n; id++) {
+                const char *l = labels ? gt4_specdb_label_for_id(labels, n, id) : NULL;
+                if (!l || !*l)
+                    continue;
+                int official = 0;
+                for (int i = 0; i < d.cars; i++)
+                    if (d.car[i] == id)
+                        official = 1;
+                for (int i = 0; i < nu; i++)
+                    if (!strcmp(l, used[i]))
+                        official = 1;
+                if (official)
+                    continue;
+                d.phantom_car[got] = id;
+                snprintf(d.phantom_label[got], sizeof d.phantom_label[got], "%s", l);
+                int c = 0;
+                while (c < 64 && used_color[c])
+                    c++;
+                d.phantom_color[got] = c < 64 ? c : (got + 6) % 12;
+                if (c < 64)
+                    used_color[c] = 1;
+                snprintf(used[nu++], sizeof used[0], "%s", l);
+                got++;
+            }
+            if (got < phantom_n) {
+                snprintf(msg, len,
+                         "race.field_size=%d refused: %d phantoms requested, %d distinct opponents available",
+                         field_size, phantom_n, got);
+                free(labels);
+                gt4_vol_close(vol);
+                return 0;
+            }
+        }
     }
     free(labels);
     { /* the names the results show: CAR_NAME's first word, a StrDB string */
@@ -1123,6 +1169,12 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
     g->run = gt4_race_run_open(g->disc, &d, msg, len);
     if (!g->run)
         return 0;
+    for (int i = 0; i < d.cars; i++)
+        gt4_race_run_set_entrant_identity(g->run, i, g->hud_names[i] ? g->hud_names[i] : "",
+                                          (uint32_t)(i ? (colors ? colors[i - 1] : 0) : color));
+    for (int j = 0; j < phantom_n; j++)
+        gt4_race_run_set_entrant_identity(g->run, d.cars + j, d.phantom_label[j],
+                                          (uint32_t)d.phantom_color[j]);
     player = gt4_race_run_car(g->run, 0);
     player_2p = g->split ? gt4_race_run_car(g->run, 1) : 0;
     memset(&command, 0, sizeof command);
@@ -1325,9 +1377,8 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
                 render_colors[i] = colors ? colors[i] : 0;
             }
             for (int j = 0; j < phantoms; j++) {
-                int src = n ? j % n : 0;
-                render_others[n + j] = n ? others[src] : car;
-                render_colors[n + j] = n ? (colors ? colors[src] : 0) : color;
+                render_others[n + j] = d.phantom_label[j];
+                render_colors[n + j] = d.phantom_color[j];
             }
             race_view_set_opponents(g->view, render_others, render_colors, n + phantoms);
         } else
@@ -1789,11 +1840,21 @@ int race_game_quick_results(const race_game *g, menu_quick_race *grid)
     }
     return 1;
 }
+int race_game_classification_order(const race_game *g, uint8_t *ids, int max)
+{
+    return g && g->run ? gt4_race_run_classification_order(g->run, ids, max) : 0;
+}
+
 int race_game_event_position(const race_game *g)
 {
     gt4_race_hud player;
     if (!race_game_player_hud(g, &player))
         return -1;
+    if (g->run && gt4_race_run_phantom_count(g->run)) {
+        int place = gt4_race_run_player_place(g->run);
+        if (place >= 0)
+            return place;
+    }
     int position = 0;
     /* 003B6FD0 stable insertion by signed car+0x5B3, then 00110570:
        player is entry zero, so equal-rank entries follow it. */
