@@ -388,6 +388,18 @@ void race_game_draw_hud(race_game *g, double dt)
                 static const uint8_t white[4] = {255, 255, 255, 255};
                 uint8_t tint[4] = {white[0], white[1], white[2],
                                    (uint8_t)(255 - age * 2 < 0 ? 0 : 255 - age * 2)};
+                if (age < 12) {
+                    static const struct {
+                        float x, y, w, h;
+                    } bolt[] = {{318, 0, 5, 55}, {300, 50, 24, 5}, {304, 55, 5, 45},
+                                {286, 95, 24, 5}, {292, 100, 5, 40}, {276, 135, 22, 5},
+                                {282, 140, 5, 50}, {264, 185, 24, 5}, {270, 190, 5, 30}};
+                    uint8_t flash[4] = {255, 255, 255, (uint8_t)((12 - age) * 14)};
+                    plat_draw_quad(NULL, 0, 0, 640, 240, 0, 0, 1, 1, flash);
+                    for (unsigned b = 0; b < sizeof bolt / sizeof bolt[0]; b++)
+                        plat_draw_quad(NULL, bolt[b].x, bolt[b].y, bolt[b].w, bolt[b].h, 0, 0, 1,
+                                       1, white);
+                }
                 race_hud_text(g->hud, "hb_24#0*125,125", 320, 26, 4 | 3, tint, msg);
             }
         }

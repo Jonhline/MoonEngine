@@ -95,7 +95,7 @@ struct gt4_race_run {
     uint32_t finish_time[MOON_MAX_CARS];
     int finish_serial[MOON_MAX_CARS];
     int finish_next;
-    int elimination, elim_done, elim_last_lap;
+    int elimination, elim_done, elim_last_lap, elim_serial;
     int eliminated[MOON_MAX_CARS];
     float elim_pos[MOON_MAX_CARS][3];
     float elim_refs[MOON_MAX_CARS][16];
@@ -1324,6 +1324,7 @@ void gt4_race_run_set_elimination(gt4_race_run *r, int on)
     r->elimination = on ? 1 : 0;
     r->elim_done = 0;
     r->elim_last_lap = -1;
+    r->elim_serial = 0;
     r->elim_msg[0] = 0;
     r->elim_msg_frame = 0;
     memset(r->eliminated, 0, sizeof r->eliminated);
@@ -1341,12 +1342,19 @@ int gt4_race_run_elimination(const gt4_race_run *r)
     return r && r->elimination;
 }
 
+int gt4_race_run_elimination_serial(const gt4_race_run *r)
+{
+    return r && r->elimination ? r->elim_serial : 0;
+}
+
 int gt4_race_run_elimination_message(const gt4_race_run *r, const char **msg, unsigned *age)
 {
     if (!r || !r->elimination || !r->elim_msg[0] || r->frames < r->elim_msg_frame)
         return 0;
     unsigned a = r->frames - r->elim_msg_frame;
-    if (a >= 120 && !getenv("MOON_CUSTOM_ELIM_MSG_HOLD"))
+    if (getenv("MOON_CUSTOM_ELIM_MSG_HOLD"))
+        a = 0;
+    else if (a >= 120)
         return 0;
     if (msg)
         *msg = r->elim_msg;
@@ -1481,6 +1489,7 @@ static void elim_step(gt4_race_run *r)
         }
     }
     r->eliminated[last] = 1;
+    r->elim_serial++;
     elim_stop(r, last);
     running--;
     snprintf(r->elim_msg, sizeof r->elim_msg, "%s eliminated, %d left",

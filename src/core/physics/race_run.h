@@ -115,6 +115,8 @@ int gt4_race_run_player_place(const gt4_race_run *r);
 /* Custom Modes: elimination at the lap line. 0 turns it off. */
 void gt4_race_run_set_elimination(gt4_race_run *r, int on);
 int gt4_race_run_elimination(const gt4_race_run *r);
+/* Increments for each car eliminated; the host plays thunder on a change. */
+int gt4_race_run_elimination_serial(const gt4_race_run *r);
 /* The last elimination message and its age in frames; 0 when there is none. */
 int gt4_race_run_elimination_message(const gt4_race_run *r, const char **msg, unsigned *age);
 /* Names/colours for the classification and the renderer. Slot is the

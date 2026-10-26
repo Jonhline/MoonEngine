@@ -54,6 +54,7 @@
 #include "disc_checkpoint.h"
 #include "race_split_layout.h"
 #include "save.h"
+#include "moon_pref.h"
 #include "plat_sdl.h"
 
 #include <SDL.h>
@@ -78,6 +79,7 @@ struct race_game {
     race_view *view;
     gt4_race_run *run;
     int loading, ready, others, laps, time_trial;
+    int elim_seen;
     int hud_preparing;
     int world_mode; /* GT Mode Free Run 11 / Practice 12 (race_game_set_world_mode) */
     int tire, manual, assist_asm, assist_tcs;
@@ -310,11 +312,58 @@ struct race_game {
     int open_on, open_front, open_rear;
     float open_power;
 };
+static void custom_thunder(void)
+{
+    char *root = moon_pref_path();
+    char path[1200];
+    SDL_AudioSpec spec;
+    Uint8 *wav = NULL;
+    Uint32 len = 0;
+    if (!root)
+        return;
+    snprintf(path, sizeof path, "%scustom/thunder.wav", root);
+    if (!SDL_LoadWAV(path, &spec, &wav, &len)) {
+        fprintf(stderr, "custom modes: thunder missing (%s)\n", path);
+        free(root);
+        return;
+    }
+    SDL_AudioCVT cvt;
+    int need = SDL_BuildAudioCVT(&cvt, spec.format, spec.channels, spec.freq, AUDIO_S16SYS, 2,
+                                 48000);
+    if (need < 0) {
+        fprintf(stderr, "custom modes: thunder cannot convert: %s\n", SDL_GetError());
+        SDL_FreeWAV(wav);
+        free(root);
+        return;
+    }
+    cvt.len = (int)len;
+    cvt.buf = malloc((size_t)len * (size_t)cvt.len_mult);
+    if (!cvt.buf) {
+        SDL_FreeWAV(wav);
+        free(root);
+        return;
+    }
+    memcpy(cvt.buf, wav, len);
+    if (SDL_ConvertAudio(&cvt) == 0) {
+        int frames = cvt.len_cvt / 4;
+        int played = frames > 0 ? plat_audio_play((const int16_t *)cvt.buf, (size_t)frames, 48000, 2)
+                                : 0;
+        fprintf(stderr, "custom modes: thunder %s frames=%d played=%d\n", path, frames, played);
+    } else
+        fprintf(stderr, "custom modes: thunder convert failed: %s\n", SDL_GetError());
+    free(cvt.buf);
+    SDL_FreeWAV(wav);
+    free(root);
+}
+
+
 
 void race_game_set_elimination(race_game *g, int on)
 {
-    if (g && g->run)
+    if (g && g->run) {
+        g->elim_seen = 0;
         gt4_race_run_set_elimination(g->run, on);
+    }
 }
 
 int race_game_elimination(const race_game *g)
@@ -3085,6 +3134,13 @@ void race_game_update(race_game *g, double dt)
             fprintf(stderr, "race: the step failed\n");
             race_game_stop(g);
             return;
+        }
+        {
+            int serial = gt4_race_run_elimination_serial(g->run);
+            if (serial && serial != g->elim_seen) {
+                g->elim_seen = serial;
+                custom_thunder();
+            }
         }
         g->license_test_frame++;
         license_start_step(g);
