@@ -86,11 +86,29 @@ static void set_time(race_result *r, int at, uint32_t time, int laps)
     w->changed = 1;
 }
 
+static int trace_rows[MOON_MAX_CARS];
+static int trace_names[4];
+static int trace_total, trace_max = -1;
+
 static int call(void *user, const char *name, const strb_value *args, int nargs, strb_value *ret)
 {
     race_result *r = user;
     int at = nargs > 0 ? (int)(args[0].t == STRB_STR ? atof(args[0].s) : args[0].n) : 0;
     const row *w = at >= 0 && at < MOON_MAX_CARS ? &r->rows[at] : NULL;
+    if (getenv("MOON_RESULT_TRACE") &&
+        (!strcmp(name, "cb_getname") || !strcmp(name, "cb_gettime") ||
+         !strcmp(name, "cb_getrank") || !strcmp(name, "cb_isvisible"))) {
+        trace_total++;
+        int which = !strcmp(name, "cb_getname")   ? 0
+                    : !strcmp(name, "cb_gettime") ? 1
+                    : !strcmp(name, "cb_getrank") ? 2
+                                                  : 3;
+        trace_names[which]++;
+        if (at >= 0 && at < MOON_MAX_CARS)
+            trace_rows[at]++;
+        if (at > trace_max)
+            trace_max = at;
+    }
     memset(ret, 0, sizeof *ret);
     if (r->license) {
         /* 003E0A50 accepts case-insensitive command names (005FBDD0).
@@ -236,6 +254,10 @@ void race_result_set_trophy(race_result *r, race_result_trophy draw)
 static race_result *board_open(gt4_vol *vol, race_result_icon icon, void *user, int mission)
 {
     race_result *r = calloc(1, sizeof *r);
+    memset(trace_rows, 0, sizeof trace_rows);
+    trace_total = 0;
+    trace_max = -1;
+    memset(trace_names, 0, sizeof trace_names);
     size_t n = 0;
     strb_host host;
     if (!r)
@@ -337,6 +359,15 @@ void race_result_close(race_result *r)
 {
     if (!r)
         return;
+    if (getenv("MOON_RESULT_TRACE")) {
+        fprintf(stderr,
+                "result trace: total=%d highest=%d getname=%d gettime=%d getrank=%d isvisible=%d\n",
+                trace_total, trace_max, trace_names[0], trace_names[1], trace_names[2],
+                trace_names[3]);
+        for (int i = 0; i < MOON_MAX_CARS; i++)
+            if (trace_rows[i])
+                fprintf(stderr, "result trace: row=%d calls=%d\n", i, trace_rows[i]);
+    }
     strb_close(r->movie);
     free(r->rt_data);
     free(r);

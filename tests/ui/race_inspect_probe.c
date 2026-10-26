@@ -443,6 +443,37 @@ int main(int argc, char **argv)
     }
     if (getenv("PROBE_BENCHMARK"))
         return benchmark_race(g, argv[2]);
+    if (getenv("PROBE_RESULT")) {
+        int frames = getenv("PROBE_RESULT_FRAMES") ? atoi(getenv("PROBE_RESULT_FRAMES")) : 18000;
+        int finished = 0;
+        for (int f = 0; f < frames; f++) {
+            memset(fixture_key, 0, sizeof fixture_key);
+            race_game_update(g, 1. / 60);
+            if (race_game_finished(g) >= 0) {
+                finished = 1;
+                fprintf(stderr, "result run: player finished frame=%d\n", f + 1);
+                break;
+            }
+        }
+        if (!finished) {
+            fprintf(stderr, "result run: player did not finish\n");
+            race_game_close(g);
+            plat_video_shutdown();
+            return 1;
+        }
+        for (int f = 0; f < 900; f++) {
+            plat_video_begin_frame();
+            if (!race_game_draw(g))
+                break;
+            race_game_draw_hud(g, 1. / 60);
+            plat_video_end_frame();
+        }
+        CHECK(shot_hud(g, argv[2], "result", 0));
+        race_game_close(g);
+        plat_video_shutdown();
+        puts("result run: board drawn");
+        return 0;
+    }
     if (getenv("PROBE_POOL")) {
         gt4_vol *v = gt4_vol_open(argv[1], NULL);
         size_t n = 0;

@@ -262,3 +262,33 @@ save-format project, not a race-result patch.
   consumes the place and scores nothing.
 - **V1 rule:** phantoms consume places and can take the race win. They do not
   persist across championship rounds; the career save keeps six official rows.
+
+## DISH 4 STEP 0 — THE MOVIE IS SIX ROWS
+
+Measured on a real 8-car B-Spec race to the flag (Grand Valley East, 9,913
+frames to the player's finish), with `MOON_RESULT_TRACE=1`:
+
+```
+result trace: total=18 highest=5 getname=6 gettime=6 getrank=0 isvisible=6
+result trace: row=0 calls=3
+result trace: row=1 calls=3
+result trace: row=2 calls=3
+result trace: row=3 calls=3
+result trace: row=4 calls=3
+result trace: row=5 calls=3
+```
+
+`/menu/common/result.strb` calls every row callback exactly for rows 0..5.
+It never asks for a 6th index, and `cb_getrank` is not called at all. The
+authored board is fixed six rows. The data path (`race_result_state` and
+`race_result_update`) already accepts 12, but the movie will not display
+them.
+
+A native results list is therefore required for the phantom-win screen.
+Cost: one native 2D result screen (place, name, time/gap, car icon, player
+highlight), N rows with scrolling above the row that fits, the existing
+confirm/exit input, and the existing `race_result_icon` callback. Keep the
+authored movie for licenses/missions and for six-car races so those paths
+stay unchanged. Roughly a new screen module plus layout/scrolling tests;
+no save, prize, points or replay change. The authored asset cannot be
+extended without changing the user's disc.
