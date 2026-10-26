@@ -1085,6 +1085,14 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
         }
         d.field_size = field_size;
         phantom_n = field_size - d.cars;
+        if (phantom_n > MOON_MAX_PHANTOMS) {
+            snprintf(msg, len,
+                     "race.field_size=%d refused: %d phantoms, this build has %d slots",
+                     field_size, phantom_n, MOON_MAX_PHANTOMS);
+            free(labels);
+            gt4_vol_close(vol);
+            return 0;
+        }
         if (phantom_n > 0) {
             char used[MOON_CONDUCTOR_CARS + MOON_MAX_PHANTOMS][96];
             uint8_t used_color[64] = {0};

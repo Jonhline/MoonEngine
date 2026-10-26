@@ -1139,18 +1139,29 @@ static void build_classification(gt4_race_run *r)
         int official = (int)GT4_U32(r->cond + CONDUCTOR_FIELD_CAR_COUNT_U);
         int n = official + r->phantom_count;
         /* The order is frozen at the player's finish, but cars still on
-           track must acquire their finish time for the result rows. */
+           track must acquire their finish time for the result rows. The
+           identity is not frozen: names and colours may be set after the
+           player crossed the line, so keep every row bound to its stable
+           entrant id. */
         for (int i = 0; i < n && i < MOON_MAX_CARS; i++) {
-            uint32_t car = i < official ? r->cond + CONDUCTOR_FIELD_CARS_U + (uint32_t)i * CAR_SIZE
-                                        : r->phantom_car[i - official];
+            gt4_race_entrant *e = &r->entrants[i];
+            int is_official = i < official;
+            uint32_t car = is_official ? r->cond + CONDUCTOR_FIELD_CARS_U + (uint32_t)i * CAR_SIZE
+                                       : r->phantom_car[i - official];
+            e->id = i;
+            e->official = is_official;
+            e->car = car;
+            e->cond = is_official ? r->cond : GT4_U32(car + CAR_SESSION);
+            snprintf(e->name, sizeof e->name, "%s", r->entrant_name[i]);
+            e->color = r->entrant_color[i];
             if (GT4_U8(car + CAR_5B6) && !r->finish_seen[i]) {
                 uint32_t t = GT4_U32(car + CAR_FIELD_UNK_718);
                 r->finish_seen[i] = 1;
                 r->finish_serial[i] = ++r->finish_next;
                 r->finish_time[i] = t ? t : GT4_U32(r->cond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3u;
             }
-            r->entrants[i].finished = r->finish_seen[i];
-            r->entrants[i].finish_time = r->finish_time[i];
+            e->finished = r->finish_seen[i];
+            e->finish_time = r->finish_time[i];
         }
         for (int k = 0; k < r->class_n; k++) {
             const gt4_race_entrant *e = &r->entrants[r->class_order[k]];

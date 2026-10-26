@@ -1,4 +1,5 @@
 static int native_result_scroll, native_result_down, native_result_up;
+static int native_result_log_n = -1, native_result_log_scroll = -1;
 
 /* The authored board's metrics (result.strb trace): 40 px row pitch, icon
    64x32 at x=80, name at x=148 in hm_16, time right-aligned at x=523 in
@@ -23,6 +24,17 @@ static void native_result_draw(race_game *g, const gt4_race_entrant *e, int n, i
         scroll = n - visible;
     if (scroll < 0)
         scroll = 0;
+    { /* Every row the board draws, so the log can be checked line by line
+         against the field. Print once per page, not once per frame. */
+        if (n != native_result_log_n || scroll != native_result_log_scroll) {
+            fprintf(stderr, "native result: rows=%d scroll=%d visible=%d\n", n, scroll, visible);
+            for (int i = scroll; i < scroll + visible; i++)
+                fprintf(stderr, "native result row: place=%d id=%d official=%d name=%s\n",
+                        e[i].place, e[i].id, e[i].official, e[i].name);
+            native_result_log_n = n;
+            native_result_log_scroll = scroll;
+        }
+    }
     plat_video_set_view(640, 448);
     plat_draw_quad(NULL, 56, 84, 528, 360, 0, 0, 1, 1, panel);
     race_hud_text(g->hud, "hb_24#0*125,125", 320, 43, 4 | 3, white, "Results");
@@ -91,6 +103,7 @@ static void draw_result(race_game *g, int cars, double dt)
         race_result_set_screen(g->result, draw_license_screen);
         native_result_scroll = 0;
         native_result_down = native_result_up = 0;
+        native_result_log_n = native_result_log_scroll = -1;
     }
     memset(&rs, 0, sizeof rs);
     rs.cars = cars < 6 ? cars : 6;
