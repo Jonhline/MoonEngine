@@ -586,6 +586,7 @@ void gt4_drive_settings(uint32_t cond);                            /* func_00347
    cars) for the tables rewritten (Time Trial, Arcade race); 0 for others */
 int gt4_session_start(uint32_t cond, uint32_t a1);
 int gt4_session_after_cars(uint32_t cond, const gt4_specdb_src *db);
+int gt4_position_order_cross(uint32_t cond_a, uint32_t a, uint32_t cond_b, uint32_t b);
 /* func_00361908 (buf: 0x20 bytes of guest memory) */
 void gt4_car_params(uint32_t params, uint32_t rec, int32_t mode, uint32_t kind, uint32_t race,
                     uint32_t entry, uint32_t buf);

@@ -62,6 +62,9 @@ AI driver/physics functions and the same `race_view` model/pose path.
 Exclusions:
 
 - `CAR_COUNT` stays 6; results, prize and points read the official entries.
+  The live rank `+0x5B3` is the exception: after both steps a merge pass
+  orders all official and phantom cars and writes each car its own merged
+  place. `CAR_COUNT`, entries, results and prize are not touched.
 - The phantom race object has its own entries table, so its finish data stays
   in the shadow.
 - A replay refuses to record or play a race with phantoms; the replay format
@@ -91,7 +94,7 @@ Run: 6 official + 2 phantoms, 18,000 frames (5 minutes at 60 Hz), no errors.
 ```
 race: field_size=8 official=6 phantoms=2
 phantom run: start cars=6 count=6 phantoms=2 crc=81cdc56f/fbac3e44/2f3976e6
-phantom run: end   cars=6 count=6 phantoms=2 crc=81cdc56f/a646974f/632f5541 good=1
+phantom run: end   cars=6 count=6 phantoms=2 crc=81cdc56f/949ab964/632f5541 good=1
 ```
 
 The three CRCs are the official blocks (`cond+0x98`, 6×0x1100), states
@@ -102,8 +105,8 @@ The three CRCs are the official blocks (`cond+0x98`, 6×0x1100), states
 - Both phantom cars have a session that is not `cond`.
 - The `0x10` words stay in the measured range: `0x00750000` for entry 0,
   `0x00800000` for entries 1–5.
-- Dumps: `/mnt/ssd/tmp/final-g2-phantom-before.bin` and
-  `/mnt/ssd/tmp/final-g2-phantom-after.bin` (51,744 bytes each).
+- Dumps: `/mnt/ssd/tmp/rank-8-final-phantom-before.bin` and
+  `/mnt/ssd/tmp/rank-8-final-phantom-after.bin` (51,744 bytes each).
 
 Screenshot: `/mnt/ssd/studio/phantom-8-nurburgring.png`.
 The start camera frames six of the eight; the extra pair is in the pack
@@ -112,9 +115,39 @@ obtained from the start camera; the 8-car run is proven by the pose count
 (8), the phantom count (2), and the 600-frame draw delta below, not by all
 eight fitting one start-camera frame. This is the honest limit of this brick.
 
+## LIVE RANK — THE HUD FOLLOWS THE WHOLE FIELD
+
+`merge_positions()` in `race_run.c` runs after the official and phantom
+`gt4_step()` calls when `phantom_count > 0`. It tags each official car with
+`cond` and each phantom with its own `CAR_SESSION`, sorts with
+`gt4_position_order_cross()` in `session.c` (insertion sort, same shape as
+`race_positions`), and writes only each car's `+0x5B3`. The official-only
+`position_order()` and `race_positions()` are unchanged.
+
+Gates:
+
+- 8 cars: ranks `1..8`, player 8th; first frame above 6 is 1758
+  (`player_rank=7`).
+- 12 cars: ranks `1..12`, player 12th; phantoms hold 1st and 2nd.
+- HUD two-digit path: `draw_rank()` now builds `"10".."12"` with
+  `snprintf("%d")` and scales the pair uniformly inside the 42x45 box.
+  Ranks 1..9 keep the original one-figure path, font, position, clip and
+  roll. No rank is clamped.
+- Live screenshots (path only):
+  `/mnt/ssd/studio/rank-live-8-rank-8.png`;
+  `/mnt/ssd/studio/rank-live-12-rank-10.png`;
+  `/mnt/ssd/studio/rank-live-12-rank-12.png`.
+- Isolated HUD render at rank 10:
+  `/mnt/ssd/studio/rank-hud-unit-hud-rank-10.png`.
+
+**Results contradiction:** the finish board still builds six official rows
+(`rs.cars = 6`). If the player finishes 7th of 8, the HUD says 7/8, but the
+board has no phantom rows and the player is the last official row (6th of
+six). That contradicts the HUD. It is left for the results/score brick.
+
 ## G3 — LINUX BUILD
 
-`cmake --build /home/or/moonengine/build-linux -j4` completes (415/415).
+`cmake --build /home/or/moonengine/build-linux -j4` completes.
 
 One-line 8-car Nürburgring launch:
 
@@ -153,3 +186,5 @@ a CPU wall found by further scaling.
 
 - `255e76e` — `race.field_size` and the 12-car capacity.
 - `5955e33` — phantom conductor, AI step and renderer poses.
+- `7aa5e54` — phantom gates and measurements.
+- The live-rank commit follows this document update.

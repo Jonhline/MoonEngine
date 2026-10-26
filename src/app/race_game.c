@@ -2360,6 +2360,12 @@ static int icon_at_rank(race_game *g, int rank)
             continue;
         return GT4_U8(car + CAR_POSITION + 0x441) ? -1 : c;
     }
+    for (int j = 0; j < gt4_race_run_phantom_count(g->run); j++) {
+        uint32_t car = gt4_race_run_phantom_car(g->run, j);
+        if ((int8_t)GT4_U8(car + CAR_FIELD_POSITION) != rank)
+            continue;
+        return GT4_U8(car + CAR_POSITION + 0x441) ? -1 : g->others + j + 1;
+    }
     return -1;
 }
 

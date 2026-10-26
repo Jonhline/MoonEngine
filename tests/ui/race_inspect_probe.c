@@ -58,6 +58,64 @@ static int shot(race_game *g, const char *prefix, const char *name)
     plat_video_end_frame();
     return o != NULL;
 }
+static int merged_ranks(gt4_race_run *r, unsigned frame, int verbose)
+{
+    uint32_t shown[MOON_MAX_CARS] = {0};
+    int official = gt4_race_run_cars(r), phantoms = gt4_race_run_phantom_count(r);
+    int n = official + phantoms;
+    if (n > MOON_MAX_CARS)
+        return 0;
+    for (int i = 0; i < official; i++) {
+        uint32_t car = gt4_race_run_car(r, i);
+        int rank = GT4_U8(car + CAR_FIELD_POSITION);
+        int lap = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
+        float dist = GT4_F32(car + CAR_POSITION + CAR_BLOCK_COURSE_DISTANCE);
+        if (verbose)
+            fprintf(stderr, "rank frame=%u official[%d] rank=%d lap=%d dist=%.3f\n", frame, i,
+                    rank, lap, dist);
+        if (rank < 1 || rank > n || shown[rank - 1]++)
+            return 0;
+    }
+    for (int j = 0; j < phantoms; j++) {
+        uint32_t car = gt4_race_run_phantom_car(r, j);
+        int rank = GT4_U8(car + CAR_FIELD_POSITION);
+        int lap = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
+        float dist = GT4_F32(car + CAR_POSITION + CAR_BLOCK_COURSE_DISTANCE);
+        if (verbose)
+            fprintf(stderr, "rank frame=%u phantom[%d] rank=%d lap=%d dist=%.3f\n", frame, j, rank,
+                    lap, dist);
+        if (rank < 1 || rank > n || shown[rank - 1]++)
+            return 0;
+    }
+    for (int k = 0; k < n; k++)
+        if (shown[k] != 1)
+            return 0;
+    return 1;
+}
+
+static int shot_hud(race_game *g, const char *prefix, const char *name, double dt)
+{
+    plat_video_begin_frame();
+    if (!race_game_draw(g))
+        return 0;
+    race_game_draw_hud(g, dt);
+    int w, h;
+    size_t len;
+    uint8_t *p = plat_sdl_read_pixels(&w, &h);
+    void *png = p ? tdefl_write_image_to_png_file_in_memory(p, w, h, 4, &len) : NULL;
+    char path[512];
+    snprintf(path, sizeof path, "%s-%s.png", prefix, name);
+    FILE *o = png ? fopen(path, "wb") : NULL;
+    if (o) {
+        fwrite(png, 1, len, o);
+        fclose(o);
+    }
+    free(p);
+    mz_free(png);
+    plat_video_end_frame();
+    return o != NULL;
+}
+
 static uint64_t celestial_frame(race_game *g)
 {
     plat_video_begin_frame();
@@ -381,6 +439,69 @@ int main(int argc, char **argv)
     }
     if (getenv("PROBE_BENCHMARK"))
         return benchmark_race(g, argv[2]);
+    if (getenv("PROBE_HUD_RANK")) {
+        int rank = atoi(getenv("PROBE_HUD_RANK"));
+        race_hud *h = race_hud_open(g->vol);
+        CHECK(h);
+        race_hud_prepare_fonts(h);
+        race_hud_state st = {0};
+        st.rank = rank;
+        st.cars = 12;
+        st.lap = 1;
+        st.laps = 3;
+        st.speed = 80;
+        st.rpm = 4000;
+        st.gear = 3;
+        st.start_frames = 0;
+        plat_video_begin_frame();
+        race_hud_draw(h, &st, 0);
+        int w, hh;
+        size_t len;
+        uint8_t *p = plat_sdl_read_pixels(&w, &hh);
+        void *png = p ? tdefl_write_image_to_png_file_in_memory(p, w, hh, 4, &len) : NULL;
+        char path[512];
+        snprintf(path, sizeof path, "%s-hud-rank-%d.png", argv[2], rank);
+        FILE *o = png ? fopen(path, "wb") : NULL;
+        if (o) {
+            fwrite(png, 1, len, o);
+            fclose(o);
+        }
+        free(p);
+        mz_free(png);
+        plat_video_end_frame();
+        race_hud_close(h);
+        race_game_close(g);
+        plat_video_shutdown();
+        printf("hud rank: rank=%d two_digit=%d path=%s\n", rank, rank > 9, path);
+        return o ? 0 : 1;
+    }
+    if (getenv("PROBE_RANK_HUD")) {
+        unsigned seen = 0;
+        int last = 0;
+        int field = gt4_race_run_cars(g->run) + gt4_race_run_phantom_count(g->run);
+        for (int f = 0; f < 3600; f++) {
+            memset(fixture_key, 0, sizeof fixture_key);
+            race_game_update(g, 1. / 60);
+            int rank = GT4_U8(gt4_race_run_car(g->run, 0) + CAR_FIELD_POSITION);
+            if (rank != last) {
+                fprintf(stderr, "rank hud: frame=%d player_rank=%d field=%d\n", f + 1, rank, field);
+                last = rank;
+            }
+            if (rank >= 7 && rank <= 12 && !(seen & (1u << rank))) {
+                char name[32];
+                snprintf(name, sizeof name, "rank-%d", rank);
+                CHECK(shot_hud(g, argv[2], name, 1. / 60));
+                seen |= 1u << rank;
+                fprintf(stderr, "rank hud: shot=%s-%s.png\n", argv[2], name);
+            }
+            if ((field == 8 && rank >= 8) || (field >= 12 && rank >= 12))
+                break;
+        }
+        race_game_close(g);
+        plat_video_shutdown();
+        puts("rank hud: live rank screenshots saved");
+        return 0;
+    }
     if (getenv("PROBE_PHANTOM_RUN")) {
         uint32_t cond = gt4_race_run_conductor(g->run);
         size_t nb = (size_t)MOON_CONDUCTOR_CARS * 0x1100u,
@@ -396,8 +517,21 @@ int main(int argc, char **argv)
         fprintf(stderr, "phantom run: start cars=%u count=%u phantoms=%d crc=%08x/%08x/%08x\n",
                 gt4_race_run_cars(g->run), GT4_U32(cond + CONDUCTOR_FIELD_CAR_COUNT),
                 gt4_race_run_phantom_count(g->run), cb, cs, ct);
-        for (int f = 0; f < 18000; f++)
+        unsigned first_over = 0;
+        for (int f = 0; f < 18000; f++) {
             CHECK(gt4_race_run_frame(g->run));
+            if (!first_over && gt4_race_run_phantom_count(g->run)) {
+                int rank = GT4_U8(gt4_race_run_car(g->run, 0) + CAR_FIELD_POSITION);
+                if (rank > MOON_CONDUCTOR_CARS) {
+                    first_over = (unsigned)f + 1;
+                    fprintf(stderr,
+                            "phantom run: frame=%u player_rank=%d field=%d phantoms=%d\n",
+                            first_over, rank,
+                            gt4_race_run_cars(g->run) + gt4_race_run_phantom_count(g->run),
+                            gt4_race_run_phantom_count(g->run));
+                }
+            }
+        }
         uint32_t ab = mz_crc32(0, gt4_ptr(cond + 0x98), nb),
                  as = mz_crc32(0, gt4_ptr(cond + 0x6698), ns),
                  at = mz_crc32(0, gt4_ptr(cond + 0xCA58), nt);
@@ -408,10 +542,14 @@ int main(int argc, char **argv)
             uint32_t pc = gt4_race_run_phantom_car(g->run, j);
             good &= pc && GT4_U32(pc + 4) != cond;
         }
+        int ranks = merged_ranks(g->run, 18000, 1);
+        if (gt4_race_run_phantom_count(g->run) && !first_over)
+            good = 0;
+        good &= ranks;
         fprintf(stderr,
-                "phantom run: end cars=%u count=%u phantoms=%d crc=%08x/%08x/%08x good=%d\n",
+                "phantom run: end cars=%u count=%u phantoms=%d crc=%08x/%08x/%08x ranks=%d good=%d\n",
                 gt4_race_run_cars(g->run), GT4_U32(cond + CONDUCTOR_FIELD_CAR_COUNT),
-                gt4_race_run_phantom_count(g->run), ab, as, at, good);
+                gt4_race_run_phantom_count(g->run), ab, as, at, ranks, good);
         for (int i = 0; i < MOON_CONDUCTOR_CARS; i++)
             fprintf(stderr, "phantom run: ten[%d]=%08x\n", i,
                     GT4_U32(cond + CONDUCTOR_FIELD_UNK_CA58_U + (uint32_t)i * 16u));

@@ -738,6 +738,22 @@ static const place best_at = {550, 58, 82, 15, 14, 0};  /* +0x14A8, RaceTimeDisp
 static const place last_at = {550, 110, 82, 15, 14, 0}; /* +0x1588 */
 static const place timer_at = {335, 107, 0, 0, 2, 1};   /* +0x15F8, its icon at (-8, +7) */
 
+/* A two-figure rank stays inside the rank box: the one-figure path above is
+   untouched, this only scales the wider string down to fit. */
+static float rank_digits(const hud_font *f, float x, float y, const uint8_t c[4],
+                         const char *s, float maxw)
+{
+    hud_font sized = *f;
+    float w = text_width(f, s);
+    if (w > maxw) {
+        float k = maxw / w;
+        sized.sx *= k;
+        sized.sy *= k;
+    }
+    text(&sized, x, y, 0xf, c, s);
+    return (float)f->face.height * sized.sy;
+}
+
 /* func_003A3B58: the box, and the rank's figure rolling to the new one
    (a fifth of the way each frame, at least 0.01) in FC_26 inside it */
 static void draw_rank(race_hud *h, int rank, const place *p)
@@ -766,12 +782,26 @@ static void draw_rank(race_hud *h, int rank, const place *p)
     y = y0 + p->h - 19 - frac * fh;
     gs_color(0x80C8C8C8u, 1, c);
     plat_set_clip(0, y0 + 8, 640, p->h - 11);
-    {
+    if (n < 10) {
         char s[2] = {(char)('0' + n), 0};
         text(f, x, y, 0xf, c, s);
         if (frac != 0) {
-            s[0] = (char)('0' + n + 1);
-            text(f, x, y + fh, 0xf, c, s);
+            if (n + 1 < 10) {
+                s[0] = (char)('0' + n + 1);
+                text(f, x, y + fh, 0xf, c, s);
+            } else {
+                char t[8];
+                snprintf(t, sizeof t, "%d", n + 1);
+                rank_digits(f, x0 + p->w * 0.5f, y + fh, c, t, p->w - 4);
+            }
+        }
+    } else {
+        char s[8];
+        snprintf(s, sizeof s, "%d", n);
+        float rh = rank_digits(f, x0 + p->w * 0.5f, y, c, s, p->w - 4);
+        if (frac != 0 && n + 1 <= 12) {
+            snprintf(s, sizeof s, "%d", n + 1);
+            rank_digits(f, x0 + p->w * 0.5f, y + rh, c, s, p->w - 4);
         }
     }
     plat_set_clip(0, 0, 0, 0);

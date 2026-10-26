@@ -85,6 +85,7 @@ struct gt4_race_run {
     int cars;
     int field_size;   /* the requested field, official cars plus phantoms */
     int phantom_count;
+    int phantom_laps_set;
     uint32_t phantom_cond, phantom_race, phantom_entries, phantom_world;
     uint32_t phantom_entry[MOON_MAX_PHANTOMS], phantom_car[MOON_MAX_PHANTOMS];
     float phantom_travel0[MOON_MAX_PHANTOMS][4];
@@ -293,6 +294,11 @@ static void make_phantoms(gt4_race_run *r, const gt4_race_desc *d)
         r->phantom_car[i] = car;
         gt4_race_init_extra_car(PHANTOM_COND, PHANTOM_RACE, (uint32_t)i, entry, car, &r->db,
                                 PHANTOM_SCRATCH);
+        /* The shadow's grid slot is not its source entry's, so init_car can
+           start the phantom a lap down. The whole field starts on the same
+           lap; copy the official field's count before the first step. */
+        GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT) =
+            GT4_U16(COND + CONDUCTOR_FIELD_CARS_U + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
         GT4_U8(car + CAR_VIBRATION_ON) = 0;
         GT4_U8(car + CAR_56A) = 2;
         GT4_U8(car + CAR_56B) = 0;
@@ -1083,6 +1089,43 @@ int gt4_race_run_ghost_set(gt4_race_run *r, const uint8_t car[GT4_GHOST_CAR], ui
     return 1;
 }
 
+/* The live order across the official and phantom conductors: each car's
+   merged place goes to its own +0x5B3, nothing else. Runs after both steps
+   so the phantom conductor's own positions cannot overwrite it. */
+typedef struct {
+    uint32_t car, cond;
+} merge_car;
+
+static void merge_positions(gt4_race_run *r)
+{
+    merge_car list[MOON_MAX_CARS];
+    int n = 0;
+    uint32_t official = GT4_U32(r->cond + CONDUCTOR_FIELD_CAR_COUNT_U);
+    int phantoms = r->phantom_count;
+    if (phantoms <= 0 || official > MOON_CONDUCTOR_CARS ||
+        official + (uint32_t)phantoms > MOON_MAX_CARS)
+        return;
+    for (uint32_t i = 0; i < official; i++)
+        list[n++] = (merge_car){r->cond + CONDUCTOR_FIELD_CARS_U + i * CAR_SIZE, r->cond};
+    for (int i = 0; i < phantoms; i++) {
+        uint32_t car = r->phantom_car[i];
+        list[n++] = (merge_car){car, GT4_U32(car + CAR_SESSION)};
+    }
+    for (int k = 1; k < n; k++) {
+        merge_car cur = list[k];
+        int j = k - 1;
+        for (; j >= 0; j--) {
+            if (gt4_position_order_cross(list[j].cond, list[j].car + CAR_POSITION, cur.cond,
+                                         cur.car + CAR_POSITION) >= 0)
+                break;
+            list[j + 1] = list[j];
+        }
+        list[j + 1] = cur;
+    }
+    for (int k = 0; k < n; k++)
+        GT4_U8(list[k].car + CAR_FIELD_POSITION) = (uint8_t)(k + 1);
+}
+
 int gt4_race_run_frame(gt4_race_run *r)
 {
 #ifndef MOON_LEGACY_RECORDING
@@ -1117,8 +1160,19 @@ int gt4_race_run_frame(gt4_race_run *r)
         gt4_phys_pad = r->outer;
     } else
         gt4_step(r->cond, 0, STEP_BUF);
-    if (r->phantom_count)
+    if (r->phantom_count) {
+        if (!r->phantom_laps_set) {
+            uint16_t lap = GT4_U16(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_POSITION +
+                                   CAR_BLOCK_LAP_COUNT);
+            if (lap) {
+                for (int i = 0; i < r->phantom_count; i++)
+                    GT4_U16(r->phantom_car[i] + CAR_POSITION + CAR_BLOCK_LAP_COUNT) = lap;
+                r->phantom_laps_set = 1;
+            }
+        }
         gt4_step(r->phantom_cond, 0, STEP_BUF);
+        merge_positions(r);
+    }
     gt4_race_after_step(RACE);
     /* 0033C538: prop manager runs after 00389990 world simulation. */
     gt4_course_objects_step(r->objects, r->cond, dt);
