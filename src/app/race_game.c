@@ -1097,17 +1097,20 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
             return 0;
         }
         if (phantom_n > 0) {
+            /* The real arcade menu asks PickUpEnemyCars for five cars at
+               offset -0.025, range 0.005 around the player's rating. Use
+               the same rated call for the phantoms, with the official cars
+               removed from its pool. */
+            const float pick_offset = -0.025f, pick_range = 0.005f;
             char used[MOON_CONDUCTOR_CARS + MOON_MAX_PHANTOMS][96];
-            uint8_t used_color[64] = {0};
             int nu = 0, got = 0;
             for (int i = 0; i < d.cars; i++) {
                 const char *l = i ? others[i - 1] : car;
                 snprintf(used[nu++], sizeof used[0], "%s", l ? l : "");
-                int c = i ? (colors ? colors[i - 1] : 0) : color;
-                if (c >= 0 && c < 64)
-                    used_color[c] = 1;
             }
-            for (uint32_t id = 0; id < 4096 && got < phantom_n; id++) {
+            const char **pool = calloc(4096, sizeof *pool);
+            int npool = 0;
+            for (uint32_t id = 0; id < 4096 && pool; id++) {
                 const char *l = labels ? gt4_specdb_label_for_id(labels, n, id) : NULL;
                 if (!l || !*l)
                     continue;
@@ -1118,26 +1121,82 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
                 for (int i = 0; i < nu; i++)
                     if (!strcmp(l, used[i]))
                         official = 1;
-                if (official)
-                    continue;
-                d.phantom_car[got] = id;
-                snprintf(d.phantom_label[got], sizeof d.phantom_label[got], "%s", l);
-                int c = 0;
-                while (c < 64 && used_color[c])
-                    c++;
-                d.phantom_color[got] = c < 64 ? c : (got + 6) % 12;
-                if (c < 64)
-                    used_color[c] = 1;
-                snprintf(used[nu++], sizeof used[0], "%s", l);
-                got++;
+                if (!official)
+                    pool[npool++] = l;
             }
+            gt4_arcade *arc = gt4_arcade_open(vol);
+            gt4_car_ratings *ratings = gt4_car_ratings_open(g->disc);
+            gt4_arcade_enemy picked[MOON_MAX_PHANTOMS];
+            if (arc && ratings && pool) {
+                got = gt4_arcade_pick_enemies(arc, gt4_car_ratings_get, ratings, car, pool,
+                                              npool, pick_offset, pick_range, phantom_n, 0,
+                                              picked);
+                if (got < phantom_n) {
+                    fprintf(stderr,
+                            "race: rated phantom pool supplied %d of %d at offset %.3f range "
+                            "%.3f; widening to the nearest ratings\n",
+                            got, phantom_n, pick_offset, pick_range);
+                    got = gt4_arcade_pick_enemies(arc, gt4_car_ratings_get, ratings, car, pool,
+                                                  npool, 0.f, 1.f, phantom_n, 0, picked);
+                }
+            } else
+                fprintf(stderr, "race: phantom ratings unavailable\n");
+            if (got > 0) {
+                float pr = 0, omin = 1e30f, omax = -1e30f, pmin = 1e30f, pmax = -1e30f;
+                uint64_t pk = gt4_arcade_car_key(arc, car);
+                if (pk != UINT64_MAX)
+                    gt4_car_ratings_get(ratings, &pk, 1, &pr);
+                fprintf(stderr,
+                        "race: phantom ratings: player=%s %.6f offset=%.3f range=%.3f\n",
+                        car ? car : "-", pr, pick_offset, pick_range);
+                for (int i = 0; i < d.cars; i++) {
+                    const char *l = gt4_specdb_label_for_id(labels, n, d.car[i]);
+                    uint64_t k = l ? gt4_arcade_car_key(arc, l) : UINT64_MAX;
+                    float r = 0;
+                    if (k != UINT64_MAX && gt4_car_ratings_get(ratings, &k, 1, &r)) {
+                        fprintf(stderr, "race: phantom ratings: official[%d]=%s %.6f\n", i,
+                                l, r);
+                        if (r < omin) omin = r;
+                        if (r > omax) omax = r;
+                    }
+                }
+                for (int j = 0; j < got; j++) {
+                    uint64_t k = gt4_arcade_car_key(arc, picked[j].car);
+                    float r = 0;
+                    if (k != UINT64_MAX && gt4_car_ratings_get(ratings, &k, 1, &r)) {
+                        fprintf(stderr, "race: phantom ratings: phantom[%d]=%s %.6f\n", j,
+                                picked[j].car, r);
+                        if (r < pmin) pmin = r;
+                        if (r > pmax) pmax = r;
+                    }
+                }
+                fprintf(stderr,
+                        "race: phantom ratings spread: official %.6f..%.6f phantom %.6f..%.6f\n",
+                        omin, omax, pmin, pmax);
+            }
+            free(pool);
+            if (arc) gt4_arcade_close(arc);
+            if (ratings) gt4_car_ratings_close(ratings);
             if (got < phantom_n) {
                 snprintf(msg, len,
-                         "race.field_size=%d refused: %d phantoms requested, %d distinct opponents available",
+                         "race.field_size=%d refused: %d phantoms requested, %d rated opponents available",
                          field_size, phantom_n, got);
                 free(labels);
                 gt4_vol_close(vol);
                 return 0;
+            }
+            for (int j = 0; j < got; j++) {
+                uint32_t id = 0;
+                if (!gt4_specdb_label(labels, n, picked[j].car, &id)) {
+                    snprintf(msg, len, "race: phantom car %s has no GENERIC_CAR id",
+                             picked[j].car);
+                    free(labels);
+                    gt4_vol_close(vol);
+                    return 0;
+                }
+                d.phantom_car[j] = id;
+                snprintf(d.phantom_label[j], sizeof d.phantom_label[j], "%s", picked[j].car);
+                d.phantom_color[j] = picked[j].color;
             }
         }
     }

@@ -418,16 +418,16 @@ static void dirt_versions(gt4_arcade *a, int *out, int count, const pick_entry *
 
 int gt4_arcade_pick_enemies(gt4_arcade *a, gt4_arcade_rater rate, void *ctx, const char *player,
                             const char *const *list, int n, float offset, float range, int count,
-                            int dirt, gt4_arcade_enemy out[5])
+                            int dirt, gt4_arcade_enemy out[6])
 {
     pick_entry *e;
     uint64_t *keys;
     float *ratings, own_rating = 0, at;
     uint8_t r[24];
     const char *own_label;
-    int kept = 0, open, lo, hi, own = -1, idx[5], color[5], got = 0;
-    if (count >= 6)
-        count = 5;
+    int kept = 0, open, lo, hi, own = -1, idx[6], color[6], got = 0;
+    if (count > 6)
+        count = 6;
     if (!a || !rate || n < 0)
         return -1;
     /* the player's car: its rating, open-top type (3 counts as 0) */

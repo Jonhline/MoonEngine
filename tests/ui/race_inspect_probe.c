@@ -671,6 +671,7 @@ int main(int argc, char **argv)
                         GT4_F32(car + CAR_FIELD_COURSE_DISTANCE),
                         GT4_F32(car + CAR_BLOCK_HEADING), GT4_F32(car + CAR_ABS_SPEED));
             }
+            fprintf(stderr, "contact restitution=%.6f\n", GT4_F32(0x00846630u));
             {
                 float pos[MOON_MAX_CARS][3];
                 for (int k = 0; k < no + np; k++) {
@@ -748,7 +749,7 @@ int main(int argc, char **argv)
                             GT4_U8(car + CAR_FIELD_POSITION), place);
                 }
             }
-            if (getenv("PROBE_RANK_TRACE") && f >= 1200)
+            if (getenv("PROBE_RANK_TRACE") && f >= 4000)
                 break;
             if (getenv("PROBE_START_TRACE") && f >= 700)
                 break;
