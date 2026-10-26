@@ -1,0 +1,191 @@
+/* Custom Modes: a native GT Mode tile and page. The page is built on the
+   authored Template root; the tile is a copy of the authored Home tile with
+   the riding car's CarFace. Opt-in: nothing runs in a normal race. */
+static int custom_modes_top_root = -1, custom_modes_page_root = -1;
+static ui_widget *custom_modes_tile_car;
+static int custom_modes_attached;
+
+static ui_widget *cm_find(ui_widget *w, const char *name)
+{
+    if (!w)
+        return NULL;
+    if (w->name && !strcmp(w->name, name))
+        return w;
+    for (int i = 0; i < w->nkids; i++) {
+        ui_widget *found = cm_find(w->kids[i], name);
+        if (found)
+            return found;
+    }
+    return NULL;
+}
+
+static void cm_text(ui_widget *w, const char *s)
+{
+    if (!w)
+        return;
+    free(w->text);
+    w->text = strdup(s ? s : "");
+}
+
+static void custom_modes_refresh_car(menu *m)
+{
+    if (!m || !custom_modes_tile_car)
+        return;
+    const char *car = menu_split_car(m, 0);
+    if (!car || !*car)
+        return;
+    free(custom_modes_tile_car->car_code);
+    custom_modes_tile_car->car_code = strdup(car);
+    custom_modes_tile_car->car_color_index = (int)menu_game_number(m, "car_color", 0);
+}
+
+static int custom_modes_open(ah_vm *vm, ah_obj *self, void *data, int argc,
+                             const ah_val *argv, ah_val *ret)
+{
+    (void)vm;
+    (void)self;
+    (void)argc;
+    (void)argv;
+    menu *m = data;
+    custom_modes_refresh_car(m);
+    menu_native_page(m, custom_modes_page_root);
+    menu_play_effect(m, "ok");
+    *ret = ah_int(2);
+    return 0;
+}
+
+static int custom_modes_back(ah_vm *vm, ah_obj *self, void *data, int argc,
+                             const ah_val *argv, ah_val *ret)
+{
+    (void)vm;
+    (void)self;
+    (void)argc;
+    (void)argv;
+    menu *m = data;
+    menu_native_page(m, custom_modes_top_root);
+    menu_play_effect(m, "cancel");
+    *ret = ah_int(2);
+    return 0;
+}
+
+static int custom_modes_elimination(ah_vm *vm, ah_obj *self, void *data, int argc,
+                                    const ah_val *argv, ah_val *ret)
+{
+    (void)vm;
+    (void)self;
+    (void)argc;
+    (void)argv;
+    (void)data;
+    /* Stage 2 replaces this with the race start. */
+    fprintf(stderr, "custom modes: elimination selected\n");
+    *ret = ah_int(2);
+    return 0;
+}
+
+static int custom_modes_focus(ah_vm *vm, ah_obj *self, void *data, int argc,
+                              const ah_val *argv, ah_val *ret)
+{
+    (void)vm;
+    (void)self;
+    (void)argc;
+    (void)argv;
+    custom_modes_refresh_car(data);
+    *ret = ah_int(0);
+    return 0;
+}
+
+static void custom_modes_attach(menu *m)
+{
+    if (!m || custom_modes_attached)
+        return;
+    ui_project *ui = menu_ui(m);
+    if (!ui)
+        return;
+    int top = -1, page = -1, home = -1;
+    for (int i = 0; i < ui_root_count(ui); i++) {
+        const char *name = ui_root_name(ui, i);
+        if (!strcmp(name, "TopRoot"))
+            top = i;
+        else if (!strcmp(name, "Template"))
+            page = i;
+        else if (!strcmp(name, "HomeRoot"))
+            home = i;
+    }
+    if (top < 0 || page < 0 || home < 0)
+        return;
+    ui_widget *top_root = ui_root_widget(ui, top);
+    ui_widget *space = top_root ? cm_find(top_root, "space") : NULL;
+    ui_widget *sample = space ? ui_widget_child(space, "Home") : NULL;
+    ui_widget *home_root = ui_root_widget(ui, home);
+    ui_widget *car_sample = home_root ? cm_find(home_root, "CarFace") : NULL;
+    if (!space || !sample || !car_sample)
+        return;
+    ui_widget *tile = ui_widget_copy(ui, sample);
+    if (!tile)
+        return;
+    tile->name = "CustomModes";
+    tile->x = 700;
+    tile->y = 640;
+    tile->visible = 1;
+    tile->has_focus_override = 1;
+    tile->focus_override = 1;
+    cm_text(ui_widget_child(tile, "label"), "Custom Modes");
+    ui_widget *label2 = ui_widget_child(tile, "label2");
+    if (label2)
+        label2->visible = 0;
+    custom_modes_tile_car = ui_widget_copy(ui, car_sample);
+    if (custom_modes_tile_car) {
+        custom_modes_tile_car->name = "CarFace";
+        custom_modes_tile_car->x = 0;
+        custom_modes_tile_car->y = 0;
+        custom_modes_tile_car->w = 90;
+        custom_modes_tile_car->h = 58;
+        custom_modes_tile_car->has_geometry = 1;
+        custom_modes_tile_car->visible = 1;
+        custom_modes_tile_car->car_normal = 1;
+        custom_modes_tile_car->car_pose_set = 0;
+        custom_modes_tile_car->car_color_index = 0;
+        custom_modes_tile_car->car_code = NULL;
+        ui_widget_append(tile, custom_modes_tile_car);
+    }
+    ui_widget_append(space, tile);
+    menu_native_method(m, tile, "onActivate", custom_modes_open, m);
+    menu_native_method(m, tile, "onFocusEnter", custom_modes_focus, m);
+
+    ui_widget *page_root = ui_root_widget(ui, page);
+    ui_widget *title = ui_widget_child(page_root, "Title");
+    if (title) {
+        ui_widget *label = ui_widget_child(title, "label");
+        if (label)
+            cm_text(label, "Custom Modes");
+    }
+    ui_widget *panel = ui_widget_from_text(
+        ui, page,
+        "ColorFace {name string {\"panel\"} geometry rectangle {40 64 560 340} color [1] "
+        "{RGBA {8 9 12 220}}}");
+    if (panel)
+        ui_widget_append(page_root, panel);
+    ui_widget *heading = ui_widget_from_text(
+        ui, page,
+        "TextFace {name string {\"heading\"} geometry rectangle {40 72 560 40} font string "
+        "{\"hb_24\"} align digit {3} text string {\"Custom Modes\"} text_color RGBA {225 225 "
+        "230 255} shadow digit {1.5} shadow_color RGBA {0 0 0 180}}");
+    if (heading)
+        ui_widget_append(page_root, heading);
+    ui_widget *entry = ui_widget_from_text(
+        ui, page,
+        "Composite {name string {\"Elimination\"} can_focus digit {1} geometry rectangle {100 "
+        "150 440 48} children [2] {ColorFace {name string {\"bg\"} geometry rectangle {0 0 440 "
+        "48} color [1] {RGBA {36 38 44 230}}} TextFace {name string {\"label\"} geometry "
+        "rectangle {14 8 412 32} font string {\"hm_16\"} text string {\"Elimination\"} "
+        "text_color RGBA {230 230 230 255}}}}");
+    if (entry) {
+        ui_widget_append(page_root, entry);
+        menu_native_method(m, entry, "onActivate", custom_modes_elimination, m);
+    }
+    menu_native_method(m, page_root, "onCancel", custom_modes_back, m);
+    custom_modes_top_root = top;
+    custom_modes_page_root = page;
+    custom_modes_attached = 1;
+    custom_modes_refresh_car(m);
+}

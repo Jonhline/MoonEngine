@@ -99,6 +99,7 @@ static void app_jukebox_attach(menu *m);
 static int app_jukebox_pcm(menu *m, int allowed);
 static void app_jukebox_leave(void);
 static int app_jukebox_fixture(menu *m);
+#include "custom_modes.inc"
 #include "main_support.inc"
 #include "main_race_flow.inc"
 
@@ -5002,6 +5003,8 @@ int main(int argc, char **argv)
                 mn, getenv("MOON_MENU_PUSH")); /* tests: a page entered as from a dealer */
         if (!(proj == 12 && getenv("MOON_LABO_ARG")))
             menu_enter(mn, root);
+        if (proj == 1)
+            custom_modes_attach(mn);
         if (getenv("MOON_TEST_MONEY")) {
             menu_test_money(mn, strtoll(getenv("MOON_TEST_MONEY"), NULL, 10));
             menu_save_capture(mn);
