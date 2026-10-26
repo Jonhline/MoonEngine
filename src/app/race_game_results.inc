@@ -27,10 +27,13 @@ static void native_result_draw(race_game *g, const gt4_race_entrant *e, int n, i
     { /* Every row the board draws, so the log can be checked line by line
          against the field. Print once per page, not once per frame. */
         if (n != native_result_log_n || scroll != native_result_log_scroll) {
+            uint32_t lead = n ? e[0].finish_time : 0;
             fprintf(stderr, "native result: rows=%d scroll=%d visible=%d\n", n, scroll, visible);
             for (int i = scroll; i < scroll + visible; i++)
-                fprintf(stderr, "native result row: place=%d id=%d official=%d name=%s\n",
-                        e[i].place, e[i].id, e[i].official, e[i].name);
+                fprintf(stderr,
+                        "native result row: place=%d id=%d official=%d time=%u gap=%u name=%s\n",
+                        e[i].place, e[i].id, e[i].official, e[i].finish_time,
+                        e[i].finish_time - lead, e[i].name);
             native_result_log_n = n;
             native_result_log_scroll = scroll;
         }

@@ -475,12 +475,25 @@ int main(int argc, char **argv)
                     break;
             }
             fprintf(stderr, "result run: classify frames=%d n=%d all=%d\n", f, n, all);
-            for (int i = 0; i < n; i++) {
+            {
                 gt4_race_entrant ents[MOON_MAX_CARS];
-                gt4_race_run_classification(g->run, ents, MOON_MAX_CARS);
-                fprintf(stderr, "result run: place=%d id=%d official=%d fin=%d time=%u name=%s\n",
-                        ents[i].place, ents[i].id, ents[i].official, ents[i].finished,
-                        ents[i].finish_time, ents[i].name);
+                n = gt4_race_run_classification(g->run, ents, MOON_MAX_CARS);
+                uint32_t leader = n ? ents[0].finish_time : 0, prev = leader;
+                for (int i = 0; i < n; i++) {
+                    uint32_t gap = ents[i].finish_time - leader;
+                    fprintf(stderr,
+                            "result run: place=%d id=%d official=%d fin=%d time=%u gap=%u name=%s\n",
+                            ents[i].place, ents[i].id, ents[i].official, ents[i].finished,
+                            ents[i].finish_time, gap, ents[i].name);
+                    if (all && i) {
+                        CHECK(ents[i].finish_time >= prev);
+                        if (ents[i].finish_time == prev)
+                            fprintf(stderr,
+                                    "result run: same finish time at places %d and %d: %u\n",
+                                    ents[i - 1].place, ents[i].place, ents[i].finish_time);
+                    }
+                    prev = ents[i].finish_time;
+                }
             }
         }
         int draw_frames = getenv("PROBE_RESULT_DRAW") ? atoi(getenv("PROBE_RESULT_DRAW")) : 900;

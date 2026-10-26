@@ -1126,10 +1126,38 @@ static int entrant_cmp(const gt4_race_entrant *a, const gt4_race_entrant *b)
                                     b->car + CAR_POSITION);
 }
 
+/* Sort the merged list: finished cars by their one captured finish time,
+   then running cars by track order. The same list feeds the live places,
+   the result board, prize and points. */
+static void order_classification(gt4_race_run *r, int n)
+{
+    for (int i = 0; i < n; i++) {
+        r->class_order[i] = (uint8_t)i;
+        r->entrants[i].place = 0;
+    }
+    for (int k = 1; k < n; k++) {
+        uint8_t cur = r->class_order[k];
+        int j = k - 1;
+        for (; j >= 0; j--) {
+            if (entrant_cmp(&r->entrants[r->class_order[j]], &r->entrants[cur]) <= 0)
+                break;
+            r->class_order[j + 1] = r->class_order[j];
+        }
+        r->class_order[j + 1] = cur;
+    }
+    for (int k = 0; k < n; k++) {
+        gt4_race_entrant *e = &r->entrants[r->class_order[k]];
+        e->place = k + 1;
+        GT4_U8(e->car + CAR_FIELD_POSITION) = (uint8_t)(k + 1);
+    }
+    r->class_n = n;
+}
+
 /* Build the one merged order. Stable ids are official cars first, then the
-   phantoms. Finished cars sort by their captured time, then by the live
-   rank at the line; running cars use the cross-conductor comparator. The
-   list is frozen when the player finishes. */
+   phantoms. Finished cars sort by their one captured finish time, then by
+   the live rank at the line; running cars use the cross-conductor
+   comparator. Membership freezes when the player finishes; the finished
+   rows keep re-sorting by time as the remaining cars cross. */
 static void build_classification(gt4_race_run *r)
 {
     int official, phantoms, n;
@@ -1154,19 +1182,21 @@ static void build_classification(gt4_race_run *r)
             e->cond = is_official ? r->cond : GT4_U32(car + CAR_SESSION);
             snprintf(e->name, sizeof e->name, "%s", r->entrant_name[i]);
             e->color = r->entrant_color[i];
+            e->laps = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
+            e->distance = GT4_F32(car + CAR_POSITION + CAR_BLOCK_COURSE_DISTANCE);
+            e->live_rank = (int8_t)GT4_U8(car + CAR_FIELD_POSITION);
             if (GT4_U8(car + CAR_5B6) && !r->finish_seen[i]) {
-                uint32_t t = GT4_U32(car + CAR_FIELD_UNK_718);
+                /* One timeline for both conductors: the official race
+                   clock at the frame +0x5B6 is first seen. +0x718 is not
+                   mixed in. */
                 r->finish_seen[i] = 1;
                 r->finish_serial[i] = ++r->finish_next;
-                r->finish_time[i] = t ? t : GT4_U32(r->cond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3u;
+                r->finish_time[i] = GT4_U32(r->cond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3u;
             }
             e->finished = r->finish_seen[i];
             e->finish_time = r->finish_time[i];
         }
-        for (int k = 0; k < r->class_n; k++) {
-            const gt4_race_entrant *e = &r->entrants[r->class_order[k]];
-            GT4_U8(e->car + CAR_FIELD_POSITION) = (uint8_t)e->place;
-        }
+        order_classification(r, n);
         return;
     }
     official = (int)GT4_U32(r->cond + CONDUCTOR_FIELD_CAR_COUNT_U);
@@ -1188,35 +1218,19 @@ static void build_classification(gt4_race_run *r)
         snprintf(e->name, sizeof e->name, "%s", r->entrant_name[i]);
         e->color = r->entrant_color[i];
         if (fin && !r->finish_seen[i]) {
-            uint32_t t = GT4_U32(car + CAR_FIELD_UNK_718);
+            /* One timeline for both conductors: the official race clock
+               at the frame +0x5B6 is first seen. +0x718 is not mixed in. */
             r->finish_seen[i] = 1;
             r->finish_serial[i] = ++r->finish_next;
-            r->finish_time[i] = t ? t : GT4_U32(r->cond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3u;
+            r->finish_time[i] = GT4_U32(r->cond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3u;
         }
         e->finished = r->finish_seen[i];
         e->finish_time = r->finish_time[i];
         e->laps = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
         e->distance = GT4_F32(car + CAR_POSITION + CAR_BLOCK_COURSE_DISTANCE);
         e->live_rank = (int8_t)GT4_U8(car + CAR_FIELD_POSITION);
-        e->place = 0;
-        r->class_order[i] = (uint8_t)i;
     }
-    for (int k = 1; k < n; k++) {
-        uint8_t cur = r->class_order[k];
-        int j = k - 1;
-        for (; j >= 0; j--) {
-            if (entrant_cmp(&r->entrants[r->class_order[j]], &r->entrants[cur]) <= 0)
-                break;
-            r->class_order[j + 1] = r->class_order[j];
-        }
-        r->class_order[j + 1] = cur;
-    }
-    for (int k = 0; k < n; k++) {
-        gt4_race_entrant *e = &r->entrants[r->class_order[k]];
-        e->place = k + 1;
-        GT4_U8(e->car + CAR_FIELD_POSITION) = (uint8_t)(k + 1);
-    }
-    r->class_n = n;
+    order_classification(r, n);
     if (r->entrants[0].finished)
         r->class_frozen = 1;
 }
