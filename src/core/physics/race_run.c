@@ -99,6 +99,13 @@ struct gt4_race_run {
     uint32_t entrant_color[MOON_MAX_CARS];
     uint32_t phantom_entry[MOON_MAX_PHANTOMS], phantom_car[MOON_MAX_PHANTOMS];
     float phantom_travel0[MOON_MAX_PHANTOMS][4];
+    /* The parked start pose: position, four reference points, matrix,
+       heading and course distance, restored while the officials count down. */
+    float phantom_start[MOON_MAX_PHANTOMS][3];
+    float phantom_refs[MOON_MAX_PHANTOMS][12];
+    float phantom_matrix[MOON_MAX_PHANTOMS][18];
+    float phantom_heading[MOON_MAX_PHANTOMS];
+    float phantom_dist0[MOON_MAX_PHANTOMS];
     int legacy_recording;
     unsigned frames;                /* display time since the start event, at 60 Hz */
     int aspec_points;               /* func_003C0FF8, computed after the entries start */
@@ -323,59 +330,91 @@ static void make_phantoms(gt4_race_run *r, const gt4_race_desc *d)
             GT4_U32(obj + 0xe8) = car;
             GT4_U32(obj + 0xec) = PHANTOM_COND + CONDUCTOR_FIELD_LINES_U;
         }
-        /* A second row behind the official grid: the last official car's
-           step repeated, offset a little to the side. It stays outside the
-           conductor's six grid slots and behind the start camera. */
+        /* Continue the official grid's own formation behind its last row.
+           The six officials are three two-car rows; the two back cars give
+           the row step, and the next two rows give the distance per row.
+           The slot index is not used for the pose. */
         {
-            int last = official - 1, prev = last > 0 ? last - 1 : last;
-            uint32_t ref = COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)last * CAR_SIZE;
-            float step[3], right[3], delta[3];
-            int side = (i & 1) ? 1 : -1;
-            for (int k = 0; k < 3; k++)
-                step[k] = GT4_F32(ref + CAR_POSITION + (uint32_t)k * 4) -
-                          GT4_F32(COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)prev * CAR_SIZE +
-                                  CAR_POSITION + (uint32_t)k * 4);
-            {
-                float up[3] = {GT4_F32(ref + CAR_MATRIX + 0x18),
-                               GT4_F32(ref + CAR_MATRIX + 0x1c),
-                               GT4_F32(ref + CAR_MATRIX + 0x20)};
-                float fwd[3] = {GT4_F32(ref + CAR_MATRIX), GT4_F32(ref + CAR_MATRIX + 4),
-                                GT4_F32(ref + CAR_MATRIX + 8)};
-                right[0] = up[1] * -fwd[2] - up[2] * -fwd[1];
-                right[1] = up[2] * -fwd[0] - up[0] * -fwd[2];
-                right[2] = up[0] * -fwd[1] - up[1] * -fwd[0];
-                float n = sqrtf(right[0] * right[0] + right[1] * right[1] + right[2] * right[2]);
-                if (n < 1e-4f) {
-                    right[0] = 1;
-                    right[1] = 0;
-                    right[2] = 0;
-                    n = 1;
+            int order[MOON_CONDUCTOR_CARS];
+            for (int k = 0; k < official; k++)
+                order[k] = k;
+            for (int a = 1; a < official; a++) {
+                int cur = order[a], b = a - 1;
+                float dcur = GT4_F32(COND + CONDUCTOR_FIELD_CARS_U +
+                                     (uint32_t)cur * CAR_SIZE + CAR_FIELD_COURSE_DISTANCE);
+                while (b >= 0) {
+                    float db = GT4_F32(COND + CONDUCTOR_FIELD_CARS_U +
+                                       (uint32_t)order[b] * CAR_SIZE +
+                                       CAR_FIELD_COURSE_DISTANCE);
+                    if (db <= dcur)
+                        break;
+                    order[b + 1] = order[b];
+                    b--;
                 }
+                order[b + 1] = cur;
+            }
+            uint32_t back[2] = {0, 0}, prev[2] = {0, 0};
+            back[0] = COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)order[0] * CAR_SIZE;
+            if (official >= 2)
+                back[1] = COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)order[1] * CAR_SIZE;
+            if (official >= 4) {
+                prev[0] = COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)order[2] * CAR_SIZE;
+                prev[1] = COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)order[3] * CAR_SIZE;
+            }
+            float last[2][3], step[3] = {0, 0, 0};
+            float last_dist[2] = {0, 0}, row_dist = 0;
+            for (int c = 0; c < 2; c++) {
                 for (int k = 0; k < 3; k++)
-                    right[k] /= n;
+                    last[c][k] = GT4_F32(back[c] + CAR_POSITION + (uint32_t)k * 4);
+                last_dist[c] = GT4_F32(back[c] + CAR_FIELD_COURSE_DISTANCE);
             }
+            if (official >= 4) {
+                for (int k = 0; k < 3; k++)
+                    step[k] = ((GT4_F32(prev[0] + CAR_POSITION + (uint32_t)k * 4) - last[0][k]) +
+                               (GT4_F32(prev[1] + CAR_POSITION + (uint32_t)k * 4) - last[1][k])) *
+                              0.25f;
+                row_dist = ((GT4_F32(prev[0] + CAR_FIELD_COURSE_DISTANCE) - last_dist[0]) +
+                            (GT4_F32(prev[1] + CAR_FIELD_COURSE_DISTANCE) - last_dist[1])) *
+                           0.25f;
+            } else if (official >= 2) {
+                for (int k = 0; k < 3; k++)
+                    step[k] = last[1][k] - last[0][k];
+            }
+            int row = i / 2 + 1, col = i & 1;
+            float pos[3];
             for (int k = 0; k < 3; k++)
-                delta[k] = step[k] * (0.8f + 0.7f * (float)i) + right[k] * (float)side * 2.5f;
+                pos[k] = last[col][k] - (float)row * step[k];
             for (int k = 0; k < 3; k++) {
-                GT4_F32(car + CAR_POSITION + (uint32_t)k * 4) =
-                    GT4_F32(ref + CAR_POSITION + (uint32_t)k * 4) + delta[k];
-                GT4_F32(car + CAR_REF_A + (uint32_t)k * 4) =
-                    GT4_F32(ref + CAR_REF_A + (uint32_t)k * 4) + delta[k];
-                GT4_F32(car + CAR_REF_B + (uint32_t)k * 4) =
-                    GT4_F32(ref + CAR_REF_B + (uint32_t)k * 4) + delta[k];
-                GT4_F32(car + CAR_REF_A_PREV + (uint32_t)k * 4) =
-                    GT4_F32(ref + CAR_REF_A_PREV + (uint32_t)k * 4) + delta[k];
-                GT4_F32(car + CAR_REF_B_PREV + (uint32_t)k * 4) =
-                    GT4_F32(ref + CAR_REF_B_PREV + (uint32_t)k * 4) + delta[k];
+                GT4_F32(car + CAR_POSITION + (uint32_t)k * 4) = pos[k];
+                GT4_F32(car + CAR_REF_A + (uint32_t)k * 4) = pos[k];
+                GT4_F32(car + CAR_REF_B + (uint32_t)k * 4) = pos[k];
+                GT4_F32(car + CAR_REF_A_PREV + (uint32_t)k * 4) = pos[k];
+                GT4_F32(car + CAR_REF_B_PREV + (uint32_t)k * 4) = pos[k];
             }
-            memcpy(gt4_ptr(car + CAR_MATRIX), gt4_ptr(ref + CAR_MATRIX), 0x48);
-            GT4_F32(car + CAR_BLOCK_HEADING) = GT4_F32(ref + CAR_BLOCK_HEADING);
+            memcpy(gt4_ptr(car + CAR_MATRIX), gt4_ptr(back[col] + CAR_MATRIX), 0x48);
+            GT4_F32(car + CAR_BLOCK_HEADING) = GT4_F32(back[col] + CAR_BLOCK_HEADING);
             {
                 float dist = 0;
                 gt4_session(PHANTOM_COND, 0x108, car, 0, 0, 0, 0, &dist);
-                GT4_F32(car + CAR_FIELD_COURSE_DISTANCE) = dist;
+                float expected = last_dist[col] - (float)row * row_dist;
+                GT4_F32(car + CAR_FIELD_COURSE_DISTANCE) =
+                    dist > 0 && fabsf(dist - expected) < 60.f ? dist : expected;
+                GT4_F32(car + CAR_FIELD_PREVIOUS_COURSE_DISTANCE) =
+                    GT4_F32(car + CAR_FIELD_COURSE_DISTANCE);
             }
         }
+        for (int k = 0; k < 3; k++)
+            r->phantom_start[i][k] = GT4_F32(car + CAR_POSITION + (uint32_t)k * 4);
+        for (int k = 0; k < 3; k++) {
+            r->phantom_refs[i][k] = GT4_F32(car + CAR_REF_A + (uint32_t)k * 4);
+            r->phantom_refs[i][3 + k] = GT4_F32(car + CAR_REF_B + (uint32_t)k * 4);
+            r->phantom_refs[i][6 + k] = GT4_F32(car + CAR_REF_A_PREV + (uint32_t)k * 4);
+            r->phantom_refs[i][9 + k] = GT4_F32(car + CAR_REF_B_PREV + (uint32_t)k * 4);
+        }
+        for (int k = 0; k < 18; k++)
+            r->phantom_matrix[i][k] = GT4_F32(car + CAR_MATRIX + (uint32_t)k * 4);
+        r->phantom_heading[i] = GT4_F32(car + CAR_BLOCK_HEADING);
+        r->phantom_dist0[i] = GT4_F32(car + CAR_FIELD_COURSE_DISTANCE);
         {
             float ground = 0;
             for (int k = 0; k < 4; k++) {
@@ -1128,8 +1167,10 @@ static int entrant_cmp(const gt4_race_entrant *a, const gt4_race_entrant *b)
             return a->live_rank < b->live_rank ? -1 : 1;
         return a->id < b->id ? -1 : a->id > b->id;
     }
-    return gt4_position_order_cross(a->cond, a->car + CAR_POSITION, b->cond,
-                                    b->car + CAR_POSITION);
+    /* gt4_position_order_cross returns 1 when a is ahead; entrant_cmp uses
+       -1 for a ahead (the finished branch above). */
+    return -gt4_position_order_cross(a->cond, a->car + CAR_POSITION, b->cond,
+                                     b->car + CAR_POSITION);
 }
 
 /* Sort the merged list: finished cars by their one captured finish time,
@@ -1300,6 +1341,7 @@ int gt4_race_run_frame(gt4_race_run *r)
     if (gt4_music_fade_step(&GT4_F32(session + 0xd4), dt))
         gt4_race_queue_push(session + 0xf4, 1, 0, 0);
     gt4_race_queue_age(RACE + 0xf4); /* func_00389758 -> 003B75D8: last frame's events age */
+    int official_release = gt4_race_run_countdown(r, 0) <= 0;
     gt4_race_before_step(RACE);
     if (r->cars == 2 && GT4_U32(r->cond + CONDUCTOR_FIELD_SESSION_VTABLE) == TT_VT) {
         /* the Time Trial: the ghost's controller around the caller's */
@@ -1326,7 +1368,40 @@ int gt4_race_run_frame(gt4_race_run *r)
                 r->phantom_laps_set = 1;
             }
         }
+        /* The shadow conductor is a copy made before the countdown; its own
+           start state does not hold its cars. Let its start/AI state advance
+           but park it on the computed start pose until the official
+           countdown releases. */
         gt4_step(r->phantom_cond, 0, STEP_BUF);
+        if (!official_release) {
+            /* Let the shadow's own start/AI state advance, but keep the
+               cars on their computed start poses and clocks at the official
+               zero until the same countdown releases the official field. */
+            for (int i = 0; i < r->phantom_count; i++) {
+                uint32_t car = r->phantom_car[i];
+                for (int k = 0; k < 3; k++) {
+                    GT4_F32(car + CAR_POSITION + (uint32_t)k * 4) = r->phantom_start[i][k];
+                    GT4_F32(car + CAR_REF_A + (uint32_t)k * 4) = r->phantom_refs[i][k];
+                    GT4_F32(car + CAR_REF_B + (uint32_t)k * 4) = r->phantom_refs[i][3 + k];
+                    GT4_F32(car + CAR_REF_A_PREV + (uint32_t)k * 4) =
+                        r->phantom_refs[i][6 + k];
+                    GT4_F32(car + CAR_REF_B_PREV + (uint32_t)k * 4) =
+                        r->phantom_refs[i][9 + k];
+                    GT4_F32(car + CAR_VELOCITY + (uint32_t)k * 4) = 0;
+                }
+                for (int k = 0; k < 18; k++)
+                    GT4_F32(car + CAR_MATRIX + (uint32_t)k * 4) = r->phantom_matrix[i][k];
+                GT4_F32(car + CAR_BLOCK_HEADING) = r->phantom_heading[i];
+                GT4_F32(car + CAR_SPEED) = 0;
+                GT4_F32(car + CAR_LAT_SPEED) = 0;
+                GT4_F32(car + CAR_ABS_SPEED) = 0;
+                GT4_F32(car + CAR_FIELD_COURSE_DISTANCE) = r->phantom_dist0[i];
+            }
+            w32(PHANTOM_COND + CONDUCTOR_FIELD_RACE_CLOCK_U,
+                GT4_U32(COND + CONDUCTOR_FIELD_RACE_CLOCK_U));
+            w32(PHANTOM_COND + CONDUCTOR_FIELD_RUNNING_CLOCK_U,
+                GT4_U32(COND + CONDUCTOR_FIELD_RUNNING_CLOCK_U));
+        }
         build_classification(r);
     }
     gt4_race_after_step(RACE);
