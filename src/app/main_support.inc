@@ -1025,6 +1025,8 @@ static void switch_to(gt4_vol *vol, menu **cache, menu **mn, int *proj, char *ne
                     fprintf(stderr, "career quick selector failed\n");
             } else
                 menu_enter(*mn, target);
+            if (i == 1)
+                custom_modes_attach(*mn);
             if (new_career)
                 save_ui_new_career(&save_screen);
             /* PresentRoot.onInitialize queues get_paper/get_car (gtmode.ad

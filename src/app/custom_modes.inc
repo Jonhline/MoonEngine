@@ -141,7 +141,7 @@ static int custom_modes_focus(ah_vm *vm, ah_obj *self, void *data, int argc,
 
 static void custom_modes_attach(menu *m)
 {
-    if (!m || custom_modes_attached)
+    if (!m || custom_modes_attached || getenv("MOON_CUSTOM_MODES_OFF"))
         return;
     ui_project *ui = menu_ui(m);
     if (!ui)
@@ -215,6 +215,8 @@ static void custom_modes_attach(menu *m)
         ui_widget_append(tile, custom_modes_tile_car);
     }
     ui_widget_append(space, tile);
+    fprintf(stderr, "custom modes: attached tile at %.0f,%.0f space kids=%d\n", tile->x, tile->y,
+            space->nkids);
     menu_native_method(m, tile, "onActivate", custom_modes_open, m);
     menu_native_method(m, tile, "onFocusEnter", custom_modes_focus, m);
 
