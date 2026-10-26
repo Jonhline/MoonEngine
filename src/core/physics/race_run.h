@@ -83,6 +83,7 @@ typedef struct {
     char name[96];
     uint32_t color;
     int finished;
+    int eliminated;
     uint32_t finish_time;
     int laps;
     float distance;
@@ -111,6 +112,11 @@ int gt4_race_run_classification(const gt4_race_run *r, gt4_race_entrant *out, in
 int gt4_race_run_classification_order(const gt4_race_run *r, uint8_t *ids, int max);
 /* The player's 0-based place in the merged field, or -1 without phantoms. */
 int gt4_race_run_player_place(const gt4_race_run *r);
+/* Custom Modes: elimination at the lap line. 0 turns it off. */
+void gt4_race_run_set_elimination(gt4_race_run *r, int on);
+int gt4_race_run_elimination(const gt4_race_run *r);
+/* The last elimination message and its age in frames; 0 when there is none. */
+int gt4_race_run_elimination_message(const gt4_race_run *r, const char **msg, unsigned *age);
 /* Names/colours for the classification and the renderer. Slot is the
    stable id (official cars first, then phantoms). */
 void gt4_race_run_set_entrant_identity(gt4_race_run *r, int slot, const char *name,

@@ -6601,6 +6601,35 @@ int main(int argc, char **argv)
         int notice_active = notice < GT4_NOTICE_COUNT;
         if (!poll_race_loading(&race_flow, &elapsed))
             goto done;
+        { /* Custom Modes: the tile's Elimination entry starts the 12-car race. */
+            custom_modes_race_request cm;
+            if (custom_modes_take_race_request(&cm)) {
+                static const char *const cm_others[11] = {
+                    "_1100_standard_type11_49", "z_act_70", "today_g_85", "midget2_d_type_98",
+                    "s500_63", "_1100_standard_type11_49", "z_act_70", "today_g_85",
+                    "midget2_d_type_98", "s500_63", "_1100_standard_type11_49"};
+                char msg[256];
+                race_game_set_field_size(12);
+                if (game && cm.car[0] &&
+                    race_game_start(game, cm.course, cm.car, cm.color, cm_others, NULL, 11, msg,
+                                    sizeof msg)) {
+                    race_game_set_elimination(game, 1);
+                    snprintf(race_course, sizeof race_course, "%s", cm.course);
+                    snprintf(race_car, sizeof race_car, "%s", cm.car);
+                    loading_screen_begin();
+                    driving = 1;
+                    race_start_pending = 1;
+                    race_active = 0;
+                    race_loading = 0;
+                    fprintf(stderr, "custom modes: race starting course=%s car=%s\n", cm.course,
+                            cm.car);
+                } else {
+                    fprintf(stderr, "custom modes: race start failed: %s\n", msg);
+                    present_dialog(mn, "Info", msg[0] ? msg : "Cannot start the custom race.", 0,
+                                   NULL, NULL);
+                }
+            }
+        }
         if (mn && loading_screen_revealing() && !race_active && !race_loading && driving != 2 &&
             !notice_active)
             animate_loading_destination(mn, (float)elapsed);

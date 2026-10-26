@@ -311,6 +311,19 @@ struct race_game {
     float open_power;
 };
 
+void race_game_set_elimination(race_game *g, int on)
+{
+    if (g && g->run)
+        gt4_race_run_set_elimination(g->run, on);
+}
+
+int race_game_elimination(const race_game *g)
+{
+    return g && g->run ? gt4_race_run_elimination(g->run) : 0;
+}
+
+
+
 static float speed_lens_scale(int view)
 {
     if (view != 1 || !video_settings_speed_fov())

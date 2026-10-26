@@ -95,6 +95,15 @@ struct gt4_race_run {
     uint32_t finish_time[MOON_MAX_CARS];
     int finish_serial[MOON_MAX_CARS];
     int finish_next;
+    int elimination, elim_done, elim_last_lap;
+    int eliminated[MOON_MAX_CARS];
+    float elim_pos[MOON_MAX_CARS][3];
+    float elim_refs[MOON_MAX_CARS][16];
+    float elim_matrix[MOON_MAX_CARS][18];
+    float elim_heading[MOON_MAX_CARS];
+    float elim_dist[MOON_MAX_CARS];
+    char elim_msg[128];
+    unsigned elim_msg_frame;
     char entrant_name[MOON_MAX_CARS][96];
     uint32_t entrant_color[MOON_MAX_CARS];
     uint32_t phantom_entry[MOON_MAX_PHANTOMS], phantom_car[MOON_MAX_PHANTOMS];
@@ -1158,6 +1167,8 @@ int gt4_race_run_ghost_set(gt4_race_run *r, const uint8_t car[GT4_GHOST_CAR], ui
    so the phantom conductor's own positions cannot overwrite it. */
 static int entrant_cmp(const gt4_race_entrant *a, const gt4_race_entrant *b)
 {
+    if (a->eliminated != b->eliminated)
+        return a->eliminated ? 1 : -1;
     if (a->finished != b->finished)
         return a->finished ? -1 : 1;
     if (a->finished) {
@@ -1241,6 +1252,7 @@ static void build_classification(gt4_race_run *r)
                 r->finish_time[i] = GT4_U32(r->cond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3u;
             }
             e->finished = r->finish_seen[i];
+            e->eliminated = r->eliminated[i];
             e->finish_time = r->finish_time[i];
         }
         order_classification(r, n);
@@ -1272,6 +1284,7 @@ static void build_classification(gt4_race_run *r)
             r->finish_time[i] = GT4_U32(r->cond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3u;
         }
         e->finished = r->finish_seen[i];
+        e->eliminated = r->eliminated[i];
         e->finish_time = r->finish_time[i];
         e->laps = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
         e->distance = GT4_F32(car + CAR_POSITION + CAR_BLOCK_COURSE_DISTANCE);
@@ -1302,6 +1315,206 @@ int gt4_race_run_classification_order(const gt4_race_run *r, uint8_t *ids, int m
     for (int k = 0; k < n; k++)
         ids[k] = (uint8_t)r->entrants[r->class_order[k]].id;
     return n;
+}
+
+void gt4_race_run_set_elimination(gt4_race_run *r, int on)
+{
+    if (!r)
+        return;
+    r->elimination = on ? 1 : 0;
+    r->elim_done = 0;
+    r->elim_last_lap = -1;
+    r->elim_msg[0] = 0;
+    r->elim_msg_frame = 0;
+    memset(r->eliminated, 0, sizeof r->eliminated);
+    if (on) {
+        /* no lap limit: the lap line is only the elimination checkpoint */
+        w32(RACE, 0);
+        if (r->phantom_count)
+            w32(r->phantom_race, 0);
+        fprintf(stderr, "custom modes: elimination armed, laps=0\n");
+    }
+}
+
+int gt4_race_run_elimination(const gt4_race_run *r)
+{
+    return r && r->elimination;
+}
+
+int gt4_race_run_elimination_message(const gt4_race_run *r, const char **msg, unsigned *age)
+{
+    if (!r || !r->elimination || !r->elim_msg[0] || r->frames < r->elim_msg_frame)
+        return 0;
+    unsigned a = r->frames - r->elim_msg_frame;
+    if (a >= 120 && !getenv("MOON_CUSTOM_ELIM_MSG_HOLD"))
+        return 0;
+    if (msg)
+        *msg = r->elim_msg;
+    if (age)
+        *age = a;
+    return 1;
+}
+
+static uint32_t elim_car(const gt4_race_run *r, int id)
+{
+    if (id < 0 || id >= MOON_MAX_CARS)
+        return 0;
+    if (id < r->cars)
+        return r->cond + CONDUCTOR_FIELD_CARS_U + (uint32_t)id * CAR_SIZE;
+    id -= r->cars;
+    return id >= 0 && id < r->phantom_count ? r->phantom_car[id] : 0;
+}
+
+static void elim_stop(gt4_race_run *r, int id)
+{
+    uint32_t car = elim_car(r, id);
+    if (!car || id < 0 || id >= MOON_MAX_CARS)
+        return;
+    for (int k = 0; k < 3; k++) {
+        r->elim_pos[id][k] = GT4_F32(car + CAR_POSITION + (uint32_t)k * 4);
+        GT4_F32(car + CAR_VELOCITY + (uint32_t)k * 4) = 0;
+    }
+    for (int k = 0; k < 4; k++) {
+        r->elim_refs[id][k] = GT4_F32(car + CAR_REF_A + (uint32_t)k * 4);
+        r->elim_refs[id][4 + k] = GT4_F32(car + CAR_REF_B + (uint32_t)k * 4);
+        r->elim_refs[id][8 + k] = GT4_F32(car + CAR_REF_A_PREV + (uint32_t)k * 4);
+        r->elim_refs[id][12 + k] = GT4_F32(car + CAR_REF_B_PREV + (uint32_t)k * 4);
+    }
+    for (int k = 0; k < 18; k++)
+        r->elim_matrix[id][k] = GT4_F32(car + CAR_MATRIX + (uint32_t)k * 4);
+    r->elim_heading[id] = GT4_F32(car + CAR_BLOCK_HEADING);
+    r->elim_dist[id] = GT4_F32(car + CAR_FIELD_COURSE_DISTANCE);
+    GT4_F32(car + CAR_SPEED) = 0;
+    GT4_F32(car + CAR_LAT_SPEED) = 0;
+    GT4_F32(car + CAR_ABS_SPEED) = 0;
+    GT4_U8(car + CAR_VIBRATION_ON) = 1;
+}
+
+static void elim_hold(gt4_race_run *r)
+{
+    if (!r || !r->elimination)
+        return;
+    for (int id = 0; id < r->cars + r->phantom_count && id < MOON_MAX_CARS; id++) {
+        uint32_t car;
+        if (!r->eliminated[id] || !(car = elim_car(r, id)))
+            continue;
+        for (int k = 0; k < 3; k++) {
+            GT4_F32(car + CAR_POSITION + (uint32_t)k * 4) = r->elim_pos[id][k];
+            GT4_F32(car + CAR_REF_A + (uint32_t)k * 4) = r->elim_refs[id][k];
+            GT4_F32(car + CAR_REF_B + (uint32_t)k * 4) = r->elim_refs[id][4 + k];
+            GT4_F32(car + CAR_REF_A_PREV + (uint32_t)k * 4) = r->elim_refs[id][8 + k];
+            GT4_F32(car + CAR_REF_B_PREV + (uint32_t)k * 4) = r->elim_refs[id][12 + k];
+            GT4_F32(car + CAR_VELOCITY + (uint32_t)k * 4) = 0;
+        }
+        for (int k = 0; k < 18; k++)
+            GT4_F32(car + CAR_MATRIX + (uint32_t)k * 4) = r->elim_matrix[id][k];
+        GT4_F32(car + CAR_BLOCK_HEADING) = r->elim_heading[id];
+        GT4_F32(car + CAR_FIELD_COURSE_DISTANCE) = r->elim_dist[id];
+        GT4_F32(car + CAR_SPEED) = 0;
+        GT4_F32(car + CAR_LAT_SPEED) = 0;
+        GT4_F32(car + CAR_ABS_SPEED) = 0;
+        GT4_U8(car + CAR_VIBRATION_ON) = 1;
+    }
+}
+
+static void elim_end(gt4_race_run *r, int winner)
+{
+    if (!r || r->elim_done)
+        return;
+    r->elim_done = 1;
+    if (winner >= 0) {
+        uint32_t car = elim_car(r, winner);
+        if (car) {
+            GT4_U8(car + CAR_5B6) = 1;
+            if (winner != 0)
+                snprintf(r->elim_msg, sizeof r->elim_msg, "Winner: %s",
+                         r->entrant_name[winner][0] ? r->entrant_name[winner] : "car");
+        }
+    }
+    if (r->eliminated[0]) {
+        uint32_t car = elim_car(r, 0);
+        if (car)
+            GT4_U8(car + CAR_5B6) = 1;
+    }
+    r->elim_msg_frame = r->frames;
+    fprintf(stderr, "custom modes: race over, winner=%d player_eliminated=%d\n", winner,
+            r->eliminated[0]);
+}
+
+static void elim_step(gt4_race_run *r)
+{
+    int n, running = 0, leader_lap = -1, last = -1;
+    if (!r || !r->elimination || r->elim_done || !r->phantom_count)
+        return;
+    n = r->class_n;
+    for (int k = 0; k < n; k++) {
+        int id = r->class_order[k];
+        gt4_race_entrant *e = &r->entrants[id];
+        if (e->eliminated || e->finished)
+            continue;
+        running++;
+        if (leader_lap < 0)
+            leader_lap = e->laps;
+        last = id;
+    }
+    if (running <= 1) {
+        elim_end(r, last);
+        return;
+    }
+    if (r->elim_last_lap < 0) {
+        r->elim_last_lap = leader_lap;
+        return;
+    }
+    if (leader_lap <= r->elim_last_lap)
+        return;
+    r->elim_last_lap = leader_lap;
+    if (last < 0)
+        return;
+    /* tests: keep the stationary player in so the field can run to one. */
+    if (last == 0 && getenv("MOON_CUSTOM_KEEP_PLAYER")) {
+        for (int k = n - 1; k >= 0; k--) {
+            int id = r->class_order[k];
+            if (id && !r->eliminated[id] && !r->entrants[id].finished) {
+                last = id;
+                break;
+            }
+        }
+    }
+    r->eliminated[last] = 1;
+    elim_stop(r, last);
+    running--;
+    snprintf(r->elim_msg, sizeof r->elim_msg, "%s eliminated, %d left",
+             r->entrant_name[last][0] ? r->entrant_name[last] : "car", running);
+    r->elim_msg_frame = r->frames;
+    fprintf(stderr, "custom modes: lap %d eliminated id=%d %s, %d running\n", leader_lap, last,
+            r->entrant_name[last], running);
+    if (last == 0) {
+        int winner = -1;
+        for (int k = n - 1; k >= 0; k--) {
+            int id = r->class_order[k];
+            if (!r->eliminated[id] && !r->entrants[id].finished) {
+                winner = id;
+                break;
+            }
+        }
+        snprintf(r->elim_msg, sizeof r->elim_msg, "Eliminated. Winner: %s",
+                 winner >= 0 && r->entrant_name[winner][0] ? r->entrant_name[winner] : "car");
+        r->elim_msg_frame = r->frames;
+        elim_end(r, winner);
+    } else if (running <= 1) {
+        int winner = -1;
+        for (int k = 0; k < n; k++) {
+            int id = r->class_order[k];
+            if (!r->eliminated[id] && !r->entrants[id].finished) {
+                winner = id;
+                break;
+            }
+        }
+        snprintf(r->elim_msg, sizeof r->elim_msg, "Winner: %s",
+                 winner >= 0 && r->entrant_name[winner][0] ? r->entrant_name[winner] : "car");
+        r->elim_msg_frame = r->frames;
+        elim_end(r, winner);
+    }
 }
 
 int gt4_race_run_player_place(const gt4_race_run *r)
@@ -1501,6 +1714,8 @@ int gt4_race_run_frame(gt4_race_run *r)
         }
         phantom_contacts(r);
         build_classification(r);
+        elim_step(r);
+        elim_hold(r);
     }
     gt4_race_after_step(RACE);
     /* 0033C538: prop manager runs after 00389990 world simulation. */

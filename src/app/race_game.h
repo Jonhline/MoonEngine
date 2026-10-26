@@ -15,6 +15,9 @@ race_game *race_game_open(const char *disc);
 void race_game_close(race_game *g);
 /* race.field_size for the next menu race (default 6, validated 1..MOON_MAX_CARS). */
 void race_game_set_field_size(int field_size);
+/* Custom Modes: arm elimination on the run after the race is built. */
+void race_game_set_elimination(race_game *g, int on);
+int race_game_elimination(const race_game *g);
 
 /* A race on `course` with the player's car (GENERIC_CAR label, paint) and
    the other cars (labels and paints, colors may be NULL; up to MOON_CONDUCTOR_CARS-1). The physics is set up at once; the

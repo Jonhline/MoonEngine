@@ -138,6 +138,26 @@ const char *menu_split_car(menu *m, int port)
     label = ah_cstr(v);
     return label ? label : "";
 }
+const char *menu_riding_car(menu *m)
+{
+    ah_val garage, car, code;
+    if (!m || !ah_get_member(m->vm, game_object(m), "garage", &garage) ||
+        garage.t == AV_NIL || !ah_get_member(m->vm, ah_as_obj(garage, AO_MODULE), "riding_car", &car) ||
+        car.t == AV_NIL || !ah_get_member(m->vm, ah_as_obj(car, AO_MODULE), "car_code", &code))
+        return "";
+    return ah_cstr(code) ? ah_cstr(code) : "";
+}
+
+int menu_riding_color(menu *m)
+{
+    ah_val garage, car, color;
+    if (!m || !ah_get_member(m->vm, game_object(m), "garage", &garage) ||
+        garage.t == AV_NIL || !ah_get_member(m->vm, ah_as_obj(garage, AO_MODULE), "riding_car", &car) ||
+        car.t == AV_NIL || !ah_get_member(m->vm, ah_as_obj(car, AO_MODULE), "color_index", &color))
+        return 0;
+    return (int)ah_num(color);
+}
+
 int menu_split_owned(menu *m, int port, uint8_t body[0x4b8], int *color)
 {
     if (!m || port < 0 || port > 1 || !body || !color)

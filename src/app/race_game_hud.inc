@@ -381,6 +381,16 @@ void race_game_draw_hud(race_game *g, double dt)
         plat_video_set_view(640, 448);
     } else {
         race_hud_draw(g->hud, &s, g->pause ? 0.f : (float)dt); /* held with the race */
+        {
+            const char *msg = NULL;
+            unsigned age = 0;
+            if (gt4_race_run_elimination_message(g->run, &msg, &age)) {
+                static const uint8_t white[4] = {255, 255, 255, 255};
+                uint8_t tint[4] = {white[0], white[1], white[2],
+                                   (uint8_t)(255 - age * 2 < 0 ? 0 : 255 - age * 2)};
+                race_hud_text(g->hud, "hb_24#0*125,125", 320, 26, 4 | 3, tint, msg);
+            }
+        }
         if (g->bspec_ui) {
             g->bspec_hud = &s;
             race_bspec_draw(g->bspec_ui);

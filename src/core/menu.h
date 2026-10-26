@@ -331,6 +331,9 @@ int menu_pending_command(const menu *m);
 double menu_game_number(menu *m, const char *name, double fallback);
 int menu_race_is_split(menu *m);
 const char *menu_split_car(menu *m, int port);
+/* GT Mode's equipped car (game.garage.riding_car), "" when none. */
+const char *menu_riding_car(menu *m);
+int menu_riding_color(menu *m);
 /* SplitRoot uses either a catalog label or the selected MCarGarage.
    -1 invalid owned body, 0 catalog, 1 owned; body excludes class header. */
 int menu_split_owned(menu *m, int port, uint8_t body[0x4b8], int *color);

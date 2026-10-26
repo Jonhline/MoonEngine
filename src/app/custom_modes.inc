@@ -3,7 +3,28 @@
    the riding car's CarFace. Opt-in: nothing runs in a normal race. */
 static int custom_modes_top_root = -1, custom_modes_page_root = -1;
 static ui_widget *custom_modes_tile_car;
+static char custom_modes_car[64];
+static int custom_modes_color;
 static int custom_modes_attached;
+
+typedef struct {
+    char course[32];
+    char car[32];
+    int color;
+} custom_modes_race_request;
+
+static custom_modes_race_request custom_modes_request;
+static int custom_modes_request_pending;
+
+static int custom_modes_take_race_request(custom_modes_race_request *out)
+{
+    if (!custom_modes_request_pending)
+        return 0;
+    custom_modes_request_pending = 0;
+    if (out)
+        *out = custom_modes_request;
+    return 1;
+}
 
 static ui_widget *cm_find(ui_widget *w, const char *name)
 {
@@ -29,14 +50,22 @@ static void cm_text(ui_widget *w, const char *s)
 
 static void custom_modes_refresh_car(menu *m)
 {
-    if (!m || !custom_modes_tile_car)
+    if (!m)
         return;
     const char *car = menu_split_car(m, 0);
     if (!car || !*car)
+        car = menu_riding_car(m);
+    if (car && *car) {
+        snprintf(custom_modes_car, sizeof custom_modes_car, "%s", car);
+        custom_modes_color = menu_riding_color(m);
+        if (!custom_modes_color)
+            custom_modes_color = (int)menu_game_number(m, "car_color", 0);
+    }
+    if (!custom_modes_tile_car || !custom_modes_car[0])
         return;
     free(custom_modes_tile_car->car_code);
-    custom_modes_tile_car->car_code = strdup(car);
-    custom_modes_tile_car->car_color_index = (int)menu_game_number(m, "car_color", 0);
+    custom_modes_tile_car->car_code = strdup(custom_modes_car);
+    custom_modes_tile_car->car_color_index = custom_modes_color;
 }
 
 static int custom_modes_open(ah_vm *vm, ah_obj *self, void *data, int argc,
@@ -75,9 +104,25 @@ static int custom_modes_elimination(ah_vm *vm, ah_obj *self, void *data, int arg
     (void)self;
     (void)argc;
     (void)argv;
-    (void)data;
-    /* Stage 2 replaces this with the race start. */
-    fprintf(stderr, "custom modes: elimination selected\n");
+    menu *m = data;
+    const char *car = m ? menu_split_car(m, 0) : NULL;
+    if (!car || !*car)
+        car = m ? menu_riding_car(m) : NULL;
+    if ((!car || !*car) && custom_modes_car[0])
+        car = custom_modes_car;
+    snprintf(custom_modes_request.car, sizeof custom_modes_request.car, "%s",
+             car && *car ? car : custom_modes_car);
+    custom_modes_request.color = m ? menu_riding_color(m) : custom_modes_color;
+    if (!custom_modes_request.color)
+        custom_modes_request.color = custom_modes_color;
+    snprintf(custom_modes_request.course, sizeof custom_modes_request.course, "%s",
+             getenv("MOON_CUSTOM_COURSE") && *getenv("MOON_CUSTOM_COURSE")
+                 ? getenv("MOON_CUSTOM_COURSE")
+                 : "tsukuba");
+    custom_modes_request_pending = 1;
+    fprintf(stderr, "custom modes: elimination selected car=%s color=%d course=%s\n",
+            custom_modes_request.car, custom_modes_request.color,
+            custom_modes_request.course);
     *ret = ah_int(2);
     return 0;
 }
@@ -118,6 +163,10 @@ static void custom_modes_attach(menu *m)
     ui_widget *sample = space ? ui_widget_child(space, "Home") : NULL;
     ui_widget *home_root = ui_root_widget(ui, home);
     ui_widget *car_sample = home_root ? cm_find(home_root, "CarFace") : NULL;
+    if (car_sample && car_sample->car_code && *car_sample->car_code) {
+        snprintf(custom_modes_car, sizeof custom_modes_car, "%s", car_sample->car_code);
+        custom_modes_color = car_sample->car_color_index;
+    }
     if (!space || !sample || !car_sample)
         return;
     ui_widget *tile = ui_widget_copy(ui, sample);
