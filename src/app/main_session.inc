@@ -192,11 +192,14 @@ static int career_race_result(race_game *game, menu *career, menu *quick)
                                        class_n > 0 ? class_order : order,
                                        class_n > 0 ? (unsigned)class_n : 6, hud.finished,
                                        (const int8_t *)rules->driver_points);
+        /* The record and the displayed place clamp to the six-row board;
+           prize and points above already used the true classification place. */
+        int display_position = position < 6 ? position : 5;
         int16_t units;
         memcpy(&units, career_race.row + 0x2c, 2);
         if (!menu_apply_championship_result(
                 career, career_race.race, career_race.series, hud.finished,
-                career_race.round + 1 == career_race.rounds, position, hud.best_lap,
+                career_race.round + 1 == career_race.rounds, display_position, hud.best_lap,
                 race_game_driver_mode(game), hud.aspec_points, prize, career_race.points, units,
                 &career_race.award, &career_race.grand_prize))
             return 0;
@@ -213,9 +216,8 @@ static int career_race_result(race_game *game, menu *career, menu *quick)
             q.total_points[i] = career_race.points[driver];
             q.round_points[i] =
                 (int32_t)((uint32_t)career_race.points[driver] - (uint32_t)before[driver]);
-            if (!driver)
-                q.player = (int)i;
         }
+        q.player = display_position;
         snprintf(q.race, sizeof q.race, "%s", career_race.race);
         q.finished = 1;
         q.prize = career_race.award;
