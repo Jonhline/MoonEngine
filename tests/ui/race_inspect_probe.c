@@ -462,16 +462,25 @@ int main(int argc, char **argv)
             return 1;
         }
         if (gt4_race_run_phantom_count(g->run)) {
-            for (int f = 0; f < 3600; f++) {
+            int n = 0, all = 0, f = 0;
+            for (; f < 20000; f++) {
                 race_game_update(g, 1. / 60);
                 gt4_race_entrant ents[MOON_MAX_CARS];
-                int n = gt4_race_run_classification(g->run, ents, MOON_MAX_CARS);
-                int all = n > 0;
+                n = gt4_race_run_classification(g->run, ents, MOON_MAX_CARS);
+                all = n > 0;
                 for (int i = 0; i < n; i++)
                     if (!ents[i].finished)
                         all = 0;
                 if (all && n > 6)
                     break;
+            }
+            fprintf(stderr, "result run: classify frames=%d n=%d all=%d\n", f, n, all);
+            for (int i = 0; i < n; i++) {
+                gt4_race_entrant ents[MOON_MAX_CARS];
+                gt4_race_run_classification(g->run, ents, MOON_MAX_CARS);
+                fprintf(stderr, "result run: place=%d id=%d official=%d fin=%d time=%u name=%s\n",
+                        ents[i].place, ents[i].id, ents[i].official, ents[i].finished,
+                        ents[i].finish_time, ents[i].name);
             }
         }
         int draw_frames = getenv("PROBE_RESULT_DRAW") ? atoi(getenv("PROBE_RESULT_DRAW")) : 900;

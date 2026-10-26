@@ -152,6 +152,15 @@ static void draw_result(race_game *g, int cars, double dt)
                 all = 0;
         if (!all)
             return;
+        if (getenv("MOON_RESULT_NATIVE_TRACE")) {
+            static int last_n = -1, last_scroll = -1;
+            if (nclass != last_n || native_result_scroll != last_scroll) {
+                fprintf(stderr, "native result: rows=%d scroll=%d visible=%d\n", nclass,
+                        native_result_scroll, nclass < 7 ? nclass : 7);
+                last_n = nclass;
+                last_scroll = native_result_scroll;
+            }
+        }
         int visible = nclass < 7 ? nclass : 7;
         int maxscroll = nclass > visible ? nclass - visible : 0;
         int down = keys[SDL_SCANCODE_DOWN], up = keys[SDL_SCANCODE_UP];
