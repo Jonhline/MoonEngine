@@ -1156,6 +1156,64 @@ static float grid_heading(uint32_t course, uint32_t slot)
     return GT4_F32(list + slot * 16 + 0xc) + K(0x40490fdau);
 }
 
+/* func_0034D490's per-car part, also for a phantom conductor's cars. */
+static void init_car(uint32_t cond, uint32_t race, uint32_t i, uint32_t entry, uint32_t car,
+                     const gt4_specdb_src *db, uint32_t scratch)
+{
+    uint32_t rec = scratch, buf = scratch + 0x600, out = scratch + 0x680;
+        uint32_t gar = entry + 0x20, slot, g, p;
+        float pos[4];
+        GT4_U32(cond + i * 4 + 0xf910u) = 0;
+        GT4_U32(cond + i * 4 + 0xf8f8u) = 0;
+        car_clear(car, cond, race, cond + 0x98 + i * 0x1100u);
+        session_call5(cond, 0xe8, i, out + 0xc, out + 4, out, out + 8);
+        gt4_car_record(rec, gar, race_mode(cond), db);
+        slot = GT4_U32(entry + 0x3444);
+        g = grid_slot(GT4_U32(race + 0x80), slot);
+        pos[0] = GT4_F32(g);
+        pos[1] = -GT4_F32(g + 8);
+        pos[2] = GT4_F32(g + 4);
+        pos[3] = grid_heading(GT4_U32(race + 0x80), slot);
+        GT4_U32(out + 0x10) = 0;
+        GT4_U32(out + 0x14) = 0;
+        GT4_U32(out + 0x18) = 0;
+        session_call5(cond, 0xf0, i, out + 0x10, out + 0x14, out + 0x18, 0);
+        gt4_car_init(car, rec, 0xffffffffu, GT4_U32(out), GT4_U32(out + 4), GT4_U32(out + 8), i,
+                     GT4_U32(out + 0x10), pos, (int32_t)GT4_U32(out + 0x14),
+                     (int32_t)GT4_U32(out + 0x18), entry + 0x3468, buf);
+        GT4_U32(cond + CONDUCTOR_FIELD_UNK_CBFC_U + i * 4) = 0;
+        if (!GT4_U32(out + 0x18))
+            GT4_U32(cond + CONDUCTOR_FIELD_UNK_CBFC_U + i * 4) =
+                (uint32_t)((int32_t)(int16_t)GT4_U16(cond + 0xf878u + i * 2) * 60);
+        car_lowered(car);
+        p = GT4_U32(car + CAR_PARAMS);
+        GT4_U8(p + 0x10d1) = 0;
+        {
+            uint8_t row[0x100];
+            int has = gear_row(db, gar, row, sizeof row);
+            if (GT4_U32(gar + 0x48) == 0xffffffffu && GT4_U32(gar + 0x4c) == 0xffffffffu)
+                GT4_U8(p + 0x10d1) = 1;
+            else if (row[0x22] || GT4_U8(p + 0x32) == 2)
+                GT4_U8(p + 0x10d1) = 1;
+            if (has) {
+                GT4_U32(car + CAR_FIELD_UNK_1080) = row[0x2c];
+                GT4_U32(car + 0x1084) = (uint32_t)(int32_t)(int8_t)row[0x2a];
+                GT4_U32(car + 0x1088) = (uint32_t)(int32_t)(int8_t)row[0x2b];
+                GT4_U32(car + 0x108c) = row[0x24];
+            }
+        }
+        GT4_U32(car + CAR_7B0) = 0; /* func_0035DCF0 */
+        GT4_U32(car + CAR_DISTANCE) = 0;
+        gt4_car_keep_state(car);
+        gt4_car_wheel_rotation(car);
+}
+
+void gt4_race_init_extra_car(uint32_t cond, uint32_t race, uint32_t i, uint32_t entry,
+                             uint32_t car, const gt4_specdb_src *db, uint32_t scratch)
+{
+    init_car(cond, race, i, entry, car, db, scratch);
+}
+
 /* func_0034D490: the race start. mode: how the race runs (1 as 0, 3 as 2);
    then the course's settings, the lines, and for each car: its record from
    its garage entry, its start from the session (virtual +0xE8, +0xF0), the
@@ -1206,51 +1264,7 @@ void gt4_race_init(uint32_t cond, uint32_t mode, const gt4_specdb_src *db, uint3
          i = i + 1, n = GT4_U32(cond + CONDUCTOR_FIELD_CAR_COUNT_U)) {
         uint32_t entry = GT4_U32(GT4_U32(GT4_U32(race + 0x60) + 8) + i * 4),
                  car = cond + CONDUCTOR_FIELD_CARS_U + i * CAR_SIZE;
-        uint32_t gar = entry + 0x20, slot, g, p;
-        float pos[4];
-        GT4_U32(cond + i * 4 + 0xf910u) = 0;
-        GT4_U32(cond + i * 4 + 0xf8f8u) = 0;
-        car_clear(car, cond, race, cond + 0x98 + i * 0x1100u);
-        session_call5(cond, 0xe8, i, out + 0xc, out + 4, out, out + 8);
-        gt4_car_record(rec, gar, race_mode(cond), db);
-        slot = GT4_U32(entry + 0x3444);
-        g = grid_slot(GT4_U32(race + 0x80), slot);
-        pos[0] = GT4_F32(g);
-        pos[1] = -GT4_F32(g + 8);
-        pos[2] = GT4_F32(g + 4);
-        pos[3] = grid_heading(GT4_U32(race + 0x80), slot);
-        GT4_U32(out + 0x10) = 0;
-        GT4_U32(out + 0x14) = 0;
-        GT4_U32(out + 0x18) = 0;
-        session_call5(cond, 0xf0, i, out + 0x10, out + 0x14, out + 0x18, 0);
-        gt4_car_init(car, rec, 0xffffffffu, GT4_U32(out), GT4_U32(out + 4), GT4_U32(out + 8), i,
-                     GT4_U32(out + 0x10), pos, (int32_t)GT4_U32(out + 0x14),
-                     (int32_t)GT4_U32(out + 0x18), entry + 0x3468, buf);
-        GT4_U32(cond + CONDUCTOR_FIELD_UNK_CBFC_U + i * 4) = 0;
-        if (!GT4_U32(out + 0x18))
-            GT4_U32(cond + CONDUCTOR_FIELD_UNK_CBFC_U + i * 4) =
-                (uint32_t)((int32_t)(int16_t)GT4_U16(cond + 0xf878u + i * 2) * 60);
-        car_lowered(car);
-        p = GT4_U32(car + CAR_PARAMS);
-        GT4_U8(p + 0x10d1) = 0;
-        {
-            uint8_t row[0x100];
-            int has = gear_row(db, gar, row, sizeof row);
-            if (GT4_U32(gar + 0x48) == 0xffffffffu && GT4_U32(gar + 0x4c) == 0xffffffffu)
-                GT4_U8(p + 0x10d1) = 1;
-            else if (row[0x22] || GT4_U8(p + 0x32) == 2)
-                GT4_U8(p + 0x10d1) = 1;
-            if (has) {
-                GT4_U32(car + CAR_FIELD_UNK_1080) = row[0x2c];
-                GT4_U32(car + 0x1084) = (uint32_t)(int32_t)(int8_t)row[0x2a];
-                GT4_U32(car + 0x1088) = (uint32_t)(int32_t)(int8_t)row[0x2b];
-                GT4_U32(car + 0x108c) = row[0x24];
-            }
-        }
-        GT4_U32(car + CAR_7B0) = 0; /* func_0035DCF0 */
-        GT4_U32(car + CAR_DISTANCE) = 0;
-        gt4_car_keep_state(car);
-        gt4_car_wheel_rotation(car);
+        init_car(cond, race, i, entry, car, db, scratch);
     }
     gt4_race_player_styles(cond); /* func_003F1E60 */
     if (!gt4_session_after_cars(cond, db))

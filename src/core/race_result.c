@@ -29,11 +29,11 @@ struct race_result {
     uint8_t *rt_data;
     gt4_rtext rt;
     int rt_ok;
-    row rows[6];
+    row rows[MOON_MAX_CARS];
     int nrows;          /* +0x4F4 */
     int player_row;     /* +0x4F0 */
-    int done_car[6];    /* +0x14: the car's finish taken */
-    int timed[6];       /* +0x2C: its time set */
+    int done_car[MOON_MAX_CARS];    /* +0x14: the car's finish taken */
+    int timed[MOON_MAX_CARS];       /* +0x2C: its time set */
     uint32_t lead_time; /* +0x4E8 */
     int lead_laps;      /* +0x4EC */
     int exit_ok;        /* +0x4FC */
@@ -86,11 +86,29 @@ static void set_time(race_result *r, int at, uint32_t time, int laps)
     w->changed = 1;
 }
 
+static int trace_rows[MOON_MAX_CARS];
+static int trace_names[4];
+static int trace_total, trace_max = -1;
+
 static int call(void *user, const char *name, const strb_value *args, int nargs, strb_value *ret)
 {
     race_result *r = user;
     int at = nargs > 0 ? (int)(args[0].t == STRB_STR ? atof(args[0].s) : args[0].n) : 0;
-    const row *w = at >= 0 && at < 6 ? &r->rows[at] : NULL;
+    const row *w = at >= 0 && at < MOON_MAX_CARS ? &r->rows[at] : NULL;
+    if (getenv("MOON_RESULT_TRACE") &&
+        (!strcmp(name, "cb_getname") || !strcmp(name, "cb_gettime") ||
+         !strcmp(name, "cb_getrank") || !strcmp(name, "cb_isvisible"))) {
+        trace_total++;
+        int which = !strcmp(name, "cb_getname")   ? 0
+                    : !strcmp(name, "cb_gettime") ? 1
+                    : !strcmp(name, "cb_getrank") ? 2
+                                                  : 3;
+        trace_names[which]++;
+        if (at >= 0 && at < MOON_MAX_CARS)
+            trace_rows[at]++;
+        if (at > trace_max)
+            trace_max = at;
+    }
     memset(ret, 0, sizeof *ret);
     if (r->license) {
         /* 003E0A50 accepts case-insensitive command names (005FBDD0).
@@ -212,6 +230,9 @@ static void ext(void *user, const char *name, float x, float y, float w, float h
 
     size_t n = strlen(name);
     int at = n ? name[n - 1] - '1' : -1;
+    if (getenv("MOON_RESULT_STYLE"))
+        fprintf(stderr, "style ext: name=%s at=%d x=%.2f y=%.2f w=%.2f h=%.2f\n", name, at, x, y,
+                w, h);
     if (!r->icon || at < 0 || at >= r->nrows || r->rows[at].car < 0)
         return;
     r->icon(r->user, r->rows[at].car, x, y, w, h, color);
@@ -236,6 +257,10 @@ void race_result_set_trophy(race_result *r, race_result_trophy draw)
 static race_result *board_open(gt4_vol *vol, race_result_icon icon, void *user, int mission)
 {
     race_result *r = calloc(1, sizeof *r);
+    memset(trace_rows, 0, sizeof trace_rows);
+    trace_total = 0;
+    trace_max = -1;
+    memset(trace_names, 0, sizeof trace_names);
     size_t n = 0;
     strb_host host;
     if (!r)
@@ -252,7 +277,7 @@ static race_result *board_open(gt4_vol *vol, race_result_icon icon, void *user, 
     r->rt_ok = r->rt_data && gt4_rtext_open(&r->rt, r->rt_data, n);
     /* func_003E0530: each row empty, its time the race's "Running..."
        (the game's text table D_00621870 +0x134; +0x138/+0x13C the laps') */
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < MOON_MAX_CARS; i++) {
         r->rows[i].car = -1;
         snprintf(r->rows[i].time, sizeof r->rows[i].time, "Running...");
     }
@@ -337,6 +362,15 @@ void race_result_close(race_result *r)
 {
     if (!r)
         return;
+    if (getenv("MOON_RESULT_TRACE")) {
+        fprintf(stderr,
+                "result trace: total=%d highest=%d getname=%d gettime=%d getrank=%d isvisible=%d\n",
+                trace_total, trace_max, trace_names[0], trace_names[1], trace_names[2],
+                trace_names[3]);
+        for (int i = 0; i < MOON_MAX_CARS; i++)
+            if (trace_rows[i])
+                fprintf(stderr, "result trace: row=%d calls=%d\n", i, trace_rows[i]);
+    }
     strb_close(r->movie);
     free(r->rt_data);
     free(r);
@@ -344,7 +378,7 @@ void race_result_close(race_result *r)
 
 void race_result_update(race_result *r, const race_result_state *s, double dt)
 {
-    int order[6], n;
+    int order[MOON_MAX_CARS], n;
     if (!r || !s)
         return;
     if (r->license) {
@@ -357,7 +391,7 @@ void race_result_update(race_result *r, const race_result_state *s, double dt)
             strb_tick(r->movie, movie_dt);
         return;
     }
-    n = s->cars < 6 ? s->cars : 6;
+    n = s->cars < MOON_MAX_CARS ? s->cars : MOON_MAX_CARS;
     r->nrows = n;
     for (int i = 0; i < n; i++)
         order[i] = i;

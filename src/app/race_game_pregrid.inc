@@ -263,16 +263,42 @@ int race_game_draw_pregrid(race_game *g)
 }
 void race_game_draw_pregrid_overlay(race_game *g)
 {
-    if (!g || !g->ready || !g->license_menu_playing || !race_game_license_active(g))
+    if (!g || !g->ready)
         return;
-    /* 0012BC18 +1D4..214: black alpha over Scene AND menu. E scalar
-       clock; A 8-bit GL conversion/fullscreen rasterization. */
-    float alpha = g->license_menu_cycle.alpha;
-    if (alpha <= 0)
+    if (g->license_menu_playing && race_game_license_active(g)) {
+        /* 0012BC18 +1D4..214: black alpha over Scene AND menu. E scalar
+           clock; A 8-bit GL conversion/fullscreen rasterization. */
+        float alpha = g->license_menu_cycle.alpha;
+        if (alpha <= 0)
+            return;
+        uint8_t black[4] = {0, 0, 0, (uint8_t)(alpha * 255.f)};
+        plat_video_set_view(640, 480);
+        plat_draw_quad(NULL, 0, 0, 640, 480, 0, 0, 1, 1, black);
         return;
-    uint8_t black[4] = {0, 0, 0, (uint8_t)(alpha * 255.f)};
+    }
+    int phantoms = gt4_race_run_phantom_count(g->run);
+    if (phantoms <= 0)
+        return;
+    if (!g->hud)
+        g->hud = race_hud_open(g->vol);
+    if (!g->hud)
+        return;
+    /* The disc's grid lists six entries. State the field it cannot show,
+       above the authored Title (y=64), in the grid's own hm_16 face. */
+    int total = gt4_race_run_cars(g->run) + phantoms, rows = (phantoms + 1) / 2;
+    float h = 18.f + (float)rows * 15.f;
+    static const uint8_t panel[4] = {0, 0, 0, 170};
+    static const uint8_t white[4] = {212, 212, 212, 255};
+    char line[64];
     plat_video_set_view(640, 480);
-    plat_draw_quad(NULL, 0, 0, 640, 480, 0, 0, 1, 1, black);
+    plat_draw_quad(NULL, 36, 0, 568, h, 0, 0, 1, 1, panel);
+    snprintf(line, sizeof line, "Field: %d cars - %d extra", total, phantoms);
+    race_hud_text(g->hud, "hm_16#1*86,88", 46, 2, 4, white, line);
+    for (int j = 0; j < phantoms; j++) {
+        int col = j & 1, row = j >> 1;
+        race_hud_text(g->hud, "hm_16#1*70,70", 46.f + (float)col * 284.f,
+                      18.f + (float)row * 15.f, 4, white, gt4_race_run_phantom_name(g->run, j));
+    }
 }
 void race_game_return_pregrid(race_game *g)
 {

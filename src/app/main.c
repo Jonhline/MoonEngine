@@ -736,6 +736,13 @@ static const char *studio_row_help(int id)
     snprintf(line, sizeof line, "%s: %s", video_setting(id)->label, video_setting(id)->help);
     return line;
 }
+static int studio_field_size_warn(int id)
+{
+    if (!video_setting_is_field_size(id) || !app_video_settings)
+        return 0;
+    int index = video_setting_get(app_video_settings, id);
+    return video_settings_field_size_warning(MOON_CONDUCTOR_CARS + index);
+}
 static const char *studio_row_value(int id, int theme, int mood)
 {
     if (id == -4) return "Open Folder...";
@@ -966,9 +973,21 @@ static void studio_options_draw(const studio_dock *d, int tab, int row, int them
         float value_room = (right - left - 10.f * S) * .48f;
         float value_size = studio_text_fit(d, v, .8f, value_room);
         float value_width = dock_text_width(&d->font, v) * DOCK_NAME_SCALE * value_size * S;
-        const char *label = studio_row_label(ids[r]);
+        int field_warn = studio_field_size_warn(ids[r]);
+        const uint8_t red[4] = {235, 54, 54, (uint8_t)(255 * alpha)};
+        const char *label = field_warn ? "Field Size - Experimental above 20 cars"
+                                       : studio_row_label(ids[r]);
         float label_size = studio_text_fit(d, label, .8f, right - value_width - 10.f * S - left);
-        dock_text(d, label, left, ry, label_size, 0, r == row ? head : dim);
+        dock_text(d, label, left, ry, label_size, 0, field_warn ? red : r == row ? head : dim);
+        if (field_warn) {
+            float bx = p.x + 4.f * S, by = ry - p.pitch * .72f,
+                  bw = (guided ? p.right - p.x : p.w - 8.f * S), bh = p.pitch * .95f,
+                  t = fmaxf(1.f, S);
+            plat_draw_quad(NULL, bx, by, bw, t, 0, 0, 1, 1, red);
+            plat_draw_quad(NULL, bx, by + bh - t, bw, t, 0, 0, 1, 1, red);
+            plat_draw_quad(NULL, bx, by, t, bh, 0, 0, 1, 1, red);
+            plat_draw_quad(NULL, bx + bw - t, by, t, bh, 0, 0, 1, 1, red);
+        }
         if (getenv("MOONSTUDIO_LAYOUT_TRACE")) {
             static unsigned reported[STUDIO_TABS];
             if (!(reported[tab] & (1u << r))) {
@@ -1006,7 +1025,7 @@ static void studio_options_draw(const studio_dock *d, int tab, int row, int them
             plat_draw_quad(NULL, ax - 5.f * S, ry - p.pitch * .68f, aw + 10.f * S, p.pitch * .86f,
                            0, 0, 1, 1, box);
         }
-        dock_text(d, v, right, ry, value_size, 2, r == row ? head : dim);
+        dock_text(d, v, right, ry, value_size, 2, field_warn ? red : r == row ? head : dim);
         if (r == row && arrow) {
             const uint8_t gold[4] = {255, 204, 64, (uint8_t)(255 * alpha)};
             if (arrow < 0) {
@@ -5115,6 +5134,11 @@ int main(int argc, char **argv)
             static const char *const others[] = {"_1100_standard_type11_49", "z_act_70",
                                                  "today_g_85", "midget2_d_type_98", "s500_63"};
             char msg[256];
+            int field_size = race_field_size_request();
+            int preview_others = field_size - 1;
+            if (preview_others > MOON_CONDUCTOR_CARS - 1)
+                preview_others = MOON_CONDUCTOR_CARS - 1;
+            race_game_set_field_size(field_size);
             race_game_set_time_trial(game, race_time_trial);
             gt4_race_desc split = {0};
             split.tire_2p = 1;
@@ -5143,7 +5167,7 @@ int main(int argc, char **argv)
 #endif
                                                  split_preview     ? 1
                                                  : race_time_trial ? 0
-                                                                   : 5,
+                                                                   : preview_others,
                                                  msg, sizeof msg)) {
                 fprintf(stderr, "race: %s\n", msg);
                 exit_code = 1;
@@ -5897,7 +5921,11 @@ int main(int argc, char **argv)
                MCarData.PickUpEnemyCars, game.setEntryCarCode) */
                 const char *others[5];
                 int other_colors[5];
-                int nothers = menu_race_entries(mn, others, other_colors, 5);
+                int field_size = race_field_size_request();
+                /* Ask for the whole field's opponents. The menu's own six entries
+                   yield at most five official opponents; the rest are phantoms. */
+                int max_others = field_size - 1;
+                int nothers = menu_race_entries(mn, others, other_colors, max_others);
                 if (split) {
                     others[0] = menu_split_car(mn, 1);
                     other_colors[0] = split_colors[1];
@@ -6003,10 +6031,12 @@ int main(int argc, char **argv)
                         } else
                             snprintf(msg, sizeof msg,
                                      "Cannot read Photo Drive rules or equipped car.");
-                    } else
+                    } else {
+                        race_game_set_field_size(field_size);
                         started =
                             race_game_start(game, race_course, race_car, race_color, race_other_ptr,
                                             race_other_colors, nothers, msg, sizeof msg);
+                    }
                     if (started) {
                         /* the race sequence: its quick menu first (the grid), the race on its Start */
                         loading_screen_begin();
@@ -6022,8 +6052,8 @@ int main(int argc, char **argv)
                     } else {
                         fprintf(stderr, "race: %s\n", msg);
                         present_dialog(mn, "Info",
-                                       "Nao foi possivel montar esta corrida. Veja o log.", 0, NULL,
-                                       NULL);
+                                       msg[0] ? msg : "Nao foi possivel montar esta corrida. Veja o log.",
+                                       0, NULL, NULL);
                     }
                 }
             }
@@ -6392,7 +6422,10 @@ int main(int argc, char **argv)
                         p = menu_ui(mn);
                         root = menu_active_root(mn);
                     } else {
-                        snprintf(msg, sizeof msg, "The replay could not be saved.");
+                        if (!race_game_replay_refusal(game, msg, sizeof msg)) {
+                            snprintf(msg, sizeof msg, "The replay could not be saved.");
+                            fprintf(stderr, "replay: %s\n", msg);
+                        }
                         present_dialog(mn, "Save Replay", msg, 0, NULL, NULL);
                     }
                 } else if ((!strcmp(command, "COMMAND_SAVE_GHOST") ||

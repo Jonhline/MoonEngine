@@ -738,6 +738,43 @@ static const place best_at = {550, 58, 82, 15, 14, 0};  /* +0x14A8, RaceTimeDisp
 static const place last_at = {550, 110, 82, 15, 14, 0}; /* +0x1588 */
 static const place timer_at = {335, 107, 0, 0, 2, 1};   /* +0x15F8, its icon at (-8, +7) */
 
+/* A two-figure rank stays inside the rank box: the one-figure path above is
+   untouched, this only scales the wider string down to fit. */
+static float rank_digits(const hud_font *f, float x, float y, const uint8_t c[4],
+                         const char *s, float maxw)
+{
+    hud_font sized = *f;
+    float w = text_width(f, s);
+    if (w > maxw) {
+        float k = maxw / w;
+        sized.sx *= k;
+        sized.sy *= k;
+    }
+    text(&sized, x, y, 0xf, c, s);
+    return (float)f->face.height * sized.sy;
+}
+
+int race_hud_text(race_hud *h, const char *spec, float x, float y, int flags, const uint8_t color[4],
+                  const char *s)
+{
+    hud_font *f;
+    if (!h || !spec || !s)
+        return 0;
+    f = font(h, spec);
+    if (!f)
+        return 0;
+    text(f, x, y, flags, color, s);
+    return 1;
+}
+
+float race_hud_text_width(race_hud *h, const char *spec, const char *s)
+{
+    hud_font *f;
+    if (!h || !spec || !s || !(f = font(h, spec)))
+        return 0;
+    return text_width(f, s);
+}
+
 /* func_003A3B58: the box, and the rank's figure rolling to the new one
    (a fifth of the way each frame, at least 0.01) in FC_26 inside it */
 static void draw_rank(race_hud *h, int rank, const place *p)
@@ -766,12 +803,26 @@ static void draw_rank(race_hud *h, int rank, const place *p)
     y = y0 + p->h - 19 - frac * fh;
     gs_color(0x80C8C8C8u, 1, c);
     plat_set_clip(0, y0 + 8, 640, p->h - 11);
-    {
+    if (n < 10) {
         char s[2] = {(char)('0' + n), 0};
         text(f, x, y, 0xf, c, s);
         if (frac != 0) {
-            s[0] = (char)('0' + n + 1);
-            text(f, x, y + fh, 0xf, c, s);
+            if (n + 1 < 10) {
+                s[0] = (char)('0' + n + 1);
+                text(f, x, y + fh, 0xf, c, s);
+            } else {
+                char t[8];
+                snprintf(t, sizeof t, "%d", n + 1);
+                rank_digits(f, x0 + p->w * 0.5f, y + fh, c, t, p->w - 4);
+            }
+        }
+    } else {
+        char s[8];
+        snprintf(s, sizeof s, "%d", n);
+        float rh = rank_digits(f, x0 + p->w * 0.5f, y, c, s, p->w - 4);
+        if (frac != 0 && n + 1 <= 12) {
+            snprintf(s, sizeof s, "%d", n + 1);
+            rank_digits(f, x0 + p->w * 0.5f, y + rh, c, s, p->w - 4);
         }
     }
     plat_set_clip(0, 0, 0, 0);
@@ -1115,7 +1166,7 @@ static void draw_map(race_hud *h, const race_hud_state *s, float light)
                  (float)h->map_th, 0, 0, 1, 1, white);
             continue;
         }
-        for (int i = 0; i < s->cars && i < 6; i++) {
+        for (int i = 0; i < s->cars && i < MOON_CONDUCTOR_CARS; i++) {
             int me = i == (s->split ? s->player : 0), img;
             uint32_t col;
             uint8_t c[4];
@@ -1171,7 +1222,7 @@ void race_hud_draw_tire_panel(race_hud *h, const race_hud_state *s, float x, flo
    letter (A + its grid slot), the watched one orange; the user's PCSX2
    print shows them so. A: the class's own placement and font not read */
 void race_hud_draw_map_cars(race_hud *h, const race_hud_state *s, float cx, float cy, float box,
-                            const int letter[6], int lit, float alpha)
+                            const int letter[MOON_CONDUCTOR_CARS], int lit, float alpha)
 {
     uint8_t white[4] = {255, 255, 255, 255}, ink[4] = {0xff, 0xff, 0xff, 255},
             orange[4] = {0xff, 0x99, 0x00, 255};
@@ -1190,8 +1241,8 @@ void race_hud_draw_map_cars(race_hud *h, const race_hud_state *s, float cx, floa
     if (!f)
         return;
     for (int pass = 0; pass < 2; pass++)
-        for (int i = 0; i < s->cars && i < 6; i++) {
-            char t[2] = {(char)('A' + (letter[i] >= 0 && letter[i] < 6 ? letter[i] : 0)), 0};
+        for (int i = 0; i < s->cars && i < MOON_CONDUCTOR_CARS; i++) {
+            char t[2] = {(char)('A' + (letter[i] >= 0 && letter[i] < MOON_CONDUCTOR_CARS ? letter[i] : 0)), 0};
             float mx, my;
             if ((i == lit) != (pass == 1))
                 continue; /* the watched car's on top */

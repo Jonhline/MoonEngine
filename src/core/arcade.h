@@ -76,6 +76,6 @@ typedef struct {
    list), -1 when the ratings failed. */
 int gt4_arcade_pick_enemies(gt4_arcade *a, gt4_arcade_rater rate, void *ctx, const char *player,
                             const char *const *list, int n, float offset, float range, int count,
-                            int dirt, gt4_arcade_enemy out[5]);
+                            int dirt, gt4_arcade_enemy out[6]);
 
 #endif

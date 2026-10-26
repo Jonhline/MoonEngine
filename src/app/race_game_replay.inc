@@ -21,6 +21,8 @@ int race_game_replay(race_game *g, char *msg, size_t len)
         snprintf(msg, len, "no replay");
         return 0;
     }
+    if (race_game_replay_refusal(g, msg, len))
+        return 0;
     g->replay_next = 1;
     g->disc_segment = g->disc_segment_2p = 0;
     return race_game_restart(g, msg, len);
@@ -112,10 +114,26 @@ int race_game_license_demo(race_game *g, const char *code, char *msg, size_t len
 
 /* the last race as a file (replay_file.h): its lineup and commands; the
    tape is lent, not copied */
+int race_game_replay_refusal(const race_game *g, char *msg, size_t len)
+{
+    int phantoms;
+    if (!g || !g->run || (phantoms = gt4_race_run_phantom_count(g->run)) <= 0)
+        return 0;
+    snprintf(msg, len,
+             "This race had %d cars; replays support the %d official cars.",
+             gt4_race_run_cars(g->run) + phantoms, MOON_CONDUCTOR_CARS);
+    return 1;
+}
+
 int race_game_replay_export(const race_game *g, gt4_replay_file *r, int kind)
 {
+    char why[160];
     if (!g || !r || !g->tape_n || !g->last_course[0])
         return 0;
+    if (race_game_replay_refusal(g, why, sizeof why)) {
+        fprintf(stderr, "replay: %s\n", why);
+        return 0;
+    }
     memset(r, 0, sizeof *r);
     r->kind = kind;
     r->legacy_math = g->replaying && g->legacy_replay_math;

@@ -12,8 +12,9 @@
 
 #include <stdint.h>
 #include "vol.h"
+#include "race_limits.h"
 
-#define RACE_BSPEC_CARS 6
+#define RACE_BSPEC_CARS MOON_MAX_CARS
 
 typedef struct {
     int index;          /* the car's place in the race's entries */

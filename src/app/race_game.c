@@ -65,6 +65,14 @@
 
 #define STEP (1.0 / 60)
 
+/* race.field_size: the request the next menu race starts with (6 default). */
+static int field_size_request = MOON_CONDUCTOR_CARS;
+
+void race_game_set_field_size(int n)
+{
+    field_size_request = n;
+}
+
 struct race_game {
     char *disc;
     race_view *view;
@@ -95,14 +103,14 @@ struct race_game {
     /* the Arcade's QuickTune as the next race takes it (00111DC0) */
     int quick_tuned, quick_power, quick_weight, quick_front_tire, quick_rear_tire, quick_gear;
     double finished;
-    unsigned ids[6];
+    unsigned ids[MOON_CONDUCTOR_CARS];
     double acc;
     SDL_GameController *pad;
     gt4_vol *vol; /* the display's assets */
     race_hud *hud;
     race_audio *audio;
-    gt4_license_motion *pit_motion[6];
-    gt4_pit_crew pit_crew[6];
+    gt4_license_motion *pit_motion[MOON_CONDUCTOR_CARS];
+    gt4_pit_crew pit_crew[MOON_CONDUCTOR_CARS];
     license_scene *pit_scene;
     uint32_t pit_random, pit_camera_random;
     int pit_package;
@@ -153,8 +161,8 @@ struct race_game {
     SDL_JoystickID pad_id;
     int pause_keys[7]; /* Start, D-pad and both pause confirmation buttons. */
     int confirm_held;
-    char hud_names[6][128]; /* 003B4D80 -> 00445450: CAR_NAME short string (+8). */
-    char names[6][96];          /* each car's name (CAR_NAME, the StrDB's) */
+    char hud_names[MOON_CONDUCTOR_CARS][128]; /* 003B4D80 -> 00445450: CAR_NAME short string (+8). */
+    char names[MOON_CONDUCTOR_CARS][96];          /* each car's name (CAR_NAME, the StrDB's) */
     gt4_motion_bank *start_cam; /* the course's start camera motions (header +0xD0) */
     int start_cam_tried, start_cam_on;
     gt4_license_motion *license_start_motion;
@@ -256,14 +264,14 @@ struct race_game {
     long replay_open;  /* the opening's clock at the tape's start (frames), -1 unset */
     double replay_end; /* seconds since the tape ran out */
     /* the last race's lineup, for its replay */
-    char last_course[32], last_car[96], last_others[5][96];
-    const char *last_other_ptr[5];
-    int last_color, last_colors[5], last_nothers, last_has_colors;
+    char last_course[32], last_car[96], last_others[MOON_CONDUCTOR_CARS - 1][96];
+    const char *last_other_ptr[MOON_CONDUCTOR_CARS - 1];
+    int last_color, last_colors[MOON_CONDUCTOR_CARS - 1], last_nothers, last_has_colors;
     int last_prepared;
     gt4_race_desc last_desc;
-    uint8_t disc_entries[6][0x228];
+    uint8_t disc_entries[MOON_CONDUCTOR_CARS][0x228];
     uint8_t disc_race_options[0x60];
-    uint8_t last_owned[6][0x4b8], last_event_row[151];
+    uint8_t last_owned[MOON_CONDUCTOR_CARS][0x4b8], last_event_row[151];
     uint32_t last_rng;
     int ghost_car;       /* the Time Trial's: car 1 drawn while it drives */
     /* The licence's ghost: the player's car as it was drawn (simulation frame, place,
@@ -831,7 +839,7 @@ void race_game_stop(race_game *g)
         g->license_camera_cycle = (unsigned)g->concourse.camera_cycle;
     license_scene_close(g->license_scene);
     g->license_scene = NULL;
-    for (unsigned i = 0; i < 6; i++)
+    for (unsigned i = 0; i < MOON_CONDUCTOR_CARS; i++)
         race_view_set_pit_crew(g->view, i, NULL);
     license_scene_close(g->pit_scene);
     g->pit_scene = NULL;
@@ -954,9 +962,11 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
     gt4_vol *vol;
     uint8_t *labels;
     size_t n = 0;
-    char prepared_labels[6][96];
-    const char *prepared_others[5];
-    int prepared_colors[5];
+    char prepared_labels[MOON_CONDUCTOR_CARS][96];
+    const char *prepared_others[MOON_CONDUCTOR_CARS - 1];
+    int prepared_colors[MOON_CONDUCTOR_CARS - 1];
+    int phantom_n = 0;
+    char phantom_names[MOON_MAX_PHANTOMS][128] = {{0}};
     memset(&d, 0, sizeof d);
     msg[0] = 0;
     if (!g)
@@ -967,8 +977,13 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
     if (menu_option_text(NULL, "unit_velocity", NULL))
         race_game_apply_units(g, NULL);
     g->finished = -1;
-    if (nothers > 5)
-        nothers = 5;
+    if (nothers > MOON_CONDUCTOR_CARS - 1) {
+        fprintf(stderr,
+                "race: %d opponents requested; the conductor takes %d official opponents, the "
+                "rest are phantoms\n",
+                nothers, MOON_CONDUCTOR_CARS - 1);
+        nothers = MOON_CONDUCTOR_CARS - 1;
+    }
     vol = gt4_vol_open(g->disc, &err);
     labels = vol ? gt4_vol_read(vol, "/specdb/GT4_US2560/GENERIC_CAR.idi", &n) : NULL;
     if (prepared) {
@@ -1038,6 +1053,153 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
             d.cars++;
         }
     }
+    {
+        int field_size;
+        if (prepared)
+            field_size = d.field_size ? d.field_size : d.cars;
+        else if (g->split)
+            field_size = 2;
+        else if (g->time_trial)
+            field_size = 1;
+        else
+            field_size = field_size_request;
+        if (field_size < 1 || field_size > MOON_MAX_CARS) {
+            snprintf(msg, len, "race.field_size=%d refused: allowed 1..%d", field_size,
+                     MOON_MAX_CARS);
+            free(labels);
+            gt4_vol_close(vol);
+            return 0;
+        }
+        if (!prepared && !g->split && !g->time_trial && nothers > field_size - 1) {
+            snprintf(msg, len,
+                     "race.field_size=%d refused: %d opponents selected, but the field has %d cars",
+                     field_size, nothers, field_size);
+            free(labels);
+            gt4_vol_close(vol);
+            return 0;
+        }
+        if (field_size < d.cars) {
+            snprintf(msg, len,
+                     "race.field_size=%d refused: the prepared field has %d cars", field_size,
+                     d.cars);
+            free(labels);
+            gt4_vol_close(vol);
+            return 0;
+        }
+        d.field_size = field_size;
+        phantom_n = field_size - d.cars;
+        if (phantom_n > MOON_MAX_PHANTOMS) {
+            snprintf(msg, len,
+                     "race.field_size=%d refused: %d phantoms, this build has %d slots",
+                     field_size, phantom_n, MOON_MAX_PHANTOMS);
+            free(labels);
+            gt4_vol_close(vol);
+            return 0;
+        }
+        if (phantom_n > 0) {
+            /* The real arcade menu asks PickUpEnemyCars for five cars at
+               offset -0.025, range 0.005 around the player's rating. Use
+               the same rated call for the phantoms, with the official cars
+               removed from its pool. */
+            const float pick_offset = -0.025f, pick_range = 0.005f;
+            char used[MOON_CONDUCTOR_CARS + MOON_MAX_PHANTOMS][96];
+            int nu = 0, got = 0;
+            for (int i = 0; i < d.cars; i++) {
+                const char *l = i ? others[i - 1] : car;
+                snprintf(used[nu++], sizeof used[0], "%s", l ? l : "");
+            }
+            const char **pool = calloc(4096, sizeof *pool);
+            int npool = 0;
+            for (uint32_t id = 0; id < 4096 && pool; id++) {
+                const char *l = labels ? gt4_specdb_label_for_id(labels, n, id) : NULL;
+                if (!l || !*l)
+                    continue;
+                int official = 0;
+                for (int i = 0; i < d.cars; i++)
+                    if (d.car[i] == id)
+                        official = 1;
+                for (int i = 0; i < nu; i++)
+                    if (!strcmp(l, used[i]))
+                        official = 1;
+                if (!official)
+                    pool[npool++] = l;
+            }
+            gt4_arcade *arc = gt4_arcade_open(vol);
+            gt4_car_ratings *ratings = gt4_car_ratings_open(g->disc);
+            gt4_arcade_enemy picked[MOON_MAX_PHANTOMS];
+            if (arc && ratings && pool) {
+                got = gt4_arcade_pick_enemies(arc, gt4_car_ratings_get, ratings, car, pool,
+                                              npool, pick_offset, pick_range, phantom_n, 0,
+                                              picked);
+                if (got < phantom_n) {
+                    fprintf(stderr,
+                            "race: rated phantom pool supplied %d of %d at offset %.3f range "
+                            "%.3f; widening to the nearest ratings\n",
+                            got, phantom_n, pick_offset, pick_range);
+                    got = gt4_arcade_pick_enemies(arc, gt4_car_ratings_get, ratings, car, pool,
+                                                  npool, 0.f, 1.f, phantom_n, 0, picked);
+                }
+            } else
+                fprintf(stderr, "race: phantom ratings unavailable\n");
+            if (got > 0) {
+                float pr = 0, omin = 1e30f, omax = -1e30f, pmin = 1e30f, pmax = -1e30f;
+                uint64_t pk = gt4_arcade_car_key(arc, car);
+                if (pk != UINT64_MAX)
+                    gt4_car_ratings_get(ratings, &pk, 1, &pr);
+                fprintf(stderr,
+                        "race: phantom ratings: player=%s %.6f offset=%.3f range=%.3f\n",
+                        car ? car : "-", pr, pick_offset, pick_range);
+                for (int i = 0; i < d.cars; i++) {
+                    const char *l = gt4_specdb_label_for_id(labels, n, d.car[i]);
+                    uint64_t k = l ? gt4_arcade_car_key(arc, l) : UINT64_MAX;
+                    float r = 0;
+                    if (k != UINT64_MAX && gt4_car_ratings_get(ratings, &k, 1, &r)) {
+                        fprintf(stderr, "race: phantom ratings: official[%d]=%s %.6f\n", i,
+                                l, r);
+                        if (r < omin) omin = r;
+                        if (r > omax) omax = r;
+                    }
+                }
+                for (int j = 0; j < got; j++) {
+                    uint64_t k = gt4_arcade_car_key(arc, picked[j].car);
+                    float r = 0;
+                    if (k != UINT64_MAX && gt4_car_ratings_get(ratings, &k, 1, &r)) {
+                        fprintf(stderr, "race: phantom ratings: phantom[%d]=%s %.6f\n", j,
+                                picked[j].car, r);
+                        if (r < pmin) pmin = r;
+                        if (r > pmax) pmax = r;
+                    }
+                }
+                fprintf(stderr,
+                        "race: phantom ratings spread: official %.6f..%.6f phantom %.6f..%.6f\n",
+                        omin, omax, pmin, pmax);
+            }
+            free(pool);
+            if (arc) gt4_arcade_close(arc);
+            if (ratings) gt4_car_ratings_close(ratings);
+            if (got < phantom_n) {
+                snprintf(msg, len,
+                         "race.field_size=%d refused: %d phantoms requested, %d rated opponents available",
+                         field_size, phantom_n, got);
+                free(labels);
+                gt4_vol_close(vol);
+                return 0;
+            }
+            for (int j = 0; j < got; j++) {
+                uint32_t id = 0;
+                if (!gt4_specdb_label(labels, n, picked[j].car, &id)) {
+                    snprintf(msg, len, "race: phantom car %s has no GENERIC_CAR id",
+                             picked[j].car);
+                    free(labels);
+                    gt4_vol_close(vol);
+                    return 0;
+                }
+                d.phantom_car[j] = id;
+                snprintf(d.phantom_label[j], sizeof d.phantom_label[j], "%s", picked[j].car);
+                d.phantom_color[j] = picked[j].color;
+            }
+        }
+    }
     free(labels);
     { /* the names the results show: CAR_NAME's first word, a StrDB string */
         size_t nn = 0, ns = 0;
@@ -1045,7 +1207,7 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
             vol ? gt4_vol_read(vol, "/specdb/GT4_US2560/CAR_NAME_american.dbt", &nn) : NULL;
         uint8_t *strs =
             vol ? gt4_vol_read(vol, "/specdb/GT4_US2560/american_StrDB.sdb", &ns) : NULL;
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < MOON_CONDUCTOR_CARS; i++) {
             uint8_t row[256];
             const char *s = NULL, *short_name = NULL;
             int row_size = i < d.cars && names && strs
@@ -1062,11 +1224,23 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
                     (uint32_t)row[10] << 16 | (uint32_t)row[11] << 24);
             snprintf(g->hud_names[i], sizeof g->hud_names[i], "%s", short_name ? short_name : "");
         }
+        for (int j = 0; j < phantom_n; j++) {
+            uint8_t row[256];
+            const char *short_name = NULL;
+            int row_size = names && strs
+                               ? gt4_specdb_row(names, nn, d.phantom_car[j], row, sizeof row) : 0;
+            if (row_size >= 12)
+                short_name = gt4_specdb_string(
+                    strs, ns, (uint32_t)row[8] | (uint32_t)row[9] << 8 |
+                                  (uint32_t)row[10] << 16 | (uint32_t)row[11] << 24);
+            snprintf(phantom_names[j], sizeof phantom_names[j], "%s",
+                     short_name ? short_name : d.phantom_label[j]);
+        }
         free(names);
         free(strs);
     }
     gt4_vol_close(vol);
-    for (int i = 0; i < 6; i++)
+    for (int i = 0; i < MOON_CONDUCTOR_CARS; i++)
         g->ids[i] = i < d.cars ? d.car[i] : 0;
     d.pit_menu = !d.license; /* every race world but the licences' makes the pit menu (003DCA28) */
     if (d.split_battle)
@@ -1078,6 +1252,12 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
     g->run = gt4_race_run_open(g->disc, &d, msg, len);
     if (!g->run)
         return 0;
+    for (int i = 0; i < d.cars; i++)
+        gt4_race_run_set_entrant_identity(g->run, i, g->hud_names[i] ? g->hud_names[i] : "",
+                                          (uint32_t)(i ? (colors ? colors[i - 1] : 0) : color));
+    for (int j = 0; j < phantom_n; j++)
+        gt4_race_run_set_entrant_identity(g->run, d.cars + j, phantom_names[j],
+                                          (uint32_t)d.phantom_color[j]);
     player = gt4_race_run_car(g->run, 0);
     player_2p = g->split ? gt4_race_run_car(g->run, 1) : 0;
     memset(&command, 0, sizeof command);
@@ -1158,8 +1338,8 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
     }
     /* tests: a PCSX2 capture's moment, frozen (render comparisons) */
     if (getenv("MOON_RACE_SNAPSHOT")) {
-        static char snap[6][48];
-        static const char *snap_cars[6];
+        static char snap[MOON_CONDUCTOR_CARS][48];
+        static const char *snap_cars[MOON_CONDUCTOR_CARS];
         uint8_t *idi;
         size_t ni = 0;
         if (!gt4_race_run_restore(g->run, getenv("MOON_RACE_SNAPSHOT")))
@@ -1167,7 +1347,7 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
         /* the captured lineup (race+0x60: the entries, each garage's car key at +0x20) */
         vol = gt4_vol_open(g->disc, &err);
         idi = vol ? gt4_vol_read(vol, "/specdb/GT4_US2560/GENERIC_CAR.idi", &ni) : NULL;
-        for (int i = 0; i < 6 && i <= nothers; i++) {
+        for (int i = 0; i < MOON_CONDUCTOR_CARS && i <= nothers; i++) {
             uint32_t race = GT4_U32(gt4_race_run_conductor(g->run)), ents = GT4_U32(race + 0x60);
             const char *s =
                 i < (int)GT4_U32(ents)
@@ -1216,7 +1396,7 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
         g->last_color = color;
         g->last_nothers = nothers;
         g->last_has_colors = colors != NULL;
-        for (int i = 0; i < nothers && i < 5; i++) {
+        for (int i = 0; i < nothers && i < MOON_CONDUCTOR_CARS - 1; i++) {
             snprintf(g->last_others[i], sizeof g->last_others[i], "%s", others[i]);
             g->last_other_ptr[i] = g->last_others[i];
             g->last_colors[i] = colors ? colors[i] : 0;
@@ -1269,8 +1449,24 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
         !nothers) { /* the ghost: the player's car again */
         const char *ghost = car;
         race_view_set_opponents(g->view, &ghost, &color, 1);
-    } else
-        race_view_set_opponents(g->view, others, colors, nothers);
+    } else {
+        int phantoms = gt4_race_run_phantom_count(g->run);
+        if (phantoms > 0) {
+            const char *render_others[MOON_MAX_OPPONENTS];
+            int render_colors[MOON_MAX_OPPONENTS];
+            int n = nothers;
+            for (int i = 0; i < n; i++) {
+                render_others[i] = others[i];
+                render_colors[i] = colors ? colors[i] : 0;
+            }
+            for (int j = 0; j < phantoms; j++) {
+                render_others[n + j] = d.phantom_label[j];
+                render_colors[n + j] = d.phantom_color[j];
+            }
+            race_view_set_opponents(g->view, render_others, render_colors, n + phantoms);
+        } else
+            race_view_set_opponents(g->view, others, colors, nothers);
+    }
     { /* 00390200/00390340 load fitted parts for each owned entry, not
            only P1. TT's duplicated ghost also uses the player's body. */
         char wheel[32] = "", wing[32] = "";
@@ -1519,7 +1715,7 @@ int race_game_active(const race_game *g)
 }
 unsigned race_game_car_id(const race_game *g, int i)
 {
-    return g && i >= 0 && i < 6 ? g->ids[i] : 0;
+    return g && i >= 0 && i < MOON_CONDUCTOR_CARS ? g->ids[i] : 0;
 }
 int race_game_player_hud(const race_game *g, gt4_race_hud *hud)
 {
@@ -1600,7 +1796,7 @@ int race_game_driver_mode(const race_game *g)
         return 0;
     return (int)GT4_U32(GT4_U32(GT4_U32(gt4_race_run_conductor(g->run)) + 0x84) + 0xcc8);
 }
-int race_game_championship_grid(const race_game *g, gt4_race_desc *desc, uint8_t bodies[6][0x4b8])
+int race_game_championship_grid(const race_game *g, gt4_race_desc *desc, uint8_t bodies[MOON_CONDUCTOR_CARS][0x4b8])
 {
     if (!g || !g->run || !g->last_prepared || !desc || !bodies)
         return 0;
@@ -1618,7 +1814,7 @@ int race_game_championship_grid(const race_game *g, gt4_race_desc *desc, uint8_t
     }
     return 1;
 }
-int race_game_finish_order(const race_game *g, uint8_t order[6])
+int race_game_finish_order(const race_game *g, uint8_t order[MOON_CONDUCTOR_CARS])
 {
     if (!g || !g->run || !order)
         return 0;
@@ -1709,7 +1905,7 @@ int race_game_quick_points(const race_game *g, menu_quick_race *grid, const int3
 int race_game_quick_results(const race_game *g, menu_quick_race *grid)
 {
     menu_quick_race initial;
-    uint8_t order[6];
+    uint8_t order[MOON_CONDUCTOR_CARS];
     if (!race_game_quick_grid(g, &initial) || race_game_finish_order(g, order) != initial.entries)
         return 0;
     *grid = initial;
@@ -1727,11 +1923,21 @@ int race_game_quick_results(const race_game *g, menu_quick_race *grid)
     }
     return 1;
 }
+int race_game_classification_order(const race_game *g, uint8_t *ids, int max)
+{
+    return g && g->run ? gt4_race_run_classification_order(g->run, ids, max) : 0;
+}
+
 int race_game_event_position(const race_game *g)
 {
     gt4_race_hud player;
     if (!race_game_player_hud(g, &player))
         return -1;
+    if (g->run && gt4_race_run_phantom_count(g->run)) {
+        int place = gt4_race_run_player_place(g->run);
+        if (place >= 0)
+            return place;
+    }
     int position = 0;
     /* 003B6FD0 stable insertion by signed car+0x5B3, then 00110570:
        player is entry zero, so equal-rank entries follow it. */
@@ -2298,6 +2504,12 @@ static int icon_at_rank(race_game *g, int rank)
             continue;
         return GT4_U8(car + CAR_POSITION + 0x441) ? -1 : c;
     }
+    for (int j = 0; j < gt4_race_run_phantom_count(g->run); j++) {
+        uint32_t car = gt4_race_run_phantom_car(g->run, j);
+        if ((int8_t)GT4_U8(car + CAR_FIELD_POSITION) != rank)
+            continue;
+        return GT4_U8(car + CAR_POSITION + 0x441) ? -1 : g->others + j + 1;
+    }
     return -1;
 }
 
@@ -2518,9 +2730,9 @@ static void race_camera_audio_update(race_game *g, double dt)
         int random = (int)g->pit_camera_random;
         uint32_t next = g->pit_camera_random * 17u + 17u;
         g->pit_camera_random = next ^ ((next << 16) | (next >> 16));
-        if (entry >= 0 && entry < 6)
+        if (entry >= 0 && entry < MOON_CONDUCTOR_CARS)
             gt4_pit_camera_pick(g->pit_crew + entry, random);
-        if (entry >= 0 && entry < 6 && gt4_pit_camera(g->pit_crew + entry, look, &fov))
+        if (entry >= 0 && entry < MOON_CONDUCTOR_CARS && gt4_pit_camera(g->pit_crew + entry, look, &fov))
             license_look(g, look, fov, origin);
     }
     inspect_camera(g, dt);
@@ -2544,7 +2756,7 @@ static void race_camera_audio_update(race_game *g, double dt)
                 g->audio, g->run, eye, rows,
                 g->start_cam_on || g->tv_on || g->inspect_on || g->cinema.on ||
                         getenv("MOON_RACE_FILM") ||
-                        (watched_car(g) < 6 && g->pit_crew[watched_car(g)].camera_control >= 0)
+                        (watched_car(g) < MOON_CONDUCTOR_CARS && g->pit_crew[watched_car(g)].camera_control >= 0)
                     ? -1
                     : g->camera,
                 (g->bgm_enabled != g->bgm_off) ? g->bgm_volume : -1, g->se_volume);
@@ -2674,6 +2886,9 @@ static void publish_photo_poses(race_game *g)
             race_view_set_opponent(g->view, i - 1, pos, rot, wheels);
             update_wheel_motion(g, i, rot);
         }
+    for (int j = 0; j < gt4_race_run_phantom_count(g->run); j++)
+        if (gt4_race_run_phantom_pose(g->run, j, pos, rot, wheels))
+            race_view_set_opponent(g->view, g->others + j, pos, rot, wheels);
     if (licence_exam_run(g) && !g->ghost_car && !g->split) {
         unsigned frame = gt4_race_run_frames(g->run);
         float now[LIC_SAMPLE];
@@ -2998,7 +3213,7 @@ static int race_game_draw_scene(race_game *g)
         }
         return drawn;
     }
-    for (int i = 0; g->audio && g->run && i < gt4_race_run_cars(g->run) && i < 6;
+    for (int i = 0; g->audio && g->run && i < gt4_race_run_cars(g->run) && i < MOON_CONDUCTOR_CARS;
          i++) { /* the backfire's flames */
         float flames[4][3];
         int on = race_audio_afterfire(g->audio, (unsigned)i, flames);

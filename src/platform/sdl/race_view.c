@@ -6,6 +6,7 @@
  * rotation and suspension travel.
  */
 #include "platform/switch_profile.h"
+#include "race_limits.h"
 #include "race_view.h"
 #ifdef MOON_PC_VULKAN
 #include "vk_render.h"
@@ -45,7 +46,7 @@
 #define W 640
 #define H 448
 
-#define OPPONENTS 7
+#define OPPONENTS MOON_MAX_OPPONENTS
 typedef struct {
     char key[128];
     gt4_driver_rig rig;
