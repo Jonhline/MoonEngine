@@ -6422,7 +6422,10 @@ int main(int argc, char **argv)
                         p = menu_ui(mn);
                         root = menu_active_root(mn);
                     } else {
-                        snprintf(msg, sizeof msg, "The replay could not be saved.");
+                        if (!race_game_replay_refusal(game, msg, sizeof msg)) {
+                            snprintf(msg, sizeof msg, "The replay could not be saved.");
+                            fprintf(stderr, "replay: %s\n", msg);
+                        }
                         present_dialog(mn, "Save Replay", msg, 0, NULL, NULL);
                     }
                 } else if ((!strcmp(command, "COMMAND_SAVE_GHOST") ||

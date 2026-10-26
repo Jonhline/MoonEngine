@@ -50,6 +50,9 @@ void race_game_logger_analyze_end(race_game *g, int track, int ok);
 /* the last race to a replay file (its tape lent) and a file's race back as
    the last one, for race_game_replay */
 int race_game_replay_export(const race_game *g, gt4_replay_file *r, int kind);
+/* 1 with the user-facing reason when phantoms make the replay format unable
+   to carry this race; 0 when the race is replayable. */
+int race_game_replay_refusal(const race_game *g, char *msg, size_t len);
 /* The Time Trial's ghost kept for the session (its best lap, carried into
    the next start on the same course with the same car): whether there is
    one, it as a best-lap replay (lent), and a saved one taken in its place
