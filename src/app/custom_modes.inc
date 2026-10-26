@@ -173,12 +173,29 @@ static void custom_modes_attach(menu *m)
     if (!tile)
         return;
     tile->name = "CustomModes";
-    tile->x = 700;
-    tile->y = 640;
+    tile->x = 600;
+    tile->y = 465;
     tile->visible = 1;
     tile->has_focus_override = 1;
     tile->focus_override = 1;
-    cm_text(ui_widget_child(tile, "label"), "Custom Modes");
+    ui_widget *home_model = ui_widget_child(sample, "bg");
+    ui_widget *tile_model = ui_widget_child(tile, "bg");
+    if (home_model && tile_model) {
+        for (int i = 0; i < 3; i++) {
+            tile_model->model_angles[i] = home_model->model_angles[i];
+            tile_model->model_velocity[i] = home_model->model_velocity[i];
+        }
+        tile_model->model_target_mode = home_model->model_target_mode;
+    }
+    ui_widget *label = ui_widget_child(tile, "label");
+    if (label) {
+        cm_text(label, "Custom Modes");
+        label->x = -168;
+        label->y = 0;
+        label->w = 168;
+        label->h = 50;
+        label->has_geometry = 1;
+    }
     ui_widget *label2 = ui_widget_child(tile, "label2");
     if (label2)
         label2->visible = 0;
