@@ -186,6 +186,7 @@ static void custom_modes_attach(menu *m)
             tile_model->model_velocity[i] = home_model->model_velocity[i];
         }
         tile_model->model_target_mode = home_model->model_target_mode;
+        tile_model->visible = 0;
     }
     ui_widget *label = ui_widget_child(tile, "label");
     if (label) {
@@ -210,7 +211,7 @@ static void custom_modes_attach(menu *m)
         custom_modes_tile_car->visible = 1;
         custom_modes_tile_car->car_normal = 1;
         custom_modes_tile_car->car_pose_set = 0;
-        custom_modes_tile_car->car_color_index = 0;
+        custom_modes_tile_car->car_color_index = custom_modes_color;
         custom_modes_tile_car->car_code = NULL;
         ui_widget_append(tile, custom_modes_tile_car);
     }
