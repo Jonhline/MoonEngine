@@ -270,34 +270,83 @@ static void custom_modes_attach(menu *m)
 
     custom_modes_refresh_car(m);
     ui_widget *page_root = ui_root_widget(ui, page);
-    ui_widget *common = ui_widget_child(page_root, "Common");
+    ui_widget *template_common = ui_widget_child(page_root, "Common");
+    if (template_common)
+        template_common->visible = 1;
+    ui_widget *event_root = ui_root_widget(ui, event);
+    ui_load_package(ui, "/projects/gtmode", "EventHallRoot");
+    ui_load_package(ui, "/projects/gtmode", "BeginnerHall");
+    ui_widget *page_copy = event_root ? ui_widget_copy(ui, event_root) : NULL;
+    if (!page_copy)
+        return;
+    page_copy->name = "CustomModesPage";
+    page_copy->x = 0;
+    page_copy->y = 0;
+    page_copy->w = 640;
+    page_copy->h = 480;
+    page_copy->has_geometry = 1;
+    page_copy->visible = 1;
+    ui_widget *page_bg = cm_find(page_copy, "bg_flash");
+    if (page_bg) {
+        free(page_bg->flash_path);
+        page_bg->flash_path = strdup("image/gtmode/event/hall.swf");
+        page_bg->visible = 1;
+        page_bg->flash_time = 9.5f;
+    }
+    ui_widget *page_bg_image = cm_find(page_copy, "bg_image");
+    if (page_bg_image)
+        page_bg_image->visible = 0;
+    ui_widget_append(page_root, page_copy);
+    {
+        int last = page_root->nkids - 1;
+        ui_widget *pc = page_root->kids[last];
+        for (int k = last; k > 0; k--)
+            page_root->kids[k] = page_root->kids[k - 1];
+        page_root->kids[0] = pc;
+    }
+    if (template_common) {
+        ui_widget *h = ui_widget_child(template_common, "Header");
+        ui_widget *t = h ? ui_widget_child(h, "Title") : NULL;
+        ui_widget *l = t ? ui_widget_child(t, "label") : NULL;
+        if (l)
+            cm_text(l, "Custom Modes");
+        ui_widget *tt = cm_find(template_common, "tip");
+        if (tt)
+            cm_text(tt, "Custom Modes: Elimination - every lap, the last car is out.");
+    }
+    {
+        ui_widget *stack[128];
+        int n = 0;
+        stack[n++] = page_copy;
+        while (n) {
+            ui_widget *w = stack[--n];
+            if (!strcmp(w->type, "FlashFace"))
+                w->flash_time = 9.5f;
+            for (int k = 0; k < w->nkids && n < 128; k++)
+                stack[n++] = w->kids[k];
+        }
+    }
+    ui_widget *common = ui_widget_child(page_copy, "Common");
     ui_widget *header = common ? ui_widget_child(common, "Header") : NULL;
     ui_widget *title = header ? ui_widget_child(header, "Title") : NULL;
     ui_widget *title_label = title ? ui_widget_child(title, "label") : NULL;
     if (title_label)
         cm_text(title_label, "Custom Modes");
-    ui_widget *event_root = ui_root_widget(ui, event);
-    const char *bar_names[] = {"ColorFace3", "ColorFace4"};
-    for (unsigned b = 0; b < sizeof bar_names / sizeof bar_names[0]; b++) {
-        ui_widget *bar = event_root ? cm_find(event_root, bar_names[b]) : NULL;
-        if (bar) {
-            ui_widget *copy = ui_widget_copy(ui, bar);
-            if (copy)
-                ui_widget_append(page_root, copy);
-        }
-    }
-    ui_widget *info = event_root ? cm_find(event_root, "info") : NULL;
-    if (info) {
-        ui_widget *copy = ui_widget_copy(ui, info);
-        if (copy) {
-            cm_text(copy, "Choose a custom race mode.");
-            ui_widget_append(page_root, copy);
-        }
-    }
-    ui_widget *hidden = event_root ? cm_find(event_root, "hidden") : NULL;
+    ui_widget *info = cm_find(page_copy, "info");
+    if (info)
+        cm_text(info, "Choose a custom race mode.");
+    ui_widget *tip = cm_find(page_copy, "tip");
+    if (tip)
+        cm_text(tip, "Custom Modes: Elimination - every lap, the last car is out.");
+    ui_widget *scroll = ui_widget_child(page_copy, "ScrollBox");
+    if (scroll)
+        scroll->visible = 0;
+    ui_widget *hidden = cm_find(page_copy, "hidden");
     ui_widget *tpl_item = hidden ? ui_widget_child(hidden, "EventItem") : NULL;
     ui_widget *tpl_ticket = tpl_item ? ui_widget_child(tpl_item, "Ticket") : NULL;
     ui_widget *tpl_stub = hidden ? ui_widget_child(hidden, "TicketStubLong") : NULL;
+    if (hidden)
+        hidden->visible = 0;
     if (tpl_ticket && tpl_stub) {
         ui_widget *item = ui_widget_from_text(
             ui, page,
@@ -316,7 +365,7 @@ static void custom_modes_attach(menu *m)
                 car->h = 90;
                 car->has_geometry = 1;
                 car->visible = 1;
-                car->car_normal = 1;
+                car->car_normal = 0;
                 car->car_pose_set = 1;
                 car->car_motion = 0;
                 car->car_color_index = custom_modes_color;
@@ -350,7 +399,7 @@ static void custom_modes_attach(menu *m)
             item->visible = 1;
             item->has_focus_override = 1;
             item->focus_override = 1;
-            ui_widget_append(page_root, item);
+            ui_widget_append(page_copy, item);
             menu_native_method(m, item, "onActivate", custom_modes_elimination, m);
         }
     }
