@@ -205,9 +205,18 @@ static void custom_modes_attach(menu *m)
     ui_widget *tile = ui_widget_copy(ui, sample);
     if (!tile)
         return;
+    {
+        ui_widget *nav = ui_widget_from_text(
+            ui, top,
+            "Composite {name string {\"nav\"} navigate_source rectangle {110 0 174 72} "
+            "navigate_target rectangle {110 0 174 72}}");
+        if (nav) {
+            tile->src = nav->src;
+        }
+    }
     tile->name = "CustomModes";
     tile->x = 600;
-    tile->y = 465;
+    tile->y = 410;
     tile->visible = 1;
     tile->has_focus_override = 1;
     tile->focus_override = 1;
@@ -224,8 +233,8 @@ static void custom_modes_attach(menu *m)
     ui_widget *label = ui_widget_child(tile, "label");
     if (label) {
         cm_text(label, "Custom Modes");
-        label->x = -168;
-        label->y = 0;
+        label->x = -40;
+        label->y = 69;
         label->w = 168;
         label->h = 50;
         label->has_geometry = 1;
