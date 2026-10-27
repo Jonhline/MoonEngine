@@ -179,7 +179,7 @@ static void custom_modes_attach(menu *m)
     ui_project *ui = menu_ui(m);
     if (!ui)
         return;
-    int top = -1, page = -1, home = -1;
+    int top = -1, page = -1, home = -1, event = -1;
     for (int i = 0; i < ui_root_count(ui); i++) {
         const char *name = ui_root_name(ui, i);
         if (!strcmp(name, "TopRoot"))
@@ -188,8 +188,10 @@ static void custom_modes_attach(menu *m)
             page = i;
         else if (!strcmp(name, "HomeRoot"))
             home = i;
+        else if (!strcmp(name, "EventHallRoot"))
+            event = i;
     }
-    if (top < 0 || page < 0 || home < 0)
+    if (top < 0 || page < 0 || home < 0 || event < 0)
         return;
     ui_widget *top_root = ui_root_widget(ui, top);
     ui_widget *space = top_root ? cm_find(top_root, "space") : NULL;
@@ -266,40 +268,94 @@ static void custom_modes_attach(menu *m)
     menu_native_method(m, tile, "onFocusEnter", custom_modes_focus, m);
     menu_native_method(m, tile, "onFocusLeave", custom_modes_blur, m);
 
+    custom_modes_refresh_car(m);
     ui_widget *page_root = ui_root_widget(ui, page);
-    ui_widget *title = ui_widget_child(page_root, "Title");
-    if (title) {
-        ui_widget *label = ui_widget_child(title, "label");
-        if (label)
-            cm_text(label, "Custom Modes");
+    ui_widget *common = ui_widget_child(page_root, "Common");
+    ui_widget *header = common ? ui_widget_child(common, "Header") : NULL;
+    ui_widget *title = header ? ui_widget_child(header, "Title") : NULL;
+    ui_widget *title_label = title ? ui_widget_child(title, "label") : NULL;
+    if (title_label)
+        cm_text(title_label, "Custom Modes");
+    ui_widget *event_root = ui_root_widget(ui, event);
+    const char *bar_names[] = {"ColorFace3", "ColorFace4"};
+    for (unsigned b = 0; b < sizeof bar_names / sizeof bar_names[0]; b++) {
+        ui_widget *bar = event_root ? cm_find(event_root, bar_names[b]) : NULL;
+        if (bar) {
+            ui_widget *copy = ui_widget_copy(ui, bar);
+            if (copy)
+                ui_widget_append(page_root, copy);
+        }
     }
-    ui_widget *panel = ui_widget_from_text(
-        ui, page,
-        "ColorFace {name string {\"panel\"} geometry rectangle {40 64 560 340} color [1] "
-        "{RGBA {8 9 12 220}}}");
-    if (panel)
-        ui_widget_append(page_root, panel);
-    ui_widget *heading = ui_widget_from_text(
-        ui, page,
-        "TextFace {name string {\"heading\"} geometry rectangle {40 72 560 40} font string "
-        "{\"hb_24\"} align digit {3} text string {\"Custom Modes\"} text_color RGBA {225 225 "
-        "230 255} shadow digit {1.5} shadow_color RGBA {0 0 0 180}}");
-    if (heading)
-        ui_widget_append(page_root, heading);
-    ui_widget *entry = ui_widget_from_text(
-        ui, page,
-        "Composite {name string {\"Elimination\"} can_focus digit {1} geometry rectangle {100 "
-        "150 440 48} children [2] {ColorFace {name string {\"bg\"} geometry rectangle {0 0 440 "
-        "48} color [1] {RGBA {36 38 44 230}}} TextFace {name string {\"label\"} geometry "
-        "rectangle {14 8 412 32} font string {\"hm_16\"} text string {\"Elimination\"} "
-        "text_color RGBA {230 230 230 255}}}}");
-    if (entry) {
-        ui_widget_append(page_root, entry);
-        menu_native_method(m, entry, "onActivate", custom_modes_elimination, m);
+    ui_widget *info = event_root ? cm_find(event_root, "info") : NULL;
+    if (info) {
+        ui_widget *copy = ui_widget_copy(ui, info);
+        if (copy) {
+            cm_text(copy, "Choose a custom race mode.");
+            ui_widget_append(page_root, copy);
+        }
+    }
+    ui_widget *hidden = event_root ? cm_find(event_root, "hidden") : NULL;
+    ui_widget *tpl_item = hidden ? ui_widget_child(hidden, "EventItem") : NULL;
+    ui_widget *tpl_ticket = tpl_item ? ui_widget_child(tpl_item, "Ticket") : NULL;
+    ui_widget *tpl_stub = hidden ? ui_widget_child(hidden, "TicketStubLong") : NULL;
+    if (tpl_ticket && tpl_stub) {
+        ui_widget *item = ui_widget_from_text(
+            ui, page,
+            "Composite {name string {\"Elimination\"} geometry rectangle {0 100 640 132}}");
+        if (item) {
+            ui_widget *ticket = ui_widget_copy(ui, tpl_ticket);
+            ui_widget *stub = ui_widget_copy(ui, tpl_stub);
+            if (ticket)
+                ui_widget_append(item, ticket);
+            ui_widget *car = ui_widget_copy(ui, car_sample);
+            if (car) {
+                car->name = "CarFace";
+                car->x = 80;
+                car->y = 20;
+                car->w = 200;
+                car->h = 90;
+                car->has_geometry = 1;
+                car->visible = 1;
+                car->car_normal = 1;
+                car->car_pose_set = 1;
+                car->car_motion = 0;
+                car->car_color_index = custom_modes_color;
+                car->car_code = NULL;
+                car->car_code = strdup(custom_modes_car[0] ? custom_modes_car
+                                                            : (car_sample->car_code ? car_sample->car_code : ""));
+                ui_widget_append(item, car);
+            }
+            if (stub) {
+                ui_widget *label = cm_find(stub, "label");
+                if (label) {
+                    cm_text(label, "Elimination");
+                    label->has_runtime_color = 1;
+                    label->runtime_color[0] = label->runtime_color[1] = label->runtime_color[2] = 255;
+                    label->runtime_color[3] = 255;
+                }
+                ui_widget *type = cm_find(stub, "type");
+                if (type)
+                    cm_text(type, "Elimination");
+                const char *hide[] = {"stages", "aspec", "bspec", "license", "records"};
+                for (unsigned h = 0; h < sizeof hide / sizeof hide[0]; h++) {
+                    ui_widget *w = cm_find(stub, hide[h]);
+                    if (w)
+                        w->visible = 0;
+                }
+                ui_widget *stub_image = cm_find(stub, "image");
+                if (stub_image)
+                    stub_image->visible = 0;
+                ui_widget_append(item, stub);
+            }
+            item->visible = 1;
+            item->has_focus_override = 1;
+            item->focus_override = 1;
+            ui_widget_append(page_root, item);
+            menu_native_method(m, item, "onActivate", custom_modes_elimination, m);
+        }
     }
     menu_native_method(m, page_root, "onCancel", custom_modes_back, m);
     custom_modes_top_root = top;
     custom_modes_page_root = page;
     custom_modes_attached = 1;
-    custom_modes_refresh_car(m);
 }
