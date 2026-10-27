@@ -312,6 +312,11 @@ const mp_node *ui_project_tree(const ui_project *p)
 {
     return p->tree;
 }
+
+gt4_vol *ui_project_vol(const ui_project *p)
+{
+    return p ? p->vol : NULL;
+}
 int ui_root_count(const ui_project *p)
 {
     return p->nroots;

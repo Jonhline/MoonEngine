@@ -131,6 +131,7 @@ struct ui_widget {
 ui_project *ui_project_load(gt4_vol *vol, const char *name, char *err, size_t err_len);
 void ui_project_free(ui_project *p);
 const mp_node *ui_project_tree(const ui_project *p);
+gt4_vol *ui_project_vol(const ui_project *p);
 
 int ui_root_count(const ui_project *p);
 const char *ui_root_name(const ui_project *p, int i);

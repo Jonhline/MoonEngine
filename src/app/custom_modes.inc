@@ -5,6 +5,7 @@ static int custom_modes_top_root = -1, custom_modes_page_root = -1;
 static ui_widget *custom_modes_tile_car;
 static ui_widget *custom_modes_tile_model;
 static char custom_modes_car[64];
+static char custom_modes_model_path[96];
 static int custom_modes_color;
 static int custom_modes_attached;
 
@@ -172,6 +173,24 @@ static int custom_modes_blur(ah_vm *vm, ah_obj *self, void *data, int argc,
     return 0;
 }
 
+static void custom_modes_resolve_model(ui_project *ui)
+{
+    custom_modes_model_path[0] = 0;
+    gt4_vol *vol = ui_project_vol(ui);
+    if (!vol || !custom_modes_car[0])
+        return;
+    car_model_tables *tables = car_model_tables_open(vol);
+    if (!tables)
+        return;
+    car_model *cm = car_model_load(vol, tables, custom_modes_car, custom_modes_color);
+    if (cm) {
+        snprintf(custom_modes_model_path, sizeof custom_modes_model_path, "/car/menu/%s", cm->model);
+        car_model_free(cm);
+    }
+    car_model_tables_close(tables);
+    fprintf(stderr, "custom modes: car model path=%s\n", custom_modes_model_path);
+}
+
 static void custom_modes_attach(menu *m)
 {
     if (!m || custom_modes_attached || getenv("MOON_CUSTOM_MODES_OFF"))
@@ -252,7 +271,7 @@ static void custom_modes_attach(menu *m)
         custom_modes_tile_car->w = 88;
         custom_modes_tile_car->h = 72;
         custom_modes_tile_car->has_geometry = 1;
-        custom_modes_tile_car->visible = 1;
+        custom_modes_tile_car->visible = 0;
         custom_modes_tile_car->car_normal = 0;
         custom_modes_tile_car->car_pose_set = 0;
         custom_modes_tile_car->car_color_index = custom_modes_color;
@@ -269,6 +288,20 @@ static void custom_modes_attach(menu *m)
     menu_native_method(m, tile, "onFocusLeave", custom_modes_blur, m);
 
     custom_modes_refresh_car(m);
+    custom_modes_resolve_model(ui);
+    if (tile_model && custom_modes_model_path[0]) {
+        char desc[512];
+        snprintf(desc, sizeof desc,
+                 "ModelFace {name string {\"bg\"} camera_trans rectangle {0 7.5 15} "
+                 "camera_rotate rectangle {-25 0 0} view_angle digit {18} model_rotate rectangle "
+                 "{15 30 0} model_rotate_v rectangle {0 0 0}}");
+        ui_widget *synth = ui_widget_from_text(ui, top, desc);
+        if (synth)
+            tile_model->src = synth->src;
+        free(tile_model->model_path);
+        tile_model->model_path = strdup(custom_modes_model_path);
+        tile_model->visible = 1;
+    }
     ui_widget *page_root = ui_root_widget(ui, page);
     ui_widget *template_common = ui_widget_child(page_root, "Common");
     if (template_common)
