@@ -214,7 +214,7 @@ static const char *custom_modes_map_car(void)
 static void custom_modes_tick(void)
 {
     if (custom_modes_page_bg)
-        custom_modes_page_bg->flash_time = 0.0f;
+        custom_modes_page_bg->flash_time = 5.2f;
 }
 
 static void custom_modes_attach(menu *m)
@@ -347,7 +347,7 @@ static void custom_modes_attach(menu *m)
         free(page_bg->flash_path);
         page_bg->flash_path = strdup("image/gtmode/event/hall.swf");
         page_bg->visible = 1;
-        page_bg->flash_time = 0.02f;
+        page_bg->flash_time = 5.2f;
     }
     ui_widget *page_bg_image = cm_find(page_copy, "bg_image");
     if (page_bg_image)
@@ -400,22 +400,19 @@ static void custom_modes_attach(menu *m)
             ui_widget *stub = ui_widget_copy(ui, tpl_stub);
             if (ticket) {
                 ui_widget *ticket_img = cm_find(ticket, "image");
-                if (ticket_img) {
-                    free(ticket_img->image_path);
-                    ticket_img->image_path = strdup("image/gtmode/event/ticket/am_ff.png");
-                    ticket_img->visible = 1;
-                }
+                if (ticket_img)
+                    ticket_img->visible = 0;
                 ui_widget_append(item, ticket);
             }
             ui_widget *car = ui_widget_copy(ui, car_sample);
             if (car) {
                 car->name = "CarFace";
-                car->x = 80;
-                car->y = 20;
-                car->w = 200;
-                car->h = 90;
+                car->x = 43;
+                car->y = 0;
+                car->w = 296;
+                car->h = 132;
                 car->has_geometry = 1;
-                car->visible = 0;
+                car->visible = 1;
                 car->car_normal = 0;
                 car->car_pose_set = 1;
                 car->car_motion = 0;
