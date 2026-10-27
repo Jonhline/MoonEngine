@@ -6,7 +6,6 @@ static ui_widget *custom_modes_tile_car;
 static ui_widget *custom_modes_tile_model;
 static ui_widget *custom_modes_page_bg;
 static char custom_modes_car[64];
-static char custom_modes_model_path[96];
 static char custom_modes_hall_bgm[32];
 static int custom_modes_color;
 static int custom_modes_attached;
@@ -178,22 +177,38 @@ static int custom_modes_blur(ah_vm *vm, ah_obj *self, void *data, int argc,
     return 0;
 }
 
-static void custom_modes_resolve_model(ui_project *ui)
+static const char *custom_modes_map_car(void)
 {
-    custom_modes_model_path[0] = 0;
-    gt4_vol *vol = ui_project_vol(ui);
-    if (!vol || !custom_modes_car[0])
-        return;
-    car_model_tables *tables = car_model_tables_open(vol);
-    if (!tables)
-        return;
-    car_model *cm = car_model_load(vol, tables, custom_modes_car, custom_modes_color);
-    if (cm) {
-        snprintf(custom_modes_model_path, sizeof custom_modes_model_path, "/car/menu/%s", cm->model);
-        car_model_free(cm);
-    }
-    car_model_tables_close(tables);
-    fprintf(stderr, "custom modes: car model path=%s\n", custom_modes_model_path);
+    const char *c = custom_modes_car;
+    static const char *const jpn[] = {"lancer", "skyline", "silvia", "supra", "rx", "impreza",
+                                      "civic", "integra", "nsx", "evo", "fairlady", "mr2"};
+    static const char *const usa[] = {"ford", "chev", "dodge", "chrysler", "cadillac", "pontiac",
+                                      "saleen", "shelby", "corvette", "mustang", "camaro"};
+    static const char *const ger[] = {"bmw", "mercedes", "audi", "volkswagen", "vw", "porsche",
+                                      "opel", "amg"};
+    static const char *const fra[] = {"peugeot", "citroen", "renault", "bugatti"};
+    static const char *const ita[] = {"ferrari", "lamborghini", "alfa", "fiat", "lancia",
+                                      "pagani", "maserati"};
+    static const char *const gbr[] = {"aston", "jaguar", "lotus", "mini", "bentley", "tvr", "mg"};
+    for (unsigned i = 0; i < sizeof jpn / sizeof jpn[0]; i++)
+        if (strstr(c, jpn[i]))
+            return "car_90a.mdl";
+    for (unsigned i = 0; i < sizeof usa / sizeof usa[0]; i++)
+        if (strstr(c, usa[i]))
+            return "car_USA2.mdl";
+    for (unsigned i = 0; i < sizeof ger / sizeof ger[0]; i++)
+        if (strstr(c, ger[i]))
+            return "car_GER.mdl";
+    for (unsigned i = 0; i < sizeof fra / sizeof fra[0]; i++)
+        if (strstr(c, fra[i]))
+            return "car_FRA.mdl";
+    for (unsigned i = 0; i < sizeof ita / sizeof ita[0]; i++)
+        if (strstr(c, ita[i]))
+            return "car_ITA.mdl";
+    for (unsigned i = 0; i < sizeof gbr / sizeof gbr[0]; i++)
+        if (strstr(c, gbr[i]))
+            return "car_GBR.mdl";
+    return "car_90a.mdl";
 }
 
 static void custom_modes_tick(void)
@@ -299,19 +314,13 @@ static void custom_modes_attach(menu *m)
     menu_native_method(m, tile, "onFocusLeave", custom_modes_blur, m);
 
     custom_modes_refresh_car(m);
-    custom_modes_resolve_model(ui);
-    if (tile_model && custom_modes_model_path[0]) {
-        char desc[512];
-        snprintf(desc, sizeof desc,
-                 "ModelFace {name string {\"bg\"} camera_trans rectangle {0 7.5 15} "
-                 "camera_rotate rectangle {-25 0 0} view_angle digit {18} model_rotate rectangle "
-                 "{15 30 0} model_rotate_v rectangle {0 0 0}}");
-        ui_widget *synth = ui_widget_from_text(ui, top, desc);
-        if (synth)
-            tile_model->src = synth->src;
+    if (tile_model) {
+        char path[96];
+        snprintf(path, sizeof path, "image/gtmode/map/%s", custom_modes_map_car());
         free(tile_model->model_path);
-        tile_model->model_path = strdup(custom_modes_model_path);
+        tile_model->model_path = strdup(path);
         tile_model->visible = 1;
+        fprintf(stderr, "custom modes: map car model=%s\n", path);
     }
     ui_widget *page_root = ui_root_widget(ui, page);
     ui_widget *template_common = ui_widget_child(page_root, "Common");
