@@ -464,10 +464,10 @@ static void custom_modes_attach(menu *m)
                 ui_widget *aspec = cm_find(stub, "aspec");
                 if (aspec) {
                     free(aspec->image_path);
-                    aspec->image_path = strdup("image/gtmode/event/long_A.png");
+                    aspec->image_path = strdup("image/gtmode/event/short_A.png");
                     aspec->x = 4;
                     aspec->y = 44;
-                    aspec->w = 112;
+                    aspec->w = 38;
                     aspec->h = 24;
                     aspec->has_geometry = 1;
                     aspec->scale_x = aspec->scale_y = 1;
@@ -476,10 +476,10 @@ static void custom_modes_attach(menu *m)
                 ui_widget *bspec = cm_find(stub, "bspec");
                 if (bspec) {
                     free(bspec->image_path);
-                    bspec->image_path = strdup("image/gtmode/event/long_B.png");
+                    bspec->image_path = strdup("image/gtmode/event/short_B.png");
                     bspec->x = 4;
                     bspec->y = 72;
-                    bspec->w = 112;
+                    bspec->w = 38;
                     bspec->h = 24;
                     bspec->has_geometry = 1;
                     bspec->scale_x = bspec->scale_y = 1;
