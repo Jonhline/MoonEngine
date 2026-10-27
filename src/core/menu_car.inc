@@ -149,6 +149,26 @@ static int nat_car_paints(ah_vm *vm, ah_obj *self, void *d, int argc, const ah_v
     *ret = ah_str(vm, i >= 0 && i < n && paints[i].name && *paints[i].name ? paints[i].name : "-");
     return 0;
 }
+int menu_car_paint(menu *m, const char *label, int index, uint8_t rgb[3],
+                   uint8_t bands[4][3], int *count, int *kind)
+{
+    car_paint paints[128];
+    int n = m && label ? car_paints(m, label, paints, 128) : 0;
+    if (index < 0 || index >= n || !rgb)
+        return 0;
+    memcpy(rgb, paints[index].rgb, 3);
+    if (count)
+        *count = 0;
+    if (kind)
+        *kind = paints[index].kind;
+    for (int b = 0; b < 4 && bands; b++)
+        if (paints[index].chip[b][3] & 1) {
+            memcpy(bands[*count], paints[index].chip[b], 3);
+            (*count)++;
+        }
+    return 1;
+}
+
 /* ColorChipFace.setData(car_data, index): the chip shows that paint. */
 static int nat_chip_set_data(ah_vm *vm, ah_obj *self, void *d, int argc, const ah_val *argv,
                              ah_val *ret)
