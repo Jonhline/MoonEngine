@@ -249,11 +249,11 @@ static void custom_modes_attach(menu *m)
         custom_modes_tile_car->name = "CarFace";
         custom_modes_tile_car->x = 0;
         custom_modes_tile_car->y = 0;
-        custom_modes_tile_car->w = 90;
-        custom_modes_tile_car->h = 58;
+        custom_modes_tile_car->w = 88;
+        custom_modes_tile_car->h = 72;
         custom_modes_tile_car->has_geometry = 1;
         custom_modes_tile_car->visible = 1;
-        custom_modes_tile_car->car_normal = 1;
+        custom_modes_tile_car->car_normal = 0;
         custom_modes_tile_car->car_pose_set = 0;
         custom_modes_tile_car->car_color_index = custom_modes_color;
         custom_modes_tile_car->car_pose_set = 1;
