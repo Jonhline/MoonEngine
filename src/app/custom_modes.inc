@@ -52,6 +52,101 @@ static void cm_text(ui_widget *w, const char *s)
     w->text = strdup(s ? s : "");
 }
 
+static void custom_modes_refresh_header(menu *m)
+{
+    if (!m || custom_modes_page_root < 0)
+        return;
+    ui_widget *root = ui_root_widget(menu_ui(m), custom_modes_page_root);
+    ui_widget *common = root ? ui_widget_child(root, "Common") : NULL;
+    ui_widget *header = common ? ui_widget_child(common, "Header") : NULL;
+    if (!header)
+        return;
+    ui_widget *car = ui_widget_child(header, "Car");
+    ui_widget *car_label = car ? ui_widget_child(car, "label") : NULL;
+    if (car) {
+        car->x = 296;
+        car->y = 19;
+        car->w = 170;
+        car->h = 21;
+        car->has_geometry = 1;
+    }
+    if (car_label) {
+        const char *label = menu_split_car(m, 0);
+        if (!label || !*label)
+            label = menu_riding_car(m);
+        const char *name = label && *label ? menu_car_name(m, label) : NULL;
+        char shown[32];
+        if (name && strlen(name) > 21)
+            snprintf(shown, sizeof shown, "%.21s...", name);
+        else
+            snprintf(shown, sizeof shown, "%s", name && *name ? name : (label && *label ? label : "--"));
+        car_label->x = 9;
+        car_label->y = 0;
+        car_label->w = 157;
+        car_label->h = 20;
+        car_label->has_geometry = 1;
+        car_label->scale_x = .85f;
+        car_label->scale_y = .9f;
+        cm_text(car_label, shown);
+    }
+    {
+        ui_widget *chip = car ? cm_find(car, "chip") : NULL;
+        const char *paint_label = menu_split_car(m, 0);
+        if (!paint_label || !*paint_label)
+            paint_label = menu_riding_car(m);
+        uint8_t rgb[3], bands[4][3];
+        int count = 0, kind = 0;
+        if (chip && paint_label && *paint_label &&
+            menu_car_paint(m, paint_label, menu_riding_color(m), rgb, bands, &count, &kind)) {
+            chip->chip_kind = kind;
+            memcpy(chip->chip_rgb, rgb, 3);
+            chip->chip_band_count = count;
+            for (int i = 0; i < count; i++)
+                memcpy(chip->chip_bands[i], bands[i], 3);
+            chip->visible = 1;
+        }
+    }
+    ui_widget *money = ui_widget_child(header, "Money");
+    ui_widget *money_label = money ? ui_widget_child(money, "label") : NULL;
+    ui_widget *money_cr = money ? ui_widget_child(money, "cr") : NULL;
+    if (money_cr) {
+        money_cr->x = 77;
+        money_cr->y = 0;
+        money_cr->w = 22;
+        money_cr->h = 22;
+        money_cr->has_geometry = 1;
+    }
+    if (money_label) {
+        money_label->has_runtime_align = 1;
+        money_label->runtime_align = 2;
+        char text[48];
+        if (!gt4_game_money_text(menu_game_number(m, "money", 0), text, sizeof text))
+            snprintf(text, sizeof text, "--");
+        cm_text(money_label, text);
+    }
+    ui_widget *date_jp = ui_widget_child(header, "DateJP");
+    ui_widget *date_us = ui_widget_child(header, "DateUS");
+    int date[3];
+    if (menu_game_date(m, date)) {
+        static const char *const months[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                                             "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+        if (date_jp)
+            date_jp->visible = 0;
+        if (date_us) {
+            date_us->visible = 1;
+            ui_widget *month = ui_widget_child(date_us, "month");
+            ui_widget *day = ui_widget_child(date_us, "day");
+            if (month && date[1] >= 1 && date[1] <= 12)
+                cm_text(month, months[date[1] - 1]);
+            if (day) {
+                char text[16];
+                snprintf(text, sizeof text, "%d", date[2]);
+                cm_text(day, text);
+            }
+        }
+    }
+}
+
 static void custom_modes_refresh_car(menu *m)
 {
     if (!m)
@@ -220,6 +315,7 @@ static void custom_modes_tick(menu *m)
 {
     if (custom_modes_page_bg)
         custom_modes_page_bg->flash_time = 5.2f;
+    custom_modes_refresh_header(m);
     if (!custom_modes_pending || !m)
         return;
     ui_project *ui = menu_ui(m);
@@ -494,6 +590,7 @@ static void custom_modes_attach(menu *m)
             menu_native_method(m, item, "onActivate", custom_modes_elimination, m);
         }
     }
+    custom_modes_refresh_header(m);
     menu_native_method(m, page_root, "onCancel", custom_modes_back, m);
     custom_modes_top_root = top;
     custom_modes_page_root = page;

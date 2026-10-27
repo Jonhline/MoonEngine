@@ -496,6 +496,23 @@ double menu_game_number(menu *m, const char *name, double fallback)
         return fallback;
     return ah_num(v);
 }
+
+int menu_game_date(menu *m, int date[3])
+{
+    ah_val calendar, today;
+    if (!m || !date ||
+        !ah_get_member(m->vm, game_object(m), "calendar", &calendar) ||
+        calendar.t == AV_NIL ||
+        !ah_get_member(m->vm, ah_as_obj(calendar, AO_MODULE), "today", &today) ||
+        today.t == AV_NIL)
+        return 0;
+    ah_obj *arr = ah_as_obj(today, AO_ARRAY);
+    if (ah_array_size(arr) < 3)
+        return 0;
+    for (int i = 0; i < 3; i++)
+        date[i] = (int)ah_num(ah_array_get(arr, i));
+    return 1;
+}
 int menu_pending_command(const menu *m)
 {
     return m && m->quick_command[0];
