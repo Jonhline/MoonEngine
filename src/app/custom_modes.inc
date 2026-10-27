@@ -3,6 +3,7 @@
    the riding car's CarFace. Opt-in: nothing runs in a normal race. */
 static int custom_modes_top_root = -1, custom_modes_page_root = -1;
 static ui_widget *custom_modes_tile_car;
+static ui_widget *custom_modes_tile_model;
 static char custom_modes_car[64];
 static int custom_modes_color;
 static int custom_modes_attached;
@@ -135,6 +136,38 @@ static int custom_modes_focus(ah_vm *vm, ah_obj *self, void *data, int argc,
     (void)argc;
     (void)argv;
     custom_modes_refresh_car(data);
+    if (custom_modes_tile_model) {
+        custom_modes_tile_model->model_velocity[1] = 2.0f;
+        custom_modes_tile_model->model_target_mode = 0;
+    }
+    if (custom_modes_tile_car) {
+        custom_modes_tile_car->car_pose_set = 1;
+        custom_modes_tile_car->car_motion = 1;
+    }
+    if (custom_modes_tile_car)
+        fprintf(stderr, "custom modes: focus car yaw=%.1f motion=%d\n",
+                custom_modes_tile_car->model_angles[1], custom_modes_tile_car->car_motion);
+    *ret = ah_int(0);
+    return 0;
+}
+
+static int custom_modes_blur(ah_vm *vm, ah_obj *self, void *data, int argc,
+                             const ah_val *argv, ah_val *ret)
+{
+    (void)vm;
+    (void)self;
+    (void)data;
+    (void)argc;
+    (void)argv;
+    if (custom_modes_tile_model) {
+        custom_modes_tile_model->model_velocity[1] = 0;
+        custom_modes_tile_model->model_target_mode = 1;
+    }
+    if (custom_modes_tile_car) {
+        custom_modes_tile_car->car_motion = 0;
+        fprintf(stderr, "custom modes: blur car yaw=%.1f motion=%d\n",
+                custom_modes_tile_car->model_angles[1], custom_modes_tile_car->car_motion);
+    }
     *ret = ah_int(0);
     return 0;
 }
@@ -180,12 +213,12 @@ static void custom_modes_attach(menu *m)
     tile->focus_override = 1;
     ui_widget *home_model = ui_widget_child(sample, "bg");
     ui_widget *tile_model = ui_widget_child(tile, "bg");
+    custom_modes_tile_model = tile_model;
     if (home_model && tile_model) {
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 3; i++)
             tile_model->model_angles[i] = home_model->model_angles[i];
-            tile_model->model_velocity[i] = home_model->model_velocity[i];
-        }
-        tile_model->model_target_mode = home_model->model_target_mode;
+        tile_model->model_velocity[1] = 0;
+        tile_model->model_target_mode = 1;
         tile_model->visible = 0;
     }
     ui_widget *label = ui_widget_child(tile, "label");
@@ -212,6 +245,8 @@ static void custom_modes_attach(menu *m)
         custom_modes_tile_car->car_normal = 1;
         custom_modes_tile_car->car_pose_set = 0;
         custom_modes_tile_car->car_color_index = custom_modes_color;
+        custom_modes_tile_car->car_pose_set = 1;
+        custom_modes_tile_car->car_motion = 0;
         custom_modes_tile_car->car_code = NULL;
         ui_widget_append(tile, custom_modes_tile_car);
     }
@@ -220,6 +255,7 @@ static void custom_modes_attach(menu *m)
             space->nkids);
     menu_native_method(m, tile, "onActivate", custom_modes_open, m);
     menu_native_method(m, tile, "onFocusEnter", custom_modes_focus, m);
+    menu_native_method(m, tile, "onFocusLeave", custom_modes_blur, m);
 
     ui_widget *page_root = ui_root_widget(ui, page);
     ui_widget *title = ui_widget_child(page_root, "Title");
