@@ -398,8 +398,15 @@ static void custom_modes_attach(menu *m)
         if (item) {
             ui_widget *ticket = ui_widget_copy(ui, tpl_ticket);
             ui_widget *stub = ui_widget_copy(ui, tpl_stub);
-            if (ticket)
+            if (ticket) {
+                ui_widget *ticket_img = cm_find(ticket, "image");
+                if (ticket_img) {
+                    free(ticket_img->image_path);
+                    ticket_img->image_path = strdup("image/gtmode/event/ticket_long.png");
+                    ticket_img->visible = 1;
+                }
                 ui_widget_append(item, ticket);
+            }
             ui_widget *car = ui_widget_copy(ui, car_sample);
             if (car) {
                 car->name = "CarFace";
@@ -436,8 +443,23 @@ static void custom_modes_attach(menu *m)
                         w->visible = 0;
                 }
                 ui_widget *stub_image = cm_find(stub, "image");
-                if (stub_image)
-                    stub_image->visible = 0;
+                if (stub_image) {
+                    free(stub_image->image_path);
+                    stub_image->image_path = strdup("image/gtmode/event/ticket_short.png");
+                    stub_image->visible = 1;
+                }
+                ui_widget *aspec = cm_find(stub, "aspec");
+                if (aspec) {
+                    free(aspec->image_path);
+                    aspec->image_path = strdup("image/gtmode/event/long_A.png");
+                    aspec->visible = 1;
+                }
+                ui_widget *bspec = cm_find(stub, "bspec");
+                if (bspec) {
+                    free(bspec->image_path);
+                    bspec->image_path = strdup("image/gtmode/event/long_B.png");
+                    bspec->visible = 1;
+                }
                 ui_widget_append(item, stub);
             }
             item->visible = 1;
