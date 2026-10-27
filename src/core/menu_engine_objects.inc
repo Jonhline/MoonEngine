@@ -771,6 +771,10 @@ static int nat_music(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val
     *ret = ah_nil();
     return 0;
 }
+void menu_request_music(menu *m, const char *name)
+{
+    request_music(m, name);
+}
 const char *menu_music_name(menu *m)
 {
     return m && m->music_set ? m->music_name : NULL;

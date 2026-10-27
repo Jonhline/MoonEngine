@@ -4,8 +4,10 @@
 static int custom_modes_top_root = -1, custom_modes_page_root = -1;
 static ui_widget *custom_modes_tile_car;
 static ui_widget *custom_modes_tile_model;
+static ui_widget *custom_modes_page_bg;
 static char custom_modes_car[64];
 static char custom_modes_model_path[96];
+static char custom_modes_hall_bgm[32];
 static int custom_modes_color;
 static int custom_modes_attached;
 
@@ -79,6 +81,9 @@ static int custom_modes_open(ah_vm *vm, ah_obj *self, void *data, int argc,
     (void)argv;
     menu *m = data;
     custom_modes_refresh_car(m);
+    menu_request_music(m, custom_modes_hall_bgm);
+    fprintf(stderr, "custom modes: music requested %s -> %s\n", custom_modes_hall_bgm,
+            menu_music_name(m) ? menu_music_name(m) : "");
     menu_native_page(m, custom_modes_page_root);
     menu_play_effect(m, "ok");
     *ret = ah_int(2);
@@ -189,6 +194,12 @@ static void custom_modes_resolve_model(ui_project *ui)
     }
     car_model_tables_close(tables);
     fprintf(stderr, "custom modes: car model path=%s\n", custom_modes_model_path);
+}
+
+static void custom_modes_tick(void)
+{
+    if (custom_modes_page_bg)
+        custom_modes_page_bg->flash_time = 0.0f;
 }
 
 static void custom_modes_attach(menu *m)
@@ -307,6 +318,8 @@ static void custom_modes_attach(menu *m)
     if (template_common)
         template_common->visible = 1;
     ui_widget *event_root = ui_root_widget(ui, event);
+    snprintf(custom_modes_hall_bgm, sizeof custom_modes_hall_bgm, "%s",
+             mp_string(event_root ? event_root->src : NULL, "bgm") ?: "HALL");
     ui_load_package(ui, "/projects/gtmode", "EventHallRoot");
     ui_load_package(ui, "/projects/gtmode", "BeginnerHall");
     ui_widget *page_copy = event_root ? ui_widget_copy(ui, event_root) : NULL;
@@ -320,11 +333,12 @@ static void custom_modes_attach(menu *m)
     page_copy->has_geometry = 1;
     page_copy->visible = 1;
     ui_widget *page_bg = cm_find(page_copy, "bg_flash");
+    custom_modes_page_bg = page_bg;
     if (page_bg) {
         free(page_bg->flash_path);
         page_bg->flash_path = strdup("image/gtmode/event/hall.swf");
         page_bg->visible = 1;
-        page_bg->flash_time = 9.5f;
+        page_bg->flash_time = 0.02f;
     }
     ui_widget *page_bg_image = cm_find(page_copy, "bg_image");
     if (page_bg_image)
@@ -346,18 +360,6 @@ static void custom_modes_attach(menu *m)
         ui_widget *tt = cm_find(template_common, "tip");
         if (tt)
             cm_text(tt, "Custom Modes: Elimination - every lap, the last car is out.");
-    }
-    {
-        ui_widget *stack[128];
-        int n = 0;
-        stack[n++] = page_copy;
-        while (n) {
-            ui_widget *w = stack[--n];
-            if (!strcmp(w->type, "FlashFace"))
-                w->flash_time = 9.5f;
-            for (int k = 0; k < w->nkids && n < 128; k++)
-                stack[n++] = w->kids[k];
-        }
     }
     ui_widget *common = ui_widget_child(page_copy, "Common");
     ui_widget *header = common ? ui_widget_child(common, "Header") : NULL;

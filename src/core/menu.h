@@ -342,6 +342,7 @@ int menu_split_owned(menu *m, int port, uint8_t body[0x4b8], int *color);
 float menu_loading_duration(menu *m);
 
 const char *menu_music_name(menu *m); /* NULL keeps prior context music; empty stops */
+void menu_request_music(menu *m, const char *name);
 int menu_take_new_career(menu *m);
 int menu_take_quit(menu *m);
 /* a GENERIC_CAR label's display name (CAR_NAME), NULL when unknown */

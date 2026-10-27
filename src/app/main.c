@@ -6601,6 +6601,7 @@ int main(int argc, char **argv)
         int notice_active = notice < GT4_NOTICE_COUNT;
         if (!poll_race_loading(&race_flow, &elapsed))
             goto done;
+        custom_modes_tick();
         { /* Custom Modes: the tile's Elimination entry starts the 12-car race. */
             custom_modes_race_request cm;
             if (custom_modes_take_race_request(&cm)) {
