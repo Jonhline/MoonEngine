@@ -9,6 +9,7 @@ static char custom_modes_car[64];
 static char custom_modes_hall_bgm[32];
 static int custom_modes_color;
 static int custom_modes_attached;
+static int custom_modes_pending;
 
 typedef struct {
     char course[32];
@@ -83,7 +84,8 @@ static int custom_modes_open(ah_vm *vm, ah_obj *self, void *data, int argc,
     menu_request_music(m, custom_modes_hall_bgm);
     fprintf(stderr, "custom modes: music requested %s -> %s\n", custom_modes_hall_bgm,
             menu_music_name(m) ? menu_music_name(m) : "");
-    menu_native_page(m, custom_modes_page_root);
+    custom_modes_pending = 1;
+    ui_fade(menu_ui(m), 0, 1, .25f);
     menu_play_effect(m, "ok");
     *ret = ah_int(2);
     return 0;
@@ -97,7 +99,8 @@ static int custom_modes_back(ah_vm *vm, ah_obj *self, void *data, int argc,
     (void)argc;
     (void)argv;
     menu *m = data;
-    menu_native_page(m, custom_modes_top_root);
+    custom_modes_pending = 2;
+    ui_fade(menu_ui(m), 0, 1, .25f);
     menu_play_effect(m, "cancel");
     *ret = ah_int(2);
     return 0;
@@ -126,6 +129,8 @@ static int custom_modes_elimination(ah_vm *vm, ah_obj *self, void *data, int arg
                  ? getenv("MOON_CUSTOM_COURSE")
                  : "tsukuba");
     custom_modes_request_pending = 1;
+    if (m)
+        ui_fade(menu_ui(m), 0, 1, .25f);
     fprintf(stderr, "custom modes: elimination selected car=%s color=%d course=%s\n",
             custom_modes_request.car, custom_modes_request.color,
             custom_modes_request.course);
@@ -211,10 +216,21 @@ static const char *custom_modes_map_car(void)
     return "car_90a.mdl";
 }
 
-static void custom_modes_tick(void)
+static void custom_modes_tick(menu *m)
 {
     if (custom_modes_page_bg)
         custom_modes_page_bg->flash_time = 5.2f;
+    if (!custom_modes_pending || !m)
+        return;
+    ui_project *ui = menu_ui(m);
+    if (ui_fade_remaining(ui) > 0 || ui_fade_opacity(ui) < .999f)
+        return;
+    if (custom_modes_pending == 1)
+        menu_native_page(m, custom_modes_page_root);
+    else
+        menu_native_page(m, custom_modes_top_root);
+    ui_fade(ui, 1, 0, .25f);
+    custom_modes_pending = 0;
 }
 
 static void custom_modes_attach(menu *m)
@@ -449,12 +465,24 @@ static void custom_modes_attach(menu *m)
                 if (aspec) {
                     free(aspec->image_path);
                     aspec->image_path = strdup("image/gtmode/event/long_A.png");
+                    aspec->x = 4;
+                    aspec->y = 44;
+                    aspec->w = 112;
+                    aspec->h = 24;
+                    aspec->has_geometry = 1;
+                    aspec->scale_x = aspec->scale_y = 1;
                     aspec->visible = 1;
                 }
                 ui_widget *bspec = cm_find(stub, "bspec");
                 if (bspec) {
                     free(bspec->image_path);
                     bspec->image_path = strdup("image/gtmode/event/long_B.png");
+                    bspec->x = 4;
+                    bspec->y = 72;
+                    bspec->w = 112;
+                    bspec->h = 24;
+                    bspec->has_geometry = 1;
+                    bspec->scale_x = bspec->scale_y = 1;
                     bspec->visible = 1;
                 }
                 ui_widget_append(item, stub);
