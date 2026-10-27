@@ -402,7 +402,7 @@ static void custom_modes_attach(menu *m)
                 ui_widget *ticket_img = cm_find(ticket, "image");
                 if (ticket_img) {
                     free(ticket_img->image_path);
-                    ticket_img->image_path = strdup("image/gtmode/event/ticket_long.png");
+                    ticket_img->image_path = strdup("image/gtmode/event/ticket/am_ff.png");
                     ticket_img->visible = 1;
                 }
                 ui_widget_append(item, ticket);
@@ -415,7 +415,7 @@ static void custom_modes_attach(menu *m)
                 car->w = 200;
                 car->h = 90;
                 car->has_geometry = 1;
-                car->visible = 1;
+                car->visible = 0;
                 car->car_normal = 0;
                 car->car_pose_set = 1;
                 car->car_motion = 0;
