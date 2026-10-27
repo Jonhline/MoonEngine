@@ -1396,6 +1396,13 @@ static void elim_stop(gt4_race_run *r, int id)
     GT4_F32(car + CAR_LAT_SPEED) = 0;
     GT4_F32(car + CAR_ABS_SPEED) = 0;
     GT4_U8(car + CAR_VIBRATION_ON) = 1;
+    GT4_U8(car + CAR_5B6) = 1;
+    fprintf(stderr,
+            "custom modes: stop id=%d pos=%.2f,%.2f,%.2f speed=%.2f vel=%.2f,%.2f,%.2f passable=%d finish=%d\n",
+            id, r->elim_pos[id][0], r->elim_pos[id][1], r->elim_pos[id][2],
+            GT4_F32(car + CAR_SPEED), GT4_F32(car + CAR_VELOCITY),
+            GT4_F32(car + CAR_VELOCITY + 4), GT4_F32(car + CAR_VELOCITY + 8),
+            GT4_U8(car + CAR_VIBRATION_ON), GT4_U8(car + CAR_5B6));
 }
 
 static void elim_hold(gt4_race_run *r)
@@ -1440,9 +1447,11 @@ static void elim_end(gt4_race_run *r, int winner)
         }
     }
     if (r->eliminated[0]) {
-        uint32_t car = elim_car(r, 0);
-        if (car)
-            GT4_U8(car + CAR_5B6) = 1;
+        for (int id = 0; id < r->cars + r->phantom_count && id < MOON_MAX_CARS; id++) {
+            uint32_t car = elim_car(r, id);
+            if (car)
+                GT4_U8(car + CAR_5B6) = 1;
+        }
     }
     r->elim_msg_frame = r->frames;
     fprintf(stderr, "custom modes: race over, winner=%d player_eliminated=%d\n", winner,
