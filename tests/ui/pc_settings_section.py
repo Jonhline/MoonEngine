@@ -38,6 +38,8 @@ with tempfile.TemporaryDirectory(dir=output) as temporary:
             title = "Screen Settings"
         assert f"focus={tile}\n" in log, log
         assert f"video settings: page {title}\n" in log, log
+    log = run("tweaks", ["down", "down", "accept"])
+    assert "focus=PcTweaks\n" in log and "video settings: page Tweaks\n" in log, log
     log = run("screen", ["right", "right", "accept"])
     assert "video settings: page Screen Settings\n" in log, log
     # back from a PC page lands on its tile, not on Screen (the script's own item)
@@ -47,7 +49,8 @@ with tempfile.TemporaryDirectory(dir=output) as temporary:
     # Controllers: by player, Steering is the row's last tile, so right goes on to Exit (no
     # Driving Force Pro after it); Classic keeps the disc's ten tiles. Controller 1P opens
     # the button config.
-    controllers = ["down"] * 5 + ["right"] * 4
+    # the Tweaks tile has its own row under PC Settings
+    controllers = ["down"] * 6 + ["right"] * 4
     for preset in ("Enhanced", "Classic"):
         config.write_text(f"preset={preset}\ngraphics.renderer=opengl\n", encoding="utf-8", newline="")
         log = run("controllers-" + preset, controllers, "0.5")
@@ -55,6 +58,6 @@ with tempfile.TemporaryDirectory(dir=output) as temporary:
         last = [line for line in log.splitlines() if line.startswith("input ")][-1]
         assert last.endswith("focus=Exit") == by_player, log
     config.write_text("preset=Enhanced\ngraphics.renderer=opengl\n", encoding="utf-8", newline="")
-    log = run("controller-1p", ["down"] * 5 + ["right", "accept"], "0.5")
+    log = run("controller-1p", ["down"] * 6 + ["right", "accept"], "0.5")
     assert "accept -> option/KeyconfigRoot " in log, log
-print("PC Settings section: five tiles open their pages, Screen keeps the display, back returns to the tile, Controllers by player")
+print("PC Settings section: six tiles open their pages, Screen keeps the display, back returns to the tile, Controllers by player")

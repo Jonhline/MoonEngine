@@ -111,6 +111,8 @@ void r3d_lamp_shadow_bind(r3d_lamp_shadow *atlas);
 void r3d_modern_lighting(int enabled);
 int r3d_modern_lighting_enabled(void);
 void r3d_shadow_map_quality(int mode);
+/* graphics.shadow_filter: 0 Soft (sixteen taps), 1 Fast (four taps). */
+void r3d_shadow_filter(int fast);
 int r3d_shadow_map_size(void);
 typedef struct r3d_shadow_map r3d_shadow_map;
 void r3d_shadow_map_destroy(r3d_shadow_map *map);

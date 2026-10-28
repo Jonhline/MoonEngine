@@ -181,13 +181,19 @@ bool compile(Program &p)
         return false;
     }
 }
-VkSampler Context::sampler(const Image &im)
+VkSampler Context::sampler(Image &im)
 {
     std::array<int, 7> key = {im.min_filter, im.mag_filter, im.wrap_s,
                               im.wrap_t,     im.max_level,  im.levels, im.anisotropy};
+    /* Each image remembers its last sampler; the shared map is the fallback. */
+    if (im.sampler && im.sampler_key == key)
+        return im.sampler;
     auto found = samplers.find(key);
-    if (found != samplers.end())
+    if (found != samplers.end()) {
+        im.sampler = found->second;
+        im.sampler_key = key;
         return found->second;
+    }
     VkSamplerCreateInfo info{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
     info.magFilter = im.mag_filter == GL_NEAREST ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
     info.minFilter = im.min_filter == GL_NEAREST || im.min_filter == GL_NEAREST_MIPMAP_NEAREST ||
@@ -217,6 +223,8 @@ VkSampler Context::sampler(const Image &im)
     VkSampler result;
     check(vkCreateSampler(device, &info, nullptr, &result), "vkCreateSampler");
     samplers[key] = result;
+    im.sampler = result;
+    im.sampler_key = key;
     return result;
 }
 VkRenderPass Context::render_pass(VkFormat color, VkFormat depth, bool first)
@@ -330,9 +338,14 @@ VkPipeline pipeline(Context &c, Program &p, VkRenderPass pass, GLenum topology)
             key[20 + i * 3] = attribute_format(a);
             key[21 + i * 3] = a.stride;
         }
+    if (p.last_pipeline && p.last_key == key)
+        return p.last_pipeline;
     auto found = p.pipelines.find(key);
-    if (found != p.pipelines.end())
+    if (found != p.pipelines.end()) {
+        p.last_key = key;
+        p.last_pipeline = found->second;
         return found->second;
+    }
     VkPipelineShaderStageCreateInfo stages[2]{};
     stages[0].sType = stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -427,6 +440,8 @@ VkPipeline pipeline(Context &c, Program &p, VkRenderPass pass, GLenum topology)
                                 SDL_GetPerformanceFrequency();
     c.statistics.pipeline_creations++;
     p.pipelines[key] = result;
+    p.last_key = key;
+    p.last_pipeline = result;
     c.remember_pipeline(p, pass, topology);
     return result;
 }
@@ -438,9 +453,22 @@ VkDescriptorSet Context::draw_descriptors(const Program &p)
     unsigned sampler_count = p.sampler_count;
     for (unsigned index = 0; index < sampler_count; index++) {
         const auto &u = p.uniforms[p.sampler_uniforms[index]];
-        unsigned texture = u.unit >= 0 && u.unit < 16 ? state.textures[u.unit] : 0;
-        auto found = textures.find(texture);
-        auto *im = found != textures.end() && found->second ? found->second.get() : white.get();
+        int unit = u.unit >= 0 && u.unit < 16 ? u.unit : -1;
+        unsigned texture = unit >= 0 ? state.textures[unit] : 0;
+        if (unit_version != texture_version) {
+            unit_texture.fill(0);
+            unit_image.fill(nullptr);
+            unit_version = texture_version;
+        }
+        Image *im = unit >= 0 && unit_texture[unit] == texture ? unit_image[unit] : nullptr;
+        if (!im) {
+            auto found = textures.find(texture);
+            im = found != textures.end() && found->second ? found->second.get() : white.get();
+            if (unit >= 0) {
+                unit_texture[unit] = texture;
+                unit_image[unit] = im;
+            }
+        }
         if (im->layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
             if (pass_color || pass_depth)
                 barrier();
@@ -457,9 +485,14 @@ VkDescriptorSet Context::draw_descriptors(const Program &p)
         key[2 + i * 2] = (uint64_t)images[i].imageView;
     }
     if (!uncached_descriptors) {
+        if (last_set && last_set_key == key)
+            return last_set;
         auto found = draw_sets.find(key);
-        if (found != draw_sets.end())
+        if (found != draw_sets.end()) {
+            last_set = found->second;
+            last_set_key = key;
             return found->second;
+        }
     }
     VkDescriptorSetAllocateInfo allocation{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     allocation.descriptorPool = descriptor_pool;
@@ -486,8 +519,11 @@ VkDescriptorSet Context::draw_descriptors(const Program &p)
     }
     vkUpdateDescriptorSets(device, sampler_count + 1, writes.data(), 0, nullptr);
     statistics.descriptor_updates++;
-    if (!uncached_descriptors)
+    if (!uncached_descriptors) {
         draw_sets.emplace(key, set);
+        last_set = set;
+        last_set_key = key;
+    }
     return set;
 }
 VkFramebuffer Context::target_framebuffer(Image &color, Image *depth, VkRenderPass pass)
@@ -635,6 +671,10 @@ void Context::draw(GLenum topology, int first, int count)
         begin.renderPass = pass;
         begin.framebuffer = fb;
         begin.renderArea.extent = {(uint32_t)target->width, (uint32_t)target->height};
+        if (pass_queries)
+            pass_mark("pass " + std::to_string(target->width) + "x" + std::to_string(target->height) +
+                      " f" + std::to_string(target->format) + (z ? " d" + std::to_string(z->format) : "") +
+                      " p" + std::to_string(state.program));
         vkCmdBeginRenderPass(command, &begin, VK_SUBPASS_CONTENTS_INLINE);
         statistics.passes++;
         pass_color = views[0];
@@ -664,6 +704,8 @@ void Context::draw(GLenum topology, int first, int count)
             binding_count = i + 1;
     bind_draw_state(selected_pipeline, viewport, clip, binding_count, vertex_handles, offsets);
     vkCmdDraw(command, count, 1, base_vertices ? first : 0, 0);
+    if (!pass_draws.empty())
+        pass_draws.back()++;
     if (profile_draws) {
         uint64_t end = SDL_GetPerformanceCounter(), frequency = SDL_GetPerformanceFrequency();
         statistics.cpu_prepare_ns += (descriptors_start - prepare_start) * 1000000000ull / frequency;

@@ -22,6 +22,14 @@
 "  if(any(lessThan(q,vec3(0.)))||any(greaterThan(q,vec3(1.))))return vec2(1.,0.);\n"
 "  float bias=.25/float(size.x);vec2 shadow=vec2(0.);float weight=0.;\n"
 "  ivec2 at=ivec2(floor(q.xy*vec2(size)));\n"
+/* P, graphics.shadow_filter Fast: four bilinear taps at +-0.888 tap spacing,
+   the standard deviation of the sixteen Gaussian-weighted Soft taps, so the
+   penumbra keeps its width with a quarter of the comparisons. */
+"  if(u_shadow_on==2)for(int y=0;y<2;y++)for(int x=0;x<2;x++){vec2 kernel=(vec2(x,y)-.5)*1.776;weight+=1.;vec2 at=(q.xy+kernel*((u_daylight>0?.18:.09)/(u_daylight>0?128.:32.)))*vec2(size)-.5;ivec2 p=ivec2(floor(at));vec2 f=fract(at);\n"
+"    vec2 a=shadowCompare(p,q,gradient,bias,size),b=shadowCompare(p+ivec2(1,0),q,gradient,bias,size);\n"
+"    vec2 c=shadowCompare(p+ivec2(0,1),q,gradient,bias,size),d=shadowCompare(p+ivec2(1,1),q,gradient,bias,size);\n"
+"    shadow+=mix(mix(a,b,f.x),mix(c,d,f.x),f.y);\n"
+"  } else\n"
 "  for(int y=0;y<4;y++)for(int x=0;x<4;x++){vec2 kernel=vec2(x,y)-1.5;float w=exp(-dot(kernel,kernel)*.5);weight+=w;vec2 at=(q.xy+kernel*((u_daylight>0?.18:.09)/(u_daylight>0?128.:32.)))*vec2(size)-.5;ivec2 p=ivec2(floor(at));vec2 f=fract(at);\n"
 "    vec2 a=shadowCompare(p,q,gradient,bias,size),b=shadowCompare(p+ivec2(1,0),q,gradient,bias,size);\n"
 "    vec2 c=shadowCompare(p+ivec2(0,1),q,gradient,bias,size),d=shadowCompare(p+ivec2(1,1),q,gradient,bias,size);\n"

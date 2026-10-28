@@ -28,4 +28,5 @@ with tempfile.TemporaryDirectory(dir=output) as directory:
             assert "choice Lighting/OptionMenu" in log, log
             assert "choice Daylight/OptionMenu" in log, log
             assert "choice CarLamps/OptionMenu" in log, log
-print("PASS all six settings pages and the three intended Light & Shadow controls")
+            assert "choice ShadowFilter/OptionMenu" in log, log
+print("PASS all six settings pages and the four intended Light & Shadow controls")

@@ -83,6 +83,31 @@ static GLuint gpu_environment;
 static int gpu_environment_w, gpu_environment_h;
 #endif
 static float projection_x = 1;
+/* Debug switches are read once per r3d_begin: getenv scans the environment
+   block and was called for every mesh and draw. Tests change some between
+   frames. */
+typedef struct {
+    unsigned frame;
+    signed char value;
+} r3d_env_slot;
+static unsigned r3d_env_frame = 1;
+static inline int r3d_env_flag(const char *name, r3d_env_slot *slot)
+{
+    if (slot->frame != r3d_env_frame) {
+        slot->value = getenv(name) != NULL;
+        slot->frame = r3d_env_frame;
+    }
+    return slot->value;
+}
+static inline int r3d_env_one(const char *name, r3d_env_slot *slot)
+{
+    if (slot->frame != r3d_env_frame) {
+        const char *value = getenv(name);
+        slot->value = value && *value == '1';
+        slot->frame = r3d_env_frame;
+    }
+    return slot->value;
+}
 static GLuint wheel_program, wheel_vao;
 static struct {
     GLint points, extent, source, scanmask, copy;
@@ -90,7 +115,7 @@ static struct {
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)
 /* Diagnostic choices are sampled at the view boundary, not for every mesh. */
 static struct {
-    int cache_materials, batch_opaque, spatial, texture_filter, car_shadows, material_shading, reflection_quality, shadow_map_quality, modern_lighting, daylight, solar_hour, solar_cycle;
+    int cache_materials, batch_opaque, spatial, texture_filter, car_shadows, material_shading, reflection_quality, shadow_map_quality, shadow_filter, modern_lighting, daylight, solar_hour, solar_cycle;
 #if !defined(__ANDROID__)
     r3d_shadow_map *shadow_map;
 #endif
@@ -143,6 +168,10 @@ void r3d_shadow_map_quality(int mode)
 {
     pc_submission.shadow_map_quality = mode >= 0 && mode <= 3 ? mode : 0;
 }
+void r3d_shadow_filter(int fast)
+{
+    pc_submission.shadow_filter = fast != 0;
+}
 int r3d_shadow_map_size(void)
 {
     return pc_submission.shadow_map_quality ? 256 << pc_submission.shadow_map_quality : 0;
@@ -175,7 +204,8 @@ void r3d_scene_options(int spatial, int resident_reflections)
 }
 int r3d_resident_reflections(void)
 {
-    return scene_resident_reflections && getenv("MOON_REFLECTION_CPU") == NULL;
+    static r3d_env_slot cpu;
+    return scene_resident_reflections && !r3d_env_flag("MOON_REFLECTION_CPU", &cpu);
 }
 #endif
 static r3d_stats frame_stats;
@@ -442,7 +472,7 @@ static const char *fs =
     "  } else src=min(vec3(1.),t.rgb*light*(u_has_tex==1?1.:u_untex)+spec);\n"
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
     "  vec3 retainedNight=src;bool linearOutput=false;\n"
-    "  vec2 occlusion=u_shadow_on==1?shadowVisibility():vec2(1.,0.);float visibility=occlusion.x;\n"
+    "  vec2 occlusion=u_shadow_on>0?shadowVisibility():vec2(1.,0.);float visibility=occlusion.x;\n"
     "  if(u_modern_lighting==1 && u_mode==0 && u_flat==0 && u_nlights>0){src=modernShade(t.rgb,visibility,occlusion.y,src,reflectedEnvironment);linearOutput=u_hdr==1;}else if(u_daylight==0)src*=visibility;\n"
 #endif
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
@@ -998,15 +1028,17 @@ void r3d_begin(float x, float y, float w, float h, const tex1_image *environment
 {
     accumulate_work(&completed_work, &frame_stats);
     memset(&frame_stats, 0, sizeof frame_stats);
+    r3d_env_frame++;
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)
-    int reference = getenv("MOON_RENDER_REFERENCE") != NULL;
+    static r3d_env_slot reference_env, repeat_env, no_batch_env, flat_env;
+    int reference = r3d_env_flag("MOON_RENDER_REFERENCE", &reference_env);
     pc_submission.cache_materials = !reference;
 #ifdef MOON_PC_VULKAN
-    if (moon_vk_render_active() && getenv("MOON_VK_REPEAT_COMMANDS"))
+    if (moon_vk_render_active() && r3d_env_flag("MOON_VK_REPEAT_COMMANDS", &repeat_env))
         pc_submission.cache_materials = 0;
 #endif
-    pc_submission.batch_opaque = !reference && getenv("MOON_RENDER_NO_BATCH") == NULL;
-    pc_submission.spatial = scene_spatial && getenv("MOON_FLAT_VISIBILITY") == NULL;
+    pc_submission.batch_opaque = !reference && !r3d_env_flag("MOON_RENDER_NO_BATCH", &no_batch_env);
+    pc_submission.spatial = scene_spatial && !r3d_env_flag("MOON_FLAT_VISIBILITY", &flat_env);
 #endif
 
 #ifndef MOON_DEKO3D
@@ -1625,6 +1657,64 @@ static int wheel_accumulate(r3d_texture *t, int samples, float angle)
 #include "render3d_cloud_cache.inc"
 #include "render3d_environment_cache.inc"
 #endif
+/* The window rectangle a group can cover: its box projected as the vertex
+   shader does, two pixels wider, clipped to the viewport. DATE reads the
+   copied alpha only under the group's own fragments, so copying this
+   rectangle instead of the whole viewport gives the same image. A box
+   reaching behind the eye keeps the whole viewport. MOON_DATE_FULL: old copy. */
+static void date_rect(const r3d_view *view, const r3d_group *g, int skinned, int rect[4])
+{
+    rect[0] = vp[0];
+    rect[1] = vp[1];
+    rect[2] = vp[0] + vp[2];
+    rect[3] = vp[1] + vp[3];
+    static r3d_env_slot full;
+    if (r3d_env_flag("MOON_DATE_FULL", &full))
+        return;
+    float lo[3], hi[3];
+    const float *bound_lo = g->lo, *bound_hi = g->hi;
+    if (skinned) {
+        r3d_skin_bounds(g->lo, g->hi, g->bone_mask, g->weight_lo, g->weight_hi, view->skin_palette,
+                        lo, hi);
+        bound_lo = lo;
+        bound_hi = hi;
+    }
+    float fx = view->focal / 320 * projection_x,
+          fy = (view->focal_y > 0 ? view->focal_y : view->focal) / 224;
+    float x0 = 1e30f, y0 = 1e30f, x1 = -1e30f, y1 = -1e30f;
+    for (int corner = 0; corner < 8; corner++) {
+        float p[3], w[3];
+        for (int k = 0; k < 3; k++)
+            p[k] = corner & (1 << k) ? bound_hi[k] : bound_lo[k];
+        for (int r = 0; r < 3; r++)
+            w[r] = view->rot[r * 3] * p[0] + view->rot[r * 3 + 1] * p[1] +
+                   view->rot[r * 3 + 2] * p[2] + view->pos[r];
+        if (view->mirror)
+            w[1] = -w[1];
+        for (int k = 0; k < 3; k++)
+            w[k] -= view->cam[k];
+        float x = w[0] * view->r[0] + w[1] * view->r[1] + w[2] * view->r[2],
+              y = w[0] * view->u[0] + w[1] * view->u[1] + w[2] * view->u[2],
+              z = w[0] * view->f[0] + w[1] * view->f[1] + w[2] * view->f[2];
+        if (!(z > 1e-3f) || !isfinite(x) || !isfinite(y))
+            return;
+        float sx = x * fx / z + view->jitter[0], sy = y * fy / z + view->jitter[1];
+        x0 = fminf(x0, sx);
+        x1 = fmaxf(x1, sx);
+        y0 = fminf(y0, sy);
+        y1 = fmaxf(y1, sy);
+    }
+    float px0 = vp[0] + (x0 + 1) * .5f * vp[2] - 2, px1 = vp[0] + (x1 + 1) * .5f * vp[2] + 2,
+          py0 = vp[1] + (y0 + 1) * .5f * vp[3] - 2, py1 = vp[1] + (y1 + 1) * .5f * vp[3] + 2;
+    if (px0 > rect[0])
+        rect[0] = px0 < rect[2] ? (int)floorf(px0) : rect[2];
+    if (px1 < rect[2])
+        rect[2] = px1 > rect[0] ? (int)ceilf(px1) : rect[0];
+    if (py0 > rect[1])
+        rect[1] = py0 < rect[3] ? (int)floorf(py0) : rect[3];
+    if (py1 < rect[3])
+        rect[3] = py1 > rect[1] ? (int)ceilf(py1) : rect[1];
+}
 static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *lights)
 {
     if (!mesh || !program)
@@ -1636,7 +1726,8 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
 #endif
     float planes[6][4];
     r3d_frustum(view, projection_x, planes);
-    int cull = getenv("MOON_DISABLE_CULL") == NULL;
+    static r3d_env_slot no_cull;
+    int cull = !r3d_env_flag("MOON_DISABLE_CULL", &no_cull);
     float wheel_angle = view->wheel_interval;
     if (view->wheel_blur > 1) {
         /* 004522D8 +A8..+C0: exp(-20 * screen displacement). The PC
@@ -1673,7 +1764,8 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
     }
     glUseProgram(program);
 #if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
-    glUniform1i(U.switch_fast, getenv("MOON_SWITCH_SHADER_REFERENCE") == NULL);
+    static r3d_env_slot shader_reference;
+    glUniform1i(U.switch_fast, !r3d_env_flag("MOON_SWITCH_SHADER_REFERENCE", &shader_reference));
 #endif
     int skinned = mesh->skinned && view->skin_palette != NULL;
     glUniform1i(U.skinned, skinned);
@@ -1792,7 +1884,8 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
     GLuint last_texture_id = 0;
     int texture_valid = 0;
 #if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
-    int cache_textures = getenv("MOON_SWITCH_UNCACHED") == NULL;
+    static r3d_env_slot uncached;
+    int cache_textures = !r3d_env_flag("MOON_SWITCH_UNCACHED", &uncached);
     int batch_opaque = cache_textures;
 #else
     int cache_textures = pc_submission.cache_materials;
@@ -1801,8 +1894,9 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
     const r3d_group *last_draw_state = NULL;
     GLint date_read_fb = 0, date_draw_fb = 0;
     int date_framebuffer_known = 0;
-    int no_reflect = getenv("MOON_NO_REFLECT") != NULL;
-    int only_reflect = getenv("MOON_ONLY_REFLECT") != NULL;
+    static r3d_env_slot no_reflect_env, only_reflect_env;
+    int no_reflect = r3d_env_flag("MOON_NO_REFLECT", &no_reflect_env);
+    int only_reflect = r3d_env_flag("MOON_ONLY_REFLECT", &only_reflect_env);
     int spatial = 0;
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)
     /* Authored course lists already restrict model ranges. A global spatial
@@ -2023,8 +2117,10 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
                 glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
                                        dest_tex, 0);
                 glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)draw_fb);
-                glBlitFramebuffer(vp[0], vp[1], vp[0] + vp[2], vp[1] + vp[3], vp[0], vp[1],
-                                  vp[0] + vp[2], vp[1] + vp[3], GL_COLOR_BUFFER_BIT, GL_NEAREST);
+                int rect[4];
+                date_rect(view, g, skinned, rect);
+                glBlitFramebuffer(rect[0], rect[1], rect[2], rect[3], rect[0], rect[1], rect[2],
+                                  rect[3], GL_COLOR_BUFFER_BIT, GL_NEAREST);
                 glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)read_fb);
                 glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)draw_fb);
             }

@@ -35,7 +35,7 @@ static void prepare_shadow_map(race_view *v, const r3d_view *car, int split_entr
 
     v->mapped_shadow_ready = 0;
     r3d_shadow_map_bind(NULL);
-    if (!r3d_shadow_map_size() || !v->now->shadow || getenv("MOON_NO_CAST_SHADOW"))
+    if (!r3d_shadow_map_size() || !v->now->shadow || rv_env("MOON_NO_CAST_SHADOW"))
         return;
     const float *centre = split_entry > 0 && v->other_pose[split_entry - 1].on
                               ? v->other_pose[split_entry - 1].pos

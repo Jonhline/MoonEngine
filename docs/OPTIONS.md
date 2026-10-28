@@ -10,12 +10,13 @@ settings. The plan behind it is in [Editions](EDITIONS.md).
 |---|---|
 | **Classic** | Every setting at the PS2 behaviour. The game is the original; fidelity ([FIDELITY.md](FIDELITY.md)) is measured with Classic and no mods. |
 | **Enhanced** | The project's recommended improvements. |
+| **Performance** | PC only: Enhanced with the Fast shadow filter, for weaker graphics cards (about 4 ms less GPU time a frame at 1080p on a GTX 1650). Same physics and race. |
 | **Player presets** | Named combinations the player saves, loads, renames and deletes. |
 
 A preset only fills in settings. After choosing one, the player can change
 any setting; the set is then shown as modified (for example "Enhanced,
-modified") until it is saved as a player preset. Classic and Enhanced
-themselves cannot be overwritten.
+modified") until it is saved as a player preset. Classic, Enhanced and
+Performance themselves cannot be overwritten.
 
 ## Rules for every non-original change
 
@@ -86,6 +87,7 @@ player presets): lowercase, dotted by category, for example
 | graphics.hdr | Graphics | RGBA16F main scene, SDR filmic resolve and restrained bloom before UI/FSR | Off (0) | On (1) | Next scene; float attachment rebuild | No | Options > PC Settings > Light & Shadow > HDR | Secondary: yes; official: no | 2026-10-18 |
 | graphics.sun_rays | Graphics | Off (0), retained screen-space shafts (1), shadow-mapped world-space volumetric integration (2); requires HDR/Daylight | Off (0) | Volumetric (2) | Next scene; choosing Volumetric enables HDR/Daylight | No; presentation only | Options > PC Settings > Light & Shadow > Sun Rays | Shared launcher API | 2026-10-18 |
 | graphics.ambient_occlusion | Graphics | Optional depth-based cavity/contact shading; screen-space approximation requiring HDR/Daylight | Off (0) | On (1) | Next scene; selecting On enables HDR/Daylight | No; presentation only | Options > PC Settings > Light & Shadow > Ambient Occlusion | Shared launcher API and personal presets | 2026-10-18 |
+| graphics.shadow_filter | Graphics | Shadow-map receiver filter: Soft blends sixteen weighted bilinear taps; Fast blends four at the same spread (a quarter of the depth comparisons, slightly harder edges, mostly on the car body's own shadow) | Soft (0); shadow maps off | Soft (0); Performance preset: Fast (1) | Next shadowed draw | No; presentation only | Options > PC Settings > Light & Shadow > Shadow Filter | Shared launcher API and personal presets | 27 October 2026 |
 | controls.touch_menu | Controls and input | Switch handheld and Android first tap selects/previews, Android pause cards use authored actor identities, second tap on the same item confirms, direct list/map drag, parameter bars and native confirmation/profile buttons; ignores duplicate mouse events; hides cursor artwork after touch and restores it on controller input; retains desktop scenario-specific hover between taps, uses second-press compression without added colored overlays or instructional text; original green Exit fallback appears only after touch on screens lacking an existing return control (including pause) | Off; controller navigation | On | After OK, menu input boundary | No; no simulation change | Options > Screen Settings > Touch Menus (Switch); Controls > Touch Menus (Android) | não | This change |
 | controls.touch_race | Controls and input | Android-only multitouch race overlay routed through the existing pad configuration; external controllers hide and supersede it | Off; physical controller | On | After OK, Android input boundary | Resulting ordinary pad commands are recorded; layout is not simulation state | Options > Screen Settings > Controls > Race Touch Controls (Android) | no | Android foundation |
 | controls.touch_size | Controls and input | Small/Medium/Large Android race buttons and steering area | Medium; overlay off | Medium | After OK, Android input/presentation boundary | No; ordinary commands are recorded | Options > Screen Settings > Controls > Control Size (Android) | no | Android foundation |

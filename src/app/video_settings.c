@@ -99,6 +99,7 @@ static void quality(const pc_video_options *v)
     r3d_material_shading(v->material_shading);
     r3d_reflection_quality(v->reflection_quality);
     r3d_shadow_map_quality(v->shadow_maps);
+    r3d_shadow_filter(v->shadow_filter);
     r3d_modern_lighting(v->modern_lighting);
     r3d_daylight_options(v->daylight,video_settings_solar_hour(v),v->solar_cycle);
     video_hdr_options(v->hdr,v->sun_rays);
@@ -149,7 +150,7 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     s->current.reflection_quality = 1;
     s->current.shadow_maps = 2;
     s->current.modern_lighting = 1;
-    s->current.daylight=1;s->current.solar_hour=24;s->current.solar_cycle=1;s->current.hdr=1;s->current.sun_rays=0;s->current.ambient_occlusion=1;
+    s->current.daylight=1;s->current.solar_hour=24;s->current.solar_cycle=1;s->current.hdr=1;s->current.sun_rays=0;s->current.ambient_occlusion=1;s->current.shadow_filter=0;
 #ifndef __SWITCH__
     s->current.desktop = s->current.edge_pan = s->current.input_hints = s->current.main_menu = s->current.smooth_cursor = s->current.hover_feedback = 1;
     s->current.compact_cars = 1;
@@ -244,6 +245,7 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     s->current.hdr=moon_options_int(&s->store,"graphics.hdr",enhanced,0,1);
     s->current.sun_rays=moon_options_int(&s->store,"graphics.sun_rays",enhanced*2,0,2);
     s->current.ambient_occlusion=moon_options_int(&s->store,"graphics.ambient_occlusion",enhanced,0,1);
+    s->current.shadow_filter=moon_options_int(&s->store,"graphics.shadow_filter",!strcmp(s->store.preset,"Performance"),0,1);
     s->current.solar_cycle=moon_options_int(&s->store,"graphics.solar_cycle",enhanced,0,2);
     video_options_realistic_skybox(&s->current,s->current.daylight);
     video_options_realistic_lighting(&s->current,s->current.modern_lighting);
@@ -331,10 +333,10 @@ static void save(video_settings *s)
     }
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
     const char *quality_keys[] = {"graphics.antialiasing", "graphics.render_scale",
-                                  "graphics.texture_smoothing", "graphics.texture_filtering", "graphics.car_shadows", "graphics.material_shading", "graphics.reflection_quality", "graphics.shadow_maps", "graphics.modern_lighting", "graphics.daylight", "graphics.solar_hour", "graphics.solar_cycle","graphics.hdr","graphics.sun_rays","graphics.ambient_occlusion"};
+                                  "graphics.texture_smoothing", "graphics.texture_filtering", "graphics.car_shadows", "graphics.material_shading", "graphics.reflection_quality", "graphics.shadow_maps", "graphics.modern_lighting", "graphics.daylight", "graphics.solar_hour", "graphics.solar_cycle","graphics.hdr","graphics.sun_rays","graphics.ambient_occlusion","graphics.shadow_filter"};
     moon_options_set(&s->store,"graphics.night_sky",v->night_sky?"1":"0");
     moon_options_set(&s->store,"graphics.car_lamps",v->car_lamps?"1":"0");
-    const int quality_values[] = {v->antialiasing, v->render_scale, v->texture_smoothing, v->texture_filtering, v->car_shadows, v->material_shading, v->reflection_quality, v->shadow_maps, v->modern_lighting,v->daylight,v->solar_hour,v->solar_cycle,v->hdr,v->sun_rays,v->ambient_occlusion};
+    const int quality_values[] = {v->antialiasing, v->render_scale, v->texture_smoothing, v->texture_filtering, v->car_shadows, v->material_shading, v->reflection_quality, v->shadow_maps, v->modern_lighting,v->daylight,v->solar_hour,v->solar_cycle,v->hdr,v->sun_rays,v->ambient_occlusion,v->shadow_filter};
     for (int i = 0; i < (int)(sizeof quality_values / sizeof quality_values[0]); i++) {
         char value[16];
         snprintf(value, sizeof value, "%d", quality_values[i]);
@@ -379,7 +381,7 @@ static void save(video_settings *s)
         moon_options_set(&s->store, "audio.jukebox_groups", s->preset_draft ? "1" : "0");
     }
     if (s->preset_draft >= 0) {
-        snprintf(s->store.preset, sizeof s->store.preset, "%s", s->preset_draft ? "Enhanced" : "Classic");
+        snprintf(s->store.preset, sizeof s->store.preset, "%s", s->preset_draft == 2 ? "Performance" : s->preset_draft ? "Enhanced" : "Classic");
         s->store.modified = 0;
     }
     if (s->personal_preset[0]) {
@@ -426,7 +428,7 @@ enum {
     VS_DAYLIGHT,VS_SOLAR_HOUR,VS_SOLAR_CYCLE,VS_HDR,VS_SUN_RAYS,
     VS_PRESET_TOOLS, VS_SAVE_TOOLS, VS_AMBIENT_OCCLUSION, VS_GRAPHICS_SWAP,
     VS_CUSTOM_MUSIC, VS_JUKEBOX_FOLDERS, VS_JUKEBOX_GROUPS, VS_CONTROLLER_TILES,
-    VS_CAR_LAMPS, VS_NIGHT_SKY,
+    VS_CAR_LAMPS, VS_NIGHT_SKY, VS_SHADOW_FILTER,
     VS_SPEED_GROUP,
     VS_SPEED_FOV, VS_SPEED_FOV_DEGREES, VS_SPEED_CAM_LAG, VS_SPEED_SHAKE, VS_SPEED_WIND,
     VS_SPEED_ROAD_ROAR, VS_SPEED_BLUR, VS_SPEED_BLUR_AMOUNT, VS_SPEED_VIGNETTE, VS_DISCORD,
@@ -436,7 +438,14 @@ enum {
     VS_FIELD_SIZE,
     VS_COUNT
 };
-static const char *const vs_preset[] = {"Classic", "Enhanced", "Modified"};
+/* PC Preset values: the built-in presets, then Modified (read only, never set) */
+static const char *const vs_preset[] = {"Classic", "Enhanced", "Performance", "Modified"};
+/* the menu's Modified item: Performance is a PC preset */
+#if defined(__ANDROID__) || defined(__SWITCH__)
+#define VS_MENU_MODIFIED 2
+#else
+#define VS_MENU_MODIFIED 3
+#endif
 static const char *const vs_fps[] = {"Unlimited", "60 FPS",  "90 FPS", "120 FPS",
                                      "144 FPS",   "165 FPS", "240 FPS"};
 static const int vs_fps_values[] = {0, 60, 90, 120, 144, 165, 240};
@@ -454,6 +463,7 @@ static const char *const vs_hours[]={"07:00","08:00","09:00","10:00","11:00","12
 static const char *const vs_rays[]={"Off","Screen Space","Volumetric"};
 static const char *const vs_cycle[]={"Fixed","Real Time","60x"};
 static const char *const vs_modern_lighting[] = {"Off", "On"};
+static const char *const vs_shadow_filter[] = {"Soft", "Fast"};
 static const char *const vs_shadow_maps[] = {"Off (Original)", "Low 512", "High 1024", "Ultra 2048"};
 static const char *const vs_reflection_quality[] = {"Original 128", "High 256", "Ultra 512"};
 static const char *const vs_material_shading[] = {"Original", "Per-Pixel"};
@@ -506,8 +516,8 @@ static const video_setting_info vs_info_values[VS_COUNT] = {
     {"Interface", "Compact Car Strip", "A tighter car list in the garage and dealers.", 2,
      vs_off_on},
     {"General", "PC Preset",
-     "Classic: the PS2 game. Enhanced: the recommended improvements. Any change makes it Modified.",
-     2, vs_preset},
+     "Classic: the PS2 game. Enhanced: the recommended improvements. Performance: Enhanced with the Fast shadow filter. Any change makes it Modified.",
+     3, vs_preset},
     {"Video", "Frame Limit", "The most frames drawn a second.", 7, vs_fps},
     {"Quality", "Anti-Aliasing", "Edge AA smooths the final 3D image; SSAA renders extra pixels.", 5, vs_aa},
     {"Quality", "3D Resolution", "Scene resolution; menus and HUD keep their output resolution.", 3,
@@ -536,6 +546,7 @@ static const video_setting_info vs_info_values[VS_COUNT] = {
     {"Interface","Controller Tiles","By Player: one button config tile per player. Original: a tile per device and port.",2,vs_controller_tiles},
     {"Quality","Realistic Car Lamps","Headlights illuminate nearby surfaces with occlusion; rear and brake lenses emit light. Off restores the PS2 effect.",2,vs_off_on},
     {"Legacy","Night Sky","Twilight, moon and stars. Night courses start at 22:00; requires Daylight.",2,vs_off_on},
+    {"Legacy","Shadow Filter","Soft: sixteen samples for wide shadow edges. Fast: four samples, much less GPU time, slightly harder edges.",2,vs_shadow_filter},
     {"Tweaks","Sense of Speed","Open to show its individual switches. Collapsing hides them; it is not a master switch.",2,vs_closed_open},
     {"Tweaks","Dynamic FOV","Widen the chase lens with speed. Other cameras keep the original lens.",2,vs_off_on},
     {"Tweaks","FOV Amount","Degrees added to the chase lens when Dynamic FOV is on.",12,vs_fov_degrees},
@@ -563,8 +574,15 @@ static void vs_info_init(void)
 }
 
 /* A preset's values for the registered PC options; host size, mode and the API are kept. */
-void video_settings_preset_values(pc_video_options *v, int enhanced)
+int video_settings_builtin_preset(const char *name)
 {
+    for (int i = 0; i < 3; i++)
+        if (name && !strcmp(name, vs_preset[i])) return i;
+    return -1;
+}
+void video_settings_preset_values(pc_video_options *v, int preset)
+{
+    const int enhanced = preset != 0;
     v->car_lamps=enhanced;v->night_sky=enhanced;
     v->preset_tools=v->save_tools=enhanced;
     v->antialiasing = enhanced ? 4 : 0;
@@ -577,6 +595,7 @@ void video_settings_preset_values(pc_video_options *v, int enhanced)
     v->shadow_maps = enhanced * 2;
     v->modern_lighting = enhanced;
     v->daylight=enhanced;v->solar_hour=enhanced?24:5;v->solar_cycle=enhanced;v->hdr=enhanced;v->sun_rays=0;v->ambient_occlusion=enhanced;
+    v->shadow_filter=preset==2; /* Performance: about 4 ms less GPU at 1080p on a GTX 1650 */
     v->filter = enhanced ? 0 : 2;
     v->text = 0;
     v->video.upscale = 0;
@@ -716,13 +735,17 @@ int video_setting_get(const video_settings *s, int i)
     case VS_DISCORD: return v->discord_presence;
     case VS_SAVE_TOOLS: return v->save_tools;
     case VS_AMBIENT_OCCLUSION:return v->ambient_occlusion;
+    case VS_SHADOW_FILTER:return v->shadow_filter;
     /* P: the Jukebox's options live in the store; folders and groups follow the preset */
     case VS_CUSTOM_MUSIC: return moon_options_int(&s->store, "audio.custom_music", 0, 0, 1);
     case VS_JUKEBOX_FOLDERS:
     case VS_JUKEBOX_GROUPS:
         return moon_options_int(&s->store, i == VS_JUKEBOX_FOLDERS ? "audio.jukebox_folders" : "audio.jukebox_groups",
                                 strcmp(s->store.preset, "Classic") != 0, 0, 1);
-    case VS_PRESET: return s->store.modified || (strcmp(s->store.preset,"Classic") && strcmp(s->store.preset,"Enhanced")) ? 2 : strcmp(s->store.preset,"Classic") != 0;
+    case VS_PRESET: {
+        int preset = video_settings_builtin_preset(s->store.preset);
+        return s->store.modified || preset < 0 ? 3 : preset;
+    }
     case VS_FPS:
         for (int k = 0; k < 7; k++)
             if (vs_fps_values[k] == v->fps_limit)
@@ -825,6 +848,7 @@ void video_setting_set(video_settings *s, int i, int value)
     case VS_HDR:v->hdr=value;break;
     case VS_SUN_RAYS:v->sun_rays=value;if(value==2)v->hdr=v->daylight=1;break;
     case VS_AMBIENT_OCCLUSION:v->ambient_occlusion=value;if(value)v->hdr=v->daylight=1;break;
+    case VS_SHADOW_FILTER:v->shadow_filter=value;break;
     case VS_DAYLIGHT:video_options_realistic_skybox(v,value);break;
     case VS_SOLAR_HOUR:v->solar_hour=value;break;
     case VS_SOLAR_CYCLE:v->solar_cycle=value;break;
@@ -834,11 +858,10 @@ void video_setting_set(video_settings *s, int i, int value)
     case VS_PRESET: {
         /* as the Screen Settings page applies it: the registered PC options at the
            preset's values; host size, mode and the API are kept */
-        int enhanced = value == 1;
         s->personal_preset[0]=0;
-        video_settings_preset_values(v, enhanced);
+        video_settings_preset_values(v, value);
         s->draft = s->current;
-        s->preset_draft = enhanced;
+        s->preset_draft = value;
         save(s);
         apply_discord(s);
         s->preset_draft = -1;
@@ -866,7 +889,7 @@ void video_settings_preview_graphics(const video_settings *s, int classic)
         v.texture_smoothing = v.texture_filtering = 0;
         v.car_shadows = v.material_shading = v.reflection_quality = 0;
         v.shadow_maps = v.modern_lighting = 0;
-        v.night_sky = v.car_lamps = v.daylight = v.solar_cycle = v.hdr = v.sun_rays = v.ambient_occlusion = 0;
+        v.night_sky = v.car_lamps = v.daylight = v.solar_cycle = v.hdr = v.sun_rays = v.ambient_occlusion = v.shadow_filter = 0;
         v.filter = 2; v.text = 0;
     }
     quality(&v);
@@ -951,6 +974,7 @@ static void read_draft(video_settings *s)
     v->save_tools=s->choices[32]->focus_index;
     v->graphics_swap = s->choices[37]->focus_index;
     v->night_sky = s->choices[40]->focus_index;
+    v->shadow_filter = s->choices[56]->focus_index;
     v->car_lamps = s->choices[39]->focus_index;
     v->controller_tiles = s->choices[38]->focus_index;
 #endif
@@ -1057,7 +1081,7 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
 #ifndef __ANDROID__
     if(sender==s->choices[26]) {
         int on=sender->focus_index;
-        s->choices[VS_NIGHT_SKY]->focus_index=on;
+        s->choices[40]->focus_index=on;
         s->choices[27]->focus_index=on?24:5;
         s->choices[28]->focus_index=on;
     }
@@ -1076,10 +1100,10 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
         s->choices[29]->focus_index=1;s->choices[26]->focus_index=1;
     }
 #endif
-    if (sender == s->choices[8] && s->choices[8]->focus_index < 2) {
-        int enhanced = s->choices[8]->focus_index;
+    if (sender == s->choices[8] && s->choices[8]->focus_index < VS_MENU_MODIFIED) {
+        int preset = s->choices[8]->focus_index, enhanced = preset != 0;
         s->personal_preset[0]=0; s->personal_modified=0;
-        s->preset_draft = enhanced;
+        s->preset_draft = preset;
 #ifndef __ANDROID__
         s->choices[31]->focus_index = enhanced;
         s->choices[32]->focus_index = enhanced;
@@ -1098,6 +1122,7 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
         s->choices[24]->focus_index = enhanced * 2;
         s->choices[25]->focus_index = enhanced;
         s->choices[26]->focus_index=enhanced;s->choices[27]->focus_index=enhanced?24:5;s->choices[28]->focus_index=enhanced;s->choices[29]->focus_index=enhanced;s->choices[30]->focus_index=0;s->choices[33]->focus_index=enhanced;
+        s->choices[56]->focus_index = preset==2;
         s->choices[42]->focus_index=enhanced;s->choices[43]->focus_index=enhanced?4:0;
         s->choices[44]->focus_index=enhanced;s->choices[45]->focus_index=enhanced;
         s->choices[46]->focus_index=enhanced;s->choices[47]->focus_index=enhanced;
@@ -1142,10 +1167,10 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
         read_draft(s);
 #endif
         s->preset_draft = -1;
-        s->choices[8]->focus_index = 2;
+        s->choices[8]->focus_index = VS_MENU_MODIFIED;
         char caption[96];
         snprintf(caption,sizeof caption,"%s%s",s->personal_preset[0] ? s->personal_preset : "Modified",s->personal_preset[0] ? " (modified)" : "");
-        text(ui_widget_child(ui_option_item(s->choices[8],2),"label"),caption);
+        text(ui_widget_child(ui_option_item(s->choices[8],VS_MENU_MODIFIED),"label"),caption);
         ui_set_tooltips(s->page, "Custom settings (modified preset). Apply with OK.");
     }
 #endif
@@ -1215,7 +1240,7 @@ static const char *hints[] = {
     "Synchronize presentation with the monitor refresh rate.",
     "Native renders at full resolution. FSR 1 improves 3D performance; the UI stays at full resolution.",
     "Use mouse hover, left click, right click and wheel in menus. WASD also navigates. Classic keeps pad-style input.",
-    "Apply Classic or Enhanced defaults to the registered PC options. Individual edits mark the preset as modified.",
+    "Apply Classic, Enhanced or Performance defaults to the registered PC options. Performance is Enhanced with the Fast shadow filter, for less GPU time. Individual edits mark the preset as modified.",
     "Move the GT Mode map near its edges with the mouse. Off keeps the original icon-based navigation.",
     "Show keyboard or controller prompts for the last device used. Off retains the original PS2 symbols.",
     "Reject off-screen spatial blocks before individual draw groups. Off uses the retained flat visibility path; original course lists remain active.",
@@ -1260,7 +1285,10 @@ static const char *hints[] = {
     "A PC-only darkened frame edge. Off leaves the original image.",
     "Show the current course and car on Discord. Off: nothing talks to Discord.",
     "Skip the GT splash and the opening movie; boot straight to the main menu.",
-    "Racing line with braking zones on every track and race."};
+    "Racing line with braking zones on every track and race.",
+    "Off is the original six-car race. On adds extra cars in a second conductor; they can win.",
+    "Total cars when Phantom Opponents is on, including the player's six-car conductor.",
+    "Soft blends sixteen shadow-map samples. Fast blends four over the same width: much less GPU time, slightly harder edges on the car body."};
 static int focus(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv, ah_val *ret)
 {
     (void)vm;
@@ -1330,7 +1358,7 @@ static const int tab_rows[VIDEO_TAB_COUNT][16] = {
     {0, 1, 2, 5, 6, 3, 4, -1},
     {17, 18, 19, 20, 23, 12, 11, -1},
     /* UI row indices are separate from the launcher API's VS_* enum. */
-    {25, 26, 39, -1},
+    {25, 26, 39, 56, -1},
     {7, 10, 14, 15, 13, 9, 16, 37, 38, -1},
     {34, 35, 36, -1},
     {8, 31, 32, -1},
@@ -1340,6 +1368,12 @@ static const char *const page_tiles[VIDEO_TAB_COUNT] = {"", "PcGraphics", "PcLig
                                                         "PcTweaks"};
 static const char *const page_titles[VIDEO_TAB_COUNT] = {
     "Screen Settings", "Graphics", "Light & Shadow", "Controls", "Music", "Presets", "Tweaks"};
+#endif
+/* the Load/Save preset buttons' page; on the PC Tweaks is the last */
+#ifdef __ANDROID__
+enum { VIDEO_TAB_PRESETS = VIDEO_TAB_COUNT - 1 };
+#else
+enum { VIDEO_TAB_PRESETS = 5 };
 #endif
 #ifndef __ANDROID__
 static float pc_pane_center; /* the authored pane's centre; each page is sized around it */
@@ -1402,7 +1436,7 @@ static void layout_tab_rows(video_settings *s, int tab)
               *save_button = ui_widget_child(pane, "SavePreset");
     if (load && save_button) {
         load->y = save_button->y = y;
-        if (tab == VIDEO_TAB_COUNT - 1)
+        if (tab == VIDEO_TAB_PRESETS)
             y += 36;
     }
     ui_widget *buttons = ui_widget_child(pane, "Buttons"), *bg = ui_widget_child(pane, "bg"),
@@ -1692,7 +1726,7 @@ static int enter(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     s->draft = s->current;
     s->preset_draft = -1;
     snprintf(s->personal_preset, sizeof s->personal_preset, "%s",
-             strcmp(s->store.preset,"Classic") && strcmp(s->store.preset,"Enhanced") ? s->store.preset : "");
+             video_settings_builtin_preset(s->store.preset) < 0 ? s->store.preset : "");
     s->personal_modified=s->store.modified;
     s->message[0] = 0;
     s->choices[0]->focus_index = s->current.aspect;
@@ -1767,13 +1801,14 @@ static int enter(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     s->choices[36]->focus_index = video_setting_get(s, VS_JUKEBOX_GROUPS);
     s->choices[37]->focus_index = s->current.graphics_swap;
     s->choices[40]->focus_index=s->current.night_sky;
+    s->choices[56]->focus_index=s->current.shadow_filter;
     s->choices[39]->focus_index = s->current.car_lamps;
     s->choices[38]->focus_index = s->current.controller_tiles;
 #endif
-    s->choices[8]->focus_index = s->personal_preset[0] || s->store.modified ? 2 : strcmp(s->store.preset, "Classic") != 0;
+    s->choices[8]->focus_index = s->personal_preset[0] || s->store.modified ? VS_MENU_MODIFIED : video_settings_builtin_preset(s->store.preset);
     char caption[96];
     snprintf(caption,sizeof caption,"%s%s",s->personal_preset[0] ? s->personal_preset : "Modified",s->personal_preset[0] && s->personal_modified ? " (modified)" : "");
-    text(ui_widget_child(ui_option_item(s->choices[8],2),"label"),caption);
+    text(ui_widget_child(ui_option_item(s->choices[8],VS_MENU_MODIFIED),"label"),caption);
 #endif
 #ifdef __SWITCH__
     s->choices[7]->focus_index=s->current.scene_resolution;
@@ -1823,7 +1858,7 @@ static int enter(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
 #ifdef _WIN32
     ui_widget *pane=ui_widget_child(s->page,"Pane");
     ui_widget *load_button=ui_widget_child(pane,"LoadPreset"), *save_button=ui_widget_child(pane,"SavePreset");
-    int files = s->draft.preset_tools && s->active_tab == VIDEO_TAB_COUNT - 1; /* Presets */
+    int files = s->draft.preset_tools && s->active_tab == VIDEO_TAB_PRESETS;
     if (load_button) load_button->visible=files;
     if (save_button) save_button->visible=files;
 #endif
@@ -1998,7 +2033,7 @@ void video_settings_attach(video_settings *s, menu *m)
 #ifdef __ANDROID__
     const int rows = 18;
 #else
-    const int rows = 41;
+    const int rows = 42;
 #endif
 #endif
 #ifndef __SWITCH__
@@ -2054,7 +2089,7 @@ void video_settings_attach(video_settings *s, menu *m)
                            "RenderScale",
                            "TextureSmoothing", "TextureFiltering", "CarShadows", "MaterialShading", "ReflectionQuality", "ShadowMaps", "Lighting", "Daylight", "SolarTime", "DaylightCycle", "HDR", "SunRays", "PresetFiles", "SaveTransfer", "AmbientOcclusion",
                            "CustomMusic", "JukeboxFolders", "LibraryGroups", "GraphicsSwapKey",
-                           "ControllerTiles", "CarLamps", "NightSky"};
+                           "ControllerTiles", "CarLamps", "NightSky", "ShadowFilter"};
     const char *titles[] = {
         "Aspect Ratio",      "Window Mode",   "Resolution",    "UI Filter",
         "Text Clarity",      "VSync",         "Upscaling",     "Desktop Input",
@@ -2062,7 +2097,7 @@ void video_settings_attach(video_settings *s, menu *m)
         "GPU Reflections",   "Main Menu",     "Smooth Cursor", "Hover Feedback",
         "Compact Car Strip", "Anti-Aliasing", "3D Resolution", "Texture Smoothing", "Texture Filtering", "Car Shadows", "Material Shading", "Reflection Quality", "Shadow Maps", "Realistic Lighting", "Realistic Skybox", "Solar Time", "Sun / Moon Cycle", "HDR", "Sun Rays", "Preset Files", "Save Transfer", "Ambient Occlusion",
         "Custom Music", "Jukebox Folders", "Library Groups", "Graphics Swap Key",
-        "Controller Tiles", "Realistic Car Lamps", "Night Sky"};
+        "Controller Tiles", "Realistic Car Lamps", "Night Sky", "Shadow Filter"};
     ui_widget *sample = ui_widget_copy(ui, row);
     for (int i = pane->nkids - 1; i >= 0; i--) {
         ui_widget *w = pane->kids[i];
@@ -2096,12 +2131,16 @@ void video_settings_attach(video_settings *s, menu *m)
                *clarity[] = {"0%", "25%", "50%", "75%", "100%"}, *toggle[] = {"Off", "On"};
     const char *upscalers[] = {"Native", "FSR Ultra Quality", "FSR Quality", "FSR Balanced",
                                "FSR Performance"};
+#if VS_MENU_MODIFIED == 3
+    const char *presets[] = {"Classic", "Enhanced", "Performance", "Modified"};
+#else
     const char *presets[] = {"Classic", "Enhanced", "Modified"};
+#endif
     const char *controller_tiles[] = {"Original", "By Player"};
     const char *const *lists[] = {
         ratios, modes,  resolutions, filters, clarity, toggle, upscalers, toggle, presets,  toggle,
-        toggle, toggle, toggle,      toggle,  toggle,  toggle, toggle,    vs_aa,  vs_scale, toggle, vs_texture_filtering, vs_car_shadows, vs_material_shading, vs_reflection_quality, vs_shadow_maps, vs_modern_lighting,vs_off_on,vs_hours,vs_cycle,vs_off_on,vs_rays,toggle,toggle,toggle,toggle,toggle,toggle,toggle,controller_tiles,toggle,toggle};
-    int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 5, 3, 2, 5, 2, 2, 3, 4, 2, 2, 25, 3, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
+        toggle, toggle, toggle,      toggle,  toggle,  toggle, toggle,    vs_aa,  vs_scale, toggle, vs_texture_filtering, vs_car_shadows, vs_material_shading, vs_reflection_quality, vs_shadow_maps, vs_modern_lighting,vs_off_on,vs_hours,vs_cycle,vs_off_on,vs_rays,toggle,toggle,toggle,toggle,toggle,toggle,toggle,controller_tiles,toggle,toggle,vs_shadow_filter};
+    int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, VS_MENU_MODIFIED + 1, 2, 2, 2, 2, 2, 2, 2, 2, 5, 3, 2, 5, 2, 2, 3, 4, 2, 2, 25, 3, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 #ifdef __SWITCH__
     const char *scene_sizes[]={"Classic","Balanced","Performance"};
     names[7]="SceneResolution"; titles[7]="3D Resolution"; titles[8]="Preset";
@@ -2134,12 +2173,14 @@ void video_settings_attach(video_settings *s, menu *m)
     lists[15] = mobile_steer;
 #endif
     for (int i = 0; i < rows; i++) {
+        /* row 41 of the list is Shadow Filter, kept after the Tweaks rows 41..55 */
+        const int at = i < 41 ? i : 56;
         ui_widget *w = ui_widget_copy(ui, sample);
         w->name = names[i];
 #ifndef __SWITCH__
         w->type = "Composite";
         w->h = (float)pitch;
-        s->rows[i] = w;
+        s->rows[at] = w;
         w->x = 24;
         widen(w,512);
 #endif
@@ -2150,7 +2191,7 @@ void video_settings_attach(video_settings *s, menu *m)
         text(ui_widget_child(w, "label"), titles[i]);
         ui_widget_append(space ? space : pane, w);
         ui_widget *choice = ui_widget_child(w, "OptionMenu");
-        s->choices[i] = choice;
+        s->choices[at] = choice;
 #ifndef __SWITCH__
         choice->x=256;
         widen(choice,256);

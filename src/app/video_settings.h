@@ -18,7 +18,7 @@ typedef struct {
     int car_lamps, night_sky;
     int compact_cars, preset_tools, save_tools, graphics_swap, controller_tiles;
     int spatial_visibility, resident_reflections;
-    int antialiasing, render_scale, texture_smoothing, texture_filtering, car_shadows, material_shading, reflection_quality, shadow_maps, modern_lighting, daylight, solar_hour, solar_cycle, hdr, sun_rays, ambient_occlusion;
+    int antialiasing, render_scale, texture_smoothing, texture_filtering, car_shadows, material_shading, reflection_quality, shadow_maps, modern_lighting, daylight, solar_hour, solar_cycle, hdr, sun_rays, ambient_occlusion, shadow_filter;
     int speed_fov, speed_fov_degrees, speed_cam_lag, speed_shake, speed_wind, speed_road_roar;
     int speed_blur, speed_blur_amount, speed_vignette;
     int skip_intro;
@@ -83,8 +83,10 @@ void video_settings_apply_current(video_settings *s);
 /* Transient studio comparison: graphics only, never writes preferences. */
 void video_settings_preview_graphics(const video_settings *s, int classic);
 void video_settings_preview_options(const pc_video_options *v);
-/* The Classic (0) or Enhanced (1) preset's values, written into v only. */
-void video_settings_preset_values(pc_video_options *v, int enhanced);
+/* The Classic (0), Enhanced (1) or Performance (2) preset's values, written into v only. */
+void video_settings_preset_values(pc_video_options *v, int preset);
+/* The built-in preset a store names: 0 Classic, 1 Enhanced, 2 Performance, -1 none. */
+int video_settings_builtin_preset(const char *name);
 /* Engine read side for the TWEAKS page; one owner, the active settings. */
 int video_settings_speed_fov(void);
 int video_settings_speed_fov_degrees(void);

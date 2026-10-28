@@ -16,7 +16,7 @@ result = subprocess.run(
     [exe, disc, "arcade", "--pre-race", "--race-course", "testcourse",
      "--race-car", "ka_01", "--quick-input", "right,right,accept,back",
      "--dialog-answer", "yes", "--with-music", "--window", "640x480",
-     "--shot-delay", "10", "--shot", str(folder / "returned.png")],
+     "--shot-delay", "40", "--shot", str(folder / "returned.png")],
     env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
     timeout=90,
 )

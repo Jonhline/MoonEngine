@@ -1684,7 +1684,7 @@ static void studio_clock_draw(const studio_dock *d, float alpha, double seconds)
     if (!d || alpha <= .004f || !wiz_font_init())
         return;
     const float unit = d->fh > 0 ? (float)d->fh / 720.f : 1.f;
-    const float big = 1.15f * unit, small = .38f * unit;
+    const float big = 1.15f * unit, date_scale = .38f * unit;
     const float track_big = 4.4f * unit, track_small = 2.6f * unit;
     const float x = 34.f * unit, y = 54.f * unit;
     time_t now = time(NULL);
@@ -1707,7 +1707,7 @@ static void studio_clock_draw(const studio_dock *d, float alpha, double seconds)
     float time_w = clock_text_width(hh, big, track_big) + track_big +
                    clock_text_width(":", big, track_big) + track_big +
                    clock_text_width(mm, big, track_big);
-    float date_w = clock_text_width(date, small, track_small);
+    float date_w = clock_text_width(date, date_scale, track_small);
     float block_w = fmaxf(time_w, date_w);
 
     /* A soft left-edge fade, then a shadow pass: legible on the white room. */
@@ -1721,7 +1721,7 @@ static void studio_clock_draw(const studio_dock *d, float alpha, double seconds)
     clock_text(":", sx, sy, big, track_big, shadow);
     sx += clock_text_width(":", big, track_big) + track_big;
     clock_text(mm, sx, sy, big, track_big, shadow);
-    clock_text(date, x + 2.f * unit, y + 66.f * unit, small, track_small, shadow);
+    clock_text(date, x + 2.f * unit, y + 66.f * unit, date_scale, track_small, shadow);
 
     const uint8_t ink[4] = {238, 240, 244, (uint8_t)(250 * alpha)},
                   dim[4] = {205, 208, 214, (uint8_t)(220 * alpha)},
@@ -1734,7 +1734,7 @@ static void studio_clock_draw(const studio_dock *d, float alpha, double seconds)
     clock_text(":", tx, y, big, track_big, colon);
     tx += clock_text_width(":", big, track_big) + track_big;
     clock_text(mm, tx, y, big, track_big, ink);
-    clock_text(date, x, y + 66.f * unit, small, track_small, dim);
+    clock_text(date, x, y + 66.f * unit, date_scale, track_small, dim);
     plat_draw_quad(NULL, x, y + 108.f * unit, block_w * .62f, fmaxf(1.f, unit), 0, 0, 1, 1, red);
 }
 
@@ -2135,6 +2135,10 @@ static void app_window_geometry_tick(int force)
 {
     SDL_Window *win = plat_sdl_window();
     if (!app_video_settings || !win)
+        return;
+    /* a hidden (test) window has no geometry of the player's to keep */
+    const char *hidden = getenv("MOON_WINDOW_HIDDEN");
+    if (hidden && !strcmp(hidden, "1"))
         return;
     Uint32 flags = SDL_GetWindowFlags(win);
     int fullscreen = (flags & SDL_WINDOW_FULLSCREEN) != 0;
@@ -4632,6 +4636,7 @@ int main(int argc, char **argv)
     r3d_material_shading(settings.current.material_shading);
     r3d_reflection_quality(settings.current.reflection_quality);
     r3d_shadow_map_quality(settings.current.shadow_maps);
+    r3d_shadow_filter(settings.current.shadow_filter);
     r3d_modern_lighting(settings.current.modern_lighting);
     r3d_daylight_options(settings.current.daylight,video_settings_solar_hour(&settings.current),settings.current.solar_cycle);
     video_hdr_options(settings.current.hdr,settings.current.sun_rays);
@@ -5138,7 +5143,7 @@ int main(int argc, char **argv)
             int preview_others = field_size - 1;
             if (preview_others > MOON_CONDUCTOR_CARS - 1)
                 preview_others = MOON_CONDUCTOR_CARS - 1;
-            race_game_set_field_size(field_size);
+            race_game_set_field_size(race_phantoms_on() ? field_size : 0);
             race_game_set_time_trial(game, race_time_trial);
             gt4_race_desc split = {0};
             split.tire_2p = 1;
@@ -6032,7 +6037,7 @@ int main(int argc, char **argv)
                             snprintf(msg, sizeof msg,
                                      "Cannot read Photo Drive rules or equipped car.");
                     } else {
-                        race_game_set_field_size(field_size);
+                        race_game_set_field_size(race_phantoms_on() ? field_size : 0);
                         started =
                             race_game_start(game, race_course, race_car, race_color, race_other_ptr,
                                             race_other_colors, nothers, msg, sizeof msg);

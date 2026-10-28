@@ -206,6 +206,21 @@ void Context::begin()
         vkCmdResetQueryPool(command, queries, 0, 2);
         vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, queries, 0);
     }
+    if (pass_queries) {
+        vkCmdResetQueryPool(command, pass_queries, 0, 4096);
+        pass_labels.clear();
+        pass_draws.clear();
+        pass_mark("start");
+    }
+}
+void Context::pass_mark(const std::string &label)
+{
+    if (!pass_queries || !recording || pass_labels.size() >= 4095)
+        return;
+    vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, pass_queries,
+                        (uint32_t)pass_labels.size());
+    pass_labels.push_back(label);
+    pass_draws.push_back(0);
 }
 void Context::flush()
 {
@@ -240,6 +255,28 @@ void Context::reset_submission()
             statistics.gpu_samples++;
         }
     }
+    if (pending && pass_queries && pass_labels.size() >= 2) {
+        std::vector<uint64_t> values(pass_labels.size());
+        if (vkGetQueryPoolResults(device, pass_queries, 0, (uint32_t)values.size(),
+                                  values.size() * 8, values.data(), 8,
+                                  VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
+            uint64_t mask = timestamp_bits == 64 ? UINT64_MAX : ((1ull << timestamp_bits) - 1);
+            for (size_t i = 0; i + 1 < values.size(); i++) {
+                auto &t = pass_totals[pass_labels[i]];
+                t.first += ((values[i + 1] - values[i]) & mask) *
+                           (double)properties.limits.timestampPeriod;
+                t.second += pass_draws[i];
+                if (pass_frames == 100 && getenv("MOON_VK_PROFILE_ORDER"))
+                    fprintf(stderr, "pass order: %8.3f ms %5u draws  %s\n",
+                            ((values[i + 1] - values[i]) & mask) *
+                                (double)properties.limits.timestampPeriod / 1e6,
+                            pass_draws[i], pass_labels[i].c_str());
+            }
+            pass_frames++;
+        }
+        pass_labels.clear();
+        pass_draws.clear();
+    }
     pending = timing_written = false;
     check(vkResetFences(device, 1, &fence), "vkResetFences");
     check(vkResetCommandPool(device, pool, 0), "vkResetCommandPool");
@@ -257,6 +294,7 @@ void Context::reset_submission()
     default_vertex_offset = SIZE_MAX;
     descriptor_count = 0;
     draw_sets.clear();
+    last_set = VK_NULL_HANDLE;
     recording = false;
 }
 static VkPipelineStageFlags layout_stage(VkImageLayout layout)
@@ -455,6 +493,10 @@ void Context::blit(Image &src, Image &dst, int sx0, int sy0, int sx1, int sy1, i
     if (!moon_vk_clip_axis(sx0,sx1,src.width,dx0,dx1,dst.width) ||
         !moon_vk_clip_axis(sy0,sy1,src.height,dy0,dy1,dst.height)) return;
     barrier();
+    if (pass_queries)
+        pass_mark("blit " + std::to_string(src.width) + "x" + std::to_string(src.height) + " f" +
+                  std::to_string(src.format) + " -> " + std::to_string(dst.width) + "x" +
+                  std::to_string(dst.height));
     VkImageBlit region{};
     VkImageAspectFlags aspect = is_depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
     region.srcSubresource = {aspect, 0, 0, 1};
@@ -796,6 +838,7 @@ void Context::close()
         if (pipeline_cache)
             vkDestroyPipelineCache(device, pipeline_cache, nullptr);
         textures.clear();
+        texture_version++;
         renderbuffers.clear();
         white.reset();
         screen.reset();
@@ -807,6 +850,8 @@ void Context::close()
         close_submission();
         swap_submission();
         close_submission();
+        if (pass_queries)
+            vkDestroyQueryPool(device, pass_queries, nullptr);
         if (descriptors)
             vkDestroyDescriptorSetLayout(device, descriptors, nullptr);
         for (auto semaphore : present_ready)
@@ -850,6 +895,8 @@ extern "C" int moon_vk_render_open(SDL_Window *window, int vsync)
     c.low_latency = getenv("MOON_VK_LOW_LATENCY") != nullptr;
     c.repeat_commands = getenv("MOON_VK_REPEAT_COMMANDS") != nullptr;
     c.profile_draws = getenv("MOON_VK_PROFILE_DRAWS") != nullptr;
+    if (getenv("MOON_VK_PROFILE_PASSES"))
+        c.low_latency = true;
     c.stream_geometry = getenv("MOON_VK_STREAM_GEOMETRY") != nullptr;
     c.vsync = vsync != 0;
     try {
@@ -936,6 +983,12 @@ extern "C" int moon_vk_render_open(SDL_Window *window, int vsync)
         check(vkCreateDescriptorSetLayout(c.device, &layout, nullptr, &c.descriptors),
               "vkCreateDescriptorSetLayout");
         c.open_pipeline_cache();
+        if (getenv("MOON_VK_PROFILE_PASSES") && c.timestamp_bits) {
+            VkQueryPoolCreateInfo query{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+            query.queryType = VK_QUERY_TYPE_TIMESTAMP;
+            query.queryCount = 4096;
+            check(vkCreateQueryPool(c.device, &query, nullptr, &c.pass_queries), "pass timestamps");
+        }
         c.open_submission();
         c.swap_submission();
         c.open_submission();

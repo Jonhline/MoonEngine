@@ -4671,3 +4671,30 @@ blend curve or duration. The host still uses its prior 0.12-second smoothstep;
 these numbers are NOT recovered PS2 constants. Neither equivalent PCSX2 video
 nor a second-disc timing oracle was captured. This corrects availability and
 classification, not full original transition fidelity. No physics changes.
+
+
+## Race render cost pass, identical image (27 October 2026)
+
+P, PC implementation only: no option, preset or look changes. The destination
+alpha test copies only the screen box a group can cover instead of the whole
+viewport; debug switches are read once per scene instead of per draw; AO reads depth once
+per sample; sun shadow casters reuse their corner transform and merge contiguous
+groups; Vulkan images keep their sampler. Physics unchanged.
+
+C: reference vs new binary on Tsukuba, Hong Kong and Grand Valley East,
+OpenGL and Vulkan, Classic and Enhanced, 120 frames at 1080p: zero changed
+pixels and identical 32 MiB race state in all 12 pairs. GTX 1650 Vulkan GPU, for
+example Grand Valley East Enhanced 21.69 -> 14.96 ms and Classic 10.42 -> 4.86 ms.
+150 focused GL/Vulkan graphics tests pass, negatives included.
+
+A/open: other GPUs (the reported RTX 4050 included), other resolutions and
+cameras, night courses, split screen, Android and Switch. The Enhanced shadow
+filter stays the largest cost (about 5.6 ms here); making it cheaper changes the
+look and needs its own option. [Measurements, tools and what was not kept](RENDERER.md#race-render-cost-pass-27-october-2026).
+
+Second step, same day. P: Vulkan texture-unit, descriptor-set and pipeline caches;
+C: 12 of 12 pairs against 202dcd4 with zero changed pixels and identical race
+state, 155 Vulkan/shadow tests pass. P, option: Shadow Filter Soft (Classic and
+Enhanced, unchanged image) or Fast (four taps; the Performance preset, PC only,
+is Enhanced with Fast). Fast is not the Enhanced image: it differs mostly on the
+car body's own shadow. A: other GPUs, Hong Kong gains nothing.

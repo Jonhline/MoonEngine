@@ -14,7 +14,7 @@ static int draw_projected_shadow(race_view *owner, const race_asset *env, const 
     float opacity = env->shadow_alpha *
                     (sun * (env->shadow_sun - env->shadow_shade) + env->shadow_shade) * level;
     opacity *= meshes->cast_alpha;
-    if (opacity <= 0 || getenv("MOON_NO_CAST_SHADOW"))
+    if (opacity <= 0 || rv_env("MOON_NO_CAST_SHADOW"))
         return 0;
     if (!r3d_car_shadow_begin(&owner->projected_shadow, car, plane, direction))
         return 0;

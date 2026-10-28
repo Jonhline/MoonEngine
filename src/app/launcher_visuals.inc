@@ -263,9 +263,9 @@ static int vis_draw(const studio_dock *d, int id, int theme, int mood, float x, 
         return 1;
     }
     if (vis_is(id, "PC Preset")) {
-        static const char *const names[3] = {"CLASSIC", "ENHANCED", "MODIFIED"},
-                                 *const subs[3] = {"The PS2 game", "All PC additions", "Your own mix"};
-        vis_cards_sub(&c, names, subs, 3, c.v);
+        static const char *const names[4] = {"CLASSIC", "ENHANCED", "PERFORMANCE", "MODIFIED"},
+                                 *const subs[4] = {"The PS2 game", "All PC additions", "Lighter on the GPU", "Your own mix"};
+        vis_cards_sub(&c, names, subs, 4, c.v);
         return 1;
     }
     return 0;

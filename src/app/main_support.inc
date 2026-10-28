@@ -56,6 +56,11 @@ static uint64_t presentation_clock;
 static video_settings *app_video_settings;
 /* race.field_size: the request, validated 1..MOON_MAX_CARS. A refused value
    says its value, the range and the reason, then the stock six is used. */
+/* race.phantoms On: the field_size request reaches the race; Off: the race keeps its cars */
+static int race_phantoms_on(void)
+{
+    return app_video_settings && moon_options_int(&app_video_settings->store, "race.phantoms", 0, 0, 1);
+}
 static int race_field_size_request(void)
 {
     const char *raw = getenv("MOON_RACE_FIELD_SIZE");

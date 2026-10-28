@@ -148,7 +148,7 @@ int main(int argc, char **argv)
     CHECK(s.current.antialiasing==3 && !s.store.modified);
     video_settings_init(&loaded,1,argv[1]);
     CHECK(!strcmp(loaded.store.preset,"Touring") && !loaded.store.modified);
-    CHECK(video_setting_get(&loaded,preset)==2);
+    CHECK(video_setting_get(&loaded,preset)==3); /* a personal preset reads as Modified */
     video_setting_set(&s,smooth,!s.current.texture_smoothing);
     CHECK(s.store.modified && !strcmp(s.store.preset,"Touring"));
     remove(preset_path);
@@ -196,6 +196,18 @@ int main(int argc, char **argv)
     CHECK(!s.current.hdr && !s.current.shadow_maps && !s.current.car_shadows && !s.current.ambient_occlusion);
     const char *hidden[]={"Night Sky","Solar Time","Sun / Moon Cycle","HDR","Sun Rays","Ambient Occlusion","Material Shading","Car Shadows","Shadow Maps"};
     for(unsigned i=0;i<sizeof hidden/sizeof *hidden;i++){int id=setting(hidden[i]);CHECK(id>=0 && !strcmp(video_setting(id)->group,"Legacy"));}
+    /* Performance: Enhanced with the Fast shadow filter, kept across a reload */
+    int shadow_filter=setting("Shadow Filter");
+    CHECK(shadow_filter>=0 && !strcmp(video_setting(shadow_filter)->group,"Legacy"));
+    video_setting_set(&s,preset,2);
+    CHECK(!strcmp(s.store.preset,"Performance") && !s.store.modified && video_setting_get(&s,preset)==2);
+    CHECK(s.current.shadow_filter && s.current.ambient_occlusion && s.current.antialiasing==4 && s.current.shadow_maps==2 && s.current.hdr && s.current.desktop);
+    video_settings_init(&loaded,1,argv[1]);
+    CHECK(video_setting_get(&loaded,preset)==2 && loaded.current.shadow_filter && loaded.current.ambient_occlusion);
+    video_setting_set(&s,shadow_filter,0);
+    CHECK(video_setting_get(&s,preset)==3 && !s.current.shadow_filter);
+    video_setting_set(&s,preset,1);
+    CHECK(!s.current.shadow_filter && s.current.ambient_occlusion && !strcmp(s.store.preset,"Enhanced"));
     CHECK(moon_options_set(&s.store,"audio.custom_music","1"));
     video_setting_set(&s,preset,0);
     CHECK(!moon_options_int(&s.store,"audio.custom_music",1,0,1) && !s.store.modified);

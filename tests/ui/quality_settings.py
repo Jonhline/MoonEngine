@@ -35,13 +35,13 @@ with tempfile.TemporaryDirectory(dir=output) as temporary:
         def commit(row, rows=7):
             return ["down"] * (rows - row) + ["accept"]
         if volume_only:
-            run("lighting",change(0,["down"])+commit(0,3),2)
+            run("lighting",change(0,["down"])+commit(0,4),2)
             data=config.read_text(encoding="utf-8")
             if negative:data=data.replace("graphics.ambient_occlusion=1","graphics.ambient_occlusion=0")
             for key in ("hdr","modern_lighting","material_shading","ambient_occlusion","car_shadows"):
                 assert f"graphics.{key}=1" in data,data
             assert "graphics.sun_rays=0" in data and "graphics.shadow_maps=2" in data,data
-            run("skybox",change(1,["down"])+commit(1,3),2)
+            run("skybox",change(1,["down"])+commit(1,4),2)
             data=config.read_text(encoding="utf-8")
             assert "graphics.daylight=1" in data and "graphics.night_sky=1" in data,data
             assert "graphics.solar_hour=24" in data and "graphics.solar_cycle=1" in data,data
@@ -74,8 +74,8 @@ with tempfile.TemporaryDirectory(dir=output) as temporary:
         run("filtering", change(3, ["down"] * 4) + commit(3))
         data = config.read_text(encoding="utf-8")
         assert "graphics.texture_filtering=4" in data, data
-        run("lighting",change(0,["down"])+commit(0,3),2)
-        run("skybox",change(1,["down"])+commit(1,3),2)
+        run("lighting",change(0,["down"])+commit(0,4),2)
+        run("skybox",change(1,["down"])+commit(1,4),2)
         run("reflections", change(4,["down","down"])+commit(4))
         data=config.read_text(encoding="utf-8")
         for key,value in [("modern_lighting",1),("material_shading",1),("car_shadows",1),("shadow_maps",2),("hdr",1),("ambient_occlusion",1),("daylight",1),("night_sky",1),("solar_hour",24),("solar_cycle",1),("sun_rays",0)]:

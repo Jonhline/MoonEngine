@@ -318,8 +318,12 @@ static int guide_capture(plat_texture **into, showroom *cars, const char *code, 
     video_end_scene();
     *drawn = *look;
     if (settling) {
-        video_set_fill_window(fill);
-        return 0;
+        /* the live background redraws every frame with the draft's look, so a capture that
+           waited a frame would rebuild again forever: draw the settled frame now and read it */
+        plat_video_begin_frame();
+        video_begin_scene();
+        guide_scene(cars, code, raster, track, 0);
+        video_end_scene();
     }
     int cw = track ? 640 : raster, ch = 448, pw = 0, ph = 0;
     unsigned char *px = plat_sdl_read_pixels(&pw, &ph);
@@ -441,7 +445,8 @@ static int studio_guide(showroom *cars,gt4_vol *vol,const char *code,int raster,
     pc_video_options draft=start, classic_look=start, enhanced_look=start;
     video_settings_preset_values(&classic_look,0);
     video_settings_preset_values(&enhanced_look,1);
-    const int was=video_setting_get(vs,guide_setting("PC Preset")); /* 0, 1, 2 modified */
+    /* 0, 1, 2 modified; the guide offers Classic or Enhanced, so Performance (2) reads as own settings */
+    const int was=video_setting_get(vs,guide_setting("PC Preset"))>1?2:video_setting_get(vs,guide_setting("PC Preset"));
     int preset=was;   /* 0 Classic, 1 Enhanced, 2 keep the player's own */
     int page=intro?GUIDE_WELCOME:GUIDE_GRAPHICS, row[GUIDE_PAGES]={0}, focus_band=1, sel=2;
     int full=0, flip=1, capture=1, pw=0, ph=0, dragging=0;
