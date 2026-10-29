@@ -345,7 +345,6 @@ static hud_font *font(race_hud *h, const char *spec)
 }
 
 static const char *const prepared_styles[] = {
-    "hn_20R#1*90,90",
     "FC_26", "FC_26*80,80",   "hn_20R",  "GT4meter#1", "hb_24#1",       "hb_24#1*130,130",
     "FC_48", "GT4oddmeter#1", "hm_16#1", "Gaiji#1",    "hm_16#1*90,90", "hc_20#1*70,70"};
 int race_hud_prepare_next_font(race_hud *h)

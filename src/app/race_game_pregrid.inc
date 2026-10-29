@@ -285,12 +285,31 @@ void race_game_draw_pregrid_overlay(race_game *g)
         return;
     /* The disc's grid lists six entries. State the field it cannot show,
        above the authored Title (y=64), in the grid's own hm_16 face. */
-    int total = gt4_race_run_cars(g->run) + phantoms, rows = (phantoms + 1) / 2;
-    float h = 18.f + (float)rows * 15.f;
-    static const uint8_t panel[4] = {0, 0, 0, 170};
+    int official = gt4_race_run_cars(g->run);
+    int total = official + phantoms;
+    static const uint8_t panel[4] = {0, 0, 0, 190};
     static const uint8_t white[4] = {212, 212, 212, 255};
     char line[64];
     plat_video_set_view(640, 480);
+    if (total > 20) {
+        /* Four compact columns: the whole field, including the official six,
+           not only the extra cars. */
+        int rows = (total + 3) / 4;
+        float h = 18.f + (float)rows * 9.f;
+        plat_draw_quad(NULL, 6, 0, 628, h, 0, 0, 1, 1, panel);
+        snprintf(line, sizeof line, "Field: %d cars", total);
+        race_hud_text(g->hud, "hm_16#1*70,70", 12, 2, 4, white, line);
+        for (int i = 0; i < total; i++) {
+            int col = i / rows, row = i % rows;
+            const char *name = i < official ? g->hud_names[i]
+                                            : gt4_race_run_phantom_name(g->run, i - official);
+            race_hud_text(g->hud, "hm_16#1*45,45", 12.f + (float)col * 156.f,
+                          18.f + (float)row * 9.f, 4, white, name);
+        }
+        return;
+    }
+    int rows = (phantoms + 1) / 2;
+    float h = 18.f + (float)rows * 15.f;
     plat_draw_quad(NULL, 36, 0, 568, h, 0, 0, 1, 1, panel);
     snprintf(line, sizeof line, "Field: %d cars - %d extra", total, phantoms);
     race_hud_text(g->hud, "hm_16#1*86,88", 46, 2, 4, white, line);

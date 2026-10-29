@@ -6,16 +6,16 @@
  * rewrite, measured in docs/vulcan4/MEASURED-TAIL-SITES.md, so the conductor
  * stays six.
  *
- * MOON_MAX_CARS = 12: six official cars plus six phantom cars in a second
- * conductor outside the guest one. The renderer's opponent arrays are sized
- * from it (race_view.c OPPONENTS = MOON_MAX_OPPONENTS), the results/HUD/BSpec
- * arrays are sized from it, and a replay records the official six only.
+ * MOON_MAX_CARS = 100: six official cars plus up to 94 native phantoms.
+ * The renderer's opponent arrays are sized from it (race_view.c OPPONENTS =
+ * MOON_MAX_OPPONENTS); the results/HUD/BSpec arrays are sized from it.
+ * A replay still records the official six only.
  */
 #ifndef MOON_RACE_LIMITS_H
 #define MOON_RACE_LIMITS_H
 
 #define MOON_CONDUCTOR_CARS 6
-#define MOON_MAX_CARS 12
+#define MOON_MAX_CARS 100
 #define MOON_MAX_OPPONENTS (MOON_MAX_CARS - 1)
 #define MOON_MAX_PHANTOMS (MOON_MAX_CARS - MOON_CONDUCTOR_CARS)
 

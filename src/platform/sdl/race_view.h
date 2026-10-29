@@ -122,6 +122,9 @@ void race_view_set_assist_source(race_view *v, uint32_t lines, int index);
    speed_kmh is the player's live speed; it only repaints the ribbon. */
 int race_view_set_assist_line(race_view *v, const char *course, int on, float speed_kmh);
 int race_view_set_opponents(race_view *v, const char *const *cars, const int *colors, int n);
+/* number of opponent cars (index 5 and up) actually submitted in the last
+   scene draw; native phantom field instrumentation */
+int race_view_phantom_draws(void);
 /* Other car i's pose and wheels as for the player's car; pos NULL hides
    it. */
 void race_view_set_opponent(race_view *v, int i, const float pos[3], const float rot[9],

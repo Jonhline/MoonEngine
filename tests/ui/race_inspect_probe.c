@@ -41,6 +41,8 @@ static int shot(race_game *g, const char *prefix, const char *name)
     if(getenv("PROBE_SOLAR_HOUR"))video_begin_scene();
     if (!(getenv("PROBE_PREGRID")?race_game_draw_pregrid(g):race_game_draw(g)))
         return 0;
+    if (getenv("PROBE_PREGRID_OVERLAY"))
+        race_game_draw_pregrid_overlay(g);
     if(getenv("PROBE_SOLAR_HOUR"))video_end_scene();
     int w, h;
     size_t len;
@@ -443,6 +445,44 @@ int main(int argc, char **argv)
     }
     if (getenv("PROBE_BENCHMARK"))
         return benchmark_race(g, argv[2]);
+    if (getenv("PROBE_FIELD100")) {
+        int frames = getenv("PROBE_FIELD100") ? atoi(getenv("PROBE_FIELD100")) : 1200;
+        for (int f = 0; f < frames; f++)
+            race_game_update(g, 1. / 60);
+        gt4_race_entrant ents[MOON_MAX_CARS];
+        int n = gt4_race_run_classification(g->run, ents, MOON_MAX_CARS);
+        int poses = 0;
+        for (int j = 0; j < gt4_race_run_phantom_count(g->run); j++) {
+            float pos[3], rot[9], wheels[4][3];
+            if (gt4_race_run_phantom_pose(g->run, j, pos, rot, wheels))
+                poses++;
+        }
+        fprintf(stderr, "field100: frames=%d official=%d phantoms=%d class=%d poses=%d\n", frames,
+                gt4_race_run_cars(g->run), gt4_race_run_phantom_count(g->run), n, poses);
+        for (int i = 0; i < n; i++)
+            fprintf(stderr, "field100: place=%d id=%d official=%d name=%s lap=%d dist=%.1f fin=%d\n",
+                    ents[i].place, ents[i].id, ents[i].official, ents[i].name, ents[i].laps,
+                    ents[i].distance, ents[i].finished);
+        CHECK(shot(g, argv[2], "field100"));
+        fprintf(stderr, "field100: drawn_phantoms=%d\n", race_view_phantom_draws());
+        {
+            float p0[3], r0[9], w0[4][3];
+            if (gt4_race_run_pose(g->run, 0, p0, r0, w0))
+                fprintf(stderr, "field100: player pos=%.1f,%.1f,%.1f\n", p0[0], p0[1], p0[2]);
+        }
+        for (int j = 0; j < 10 && j < gt4_race_run_phantom_count(g->run); j++) {
+            float p0[3], r0[9], w0[4][3];
+            if (gt4_race_run_phantom_pose(g->run, j, p0, r0, w0))
+                fprintf(stderr, "field100: phantom[%d] pos=%.1f,%.1f,%.1f rot0=%.2f\n", j, p0[0],
+                        p0[1], p0[2], r0[0]);
+            else
+                fprintf(stderr, "field100: phantom[%d] pose=0\n", j);
+        }
+        race_game_close(g);
+        plat_video_shutdown();
+        puts("field100: captured");
+        return 0;
+    }
     if (getenv("PROBE_RESULT")) {
         int frames = getenv("PROBE_RESULT_FRAMES") ? atoi(getenv("PROBE_RESULT_FRAMES")) : 18000;
         int finished = 0;

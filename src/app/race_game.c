@@ -1122,7 +1122,7 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
         else if (g->split)
             field_size = 2;
         else if (g->time_trial)
-            field_size = 1;
+            field_size = d.cars == 1 ? 2 : d.cars; /* the TT ghost entry */
         else
             field_size = field_size_request;
         if (field_size < 1 || field_size > MOON_MAX_CARS) {
@@ -1236,12 +1236,33 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
                         "race: phantom ratings spread: official %.6f..%.6f phantom %.6f..%.6f\n",
                         omin, omax, pmin, pmax);
             }
+            /* PickUpEnemyCars is a five-car API. For a larger field, keep
+               its rated front and fill the rest from the same distinct
+               pool, never reusing an official or already picked label. */
+            for (int j = got; j < phantom_n; j++) {
+                for (int k = 0; k < npool; k++) {
+                    int used_label = 0;
+                    for (int u = 0; u < nu; u++)
+                        if (!strcmp(pool[k], used[u]))
+                            used_label = 1;
+                    for (int u = 0; u < j; u++)
+                        if (!strcmp(pool[k], picked[u].car))
+                            used_label = 1;
+                    if (used_label)
+                        continue;
+                    picked[j].car = pool[k];
+                    picked[j].color = (j + 6) % 12;
+                    snprintf(used[nu++], sizeof used[0], "%s", pool[k]);
+                    got++;
+                    break;
+                }
+            }
             free(pool);
             if (arc) gt4_arcade_close(arc);
             if (ratings) gt4_car_ratings_close(ratings);
             if (got < phantom_n) {
                 snprintf(msg, len,
-                         "race.field_size=%d refused: %d phantoms requested, %d rated opponents available",
+                         "race.field_size=%d refused: %d phantoms requested, %d distinct opponents available",
                          field_size, phantom_n, got);
                 free(labels);
                 gt4_vol_close(vol);
@@ -2566,7 +2587,17 @@ static int icon_at_rank(race_game *g, int rank)
             continue;
         return GT4_U8(car + CAR_POSITION + 0x441) ? -1 : c;
     }
-    for (int j = 0; j < gt4_race_run_phantom_count(g->run); j++) {
+    int phantoms = gt4_race_run_phantom_count(g->run);
+    if (phantoms > 0 && gt4_race_run_phantom_car(g->run, 0) == 0) {
+        gt4_race_entrant ents[MOON_MAX_CARS];
+        int n = gt4_race_run_classification(g->run, ents, MOON_MAX_CARS);
+        int official = gt4_race_run_cars(g->run);
+        for (int k = 0; k < n; k++)
+            if (!ents[k].official && ents[k].place == rank)
+                return g->others + (ents[k].id - official) + 1;
+        return -1;
+    }
+    for (int j = 0; j < phantoms; j++) {
         uint32_t car = gt4_race_run_phantom_car(g->run, j);
         if ((int8_t)GT4_U8(car + CAR_FIELD_POSITION) != rank)
             continue;
@@ -3331,6 +3362,12 @@ static int race_game_draw_scene(race_game *g)
         }
     }
     int drawn = race_view_draw(g->view);
+    {
+        static unsigned draw_frame;
+        if (g->run && gt4_race_run_phantom_count(g->run) && draw_frame++ % 120 == 0)
+            fprintf(stderr, "phantom draw: submitted=%d drawn=%d frame=%u\n",
+                    gt4_race_run_phantom_count(g->run), race_view_phantom_draws(), draw_frame - 1);
+    }
     if (drawn && g->pit_scene) {
         r3d_view view = {0};
         float rows[9], projection[3];

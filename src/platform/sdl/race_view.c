@@ -47,6 +47,8 @@
 #define H 448
 
 #define OPPONENTS MOON_MAX_OPPONENTS
+static int phantom_draws;
+int race_view_phantom_draws(void) { return phantom_draws; }
 typedef struct {
     char key[128];
     gt4_driver_rig rig;
@@ -2574,6 +2576,7 @@ static void update_car_lamps(race_view *v,const float pos[3],const float rot[9],
 static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float x, float y, float w,
                           float h)
 {
+    phantom_draws = 0;
     if (!v || !v->now)
         return 0;
     if (!r3d_available()) {
@@ -2789,6 +2792,8 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
                      p->brake_glow,
                      split_entry == i + 1 ? 16 : 1, v->now->pilot[i + 1].steering,
                      v->pit_crew[i + 1], &v->now->pilot[i + 1]);
+            if (i >= 5)
+                phantom_draws++;
         }
     }
     /* the backfire's flames after the cars, added over them */
