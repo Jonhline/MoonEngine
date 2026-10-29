@@ -110,6 +110,7 @@ static int speed_blur, speed_blur_amount, speed_vignette, speed_post_warned;
 static float speed_level;
 static GLuint speed_program, speed_fbo, speed_tex, speed_vao, speed_vbo;
 static int speed_tex_w, speed_tex_h;
+static unsigned speed_trace_frames;
 static int scene_frame_has_content;
 
 /* virtual screen and its letterbox rectangle in framebuffer pixels */
@@ -1224,6 +1225,7 @@ static GLuint speed_post_apply(GLuint source, int w, int h)
         speed_tex_h = h;
     }
     glBindFramebuffer(GL_FRAMEBUFFER, speed_fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, speed_tex, 0);
     glViewport(0, 0, w, h);
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_DEPTH_TEST);
@@ -1278,8 +1280,30 @@ void video_end_scene(void)
         }
     }
 #endif
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, scene_resolve);
-    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, resolved, 0);
+    /* The speed pass returns its own FBO. Blit from that attachment
+       directly instead of re-attaching its colour texture to the resolve
+       FBO: the texture is never both a draw attachment and the blit source
+       on a second FBO, and the handoff has an explicit barrier. */
+    GLuint read_fbo = scene_resolve;
+    int speed_source = 0;
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+    if ((speed_blur || speed_vignette) && speed_level > 0.0001f && resolved == speed_tex) {
+        glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT | GL_FRAMEBUFFER_BARRIER_BIT);
+        glFlush();
+        read_fbo = speed_fbo;
+        speed_source = 1;
+    }
+#endif
+    if (getenv("MOON_SPEED_TRACE") && speed_level > 0.0001f && speed_trace_frames++ % 60 == 0)
+        fprintf(stderr,
+                "speed handoff: function=video_end_scene scene=%dx%d speed_tex=%dx%d "
+                "output=%dx%d source=%s pass_ended=1 read_fbo=%s\n",
+                scene_w, scene_h, speed_tex_w, speed_tex_h, output_w, output_h,
+                speed_source ? "speed_tex" : resolved == scene_tex ? "scene_tex" : "resolved",
+                speed_source ? "speed_fbo" : "scene_resolve");
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, read_fbo);
+    if (!speed_source)
+        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, resolved, 0);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbo);
     glBlitFramebuffer(0, 0, source_w, source_h, 0, 0, output_w, output_h, GL_COLOR_BUFFER_BIT,
                       GL_LINEAR);

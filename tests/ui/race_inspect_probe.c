@@ -37,6 +37,10 @@ static Uint32 fixture_window_flags(SDL_Window *w)
     } while (0)
 static int shot(race_game *g, const char *prefix, const char *name)
 {
+    if (getenv("MOON_ASSIST_TRACE") && g && g->run)
+        fprintf(stderr, "assist trace: frames=%u countdown=%d start_events=%d clock=%u\n",
+                gt4_race_run_frames(g->run), gt4_race_run_countdown(g->run, 0), g->start_events,
+                GT4_U32(gt4_race_run_conductor(g->run) + CONDUCTOR_FIELD_RACE_CLOCK_U));
     plat_video_begin_frame();
     if(getenv("PROBE_SOLAR_HOUR"))video_begin_scene();
     if (!(getenv("PROBE_PREGRID")?race_game_draw_pregrid(g):race_game_draw(g)))

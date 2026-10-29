@@ -2365,7 +2365,13 @@ int video_settings_speed_blur(void) { return settings_active ? settings_active->
 int video_settings_speed_blur_amount(void) { return settings_active ? settings_active->current.speed_blur_amount : 0; }
 int video_settings_speed_vignette(void) { return settings_active ? settings_active->current.speed_vignette : 0; }
 int video_settings_skip_intro(void) { return settings_active ? settings_active->current.skip_intro : 0; }
-int video_settings_assist_line(void) { return settings_active ? settings_active->current.assist_line : 0; }
+int video_settings_assist_line(void)
+{
+    const char *test = getenv("MOON_ASSIST_LINE");
+    if (test)
+        return atoi(test) != 0;
+    return settings_active ? settings_active->current.assist_line : 0;
+}
 int video_settings_field_size_warning(int field_size)
 {
     return field_size > 20;
