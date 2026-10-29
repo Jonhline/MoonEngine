@@ -1230,6 +1230,10 @@ static GLuint speed_post_apply(GLuint source, int w, int h)
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
+    /* The scene leaves face culling on; the full-screen strip has one
+       triangle per winding, so culling would leave a diagonal half-frame. */
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_STENCIL_TEST);
     glUseProgram(speed_program);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, source);
