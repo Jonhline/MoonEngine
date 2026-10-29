@@ -32,6 +32,8 @@ static void *graphics_proc(const char *name)
 }
 #endif
 
+moon_glMemoryBarrierProc moon_glMemoryBarrier;
+
 int gl_load(void)
 {
 #ifdef __SWITCH__
@@ -47,6 +49,7 @@ int gl_load(void)
     MOON_GL_FUNCS(MOON_GL_LOAD)
     MOON_GL_BASE_FUNCS(MOON_GL_LOAD)
 #undef MOON_GL_LOAD
+    moon_glMemoryBarrier = (moon_glMemoryBarrierProc)graphics_proc("glMemoryBarrier");
     return ok;
 #endif
 }

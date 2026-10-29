@@ -1288,7 +1288,8 @@ void video_end_scene(void)
     int speed_source = 0;
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
     if ((speed_blur || speed_vignette) && speed_level > 0.0001f && resolved == speed_tex) {
-        glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT | GL_FRAMEBUFFER_BARRIER_BIT);
+        if (moon_glMemoryBarrier)
+            moon_glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT | GL_FRAMEBUFFER_BARRIER_BIT);
         glFlush();
         read_fbo = speed_fbo;
         speed_source = 1;

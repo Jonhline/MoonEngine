@@ -83,6 +83,10 @@ MOON_GL_FUNCS(MOON_GL_DECLARE)
 #define glBlendColor moon_glBlendColor
 #endif
 
+/* GL 4.2 / ARB_shader_image_load_store. Optional: the desktop path may be a
+   3.3 core context, so a NULL pointer is a no-op at call sites. */
+typedef void (APIENTRY *moon_glMemoryBarrierProc)(GLbitfield);
+extern moon_glMemoryBarrierProc moon_glMemoryBarrier;
 /* Loads the entry points for the current context. 0 if any is missing. */
 int gl_load(void);
 /* Reversed depth (OpenGL 4.5 / ARB_clip_control): far 0, near 1 in a float
