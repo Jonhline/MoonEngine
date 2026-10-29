@@ -350,6 +350,16 @@ static void APIENTRY vkglBlitFramebuffer(GLint sx0, GLint sy0, GLint sx1, GLint 
     auto &c = context();
     auto *src = mask & GL_DEPTH_BUFFER_BIT ? c.depth(s().read_fb) : c.color(s().read_fb);
     auto *dst = mask & GL_DEPTH_BUFFER_BIT ? c.depth(s().draw_fb) : c.color(s().draw_fb);
+    if (getenv("MOON_SPEED_TRACE")) {
+        static unsigned trace;
+        if (trace++ % 60 == 0)
+            fprintf(stderr,
+                    "vulkan handoff: last_pass=%p last_fb=%p src_img=%p dst_img=%p "
+                    "read_fb=%u draw_fb=%u pass_active=%d\n",
+                    (void *)c.last_pass, (void *)c.last_framebuffer, src ? (void *)src->handle : NULL,
+                    dst ? (void *)dst->handle : NULL, s().read_fb, s().draw_fb,
+                    c.pass_color != VK_NULL_HANDLE);
+    }
     if (src && dst)
         c.blit(*src, *dst, sx0, sy0, sx1, sy1, dx0, dy0, dx1, dy1, filter == GL_LINEAR,
                (mask & GL_DEPTH_BUFFER_BIT) != 0);

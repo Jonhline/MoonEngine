@@ -492,7 +492,9 @@ VkDescriptorSet Context::draw_descriptors(const Program &p)
 }
 VkFramebuffer Context::target_framebuffer(Image &color, Image *depth, VkRenderPass pass)
 {
-    std::array<VkImageView, 2> key = {color.attachment, depth ? depth->attachment : VK_NULL_HANDLE};
+    std::array<VkImageView, 3> key = {color.attachment,
+                                     depth ? depth->attachment : VK_NULL_HANDLE,
+                                     (VkImageView)(uintptr_t)pass};
     if (!transient_framebuffers) {
         auto found = target_cache.find(key);
         if (found != target_cache.end())
@@ -631,6 +633,8 @@ void Context::draw(GLenum topology, int first, int count)
         if (z)
             transition(*z, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
         VkFramebuffer fb = target_framebuffer(*target, z, pass);
+        last_pass = pass;
+        last_framebuffer = fb;
         VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
         begin.renderPass = pass;
         begin.framebuffer = fb;
@@ -640,6 +644,7 @@ void Context::draw(GLenum topology, int first, int count)
         pass_color = views[0];
         pass_depth = views[1];
     }
+    last_pass = pass;
     VkPipeline selected_pipeline = pipeline(*this, p, pass, topology);
     uint64_t commands_start = profile_draws ? SDL_GetPerformanceCounter() : 0;
     VkViewport viewport{(float)state.viewport[0],

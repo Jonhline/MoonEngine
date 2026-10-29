@@ -4625,6 +4625,13 @@ int main(int argc, char **argv)
 #ifdef __ANDROID__
     video_set_scene_render_scale(settings.current.mobile.render_scale);
 #endif
+    /* Loaded values must reach the renderer even when the launcher's START
+       handover is skipped (--drive / config-file runs). */
+    video_set_speed_post(settings.current.speed_blur, settings.current.speed_blur_amount,
+                         settings.current.speed_vignette);
+    fprintf(stderr, "settings: applied at startup renderer=%s speed_post=%d:%d:%d\n",
+            moon_renderer_name(settings.current.renderer), settings.current.speed_blur,
+            settings.current.speed_vignette, settings.current.speed_blur_amount);
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
     video_scene_quality(settings.current.antialiasing, settings.current.render_scale);
     r3d_texture_smoothing(settings.current.texture_smoothing);

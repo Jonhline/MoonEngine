@@ -159,9 +159,11 @@ struct Context {
     std::map<std::array<int, 7>, VkSampler> samplers;
     std::map<std::array<int, 3>, VkRenderPass> passes;
     std::vector<VkFramebuffer> transient_targets;
-    std::map<std::array<VkImageView, 2>, VkFramebuffer> target_cache;
+    std::map<std::array<VkImageView, 3>, VkFramebuffer> target_cache;
     std::vector<std::shared_ptr<Image>> retired_images;
     VkImageView pass_color = VK_NULL_HANDLE, pass_depth = VK_NULL_HANDLE;
+    VkRenderPass last_pass = VK_NULL_HANDLE;
+    VkFramebuffer last_framebuffer = VK_NULL_HANDLE;
     bool scene_first_pass = false;
     std::shared_ptr<Image> white, screen;
     std::string error, pipeline_cache_path;

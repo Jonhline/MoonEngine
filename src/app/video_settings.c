@@ -57,6 +57,11 @@ void video_settings_speed_frame(float kmh, double dt)
     float a = dt > 0 ? (float)(dt / SPEED_FEEL_SMOOTH_SECONDS) : 1.f;
     a = a < 0.f ? 0.f : a > 1.f ? 1.f : a;
     speed_level += (target - speed_level) * a;
+    const char *force = getenv("MOON_SPEED_FORCE_LEVEL");
+    if (force) {
+        float f = (float)atof(force);
+        speed_level = f < 0.f ? 0.f : f > 1.f ? 1.f : f;
+    }
     video_set_speed_level(speed_level);
     if (getenv("MOON_SPEED_TRACE") && fabsf(speed_level - speed_traced) > .02f) {
         const pc_video_options *v = settings_active ? &settings_active->current : NULL;
