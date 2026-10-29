@@ -89,7 +89,8 @@ struct gt4_race_run {
     int phantom_laps_set;
     int phantom_bad;
     int native_phantoms;
-    int phantom_line, phantom_line_points;
+    int phantom_line, phantom_line2, phantom_line_points;
+    int phantom_method, phantom_method_logged;
     char course[32];
     uint32_t phantom_cond, phantom_race, phantom_entries, phantom_world;
     gt4_race_entrant entrants[MOON_MAX_CARS];
@@ -114,7 +115,7 @@ struct gt4_race_run {
     float phantom_travel0[MOON_MAX_PHANTOMS][4];
     struct {
         float dist, speed, heading, pos[3], lateral;
-        int lap, finished, active;
+        int lap, finished;
         uint32_t finish_time, color;
         char name[96];
     } native[MOON_MAX_PHANTOMS];
@@ -312,7 +313,6 @@ static void make_phantoms(gt4_race_run *r, const gt4_race_desc *d)
             r->native[i].color = (uint32_t)d->phantom_color[i];
             r->native[i].finished = 0;
             r->native[i].finish_time = 0;
-            r->native[i].active = 1;
         }
         return;
     }
@@ -615,7 +615,7 @@ gt4_race_run *gt4_race_run_open(const char *disc, const gt4_race_desc *d, char *
     }
     r->cond = COND;
     snprintf(r->course, sizeof r->course, "%s", d->course);
-    r->phantom_line = -1;
+    r->phantom_line = r->phantom_line2 = -1;
     r->cars = d->cars;
     r->field_size = d->field_size ? d->field_size : d->cars;
     r->phantom_count = r->field_size - d->cars;
@@ -1244,13 +1244,11 @@ static int entrant_cmp(const gt4_race_entrant *a, const gt4_race_entrant *b)
    the result board, prize and points. */
 static void order_classification(gt4_race_run *r, int n)
 {
-    int m = 0;
     for (int i = 0; i < n; i++) {
+        r->class_order[i] = (uint8_t)i;
         r->entrants[i].place = 0;
-        if (r->entrants[i].active)
-            r->class_order[m++] = (uint8_t)i;
     }
-    for (int k = 1; k < m; k++) {
+    for (int k = 1; k < n; k++) {
         uint8_t cur = r->class_order[k];
         int j = k - 1;
         for (; j >= 0; j--) {
@@ -1260,13 +1258,13 @@ static void order_classification(gt4_race_run *r, int n)
         }
         r->class_order[j + 1] = cur;
     }
-    for (int k = 0; k < m; k++) {
+    for (int k = 0; k < n; k++) {
         gt4_race_entrant *e = &r->entrants[r->class_order[k]];
         e->place = k + 1;
         if (e->official)
             GT4_U8(e->car + CAR_FIELD_POSITION) = (uint8_t)(k + 1);
     }
-    r->class_n = m;
+    r->class_n = n;
 }
 
 /* Build the one merged order. Stable ids are official cars first, then the
@@ -1292,7 +1290,6 @@ static void build_classification(gt4_race_run *r)
             int is_official = i < official;
             e->id = i;
             e->official = is_official;
-            e->active = 1;
             snprintf(e->name, sizeof e->name, "%s", r->entrant_name[i]);
             e->color = r->entrant_color[i];
             if (is_official) {
@@ -1316,7 +1313,6 @@ static void build_classification(gt4_race_run *r)
                 e->laps = r->native[j].lap;
                 e->distance = r->native[j].dist;
                 e->live_rank = 0;
-                e->active = r->native[j].active;
                 e->finished = r->native[j].finished;
                 e->finish_time = r->native[j].finish_time;
             } else {
@@ -1349,7 +1345,6 @@ static void build_classification(gt4_race_run *r)
         int is_official = i < official;
         e->id = i;
         e->official = is_official;
-        e->active = 1;
         snprintf(e->name, sizeof e->name, "%s", r->entrant_name[i]);
         e->color = r->entrant_color[i];
         if (is_official) {
@@ -1371,7 +1366,6 @@ static void build_classification(gt4_race_run *r)
             int j = i - official;
             e->car = 0;
             e->cond = 0;
-            e->active = r->native[j].active;
             e->finished = r->native[j].finished;
             e->finish_time = r->native[j].finish_time;
             e->laps = r->native[j].lap;
@@ -1774,6 +1768,15 @@ static int native_pick_line(gt4_race_run *r)
         if (points > 0) {
             r->phantom_line = active;
             r->phantom_line_points = points;
+            r->phantom_line2 = -1;
+            for (int k = table - 1; k >= 0; k--) {
+                float q[3];
+                if (k != active &&
+                    gt4_line_course_point(r->cond + CONDUCTOR_FIELD_LINES_U, k, 0.f, q)) {
+                    r->phantom_line2 = k;
+                    break;
+                }
+            }
             fprintf(stderr, "phantom line: course=%s table=%d used=%d points=%d\n", r->course,
                     table, active, points);
             free(pts);
@@ -1785,18 +1788,40 @@ static int native_pick_line(gt4_race_run *r)
     return -1;
 }
 
+static int phantom_official_pose(gt4_race_run *r, int i, float out[3], float *heading)
+{
+    int official = r->cars;
+    uint32_t car = 0;
+    if (official > 0)
+        car = r->cond + CONDUCTOR_FIELD_CARS_U + (uint32_t)(i % official) * CAR_SIZE;
+    else if (gt4_race_run_car(r, 0))
+        car = r->cond + CONDUCTOR_FIELD_CARS_U;
+    if (!car)
+        return 0;
+    out[0] = GT4_F32(car + CAR_POSITION);
+    out[1] = GT4_F32(car + CAR_POSITION + 8);
+    out[2] = -GT4_F32(car + CAR_POSITION + 4);
+    if (heading)
+        *heading = GT4_F32(car + CAR_BLOCK_HEADING);
+    return 1;
+}
+
+static void phantom_log_method(gt4_race_run *r, int method)
+{
+    if (r->phantom_method_logged && r->phantom_method == method)
+        return;
+    static const char *names[] = {"line", "lines", "grid", "player"};
+    fprintf(stderr, "phantom place: course=%s method=%s\n", r->course, names[method]);
+    r->phantom_method = method;
+    r->phantom_method_logged = 1;
+}
+
 static void native_phantoms_step(gt4_race_run *r)
 {
     if (!r || !r->native_phantoms || !r->phantom_count)
         return;
-    if (r->phantom_line < 0) {
-        if (native_pick_line(r) < 0) {
-            for (int i = 0; i < r->phantom_count; i++)
-                r->native[i].active = 0;
-            r->phantom_count = 0;
-            return;
-        }
-    }
+    if (r->phantom_line < 0 && !getenv("MOON_PHANTOM_NO_LINE"))
+        native_pick_line(r);
     int go = gt4_race_run_countdown(r, 0) <= 0;
     float len = native_course_length(r->cond);
     int laps = (int)gt4_session(r->cond, 0x128, 0, 0, 0, 0, 0, NULL);
@@ -1808,7 +1833,7 @@ static void native_phantoms_step(gt4_race_run *r)
     if (!(base_speed > 0.f))
         base_speed = 45.f;
     for (int i = 0; i < r->phantom_count; i++) {
-        if (!r->native[i].active || r->native[i].finished)
+        if (r->native[i].finished)
             continue;
         float target = base_speed + (float)(i % 9) * 1.5f;
         for (int j = 0; j < r->phantom_count; j++) {
@@ -1834,18 +1859,43 @@ static void native_phantoms_step(gt4_race_run *r)
         } else
             r->native[i].speed = 0;
         float p0[3], p1[3], p0p[3], p1p[3];
-        if (!gt4_line_course_point(r->cond + CONDUCTOR_FIELD_LINES_U, r->phantom_line,
-                                   r->native[i].dist, p0p)) {
-            if (r->native[i].active)
-                fprintf(stderr, "phantom line: course=%s used=%d no point at %.1f; inactive %d\n",
-                        r->course, r->phantom_line, r->native[i].dist, i);
-            r->native[i].active = 0;
+        int method = -1;
+        int line = r->phantom_line;
+        if (!getenv("MOON_PHANTOM_NO_LINE") && line >= 0 &&
+            gt4_line_course_point(r->cond + CONDUCTOR_FIELD_LINES_U, line, r->native[i].dist,
+                                  p0p)) {
+            method = 0;
+        } else if (!getenv("MOON_PHANTOM_NO_LINE") && r->phantom_line2 >= 0 &&
+                   gt4_line_course_point(r->cond + CONDUCTOR_FIELD_LINES_U, r->phantom_line2,
+                                         r->native[i].dist, p0p)) {
+            line = r->phantom_line2;
+            method = 1;
+        } else {
+            float h = 0;
+            if (phantom_official_pose(r, i, p0, &h)) {
+                method = 2;
+                r->native[i].heading = h;
+                r->native[i].pos[0] = p0[0] + (float)(i % 3 - 1);
+                r->native[i].pos[1] = p0[1];
+                r->native[i].pos[2] = p0[2];
+                phantom_log_method(r, method);
+                continue;
+            }
+            if (gt4_race_run_car(r, 0)) {
+                uint32_t pc = r->cond + CONDUCTOR_FIELD_CARS_U;
+                r->native[i].pos[0] = GT4_F32(pc + CAR_POSITION);
+                r->native[i].pos[1] = GT4_F32(pc + CAR_POSITION + 8);
+                r->native[i].pos[2] = -GT4_F32(pc + CAR_POSITION + 4) - 2.f;
+                r->native[i].heading = GT4_F32(pc + CAR_BLOCK_HEADING);
+                phantom_log_method(r, 3);
+            }
             continue;
         }
+        phantom_log_method(r, method);
         p0[0] = p0p[0];
         p0[1] = p0p[2];
         p0[2] = -p0p[1];
-        if (!gt4_line_course_point(r->cond + CONDUCTOR_FIELD_LINES_U, r->phantom_line,
+        if (!gt4_line_course_point(r->cond + CONDUCTOR_FIELD_LINES_U, line,
                                    r->native[i].dist + 3.f, p1p))
             memcpy(p1p, p0p, sizeof p1p);
         p1[0] = p1p[0];
@@ -2064,8 +2114,6 @@ int gt4_race_run_phantom_pose(const gt4_race_run *r, int i, float pos[3], float 
     if (!r || i < 0 || i >= r->phantom_count)
         return 0;
     if (r->native_phantoms) {
-        if (!r->native[i].active)
-            return 0;
         memcpy(pos, r->native[i].pos, sizeof r->native[i].pos);
         float c = cosf(r->native[i].heading), s = sinf(r->native[i].heading);
         float m[9] = {c, 0, -s, 0, 1, 0, s, 0, c};
