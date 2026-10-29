@@ -83,6 +83,7 @@ typedef struct {
     char name[96];
     uint32_t color;
     int finished;
+    int active;
     int eliminated;
     uint32_t finish_time;
     int laps;

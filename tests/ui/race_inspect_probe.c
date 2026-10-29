@@ -451,10 +451,33 @@ int main(int argc, char **argv)
         return benchmark_race(g, argv[2]);
     if (getenv("PROBE_FIELD100")) {
         int frames = getenv("PROBE_FIELD100") ? atoi(getenv("PROBE_FIELD100")) : 1200;
+        race_game_update(g, 1. / 60);
+        gt4_race_entrant before[MOON_MAX_CARS];
+        int bn = gt4_race_run_classification(g->run, before, MOON_MAX_CARS);
+        int bp = 0, bahead = 0;
+        for (int i = 0; i < bn; i++)
+            if (before[i].official && before[i].id == 0)
+                bp = before[i].place;
+        for (int i = 0; i < bn; i++)
+            if (!before[i].official && before[i].place < bp)
+                bahead++;
+        if (getenv("PROBE_POSITION_SHOTS"))
+            CHECK(shot(g, argv[2], "position-before"));
         for (int f = 0; f < frames; f++)
             race_game_update(g, 1. / 60);
         gt4_race_entrant ents[MOON_MAX_CARS];
         int n = gt4_race_run_classification(g->run, ents, MOON_MAX_CARS);
+        int ap = 0, aahead = 0;
+        for (int i = 0; i < n; i++)
+            if (ents[i].official && ents[i].id == 0)
+                ap = ents[i].place;
+        for (int i = 0; i < n; i++)
+            if (!ents[i].official && ents[i].place < ap)
+                aahead++;
+        fprintf(stderr, "position: before=%d after=%d phantom_ahead_before=%d after=%d passed=%d\n",
+                bp, ap, bahead, aahead, bahead - aahead);
+        if (getenv("PROBE_POSITION_SHOTS"))
+            CHECK(shot(g, argv[2], "position-after"));
         int poses = 0;
         for (int j = 0; j < gt4_race_run_phantom_count(g->run); j++) {
             float pos[3], rot[9], wheels[4][3];
