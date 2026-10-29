@@ -361,8 +361,9 @@ VkPipeline pipeline(Context &c, Program &p, VkRenderPass pass, GLenum topology)
     vertex.pVertexAttributeDescriptions = attributes.data();
     VkPipelineInputAssemblyStateCreateInfo assembly{
         VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-    assembly.topology = topology == GL_TRIANGLE_FAN ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN
-                                                    : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    assembly.topology = topology == GL_TRIANGLE_STRIP ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP
+                        : topology == GL_TRIANGLE_FAN ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN
+                                                      : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     VkPipelineViewportStateCreateInfo viewport{
         VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
     viewport.viewportCount = viewport.scissorCount = 1;
