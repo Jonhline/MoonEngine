@@ -6142,8 +6142,12 @@ int main(int argc, char **argv)
                     if (*next == ',')
                         next++;
                     since = t;
-                    fprintf(stderr, "activate %s: %s\n", name,
-                            menu_test_activate(mn, name) ? "ok" : "not found");
+                    if (!strcmp(name, "BACK")) {
+                        menu_send_input(mn, MENU_BACK);
+                        fprintf(stderr, "activate BACK: ok\n");
+                    } else
+                        fprintf(stderr, "activate %s: %s\n", name,
+                                menu_test_activate(mn, name) ? "ok" : "not found");
                 }
             }
         }

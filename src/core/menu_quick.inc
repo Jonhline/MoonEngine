@@ -489,6 +489,57 @@ int menu_driving_manual(menu *m)
 {
     return menu_option_number(m, "automatic_gear", 1) == 0;
 }
+void menu_game_set_text(menu *m, const char *name, const char *value)
+{
+    if (m && name)
+        ah_set_member(m->vm, game_object(m), name, value ? ah_str(m->vm, value) : ah_nil());
+}
+
+void menu_game_stack_push(menu *m, const char *name)
+{
+    if (!m || !name)
+        return;
+    ah_val arg = ah_str(m->vm, name), ret = ah_nil();
+    gt4_game_menu_stack_action(m->vm, game_object(m), "menuPush", 1, &arg, &ret);
+}
+
+const char *menu_widget_member_text(menu *m, ui_widget *w, const char *name, char *out,
+                                    size_t cap)
+{
+    if (!out || !cap)
+        return NULL;
+    out[0] = 0;
+    if (!m || !w || !w->script || !name)
+        return out;
+    ah_val v = ah_nil();
+    if (ah_get_member(m->vm, (ah_obj *)w->script, name, &v) < 0)
+        return out;
+    const char *text = ah_cstr(v);
+    if (text && *text)
+        snprintf(out, cap, "%s", text);
+    else if (ah_is_num(v))
+        snprintf(out, cap, "%lld", (long long)ah_num(v));
+    return out;
+}
+
+void menu_game_stack_pop(menu *m)
+{
+    if (m) {
+        ah_val ret = ah_nil();
+        gt4_game_menu_stack_action(m->vm, game_object(m), "menuPop", 0, NULL, &ret);
+    }
+}
+
+const char *menu_game_menu_ref(menu *m)
+{
+    if (!m)
+        return NULL;
+    ah_val ret = ah_nil();
+    if (gt4_game_menu_stack_action(m->vm, game_object(m), "menuRef", 0, NULL, &ret) < 0)
+        return NULL;
+    return ah_cstr(ret);
+}
+
 double menu_game_number(menu *m, const char *name, double fallback)
 {
     ah_val v;

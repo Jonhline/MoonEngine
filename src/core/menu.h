@@ -329,6 +329,12 @@ int menu_test_activate(menu *m, const char *name);
 int menu_pending_command(const menu *m);
 /* A number of the scripts' main.game (e.g. tire_idx), fallback without */
 double menu_game_number(menu *m, const char *name, double fallback);
+void menu_game_set_text(menu *m, const char *name, const char *value);
+const char *menu_game_menu_ref(menu *m);
+void menu_game_stack_push(menu *m, const char *name);
+void menu_game_stack_pop(menu *m);
+const char *menu_widget_member_text(menu *m, ui_widget *w, const char *name, char *out,
+                                    size_t cap);
 /* The live calendar's today {year, month, day}; 0 when unavailable. */
 int menu_game_date(menu *m, int date[3]);
 int menu_race_is_split(menu *m);

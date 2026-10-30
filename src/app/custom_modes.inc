@@ -11,6 +11,12 @@ static int custom_modes_color;
 static int custom_modes_attached;
 static moon_options *custom_modes_options;
 static int custom_modes_pending;
+static int custom_modes_course_root = -1, custom_modes_home_root = -1;
+static int custom_modes_course_select;
+static int custom_modes_field_size = 12, custom_modes_thunder = 1;
+static char custom_modes_logged_category[32];
+static int custom_modes_logged_entries;
+static menu *custom_modes_picker_menu;
 
 typedef struct {
     char course[32];
@@ -204,6 +210,222 @@ static int custom_modes_back(ah_vm *vm, ah_obj *self, void *data, int argc,
     return 0;
 }
 
+static ui_widget *custom_modes_picker_select(menu *m)
+{
+    if (!m || custom_modes_course_root < 0)
+        return NULL;
+    ui_widget *root = ui_root_widget(menu_ui(m), custom_modes_course_root);
+    ui_widget *list = root ? cm_find(root, "CourseList") : NULL;
+    return list ? ui_widget_child(list, "SelectBox") : NULL;
+}
+
+static void custom_modes_picker_item_text(menu *m, ui_widget *item, char *out, size_t cap)
+{
+    out[0] = 0;
+    if (!m || !item)
+        return;
+    static const char *const names[] = {"course", "course_code", "code2", "code1", "name1",
+                                        "name0", "label", "item"};
+    for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) {
+        menu_widget_member_text(m, item, names[i], out, cap);
+        if (out[0])
+            return;
+    }
+}
+
+static void custom_modes_picker_dump_item(menu *m, ui_widget *item)
+{
+    if (!m || !item)
+        return;
+    static const char *const names[] = {"course", "course_code", "code2", "code1", "name1",
+                                        "name0", "label", "item"};
+    char text[96];
+    fprintf(stderr, "custom modes: picker item fields");
+    for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) {
+        menu_widget_member_text(m, item, names[i], text, sizeof text);
+        fprintf(stderr, " %s=%s", names[i], text[0] ? text : "-");
+    }
+    fprintf(stderr, "\n");
+}
+
+static int custom_modes_picker_activate(ah_vm *vm, ah_obj *self, void *data, int argc,
+                                        const ah_val *argv, ah_val *ret);
+
+static void custom_modes_picker_bind(menu *m)
+{
+    ui_widget *select = custom_modes_picker_select(m);
+    if (!select)
+        return;
+    for (int i = 0; i < select->nkids; i++)
+        menu_native_method(m, select->kids[i], "onActivate", custom_modes_picker_activate,
+                           select->kids[i]);
+}
+
+static void custom_modes_picker_log(menu *m)
+{
+    ui_widget *select = custom_modes_picker_select(m);
+    if (!select || select->nkids <= 0)
+        return;
+    const char *category = menu_game_menu_ref(m);
+    char labels[512] = "";
+    size_t at = 0;
+    for (int i = 0; i < select->nkids; i++) {
+        if (!select->kids[i])
+            continue;
+        select->focus_index = i;
+        menu_native_focus(m, select->kids[i]);
+        char code[96];
+        custom_modes_picker_item_text(m, select->kids[i], code, sizeof code);
+        if (i == 0)
+            custom_modes_picker_dump_item(m, select->kids[i]);
+        if (code[0]) {
+            int n = snprintf(labels + at, sizeof labels - at, "%s%s", at ? "," : "", code);
+            if (n > 0 && (size_t)n < sizeof labels - at)
+                at += (size_t)n;
+        }
+    }
+    int focus = 0;
+    const char *last = custom_modes_options
+        ? moon_options_get(custom_modes_options, "custom.elimination.last_course", "tsukuba")
+        : "tsukuba";
+    if (last && *last)
+        for (int i = 0; i < select->nkids; i++) {
+            char text[96];
+            custom_modes_picker_item_text(m, select->kids[i], text, sizeof text);
+            if (text[0] && !strcmp(text, last)) {
+                focus = i;
+                break;
+            }
+        }
+    if (focus < select->nkids && select->kids[focus]) {
+        select->focus_index = focus;
+        menu_native_focus(m, select->kids[focus]);
+    }
+    fprintf(stderr, "custom modes: picker category=%s items=%d labels=%s\n",
+            category ? category : "", select->nkids, labels);
+    custom_modes_logged_entries = select->nkids;
+    snprintf(custom_modes_logged_category, sizeof custom_modes_logged_category, "%s",
+             category ? category : "");
+}
+
+static void custom_modes_picker_tick(menu *m)
+{
+    if (!m || !custom_modes_course_select || custom_modes_course_root < 0)
+        return;
+    if (menu_active_root(m) != custom_modes_course_root)
+        return;
+    ui_widget *select = custom_modes_picker_select(m);
+    if (!select)
+        return;
+    custom_modes_picker_bind(m);
+    const char *category = menu_game_menu_ref(m);
+    if (select->nkids != custom_modes_logged_entries || !category ||
+        strcmp(category, custom_modes_logged_category))
+        custom_modes_picker_log(m);
+}
+
+static int custom_modes_picker_activate(ah_vm *vm, ah_obj *self, void *data, int argc,
+                                        const ah_val *argv, ah_val *ret)
+{
+    (void)vm;
+    (void)self;
+    (void)argc;
+    (void)argv;
+    menu *m = custom_modes_picker_menu;
+    ui_widget *item = data;
+    ui_widget *select = custom_modes_picker_select(m);
+    if (!m || !item || !select)
+        return 0;
+    int index = -1;
+    for (int i = 0; i < select->nkids; i++)
+        if (select->kids[i] == item) {
+            index = i;
+            break;
+        }
+    if (index < 0)
+        return 0;
+    select->focus_index = index;
+    menu_native_focus(m, item);
+    menu_tick(m);
+    char course_buf[96];
+    custom_modes_picker_item_text(m, item, course_buf, sizeof course_buf);
+    const char *course = course_buf;
+    if (!course || !*course)
+        course = menu_game_text(m, "course_code");
+    if (!course || !*course)
+        course = "tsukuba";
+    snprintf(custom_modes_request.course, sizeof custom_modes_request.course, "%s", course);
+    if (custom_modes_options) {
+        moon_options_set(custom_modes_options, "custom.elimination.last_course", course);
+        moon_options_save(custom_modes_options);
+    }
+    const char *category = menu_game_menu_ref(m);
+    custom_modes_course_select = 0;
+    menu_game_stack_pop(m);
+    custom_modes_request_pending = 1;
+    ui_fade(menu_ui(m), 0, 1, .25f);
+    fprintf(stderr, "custom modes: picker chose category=%s item=%d course=%s\n",
+            category ? category : "", index, course);
+    *ret = ah_int(2);
+    return 0;
+}
+
+static int custom_modes_picker_cancel(ah_vm *vm, ah_obj *self, void *data, int argc,
+                                      const ah_val *argv, ah_val *ret)
+{
+    (void)vm;
+    (void)self;
+    (void)argc;
+    (void)argv;
+    menu *m = data;
+    if (custom_modes_course_select) {
+        custom_modes_pending = 5;
+        if (m)
+            ui_fade(menu_ui(m), 0, 1, .25f);
+    } else if (m)
+        menu_native_page(m, custom_modes_page_root);
+    *ret = ah_int(2);
+    return 0;
+}
+
+static int custom_modes_map_cancel(ah_vm *vm, ah_obj *self, void *data, int argc,
+                                   const ah_val *argv, ah_val *ret)
+{
+    (void)vm;
+    (void)self;
+    (void)argc;
+    (void)argv;
+    menu *m = data;
+    if (custom_modes_course_select) {
+        custom_modes_course_select = 0;
+        custom_modes_pending = 1;
+        if (m)
+            ui_fade(menu_ui(m), 0, 1, .25f);
+    } else if (m)
+        menu_native_page(m, custom_modes_home_root);
+    *ret = ah_int(2);
+    return 0;
+}
+
+static void custom_modes_picker_open(menu *m)
+{
+    if (!m || custom_modes_course_root < 0)
+        return;
+    const char *last = custom_modes_options
+        ? moon_options_get(custom_modes_options, "custom.elimination.last_course", "tsukuba")
+        : "tsukuba";
+    if (!last || !*last)
+        last = "tsukuba";
+    custom_modes_picker_menu = m;
+    menu_game_set_text(m, "course_code", last);
+    menu_game_stack_push(m, "RealCircuit");
+    ui_load_package(menu_ui(m), "/projects/gtmode", "RealCircuit");
+    menu_native_page(m, custom_modes_course_root);
+    custom_modes_picker_bind(m);
+    custom_modes_picker_log(m);
+    fprintf(stderr, "custom modes: picker open category=RealCircuit\n");
+}
+
 static int custom_modes_elimination(ah_vm *vm, ah_obj *self, void *data, int argc,
                                     const ah_val *argv, ah_val *ret)
 {
@@ -222,25 +444,35 @@ static int custom_modes_elimination(ah_vm *vm, ah_obj *self, void *data, int arg
     custom_modes_request.color = m ? menu_riding_color(m) : custom_modes_color;
     if (!custom_modes_request.color)
         custom_modes_request.color = custom_modes_color;
-    snprintf(custom_modes_request.course, sizeof custom_modes_request.course, "%s",
-             getenv("MOON_CUSTOM_COURSE") && *getenv("MOON_CUSTOM_COURSE")
-                 ? getenv("MOON_CUSTOM_COURSE")
-                 : "tsukuba");
-    custom_modes_request.field_size = custom_modes_options
+    custom_modes_field_size = custom_modes_options
         ? moon_options_int(custom_modes_options, "custom.elimination.field_size", 12, 2,
                            MOON_MAX_CARS)
         : 12;
-    custom_modes_request.thunder = custom_modes_options
+    custom_modes_thunder = custom_modes_options
         ? moon_options_int(custom_modes_options, "custom.elimination.thunder", 1, 0, 1)
         : 1;
-    custom_modes_request_pending = 1;
-    if (m)
-        ui_fade(menu_ui(m), 0, 1, .25f);
-    fprintf(stderr, "custom modes: elimination field=%d thunder=%d\n",
-            custom_modes_request.field_size, custom_modes_request.thunder);
-    fprintf(stderr, "custom modes: elimination selected car=%s color=%d course=%s\n",
-            custom_modes_request.car, custom_modes_request.color,
-            custom_modes_request.course);
+    custom_modes_request.field_size = custom_modes_field_size;
+    custom_modes_request.thunder = custom_modes_thunder;
+    const char *env_course = getenv("MOON_CUSTOM_COURSE");
+    if (env_course && *env_course) {
+        snprintf(custom_modes_request.course, sizeof custom_modes_request.course, "%s",
+                 env_course);
+        custom_modes_request_pending = 1;
+        if (m)
+            ui_fade(menu_ui(m), 0, 1, .25f);
+        fprintf(stderr, "custom modes: elimination field=%d thunder=%d\n",
+                custom_modes_field_size, custom_modes_thunder);
+        fprintf(stderr, "custom modes: elimination selected car=%s color=%d course=%s\n",
+                custom_modes_request.car, custom_modes_request.color,
+                custom_modes_request.course);
+    } else {
+        custom_modes_course_select = 1;
+        custom_modes_pending = 3;
+        if (m)
+            ui_fade(menu_ui(m), 0, 1, .25f);
+        fprintf(stderr, "custom modes: elimination field=%d thunder=%d\n",
+                custom_modes_field_size, custom_modes_thunder);
+    }
     *ret = ah_int(2);
     return 0;
 }
@@ -328,6 +560,7 @@ static void custom_modes_tick(menu *m)
     if (custom_modes_page_bg)
         custom_modes_page_bg->flash_time = 5.2f;
     custom_modes_refresh_header(m);
+    custom_modes_picker_tick(m);
     if (!custom_modes_pending || !m)
         return;
     ui_project *ui = menu_ui(m);
@@ -335,7 +568,14 @@ static void custom_modes_tick(menu *m)
         return;
     if (custom_modes_pending == 1)
         menu_native_page(m, custom_modes_page_root);
-    else
+    else if (custom_modes_pending == 3) {
+        custom_modes_picker_open(m);
+        ui_fade(ui, 1, 0, .25f);
+        custom_modes_pending = 0;
+        return;
+    } else if (custom_modes_pending == 5) {
+        menu_native_page(m, custom_modes_top_root);
+    } else
         menu_native_page(m, custom_modes_top_root);
     ui_fade(ui, 1, 0, .25f);
     custom_modes_pending = 0;
@@ -348,7 +588,7 @@ static void custom_modes_attach(menu *m)
     ui_project *ui = menu_ui(m);
     if (!ui)
         return;
-    int top = -1, page = -1, home = -1, event = -1;
+    int top = -1, page = -1, home = -1, event = -1, course = -1;
     for (int i = 0; i < ui_root_count(ui); i++) {
         const char *name = ui_root_name(ui, i);
         if (!strcmp(name, "TopRoot"))
@@ -359,6 +599,8 @@ static void custom_modes_attach(menu *m)
             home = i;
         else if (!strcmp(name, "EventHallRoot"))
             event = i;
+        else if (!strcmp(name, "CourseEntryRoot"))
+            course = i;
     }
     if (top < 0 || page < 0 || home < 0 || event < 0)
         return;
@@ -606,5 +848,19 @@ static void custom_modes_attach(menu *m)
     menu_native_method(m, page_root, "onCancel", custom_modes_back, m);
     custom_modes_top_root = top;
     custom_modes_page_root = page;
+    custom_modes_course_root = course;
+    custom_modes_home_root = home;
+    fprintf(stderr, "custom modes: roots top=%d page=%d home=%d event=%d course=%d\n",
+            top, page, home, event, course);
+    if (course >= 0) {
+        ui_widget *course_root = ui_root_widget(ui, course);
+        if (course_root)
+            menu_native_method(m, course_root, "onCancel", custom_modes_picker_cancel, m);
+    }
+    {
+        ui_widget *top_root = ui_root_widget(ui, top);
+        if (top_root)
+            menu_native_method(m, top_root, "onCancel", custom_modes_map_cancel, m);
+    }
     custom_modes_attached = 1;
 }
