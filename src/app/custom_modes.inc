@@ -9,12 +9,15 @@ static char custom_modes_car[64];
 static char custom_modes_hall_bgm[32];
 static int custom_modes_color;
 static int custom_modes_attached;
+static moon_options *custom_modes_options;
 static int custom_modes_pending;
 
 typedef struct {
     char course[32];
     char car[32];
     int color;
+    int field_size;
+    int thunder;
 } custom_modes_race_request;
 
 static custom_modes_race_request custom_modes_request;
@@ -223,9 +226,18 @@ static int custom_modes_elimination(ah_vm *vm, ah_obj *self, void *data, int arg
              getenv("MOON_CUSTOM_COURSE") && *getenv("MOON_CUSTOM_COURSE")
                  ? getenv("MOON_CUSTOM_COURSE")
                  : "tsukuba");
+    custom_modes_request.field_size = custom_modes_options
+        ? moon_options_int(custom_modes_options, "custom.elimination.field_size", 12, 2,
+                           MOON_MAX_CARS)
+        : 12;
+    custom_modes_request.thunder = custom_modes_options
+        ? moon_options_int(custom_modes_options, "custom.elimination.thunder", 1, 0, 1)
+        : 1;
     custom_modes_request_pending = 1;
     if (m)
         ui_fade(menu_ui(m), 0, 1, .25f);
+    fprintf(stderr, "custom modes: elimination field=%d thunder=%d\n",
+            custom_modes_request.field_size, custom_modes_request.thunder);
     fprintf(stderr, "custom modes: elimination selected car=%s color=%d course=%s\n",
             custom_modes_request.car, custom_modes_request.color,
             custom_modes_request.course);

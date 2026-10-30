@@ -101,6 +101,13 @@ struct gt4_race_run {
     int finish_serial[MOON_MAX_CARS];
     int finish_next;
     int elimination, elim_done, elim_last_lap, elim_serial;
+    int elim_field_size, elim_thunder;
+    float elim_start_dist;
+    int elim_cut_count, elim_last_count;
+    char elim_last_names[3][96];
+    int elim_card_kind, elim_card_place, elim_card_remaining;
+    char elim_card_name[96];
+    unsigned elim_card_frame;
     int eliminated[MOON_MAX_CARS];
     float elim_pos[MOON_MAX_CARS][3];
     float elim_refs[MOON_MAX_CARS][16];
@@ -1275,7 +1282,7 @@ static void order_classification(gt4_race_run *r, int n)
 static void build_classification(gt4_race_run *r)
 {
     int official, phantoms, n;
-    if (!r || !r->phantom_count)
+    if (!r)
         return;
     if (r->class_frozen) {
         int official = (int)GT4_U32(r->cond + CONDUCTOR_FIELD_CAR_COUNT_U);
@@ -1426,13 +1433,33 @@ void gt4_race_run_set_elimination(gt4_race_run *r, int on)
     r->elim_serial = 0;
     r->elim_msg[0] = 0;
     r->elim_msg_frame = 0;
+    r->elim_field_size = r->field_size > 0 ? r->field_size : r->cars + r->phantom_count;
+    r->elim_start_dist = 0;
+    r->elim_thunder = 1;
+    r->elim_cut_count = 0;
+    r->elim_last_count = 0;
+    memset(r->elim_last_names, 0, sizeof r->elim_last_names);
+    r->elim_card_kind = r->elim_card_place = r->elim_card_remaining = 0;
+    r->elim_card_name[0] = 0;
+    r->elim_card_frame = 0;
     memset(r->eliminated, 0, sizeof r->eliminated);
     if (on) {
         /* no lap limit: the lap line is only the elimination checkpoint */
         w32(RACE, 0);
         if (r->phantom_count)
             w32(r->phantom_race, 0);
-        fprintf(stderr, "custom modes: elimination armed, laps=0\n");
+        {
+            build_classification(r);
+            for (int k = 0; k < r->class_n; k++) {
+                int id = r->class_order[k];
+                if (!r->entrants[id].eliminated && !r->entrants[id].finished) {
+                    r->elim_start_dist = r->entrants[id].distance;
+                    break;
+                }
+            }
+        }
+        fprintf(stderr, "custom modes: elimination armed, laps=0 start_dist=%.2f\n",
+                r->elim_start_dist);
     }
 }
 
@@ -1444,6 +1471,87 @@ int gt4_race_run_elimination(const gt4_race_run *r)
 int gt4_race_run_elimination_serial(const gt4_race_run *r)
 {
     return r && r->elimination ? r->elim_serial : 0;
+}
+
+void gt4_race_run_set_elimination_thunder(gt4_race_run *r, int on)
+{
+    if (r)
+        r->elim_thunder = on ? 1 : 0;
+}
+
+int gt4_race_run_elimination_thunder(const gt4_race_run *r)
+{
+    return r && r->elimination ? r->elim_thunder : 0;
+}
+
+float gt4_race_run_course_length(const gt4_race_run *r)
+{
+    return r ? native_course_length(r->cond) : 0.f;
+}
+
+static void elim_copy_upper(char *dst, size_t cap, const char *src)
+{
+    if (!dst || !cap)
+        return;
+    if (!src || !*src)
+        src = "UNKNOWN DRIVER";
+    size_t n = 0;
+    for (; src[n] && n + 1 < cap; n++) {
+        unsigned char c = (unsigned char)src[n];
+        dst[n] = c >= 'a' && c <= 'z' ? (char)(c - 'a' + 'A') : (char)c;
+    }
+    dst[n] = 0;
+}
+
+int gt4_race_run_elimination_hud(const gt4_race_run *r, gt4_elimination_hud *out)
+{
+    if (!r || !r->elimination || !out)
+        return 0;
+    memset(out, 0, sizeof *out);
+    build_classification((gt4_race_run *)r);
+    int running = 0, last = -1, leader = -1;
+    for (int k = 0; k < r->class_n; k++) {
+        int id = r->class_order[k];
+        gt4_race_entrant *e = &r->entrants[id];
+        if (e->eliminated || e->finished)
+            continue;
+        if (leader < 0)
+            leader = id;
+        last = id;
+        running++;
+    }
+    out->field_size = r->elim_field_size > 0 ? r->elim_field_size : r->cars + r->phantom_count;
+    out->remaining = running;
+    out->next_out = last;
+    elim_copy_upper(out->next_name, sizeof out->next_name,
+                    last >= 0 ? r->entrant_name[last] : "");
+    out->player_last = last == 0;
+    float len = native_course_length(r->cond);
+    if (leader >= 0 && len > 1.f) {
+        float d = r->entrants[leader].distance;
+        if (d < 0)
+            d = 0;
+        d -= r->elim_start_dist;
+        if (d < 0)
+            d += len;
+        if (d >= len)
+            d -= len;
+        out->lap_progress = d / len;
+        if (out->lap_progress < 0)
+            out->lap_progress = 0;
+        if (out->lap_progress > 1)
+            out->lap_progress = 1;
+    }
+    out->warning = !r->elim_done && out->lap_progress >= .80f;
+    out->eliminated_count = r->elim_last_count;
+    for (int i = 0; i < r->elim_last_count && i < 3; i++)
+        elim_copy_upper(out->last_names[i], sizeof out->last_names[i], r->elim_last_names[i]);
+    out->card_kind = r->elim_card_kind;
+    out->card_place = r->elim_card_place;
+    out->card_remaining = r->elim_card_remaining;
+    elim_copy_upper(out->card_name, sizeof out->card_name, r->elim_card_name);
+    out->card_age = r->frames >= r->elim_card_frame ? r->frames - r->elim_card_frame : 0;
+    return 1;
 }
 
 int gt4_race_run_elimination_message(const gt4_race_run *r, const char **msg, unsigned *age)
@@ -1472,8 +1580,36 @@ static uint32_t elim_car(const gt4_race_run *r, int id)
     return id >= 0 && id < r->phantom_count ? r->phantom_car[id] : 0;
 }
 
+static void elim_mark_finished(gt4_race_run *r, int id)
+{
+    if (!r || id < 0)
+        return;
+    if (r->native_phantoms && id >= r->cars) {
+        int j = id - r->cars;
+        if (j >= 0 && j < r->phantom_count) {
+            r->native[j].finished = 1;
+            r->native[j].speed = 0;
+            r->native[j].finish_time = GT4_U32(r->cond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3u;
+        }
+        return;
+    }
+    uint32_t car = elim_car(r, id);
+    if (car)
+        GT4_U8(car + CAR_5B6) = 1;
+}
+
 static void elim_stop(gt4_race_run *r, int id)
 {
+    if (r->native_phantoms && id >= r->cars) {
+        int j = id - r->cars;
+        if (j >= 0 && j < r->phantom_count) {
+            r->native[j].finished = 1;
+            r->native[j].speed = 0;
+            r->native[j].finish_time = GT4_U32(r->cond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3u;
+            fprintf(stderr, "custom modes: stop id=%d native phantom finished\n", id);
+        }
+        return;
+    }
     uint32_t car = elim_car(r, id);
     if (!car || id < 0 || id >= MOON_MAX_CARS)
         return;
@@ -1537,22 +1673,32 @@ static void elim_end(gt4_race_run *r, int winner)
         return;
     r->elim_done = 1;
     if (winner >= 0) {
-        uint32_t car = elim_car(r, winner);
-        if (car) {
-            GT4_U8(car + CAR_5B6) = 1;
-            if (winner != 0)
-                snprintf(r->elim_msg, sizeof r->elim_msg, "Winner: %s",
-                         r->entrant_name[winner][0] ? r->entrant_name[winner] : "car");
-        }
+        elim_mark_finished(r, winner);
+        if (winner != 0)
+            snprintf(r->elim_msg, sizeof r->elim_msg, "Winner: %s",
+                     r->entrant_name[winner][0] ? r->entrant_name[winner] : "UNKNOWN DRIVER");
+        r->elim_card_kind = 2;
+        elim_copy_upper(r->elim_card_name, sizeof r->elim_card_name,
+                        r->entrant_name[winner][0] ? r->entrant_name[winner] : "");
+        r->elim_card_remaining = 1;
+        r->elim_card_frame = r->frames;
     }
     if (r->eliminated[0]) {
-        for (int id = 0; id < r->cars + r->phantom_count && id < MOON_MAX_CARS; id++) {
-            uint32_t car = elim_car(r, id);
-            if (car)
-                GT4_U8(car + CAR_5B6) = 1;
+        for (int id = 0; id < r->cars + r->phantom_count && id < MOON_MAX_CARS; id++)
+            elim_mark_finished(r, id);
+        for (int j = 0; j < r->phantom_count; j++) {
+            r->native[j].finished = 1;
+            r->native[j].speed = 0;
         }
+        r->elim_card_kind = 3;
+        r->elim_card_remaining = r->elim_field_size - r->elim_cut_count;
+        r->elim_card_place = r->elim_card_remaining + 1;
+        r->elim_card_name[0] = 0;
+        r->elim_card_frame = r->frames;
     }
     r->elim_msg_frame = r->frames;
+    fprintf(stderr, "custom modes: winner id=%d %s\n", winner,
+            winner >= 0 && r->entrant_name[winner][0] ? r->entrant_name[winner] : "UNKNOWN DRIVER");
     fprintf(stderr, "custom modes: race over, winner=%d player_eliminated=%d\n", winner,
             r->eliminated[0]);
 }
@@ -1560,7 +1706,7 @@ static void elim_end(gt4_race_run *r, int winner)
 static void elim_step(gt4_race_run *r)
 {
     int n, running = 0, leader_lap = -1, last = -1;
-    if (!r || !r->elimination || r->elim_done || !r->phantom_count)
+    if (!r || !r->elimination || r->elim_done)
         return;
     n = r->class_n;
     for (int k = 0; k < n; k++) {
@@ -1598,7 +1744,20 @@ static void elim_step(gt4_race_run *r)
     }
     r->eliminated[last] = 1;
     r->elim_serial++;
+    r->elim_cut_count++;
     elim_stop(r, last);
+    for (int k = 2; k > 0; k--)
+        snprintf(r->elim_last_names[k], sizeof r->elim_last_names[k], "%s",
+                 r->elim_last_names[k - 1]);
+    snprintf(r->elim_last_names[0], sizeof r->elim_last_names[0], "%s",
+             r->entrant_name[last][0] ? r->entrant_name[last] : "UNKNOWN DRIVER");
+    if (r->elim_last_count < 3)
+        r->elim_last_count++;
+    r->elim_card_kind = 1;
+    elim_copy_upper(r->elim_card_name, sizeof r->elim_card_name,
+                    r->entrant_name[last][0] ? r->entrant_name[last] : "");
+    r->elim_card_remaining = running - 1;
+    r->elim_card_frame = r->frames;
     running--;
     snprintf(r->elim_msg, sizeof r->elim_msg, "%s eliminated, %d left",
              r->entrant_name[last][0] ? r->entrant_name[last] : "car", running);
@@ -1994,6 +2153,13 @@ int gt4_race_run_frame(gt4_race_run *r)
             phantom_contacts(r);
         }
         build_classification(r);
+        elim_step(r);
+        elim_hold(r);
+    }
+    if (r->elimination && !r->phantom_count) {
+        build_classification(r);
+        elim_step(r);
+        elim_hold(r);
     }
     gt4_race_after_step(RACE);
     /* 0033C538: prop manager runs after 00389990 world simulation. */

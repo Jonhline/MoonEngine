@@ -4199,6 +4199,7 @@ int main(int argc, char **argv)
 #endif
     video_settings settings;
     video_settings_init(&settings, persistent_video, settings_config);
+    custom_modes_options = &settings.store;
     menu_set_controller_tiles(settings.current.controller_tiles);
 #ifndef __SWITCH__
     for (int i = 1; i < argc; i++) {
@@ -6617,11 +6618,14 @@ int main(int argc, char **argv)
                     "s500_63", "_1100_standard_type11_49", "z_act_70", "today_g_85",
                     "midget2_d_type_98", "s500_63", "_1100_standard_type11_49"};
                 char msg[256];
-                race_game_set_field_size(12);
+                int nothers = cm.field_size > 1 ? cm.field_size - 1 : 1;
+                if (nothers > 11)
+                    nothers = 11;
+                race_game_set_field_size(cm.field_size);
                 if (game && cm.car[0] &&
-                    race_game_start(game, cm.course, cm.car, cm.color, cm_others, NULL, 11, msg,
-                                    sizeof msg)) {
-                    race_game_set_elimination(game, 1);
+                    race_game_start(game, cm.course, cm.car, cm.color, cm_others, NULL, nothers,
+                                    msg, sizeof msg)) {
+                    race_game_set_elimination(game, 1, cm.thunder);
                     snprintf(race_course, sizeof race_course, "%s", cm.course);
                     snprintf(race_car, sizeof race_car, "%s", cm.car);
                     loading_screen_begin();

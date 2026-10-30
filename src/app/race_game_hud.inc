@@ -382,25 +382,77 @@ void race_game_draw_hud(race_game *g, double dt)
     } else {
         race_hud_draw(g->hud, &s, g->pause ? 0.f : (float)dt); /* held with the race */
         {
-            const char *msg = NULL;
-            unsigned age = 0;
-            if (gt4_race_run_elimination_message(g->run, &msg, &age)) {
+            gt4_elimination_hud eh;
+            if (gt4_race_run_elimination_hud(g->run, &eh)) {
                 static const uint8_t white[4] = {255, 255, 255, 255};
-                uint8_t tint[4] = {white[0], white[1], white[2],
-                                   (uint8_t)(255 - age * 2 < 0 ? 0 : 255 - age * 2)};
-                if (age < 12) {
+                static const uint8_t red[4] = {235, 45, 45, 255};
+                static const uint8_t dark_red[4] = {105, 18, 18, 255};
+                static const uint8_t dim[4] = {170, 170, 170, 210};
+                unsigned phase = (gt4_race_run_frames(g->run) / 30) & 1;
+                char line[160];
+                uint8_t panel[4] = {0, 0, 0, 170};
+                plat_draw_quad(NULL, 430, 64, 196, 86, 0, 0, 1, 1, panel);
+                if (eh.warning) {
+                    race_hud_text(g->hud, "hm_16#1*86,88", 528, 48, 4 | 3, red,
+                                  "ELIMINATION ZONE");
+                }
+                snprintf(line, sizeof line, "REMAINING  %d/%d", eh.remaining, eh.field_size);
+                race_hud_text(g->hud, "hm_16#1*86,88", 438, 68, 4, white, line);
+                if (eh.player_last)
+                    snprintf(line, sizeof line, "YOU ARE LAST");
+                else
+                    snprintf(line, sizeof line, "NEXT OUT  %s", eh.next_name);
+                race_hud_text(g->hud, "hm_16#1*86,88", 438, 88, 4,
+                              eh.warning && phase ? dark_red : red, line);
+                for (int i = 0; i < eh.eliminated_count && i < 3; i++)
+                    race_hud_text(g->hud, "hm_16#1*78,80", 438, 108 + i * 14, 4, dim,
+                                  eh.last_names[i]);
+                if (eh.warning && eh.player_last) {
+                    float pulse = .09f * (1.f + sinf((float)gt4_race_run_frames(g->run) *
+                                                     6.2831853f / 30.f));
+                    uint8_t v[4] = {255, 0, 0, (uint8_t)(pulse * 255.f)};
+                    plat_draw_quad(NULL, 0, 0, 640, 8, 0, 0, 1, 1, v);
+                    plat_draw_quad(NULL, 0, 440, 640, 8, 0, 0, 1, 1, v);
+                    plat_draw_quad(NULL, 0, 0, 8, 448, 0, 0, 1, 1, v);
+                    plat_draw_quad(NULL, 632, 0, 8, 448, 0, 0, 1, 1, v);
+                }
+                if (gt4_race_run_elimination_thunder(g->run) && eh.card_kind &&
+                    eh.card_age < 12) {
                     static const struct {
                         float x, y, w, h;
                     } bolt[] = {{318, 0, 5, 55}, {300, 50, 24, 5}, {304, 55, 5, 45},
                                 {286, 95, 24, 5}, {292, 100, 5, 40}, {276, 135, 22, 5},
                                 {282, 140, 5, 50}, {264, 185, 24, 5}, {270, 190, 5, 30}};
-                    uint8_t flash[4] = {255, 255, 255, (uint8_t)((12 - age) * 14)};
+                    uint8_t flash[4] = {255, 255, 255, (uint8_t)((12 - eh.card_age) * 14)};
                     plat_draw_quad(NULL, 0, 0, 640, 240, 0, 0, 1, 1, flash);
                     for (unsigned b = 0; b < sizeof bolt / sizeof bolt[0]; b++)
                         plat_draw_quad(NULL, bolt[b].x, bolt[b].y, bolt[b].w, bolt[b].h, 0, 0, 1,
                                        1, white);
                 }
-                race_hud_text(g->hud, "hb_24#0*125,125", 320, 26, 4 | 3, tint, msg);
+                if (eh.card_kind && eh.card_age < 150) {
+                    uint8_t card[4] = {0, 0, 0, 190};
+                    uint8_t card_tint[4] = {white[0], white[1], white[2],
+                                             (uint8_t)(255 - eh.card_age < 0 ? 0 : 255 - eh.card_age)};
+                    plat_draw_quad(NULL, 150, 128, 340, 116, 0, 0, 1, 1, card);
+                    if (eh.card_kind == 3) {
+                        snprintf(line, sizeof line, "ELIMINATED - P%d", eh.card_place);
+                        race_hud_text(g->hud, "hb_24#0*125,125", 320, 156, 4 | 3, card_tint,
+                                      line);
+                    } else if (eh.card_kind == 2) {
+                        snprintf(line, sizeof line, "WINNER - %s", eh.card_name);
+                        race_hud_text(g->hud, "hb_24#0*125,125", 320, 156, 4 | 3, card_tint,
+                                      line);
+                    } else {
+                        race_hud_text(g->hud, "hb_24#0*125,125", 320, 156, 4 | 3, card_tint,
+                                      eh.card_name);
+                        race_hud_text(g->hud, "hm_16#1*86,88", 320, 196, 4 | 3, card_tint,
+                                      "HAS BEEN ELIMINATED");
+                    }
+                    if (eh.card_kind != 3) {
+                        snprintf(line, sizeof line, "%d REMAINING", eh.card_remaining);
+                        race_hud_text(g->hud, "hm_16#1*78,80", 320, 218, 4 | 3, dim, line);
+                    }
+                }
             }
         }
         if (g->bspec_ui) {

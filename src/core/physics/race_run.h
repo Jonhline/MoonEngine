@@ -117,6 +117,23 @@ void gt4_race_run_set_elimination(gt4_race_run *r, int on);
 int gt4_race_run_elimination(const gt4_race_run *r);
 /* Increments for each car eliminated; the host plays thunder on a change. */
 int gt4_race_run_elimination_serial(const gt4_race_run *r);
+/* 0 disables the elimination thunder/flash/bolt, not the cut. */
+void gt4_race_run_set_elimination_thunder(gt4_race_run *r, int on);
+int gt4_race_run_elimination_thunder(const gt4_race_run *r);
+/* Live elimination panel/card state. All fields are read-only snapshots. */
+typedef struct {
+    int field_size, remaining, warning, player_last, next_out;
+    int eliminated_count, card_kind, card_place;
+    char next_name[96];
+    char last_names[3][96];
+    char card_name[96];
+    int card_remaining;
+    unsigned card_age;
+    float lap_progress;
+} gt4_elimination_hud;
+int gt4_race_run_elimination_hud(const gt4_race_run *r, gt4_elimination_hud *out);
+/* The course length used for the warning progress, 0 if unavailable. */
+float gt4_race_run_course_length(const gt4_race_run *r);
 /* The last elimination message and its age in frames; 0 when there is none. */
 int gt4_race_run_elimination_message(const gt4_race_run *r, const char **msg, unsigned *age);
 /* Names/colours for the classification and the renderer. Slot is the

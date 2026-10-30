@@ -358,11 +358,12 @@ static void custom_thunder(void)
 
 
 
-void race_game_set_elimination(race_game *g, int on)
+void race_game_set_elimination(race_game *g, int on, int thunder)
 {
     if (g && g->run) {
         g->elim_seen = 0;
         gt4_race_run_set_elimination(g->run, on);
+        gt4_race_run_set_elimination_thunder(g->run, thunder);
     }
 }
 
@@ -3170,7 +3171,8 @@ void race_game_update(race_game *g, double dt)
             int serial = gt4_race_run_elimination_serial(g->run);
             if (serial && serial != g->elim_seen) {
                 g->elim_seen = serial;
-                custom_thunder();
+                if (gt4_race_run_elimination_thunder(g->run))
+                    custom_thunder();
             }
         }
         g->license_test_frame++;
