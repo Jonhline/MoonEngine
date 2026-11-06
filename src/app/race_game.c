@@ -324,7 +324,33 @@ static void custom_thunder(void)
         return;
     snprintf(path, sizeof path, "%scustom/thunder.wav", root);
     if (!SDL_LoadWAV(path, &spec, &wav, &len)) {
-        fprintf(stderr, "custom modes: thunder missing (%s)\n", path);
+        /* The disc's SE table has no thunder/kaminari/lightning entry (only
+           rain_noiz), so synthesise a low brown-noise burst instead of
+           shipping an audio file. */
+        const int rate = 48000, frames = rate * 2;
+        int16_t *pcm = malloc((size_t)frames * 2 * sizeof *pcm);
+        if (pcm) {
+            uint32_t seed = 0x9e3779b9u;
+            float brown = 0.f;
+            for (int i = 0; i < frames; i++) {
+                seed = seed * 1664525u + 1013904223u;
+                float n = ((int32_t)(seed >> 8) / 8388608.f) - 1.f;
+                brown = brown * .985f + n * .015f;
+                float t = (float)i / (float)rate;
+                float env = expf(-t * 1.9f) * (1.f - expf(-t * 30.f));
+                float rumble = sinf(6.2831853f * 38.f * t) * .25f;
+                float v = (brown * 1.6f + rumble) * env * 32767.f;
+                if (v > 32767.f)
+                    v = 32767.f;
+                if (v < -32768.f)
+                    v = -32768.f;
+                pcm[2 * i] = pcm[2 * i + 1] = (int16_t)v;
+            }
+            int played = plat_audio_play(pcm, (size_t)frames, rate, 2);
+            fprintf(stderr, "custom modes: thunder source=synth frames=%d played=%d\n", frames,
+                    played);
+            free(pcm);
+        }
         free(root);
         return;
     }
@@ -349,13 +375,14 @@ static void custom_thunder(void)
         int frames = cvt.len_cvt / 4;
         int played = frames > 0 ? plat_audio_play((const int16_t *)cvt.buf, (size_t)frames, 48000, 2)
                                 : 0;
-        fprintf(stderr, "custom modes: thunder %s frames=%d played=%d\n", path, frames, played);
+        fprintf(stderr, "custom modes: thunder source=wav frames=%d played=%d\n", frames, played);
     } else
         fprintf(stderr, "custom modes: thunder convert failed: %s\n", SDL_GetError());
     free(cvt.buf);
     SDL_FreeWAV(wav);
     free(root);
 }
+
 
 
 
