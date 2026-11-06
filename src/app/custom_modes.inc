@@ -11,6 +11,7 @@ static int custom_modes_color;
 static int custom_modes_attached;
 static moon_options *custom_modes_options;
 static int custom_modes_pending;
+static int custom_modes_header_logged;
 static int custom_modes_course_root = -1, custom_modes_home_root = -1;
 static int custom_modes_course_select;
 static int custom_modes_field_size = 12, custom_modes_thunder = 1;
@@ -72,11 +73,32 @@ static void custom_modes_refresh_header(menu *m)
         return;
     ui_widget *car = ui_widget_child(header, "Car");
     ui_widget *car_label = car ? ui_widget_child(car, "label") : NULL;
+    ui_widget *chip = car ? cm_find(car, "chip") : NULL;
+    if (!custom_modes_header_logged) {
+        custom_modes_header_logged = 1;
+
+        fprintf(stderr,
+                "custom modes: header authored Header=%.0f,%.0f,%.0f,%.0f "
+                "Car=%.0f,%.0f,%.0f,%.0f label=%.0f,%.0f,%.0f,%.0f "
+                "chip=%.0f,%.0f,%.0f,%.0f\n",
+                header->x, header->y, header->w, header->h, car ? car->x : -1,
+                car ? car->y : -1, car ? car->w : -1, car ? car->h : -1,
+                car_label ? car_label->x : -1, car_label ? car_label->y : -1,
+                car_label ? car_label->w : -1, car_label ? car_label->h : -1,
+                chip ? chip->x : -1, chip ? chip->y : -1, chip ? chip->w : -1,
+                chip ? chip->h : -1);
+    }
+    float car_x = car ? car->x : 296, car_y = car ? car->y : 19;
+    float car_w = car ? car->w : 170, car_h = car ? car->h : 21;
+    float label_x = car_label ? car_label->x : 9, label_y = car_label ? car_label->y : 0;
+    float label_w = car_label ? car_label->w : 157, label_h = car_label ? car_label->h : 20;
+    float chip_x = chip ? chip->x : 0, chip_y = chip ? chip->y : 0;
+    float chip_w = chip ? chip->w : 10, chip_h = chip ? chip->h : 20;
     if (car) {
-        car->x = 296;
-        car->y = 19;
-        car->w = 170;
-        car->h = 21;
+        car->x = car_x;
+        car->y = car_y;
+        car->w = car_w;
+        car->h = car_h;
         car->has_geometry = 1;
     }
     if (car_label) {
@@ -84,22 +106,25 @@ static void custom_modes_refresh_header(menu *m)
         if (!label || !*label)
             label = menu_riding_car(m);
         const char *name = label && *label ? menu_car_name(m, label) : NULL;
-        char shown[32];
-        if (name && strlen(name) > 21)
-            snprintf(shown, sizeof shown, "%.21s...", name);
-        else
-            snprintf(shown, sizeof shown, "%s", name && *name ? name : (label && *label ? label : "--"));
-        car_label->x = 9;
-        car_label->y = 0;
-        car_label->w = 157;
-        car_label->h = 20;
+        car_label->x = label_x;
+        car_label->y = label_y;
+        car_label->w = label_w;
+        car_label->h = label_h;
         car_label->has_geometry = 1;
-        car_label->scale_x = .85f;
-        car_label->scale_y = .9f;
-        cm_text(car_label, shown);
+        car_label->scale_x = 1;
+        car_label->scale_y = 1;
+        cm_text(car_label, name && *name ? name : (label && *label ? label : "--"));
+        ui_text_abbreviate(menu_ui(m), car_label);
+    }
+    if (chip) {
+        chip->x = chip_x;
+        chip->y = chip_y;
+        chip->w = chip_w;
+        chip->h = chip_h;
+        chip->has_geometry = 1;
+        chip->visible = 0;
     }
     {
-        ui_widget *chip = car ? cm_find(car, "chip") : NULL;
         const char *paint_label = menu_split_car(m, 0);
         if (!paint_label || !*paint_label)
             paint_label = menu_riding_car(m);
@@ -152,6 +177,22 @@ static void custom_modes_refresh_header(menu *m)
                 snprintf(text, sizeof text, "%d", date[2]);
                 cm_text(day, text);
             }
+        }
+    }
+    if (!custom_modes_header_logged || custom_modes_header_logged == 1) {
+        static int ours;
+        if (!ours) {
+            ours = 1;
+            fprintf(stderr,
+                    "custom modes: header ours Header=%.0f,%.0f,%.0f,%.0f "
+                    "Car=%.0f,%.0f,%.0f,%.0f label=%.0f,%.0f,%.0f,%.0f "
+                    "chip=%.0f,%.0f,%.0f,%.0f\n",
+                    header->x, header->y, header->w, header->h, car ? car->x : -1,
+                    car ? car->y : -1, car ? car->w : -1, car ? car->h : -1,
+                    car_label ? car_label->x : -1, car_label ? car_label->y : -1,
+                    car_label ? car_label->w : -1, car_label ? car_label->h : -1,
+                    chip ? chip->x : -1, chip ? chip->y : -1, chip ? chip->w : -1,
+                    chip ? chip->h : -1);
         }
     }
 }
