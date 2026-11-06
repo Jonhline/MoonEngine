@@ -116,6 +116,7 @@ static void split_hud(race_game *g, double dt)
         s.display_hidden = ~menu_race_display_flags(NULL);
         s.rank = r.rank;
         s.cars = 2;
+        s.map_cars = 2;
         s.lap = r.lap;
         s.laps = r.laps;
         s.lap_time = r.lap_time;
@@ -161,7 +162,7 @@ static void split_hud(race_game *g, double dt)
         s.split = 1;
         s.player = i;
         s.panel = 0;
-        for (int j = 0; j < 2; j++)
+        for (int j = 0; j < s.cars && j < MOON_MAX_CARS; j++)
             s.map_show[j] = gt4_race_run_xy(g->run, j, &s.map_x[j], &s.map_y[j]);
         plat_video_set_view(640, 448);
         video_ui_panel(i * 224.f, 224);
@@ -262,6 +263,7 @@ void race_game_draw_hud(race_game *g, double dt)
     s.display_hidden = ~menu_race_display_flags(NULL);
     s.rank = r.rank;
     s.cars = gt4_race_run_cars(g->run);
+    s.map_cars = gt4_race_run_field_size(g->run);
     s.lap = r.lap;
     s.laps = r.laps;
     s.lap_time = r.lap_time;
@@ -329,8 +331,15 @@ void race_game_draw_hud(race_game *g, double dt)
     s.speed_scale = (float)(r.speed_steps * (g->unit == 1 ? 50 : 80));
     s.tacho_scale = r.tacho_scale;
     s.odometer = r.odometer;
-    for (int i = 0; i < s.cars && i < 6; i++)
+    for (int i = 0; i < s.map_cars && i < MOON_MAX_CARS; i++)
         s.map_show[i] = gt4_race_run_xy(g->run, i, &s.map_x[i], &s.map_y[i]);
+    if (gt4_race_run_frames(g->run) % 60 == 0) {
+        int dots = 0;
+        for (int i = 0; i < s.map_cars && i < MOON_MAX_CARS; i++)
+            if (s.map_show[i] == 3 || s.map_show[i] == 2)
+                dots++;
+        fprintf(stderr, "hud map: field=%d dots=%d\n", s.map_cars, dots);
+    }
     s.unit = g->unit;
     s.signal = r.signal;
     { /* func_0035FC80 reads the car's +0x712 while it has not finished */

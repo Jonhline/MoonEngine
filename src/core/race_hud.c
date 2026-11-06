@@ -1165,7 +1165,7 @@ static void draw_map(race_hud *h, const race_hud_state *s, float light)
                  (float)h->map_th, 0, 0, 1, 1, white);
             continue;
         }
-        for (int i = 0; i < s->cars && i < MOON_CONDUCTOR_CARS; i++) {
+        for (int i = 0; i < s->map_cars && i < MOON_MAX_CARS; i++) {
             int me = i == (s->split ? s->player : 0), img;
             uint32_t col;
             uint8_t c[4];
@@ -1240,7 +1240,7 @@ void race_hud_draw_map_cars(race_hud *h, const race_hud_state *s, float cx, floa
     if (!f)
         return;
     for (int pass = 0; pass < 2; pass++)
-        for (int i = 0; i < s->cars && i < MOON_CONDUCTOR_CARS; i++) {
+        for (int i = 0; i < s->map_cars && i < MOON_MAX_CARS; i++) {
             char t[2] = {(char)('A' + (letter[i] >= 0 && letter[i] < MOON_CONDUCTOR_CARS ? letter[i] : 0)), 0};
             float mx, my;
             if ((i == lit) != (pass == 1))

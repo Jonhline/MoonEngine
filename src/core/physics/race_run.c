@@ -2671,6 +2671,14 @@ int gt4_race_run_shadow(const gt4_race_run *r, int i, float pos[3], float rot[9]
 
 int gt4_race_run_xy(const gt4_race_run *r, int i, float *x, float *y)
 {
+    if (r && i >= r->cars) {
+        int j = i - r->cars;
+        if (!r->native_phantoms || j < 0 || j >= r->phantom_count)
+            return 0;
+        *x = r->native[j].pos[0];
+        *y = r->native[j].pos[2];
+        return r->native[j].finished ? 2 : 3;
+    }
     uint32_t car = gt4_race_run_car(r, i);
     if (!car)
         return 0;

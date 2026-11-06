@@ -22,7 +22,7 @@ typedef struct {
     /* Inverted option word at the presentation boundary; zero keeps every
        existing element visible for callers that do not supply options. */
     uint32_t display_hidden;
-    int rank, cars;
+    int rank, cars, map_cars;
     int split, player; /* horizontal Battle2P mode 8; watched entry 0/1 */
     int lap, laps;
     uint32_t lap_time, best_lap, last_lap;
@@ -42,8 +42,8 @@ typedef struct {
     int oil_sign; /* 0039E308: 0 off, 2 lit, from the watched car's wear. */
     int aid, brake_lock;      /* the signs' sources */
     int driving;              /* the player drives: the signs and fuel shown */
-    float map_x[MOON_CONDUCTOR_CARS], map_y[MOON_CONDUCTOR_CARS]; /* each car on the course (the render frame's x, z) */
-    int map_show[MOON_CONDUCTOR_CARS];          /* how it shows on the map: 3, 2 faded, else not */
+    float map_x[MOON_MAX_CARS], map_y[MOON_MAX_CARS]; /* each car on the course (the render frame's x, z) */
+    int map_show[MOON_MAX_CARS];          /* how it shows on the map: 3, 2 faded, else not */
     int start_frames;         /* frames to the start: START when it reaches 0 */
     int count_frames;         /* func_0034C1C8: watched car's countdown */
     int rolling;              /* the rolling start uses a different display sequence */
