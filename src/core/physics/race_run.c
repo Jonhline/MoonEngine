@@ -91,6 +91,10 @@ struct gt4_race_run {
     int native_phantoms;
     int phantom_line, phantom_line2, phantom_line_points;
     int phantom_method, phantom_method_logged;
+    float phantom_pace_min, phantom_pace_max, phantom_pace_sum;
+    unsigned phantom_pace_samples, phantom_pace_violations;
+    int phantom_pace_logged;
+    float phantom_cap[MOON_MAX_PHANTOMS];
     char course[32];
     uint32_t phantom_cond, phantom_race, phantom_entries, phantom_world;
     gt4_race_entrant entrants[MOON_MAX_CARS];
@@ -1001,10 +1005,13 @@ fail:
     return NULL;
 }
 
+static void native_phantom_pace_report(gt4_race_run *r);
+
 void gt4_race_run_close(gt4_race_run *r)
 {
     if (!r)
         return;
+    native_phantom_pace_report(r);
     if (gt4_phys_specdb == &r->db)
         gt4_phys_specdb = NULL;
     if (gt4_phys_mem == r->ram)
@@ -1699,6 +1706,7 @@ static void elim_end(gt4_race_run *r, int winner)
     r->elim_msg_frame = r->frames;
     fprintf(stderr, "custom modes: winner id=%d %s\n", winner,
             winner >= 0 && r->entrant_name[winner][0] ? r->entrant_name[winner] : "UNKNOWN DRIVER");
+    native_phantom_pace_report(r);
     fprintf(stderr, "custom modes: race over, winner=%d player_eliminated=%d\n", winner,
             r->eliminated[0]);
 }
@@ -1975,6 +1983,38 @@ static void phantom_log_method(gt4_race_run *r, int method)
     r->phantom_method_logged = 1;
 }
 
+/* The line's own corner cap: the heading change between the tangent at
+   dist and the tangent 15 m later gives the radius, v = sqrt(a*r). */
+static float native_phantom_corner_cap(const gt4_race_run *r, int line, float dist)
+{
+    if (!r || line < 0)
+        return 1e9f;
+    float a[3], b[3], c[3];
+    uint32_t lines = r->cond + CONDUCTOR_FIELD_LINES_U;
+    if (!gt4_line_course_point(lines, line, dist, a) ||
+        !gt4_line_course_point(lines, line, dist + 7.5f, b) ||
+        !gt4_line_course_point(lines, line, dist + 15.f, c))
+        return 1e9f;
+    float h0 = atan2f(b[0] - a[0], b[1] - a[1]);
+    float h1 = atan2f(c[0] - b[0], c[1] - b[1]);
+    float dh = fabsf(remainderf(h1 - h0, 6.2831853f));
+    if (dh < 1e-4f)
+        return 1e9f;
+    float radius = 7.5f / dh;
+    return sqrtf(14.f * radius);
+}
+
+static void native_phantom_pace_report(gt4_race_run *r)
+{
+    if (!r || r->phantom_pace_logged || !r->phantom_pace_samples)
+        return;
+    r->phantom_pace_logged = 1;
+    fprintf(stderr,
+            "phantom pace: course=%s min=%.1f avg=%.1f max=%.1f violations=%u\n",
+            r->course, r->phantom_pace_min, r->phantom_pace_sum / r->phantom_pace_samples,
+            r->phantom_pace_max, r->phantom_pace_violations);
+}
+
 static void native_phantoms_step(gt4_race_run *r)
 {
     if (!r || !r->native_phantoms || !r->phantom_count)
@@ -1995,15 +2035,31 @@ static void native_phantoms_step(gt4_race_run *r)
         if (r->native[i].finished)
             continue;
         float target = base_speed + (float)(i % 9) * 1.5f;
+        if (!getenv("MOON_PHANTOM_NO_LINE") && r->phantom_line >= 0)
+            r->phantom_cap[i] =
+                native_phantom_corner_cap(r, r->phantom_line, r->native[i].dist);
+        else
+            r->phantom_cap[i] = 1e9f;
+        if (r->phantom_cap[i] < target)
+            target = r->phantom_cap[i];
+        int blocked = 0;
         for (int j = 0; j < r->phantom_count; j++) {
             if (j == i || r->native[j].finished)
                 continue;
             float gap = r->native[j].dist - r->native[i].dist;
-            if (gap > 0 && gap < 12.f)
-                target *= 0.65f;
+            if (gap > 0 && gap < 12.f) {
+                blocked = 1;
+                break;
+            }
         }
+        if (blocked)
+            target *= 0.65f;
+        if (target < 4.f)
+            target = 4.f;
         if (go) {
             r->native[i].speed += (target - r->native[i].speed) * 0.05f;
+            if (r->native[i].speed > r->phantom_cap[i])
+                r->native[i].speed = r->phantom_cap[i];
             r->native[i].dist += r->native[i].speed * dt;
             if (r->native[i].dist >= len) {
                 r->native[i].dist -= len;
@@ -2073,6 +2129,26 @@ static void native_phantoms_step(gt4_race_run *r)
         r->native[i].pos[1] = p0[1];
         r->native[i].pos[2] = p0[2] + dx * r->native[i].lateral;
     }
+    if (go && r->phantom_count && r->frames % 60 == 0) {
+        for (int i = 0; i < r->phantom_count; i++) {
+            float kmh = r->native[i].speed * 3.6f;
+            if (r->native[i].speed > r->phantom_cap[i] * 1.02f)
+                r->phantom_pace_violations++;
+            if (!r->phantom_pace_samples || kmh < r->phantom_pace_min)
+                r->phantom_pace_min = kmh;
+            if (kmh > r->phantom_pace_max)
+                r->phantom_pace_max = kmh;
+            r->phantom_pace_sum += kmh;
+            r->phantom_pace_samples++;
+        }
+    }
+    if (go && r->phantom_count && r->frames % 120 == 0) {
+        float kmh = r->native[0].speed * 3.6f;
+        fprintf(stderr, "phantom trace: frame=%u car=0 kmh=%.1f cap=%.1f\n", r->frames, kmh,
+                r->phantom_cap[0] * 3.6f);
+    }
+    if (go && r->frames == 3600)
+        native_phantom_pace_report(r);
 }
 
 int gt4_race_run_frame(gt4_race_run *r)
