@@ -1743,6 +1743,8 @@ static void elim_step(gt4_race_run *r)
     int n, running = 0, leader_lap = -1, last = -1;
     if (!r || !r->elimination || r->elim_done)
         return;
+    if (gt4_race_run_countdown(r, 0) > 0)
+        return;
     n = r->class_n;
     for (int k = 0; k < n; k++) {
         int id = r->class_order[k];
@@ -1760,9 +1762,11 @@ static void elim_step(gt4_race_run *r)
     }
     if (r->elim_last_lap < 0) {
         r->elim_last_lap = leader_lap;
+        fprintf(stderr, "custom modes: elim armed at lap=%d (first lap not counted)\n",
+                leader_lap);
         return;
     }
-    if (leader_lap <= r->elim_last_lap)
+    if (leader_lap < r->elim_last_lap + 2)
         return;
     r->elim_last_lap = leader_lap;
     if (last < 0)
