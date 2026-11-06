@@ -95,6 +95,8 @@ struct gt4_race_run {
     unsigned phantom_pace_samples, phantom_pace_violations;
     int phantom_pace_logged;
     float phantom_cap[MOON_MAX_PHANTOMS];
+    int course_grid_count;
+    gt4_grid course_grid[64];
     char course[32];
     uint32_t phantom_cond, phantom_race, phantom_entries, phantom_world;
     gt4_race_entrant entrants[MOON_MAX_CARS];
@@ -305,26 +307,48 @@ static void make_phantoms(gt4_race_run *r, const gt4_race_desc *d)
         r->native_phantoms = 1;
         int last = official - 1;
         uint32_t ref = COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)last * CAR_SIZE;
+        uint32_t player_ref = COND + CONDUCTOR_FIELD_CARS_U;
         float len = native_course_length(COND);
         float d0 = GT4_F32(ref + CAR_FIELD_COURSE_DISTANCE);
+        float player_dist = GT4_F32(player_ref + CAR_FIELD_COURSE_DISTANCE);
         int lap0 = (int16_t)GT4_U16(ref + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
+        float min_gap = 1e9f, max_lat = 0.f, first_dist = 0.f, last_dist = 0.f;
+        float prev = player_dist;
         for (int i = 0; i < p; i++) {
-            /* A packed grid just ahead of the player: visible at the start,
-               then the native line follower spaces them out. */
-            int col = i % 6, row = i / 6;
-            float dist_i = d0 + 6.f + (float)row * 4.f + (float)(col & 1) * 2.f;
+            /* The course's own grid slots the officials do not occupy. A
+               phantom behind the player, two wide, 7 m or more apart. */
+            int slot = official + i < r->course_grid_count ? official + i : -1;
+            int col = slot >= 0 ? slot % 2 : i % 2;
+            float dist_i = player_dist - 7.f - (float)i * 7.f;
             if (len > 1.f)
-                while (dist_i >= len)
-                    dist_i -= len;
+                while (dist_i < 0.f)
+                    dist_i += len;
+            float lateral = col ? 1.8f : -1.8f;
             r->native[i].dist = dist_i;
             r->native[i].lap = lap0;
             r->native[i].speed = 0;
-            r->native[i].lateral = ((float)col - 2.5f) * 1.8f;
+            r->native[i].lateral = lateral;
             snprintf(r->native[i].name, sizeof r->native[i].name, "%s", d->phantom_label[i]);
             r->native[i].color = (uint32_t)d->phantom_color[i];
             r->native[i].finished = 0;
             r->native[i].finish_time = 0;
+            if (i == 0)
+                first_dist = dist_i;
+            last_dist = dist_i;
+            float gap = prev - dist_i;
+            if (gap < 0.f)
+                gap += len;
+            if (gap < min_gap)
+                min_gap = gap;
+            if (fabsf(lateral) > max_lat)
+                max_lat = fabsf(lateral);
+            prev = dist_i;
         }
+        fprintf(stderr,
+                "phantom grid: course=%s slots=%d player_dist=%.1f first=%.1f last=%.1f "
+                "min_gap=%.1f max_lat=%.1f\n",
+                r->course, r->course_grid_count, player_dist, first_dist, last_dist, min_gap,
+                max_lat);
         return;
     }
     r->phantom_cond = PHANTOM_COND;
@@ -556,6 +580,9 @@ static int load_course(gt4_race_run *run, gt4_vol *vol, const char *name, char *
         uint32_t off = le32(adf + 4 + k * 4);
         w32(COURSE + 0x9c + k * 4, off ? ad + off : 0);
     }
+    run->course_grid_count = co.grid_count < 64 ? co.grid_count : 64;
+    for (int i = 0; i < run->course_grid_count; i++)
+        run->course_grid[i] = gt4_course_grid(&co, i);
     run->objects = gt4_course_gadgets_open_state(&co);
     free(crs);
     free(adf);
