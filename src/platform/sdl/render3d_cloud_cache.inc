@@ -9,8 +9,8 @@ static struct {
 } cloud_cache;
 static int cloud_cache_prepare(const r3d_view *view)
 {
-    if (!night_sky_enabled || !view->daylight ||
-        (getenv("MOON_CLOUD_REFERENCE") && *getenv("MOON_CLOUD_REFERENCE") == '1'))
+    static r3d_env_slot reference;
+    if (!night_sky_enabled || !view->daylight || r3d_env_one("MOON_CLOUD_REFERENCE", &reference))
         return 0;
     float key[12];
     memcpy(key, view->sun_direction, 12);

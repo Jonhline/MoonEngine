@@ -8,12 +8,12 @@ static struct {
 } environment_cache;
 static int environment_cache_prepare(const r3d_view *view)
 {
+    static r3d_env_slot reference;
     GLuint source = gpu_environment ? gpu_environment : env_tex;
     int width = gpu_environment ? gpu_environment_w : env_w,
         height = gpu_environment ? gpu_environment_h : env_h;
     if (!pc_submission.modern_lighting || !view->modern_light || !view->daylight || !source ||
-        width <= 0 || height <= 0 ||
-        (getenv("MOON_REFLECTION_REFERENCE") && *getenv("MOON_REFLECTION_REFERENCE") == '1'))
+        width <= 0 || height <= 0 || r3d_env_one("MOON_REFLECTION_REFERENCE", &reference))
         return 0;
     if (environment_cache.valid && environment_cache.source == source &&
         environment_cache.revision == environment_revision && environment_cache.width == width &&

@@ -17,6 +17,7 @@ static const video_preset_field video_preset_fields[] = {
     PF("graphics.modern_lighting",modern_lighting,1), PF("graphics.daylight",daylight,1),
     PF("graphics.solar_hour",solar_hour,24), PF("graphics.solar_cycle",solar_cycle,2),
     PF("graphics.hdr",hdr,1), PF("graphics.sun_rays",sun_rays,2), PF("graphics.ambient_occlusion",ambient_occlusion,1),
+    PF("graphics.shadow_filter",shadow_filter,1),
     PF("tweaks.speed_fov",speed_fov,1), PF("tweaks.speed_fov_degrees",speed_fov_degrees,30),
     PF("tweaks.speed_cam_lag",speed_cam_lag,1), PF("tweaks.speed_shake",speed_shake,1),
     PF("tweaks.speed_wind",speed_wind,1), PF("tweaks.speed_road_roar",speed_road_roar,1),

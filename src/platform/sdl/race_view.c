@@ -49,6 +49,23 @@
 #define OPPONENTS MOON_MAX_OPPONENTS
 static int phantom_draws;
 int race_view_phantom_draws(void) { return phantom_draws; }
+/* Debug switches, read once per name and scene: getenv scans the environment
+   block and some were read for every car and course object of every frame. */
+static const char *rv_env_names[16];
+static signed char rv_env_values[16];
+static int rv_env_count;
+static int rv_env(const char *name)
+{
+    for (int i = 0; i < rv_env_count; i++)
+        if (rv_env_names[i] == name)
+            return rv_env_values[i];
+    int value = getenv(name) != NULL;
+    if (rv_env_count < 16) {
+        rv_env_names[rv_env_count] = name;
+        rv_env_values[rv_env_count++] = (signed char)value;
+    }
+    return value;
+}
 typedef struct {
     char key[128];
     gt4_driver_rig rig;
@@ -2121,7 +2138,7 @@ static void draw_shadow(race_view *owner, const race_asset *env, const car_meshe
                             env->photo_environment_on ? env->photo_environment : NULL,
                             sizeof env->photo_environment,&lamps);
     }
-    if (lamps.count && !getenv("MOON_NO_CAST_SHADOW")) {
+    if (lamps.count && !rv_env("MOON_NO_CAST_SHADOW")) {
         for (int i=0;lamps.count>=2 && i<lamps.count && i<lamp_limit;i++) {
             r3d_view flat=shadow;
             float way[3]={0};
@@ -2141,7 +2158,7 @@ static void draw_shadow(race_view *owner, const race_asset *env, const car_meshe
         memcpy(shadow.shadow_rgb, env->shadow_rgb, sizeof shadow.shadow_rgb);
         float alpha = env->shadow_alpha *
                       (sun * (env->shadow_sun - env->shadow_shade) + env->shadow_shade) * level;
-        if (m->cast && alpha > 0 && !getenv("MOON_NO_CAST_SHADOW")) {
+        if (m->cast && alpha > 0 && !rv_env("MOON_NO_CAST_SHADOW")) {
             r3d_view flat = shadow;
             float way[3] = {0, 0, 0};
             for (int c = 0; c < 3; c++)
@@ -2478,7 +2495,7 @@ static void road_sheen(race_view *v, const r3d_view *world)
 {
     const race_asset *a = v->now;
     r3d_view m = *world, t = *world;
-    if (!v->sheen_mask || a->sheen_size <= 0 || getenv("MOON_NO_SHEEN"))
+    if (!v->sheen_mask || a->sheen_size <= 0 || rv_env("MOON_NO_SHEEN"))
         return;
     r3d_clear_alpha(0);
     m.fog = 0;
@@ -2577,6 +2594,7 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
                           float h)
 {
     phantom_draws = 0;
+    rv_env_count = 0;
     if (!v || !v->now)
         return 0;
     if (!r3d_available()) {
@@ -2615,7 +2633,7 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
        colours (71 -> 142). Where the game doubles (its vertex program or
        a pass over the frame) is not read yet. */
     world.color_scale = 2;
-    world.fog = v->now->fog && !getenv("MOON_NO_FOG");
+    world.fog = v->now->fog && !rv_env("MOON_NO_FOG");
     world.fog_distance = v->now->fog_distance;
     world.fog_max = v->now->fog_max;
     memcpy(world.fog_rgb, v->now->fog_rgb, sizeof world.fog_rgb);
@@ -2737,7 +2755,7 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
     /* 003E5338 / 003E4A28: paired shadow and normal GDGT models in the object frame,
        Env0 lighting from the original per-object RNW4 light bytes.
        Geometry/textures stay resident; each draw changes only its pose. */
-    if (v->gadgets && v->now->gadgets && !getenv("MOON_TEST_HIDE_GADGETS")) {
+    if (v->gadgets && v->now->gadgets && !rv_env("MOON_TEST_HIDE_GADGETS")) {
         gt4_course_gadgets *g = v->now->gadgets;
         for (unsigned pass = 0; pass < 2; pass++) {
             if (pass && (v->gadget_section < 0 || (unsigned)v->gadget_section >= g->sections))
@@ -2754,7 +2772,7 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
                 object.color_scale = 0;
                 r3d_view shadow;
                 if (v->gadget_shadows && v->gadget_shadows[p->type] &&
-                    !getenv("MOON_TEST_HIDE_GADGET_SHADOWS") &&
+                    !rv_env("MOON_TEST_HIDE_GADGET_SHADOWS") &&
                     gadget_shadow_view(v->now, p, &object, &shadow))
                     r3d_draw(v->gadget_shadows[p->type], &shadow);
                 r3d_lights lights;

@@ -20,6 +20,9 @@ void moon_vk_render_surface_lost(void);
 void moon_vk_render_drain(void);
 int moon_vk_render_prepare_geometry(void);
 void moon_vk_render_low_latency(int enabled);
+/* MOON_VK_PROFILE_PASSES: GPU time per pass since the last reset, to stderr. */
+void moon_vk_render_pass_report(void);
+void moon_vk_render_pass_reset(void);
 int moon_vk_render_vsync(int enabled);
 typedef struct {
     uint64_t submissions, passes, draws, readbacks;

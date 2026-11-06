@@ -1,4 +1,5 @@
 #include "vk_internal.hpp"
+#include <algorithm>
 #include <cstdio>
 
 namespace moon {
@@ -47,11 +48,13 @@ void Context::swap_submission()
     std::swap(retired_images, spare.retired_images);
     std::swap(retired_buffers, spare.retired_buffers);
     std::swap(draw_sets, spare.draw_sets);
+    last_set = VK_NULL_HANDLE;
     std::swap(pending, spare.pending);
     std::swap(timing_written, spare.timing_written);
 }
 void Context::write_timestamp_end()
 {
+    pass_mark("end");
     if (queries) {
         vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries, 1);
         timing_written = true;
@@ -78,6 +81,7 @@ void Context::close_submission()
         destroy(item);
     retired_buffers.clear();
     draw_sets.clear();
+    last_set = VK_NULL_HANDLE;
     destroy(arena);
     if (queries)
         vkDestroyQueryPool(device, queries, nullptr);
@@ -95,6 +99,33 @@ extern "C" void moon_vk_render_drain(void)
 {
     if (moon_vk_render_active())
         moon::context().drain();
+}
+extern "C" void moon_vk_render_pass_report(void)
+{
+    if (!moon_vk_render_active())
+        return;
+    auto &c = moon::context();
+    if (!c.pass_frames)
+        return;
+    std::vector<std::pair<double, std::string>> rows;
+    double total = 0;
+    for (auto &e : c.pass_totals) {
+        rows.push_back({e.second.first, e.first});
+        total += e.second.first;
+    }
+    std::sort(rows.rbegin(), rows.rend());
+    fprintf(stderr, "pass profile: %llu frames, %.3f ms/frame\n", (unsigned long long)c.pass_frames,
+            total / 1e6 / c.pass_frames);
+    for (auto &r : rows)
+        fprintf(stderr, "  %8.3f ms %6.1f draws  %s\n", r.first / 1e6 / c.pass_frames,
+                (double)c.pass_totals[r.second].second / c.pass_frames, r.second.c_str());
+}
+extern "C" void moon_vk_render_pass_reset(void)
+{
+    if (moon_vk_render_active()) {
+        moon::context().pass_totals.clear();
+        moon::context().pass_frames = 0;
+    }
 }
 extern "C" void moon_vk_render_low_latency(int enabled)
 {

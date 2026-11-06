@@ -19,7 +19,7 @@ for api in ('opengl', 'vulkan'):
     def capture(mode, **flags):
         shot = output / f'{api}-{mode}.png'
         env = dict(os.environ, SDL_AUDIODRIVER='dummy', MOON_WINDOW_HIDDEN='1',
-                   MOONSTUDIO_MUTE='1', MOONSTUDIO_CINE_AT='0', MOONSTUDIO_CLIP_FRAME='0',
+                   MOONSTUDIO_MUTE='1', MOONSTUDIO_CLIP_FRAME='0',
                    MOONSTUDIO_FRONT_SHOT=str(shot), **flags)
         run = subprocess.run([str(exe), '--launcher', '--launcher-config', str(cfg)],
                              env=env, capture_output=True, timeout=180)
@@ -34,7 +34,7 @@ for api in ('opengl', 'vulkan'):
     rows = re.findall(r'STUDIO_PANEL_INK (\d+) (\d+) (-?\d+)', log)
     total = re.search(r'STUDIO_PANEL_INK_TOTAL (\d+)', log)
     assert total and len(rows) == int(total[1]) and len(rows) >= 50, (api, len(rows))
-    assert {int(t) for t, _, _ in rows} == set(range(6))
+    assert {int(t) for t, _, _ in rows} == set(range(7))  # TWEAKS is the seventh tab
     baseline, _ = capture('baseline')
     w, h, a = read_png(baseline)
     for label, tab in [('quality', '5'), ('interface', '2')]:

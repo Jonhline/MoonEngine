@@ -30,6 +30,7 @@ static void APIENTRY vkglGenTextures(GLsizei count, GLuint *ids)
     while (count--) {
         *ids = context().next_id++;
         context().textures[*ids++] = nullptr;
+        context().texture_version++;
     }
 }
 static void APIENTRY vkglBindTexture(GLenum, GLuint id)
@@ -44,6 +45,7 @@ static void APIENTRY vkglDeleteTextures(GLsizei count, const GLuint *ids)
         if (found != c.textures.end()) {
             c.retired_images.push_back(found->second);
             c.textures.erase(found);
+            c.texture_version++;
         }
     }
 }
@@ -52,6 +54,7 @@ static void APIENTRY vkglTexImage2D(GLenum, GLint level, GLint internal, GLsizei
 {
     auto &c = context();
     auto &im = c.textures[s().textures[s().texture_unit]];
+    c.texture_version++;
     bool packed_depth_target = !pixels && format == GL_DEPTH_STENCIL &&
         ((internal == 0x8CAD && type == 0x8DAD) ||
          (internal == GL_DEPTH24_STENCIL8 && type == 0x84FA));
@@ -811,7 +814,8 @@ static void APIENTRY vkglDrawArrays(GLenum topology, GLint first, GLsizei count)
 {
     try {
         context().draw(topology, first, count);
-        if (getenv("MOON_VK_SYNC"))
+        static const bool sync = getenv("MOON_VK_SYNC") != nullptr;
+        if (sync)
             context().flush();
     } catch (const std::exception &e) {
         fprintf(stderr, "Vulkan draw failed: %s (first=%d count=%d)\n", e.what(), first, count);

@@ -1258,3 +1258,113 @@ per channel; it does not assume the PS2 used that curve. It also applies to
 retained authored-night WORLD colour in HDR. Procedural sky, direct car BRDF
 and untagged fixtures keep their own radiance paths. No extra sampler or blur
 pass. This remains a P mapping with baked shadows, not a de-lit PBR asset set.
+
+## Race render cost pass (27 October 2026)
+
+P implementation optimization, identical pixels and race state. Requested after
+a collaborator reported low frame rates with Enhanced on a laptop RTX 4050. No
+option, preset, shading sample, texture, light or draw order changes; Classic
+stays the original path.
+
+What changed:
+
+- Destination alpha test (GS DATE): each tested group copied the whole viewport
+  to the destination texture (about 90 copies a frame on Tsukuba). It now copies
+  only the group's projected screen box plus 2 pixels, from the same vertex
+  transform as the shader (rotation/position, mirror, camera axes, focal,
+  projection_x, jitter), clipped to the viewport. A corner at or behind the
+  camera, a non-finite corner or `MOON_DATE_FULL` keeps the full copy.
+- Debug switches read with `getenv` for every draw, mesh, car and course object
+  are read once per scene (render3d, race view, cloud/environment caches; Vulkan
+  `MOON_VK_SYNC` once per run). Tests that change a switch between frames
+  still see it. On Windows `getenv` scans the whole environment block; it was
+  the largest CPU entry in the sampled race frame.
+- Screen-space AO reads the depth once per sample for both the sky test and the
+  distance (it read it twice).
+- Sun shadow casters: the eight world corners of a group are computed once for
+  the three axis tests, and contiguous groups of one texture and caster state
+  draw as one call in the orthographic map too (already done for lamp maps).
+- Vulkan: each image remembers its last sampler; the shared sampler map is the
+  fallback.
+
+Measurement tools (local, not shipped behaviour): `race_inspect_probe` with
+`PROBE_BENCHMARK=1 PROBE_GAME_SCENE=1` draws inside the scene layer like the
+race (HDR, AO and AA posts included). `PROBE_ENHANCED=1` applies the Enhanced
+graphics values; `PROBE_ENH_OFF=smaps,ao,...` turns single items off.
+`MOON_VK_PROFILE_PASSES=1` prints GPU time per render pass and transfer (one
+frame in flight). On Windows `PROBE_SAMPLE=1` (RelWithDebInfo build) samples the
+render thread at 1 kHz; `PROBE_SAMPLE_LINES=1` adds source lines. The hidden
+window throttles presentation, so totals are inflated: use `render=` (CPU) and
+`GPU timing:`. Keep `PROBE_FRAMES` equal between runs; the car reaches different
+scenery.
+
+Checks: a reference binary without the image-path changes (DATE rectangle, AO,
+shadow casters; getenv and sampler caching do not touch images) against the new
+one, 120 frames after 40 of warm-up, 1920x1080, Ford GT and 5 opponents, chase
+camera. Tsukuba, Hong Kong and Grand Valley East, OpenGL and Vulkan, Classic and
+Enhanced: all 12 pairs have zero changed pixels and identical 32 MiB race state.
+Focused tests: 150 GL/Vulkan shadow, DATE, HDR/AO, sky, lamp, batching and
+Vulkan checks pass, negatives included. The first run caught two failures
+(shared batches) from caching a switch the test changes at run time; fixed by
+the per-scene read above.
+
+GTX 1650, `render=` CPU ms / Vulkan GPU ms (OpenGL has no GPU timer here). The
+reference already had the race-view and Vulkan switch caching, so CPU gains against the
+committed code are larger (Tsukuba Vulkan Enhanced render was about 15.5 ms):
+
+| Course | API | Classic | Enhanced |
+|---|---|---|---|
+| Tsukuba | Vulkan | CPU 5.49 -> 3.95, GPU 6.07 -> 3.71 | CPU 8.83 -> 6.26, GPU 16.95 -> 13.83 |
+| Tsukuba | OpenGL | CPU 6.87 -> 5.60 | CPU 12.35 -> 9.53 |
+| Hong Kong | Vulkan | CPU 3.99 -> 2.76, GPU 4.74 -> 3.03 | CPU 10.56 -> 8.81, GPU 17.58 -> 15.29 |
+| Hong Kong | OpenGL | CPU 4.57 -> 3.58 | CPU 10.88 -> 9.57 |
+| Grand Valley East | Vulkan | CPU 7.18 -> 5.59, GPU 10.42 -> 4.86 | CPU 10.04 -> 7.31, GPU 21.69 -> 14.96 |
+| Grand Valley East | OpenGL | CPU 9.55 -> 8.19 | CPU 13.09 -> 10.83 |
+
+One run per pair; single runs vary by a few tenths of a millisecond. Local
+benchmark, not a frame-rate promise.
+
+Not kept (no gain or not exact): a per-tile minimum-depth early exit for the
+shadow filter (the ground shadows itself, so the test almost never passes, and
+the reduction pass cost 0.8 ms); sharing texels between shadow taps (Enhanced
+High spaces taps 2.88 texels apart, so they share none); merging casters across
+textures when the texture has no alpha (no extra merges on Tsukuba); a
+separable bloom (about 0.4 ms at most, not bit-exact).
+
+Remaining Enhanced cost (GTX 1650, 1080p, Tsukuba, GPU saved by turning one item
+off): shadow maps about 5.9 ms (the 16-tap, 64-texel receiver filter is about
+5.6 ms of the main pass), modern lighting 2.9, HDR 2.8, AO 1.0, material 0.8,
+Edge AA 0.8, car shadows 0.7, night sky 0.6. Cutting the receiver filter means a
+different look, so it would be a new option, not this invariant pass.
+
+Not verified: other GPUs (the reported RTX 4050 included), resolutions other than
+1080p, cameras other than the chase view, night courses, split screen, Android
+and Switch.
+
+### Second step: Vulkan draw caches, Shadow Filter option, Performance preset
+
+Vulkan CPU (identical pixels): each texture unit remembers the image it bound
+(invalidated by a texture version bumped on create, delete and upload), the
+last descriptor set is reused while its key repeats, and each program remembers
+its last pipeline key before the pipeline map lookup. Against 202dcd4 on the
+same three courses, both APIs, Classic and Enhanced: all 12 pairs have zero
+changed pixels and identical race state; Vulkan Enhanced `render=` 5.51 -> 5.32
+(Tsukuba), 8.40 -> 7.75 (Hong Kong), 6.65 -> 6.45 ms (Grand Valley East), small
+next to run noise. 155 Vulkan, batching, scene pipeline and shadow tests pass.
+Persistent descriptor sets (about 700 updates a frame) remain the larger CPU
+item, not done.
+
+`graphics.shadow_filter` (P, option): Soft is the sixteen weighted bilinear
+taps above; Fast takes four equal taps at +-0.888 tap spacing, the standard
+deviation of the Soft kernel, so the penumbra keeps its width with a quarter of
+the comparisons. Difference: mostly the car body's own shadow (slightly harder,
+a little lighter in the vents); ground shadows are near identical. Comparison
+images local in `build/perf/fast/`. Soft in Classic and Enhanced.
+
+Performance preset (PC only): Enhanced with Shadow Filter Fast. Ambient
+occlusion stays on: it belongs to the Realistic Lighting bundle, which the
+store restores together, so "Enhanced without AO" is not a state the menus
+keep. GTX 1650, 1080p, Vulkan GPU Enhanced -> Performance: Tsukuba 13.91 ->
+9.96 ms, Grand Valley East 15.09 -> 10.98 ms, Hong Kong 15.51 -> 15.55 ms (no
+gain there; its cost is elsewhere). The launcher guide still offers Classic or
+Enhanced; a player on Performance reads as "your own settings" there.

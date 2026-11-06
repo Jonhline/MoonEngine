@@ -141,8 +141,141 @@ static uint64_t celestial_frame(race_game *g)
     plat_video_end_frame();
     return hash;
 }
+#ifdef _WIN32
+/* PROBE_SAMPLE: a 1 kHz sampler of the main thread during the measured frames,
+   symbolized with DbgHelp (needs a build with a PDB, e.g. RelWithDebInfo). */
+#include <windows.h>
+#include <dbghelp.h>
+#pragma comment(lib, "dbghelp.lib")
+#pragma comment(lib, "winmm.lib")
+static HANDLE sample_thread_handle;
+static volatile LONG sample_on, sample_stop;
+static DWORD64 *sample_pc;
+static volatile LONG sample_count;
+enum { SAMPLE_MAX = 1 << 20, SAMPLE_DEPTH = 8 };
+static DWORD WINAPI sample_loop(void *unused)
+{
+    (void)unused;
+    timeBeginPeriod(1);
+    while (!sample_stop) {
+        Sleep(1);
+        if (!sample_on || sample_count >= SAMPLE_MAX)
+            continue;
+        if (SuspendThread(sample_thread_handle) == (DWORD)-1)
+            continue;
+        CONTEXT c = {0};
+        c.ContextFlags = CONTEXT_FULL;
+        if (GetThreadContext(sample_thread_handle, &c)) {
+            /* the leaf and a few callers by walking the stack */
+            STACKFRAME64 f = {0};
+            f.AddrPC.Offset = c.Rip; f.AddrPC.Mode = AddrModeFlat;
+            f.AddrFrame.Offset = c.Rbp; f.AddrFrame.Mode = AddrModeFlat;
+            f.AddrStack.Offset = c.Rsp; f.AddrStack.Mode = AddrModeFlat;
+            DWORD64 *out = sample_pc + (size_t)sample_count * SAMPLE_DEPTH;
+            int n = 0;
+            while (n < SAMPLE_DEPTH &&
+                   StackWalk64(IMAGE_FILE_MACHINE_AMD64, GetCurrentProcess(), sample_thread_handle, &f,
+                               &c, NULL, SymFunctionTableAccess64, SymGetModuleBase64, NULL))
+                out[n++] = f.AddrPC.Offset;
+            for (; n < SAMPLE_DEPTH; n++)
+                out[n] = 0;
+            sample_count++;
+        }
+        ResumeThread(sample_thread_handle);
+    }
+    return 0;
+}
+static void sample_start(void)
+{
+    if (!getenv("PROBE_SAMPLE"))
+        return;
+    SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME | SYMOPT_LOAD_LINES);
+    SymInitialize(GetCurrentProcess(), NULL, TRUE);
+    sample_pc = calloc((size_t)SAMPLE_MAX * SAMPLE_DEPTH, sizeof *sample_pc);
+    DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &sample_thread_handle,
+                    0, FALSE, DUPLICATE_SAME_ACCESS);
+    CreateThread(NULL, 0, sample_loop, NULL, 0, NULL);
+}
+typedef struct { char name[160]; unsigned self, total; } sample_row;
+static int sample_cmp(const void *a, const void *b)
+{
+    return (int)((const sample_row *)b)->self - (int)((const sample_row *)a)->self;
+}
+static int sample_cmp_total(const void *a, const void *b)
+{
+    return (int)((const sample_row *)b)->total - (int)((const sample_row *)a)->total;
+}
+static void sample_report(void)
+{
+    if (!sample_pc)
+        return;
+    sample_on = 0;
+    sample_stop = 1;
+    Sleep(20);
+    static sample_row rows[8192];
+    int nrows = 0;
+    char buffer[sizeof(SYMBOL_INFO) + 256];
+    SYMBOL_INFO *sym = (SYMBOL_INFO *)buffer;
+    for (LONG s = 0; s < sample_count; s++) {
+        int seen[SAMPLE_DEPTH], nseen = 0;
+        for (int d = 0; d < SAMPLE_DEPTH; d++) {
+            DWORD64 pc = sample_pc[(size_t)s * SAMPLE_DEPTH + d];
+            if (!pc)
+                break;
+            memset(buffer, 0, sizeof buffer);
+            sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+            sym->MaxNameLen = 255;
+            char name[160];
+            IMAGEHLP_LINE64 line = {sizeof line};
+            DWORD displacement = 0;
+            if (!d && getenv("PROBE_SAMPLE_LINES") && SymFromAddr(GetCurrentProcess(), pc, NULL, sym) &&
+                SymGetLineFromAddr64(GetCurrentProcess(), pc, &displacement, &line)) {
+                const char *file = strrchr(line.FileName, '\\');
+                snprintf(name, sizeof name, "%s %s:%lu", sym->Name, file ? file + 1 : line.FileName,
+                         (unsigned long)line.LineNumber);
+            } else if (SymFromAddr(GetCurrentProcess(), pc, NULL, sym))
+                snprintf(name, sizeof name, "%s", sym->Name);
+            else
+                snprintf(name, sizeof name, "?%llx", (unsigned long long)pc);
+            int r = 0;
+            while (r < nrows && strcmp(rows[r].name, name))
+                r++;
+            if (r == nrows && nrows < 8192) {
+                snprintf(rows[nrows].name, sizeof rows[nrows].name, "%s", name);
+                rows[nrows].self = rows[nrows].total = 0;
+                nrows++;
+            }
+            if (r >= 8192)
+                continue;
+            if (!d)
+                rows[r].self++;
+            int dup = 0;
+            for (int k = 0; k < nseen; k++)
+                dup |= seen[k] == r;
+            if (!dup) {
+                rows[r].total++;
+                seen[nseen++] = r;
+            }
+        }
+    }
+    qsort(rows, nrows, sizeof *rows, sample_cmp);
+    fprintf(stderr, "cpu samples: %ld\n", (long)sample_count);
+    for (int r = 0; r < nrows && r < 45; r++)
+        fprintf(stderr, "  self %5.1f%%  total %5.1f%%  %s\n", 100. * rows[r].self / sample_count,
+                100. * rows[r].total / sample_count, rows[r].name);
+    qsort(rows, nrows, sizeof *rows, sample_cmp_total);
+    fprintf(stderr, "cpu inclusive:\n");
+    for (int r = 0; r < nrows && r < 45; r++)
+        fprintf(stderr, "  total %5.1f%%  self %5.1f%%  %s\n", 100. * rows[r].total / sample_count,
+                100. * rows[r].self / sample_count, rows[r].name);
+}
+#else
+static void sample_start(void) {}
+static void sample_report(void) {}
+#endif
 static int benchmark_race(race_game *g, const char *prefix)
 {
+    sample_start();
     video_set_menu_pacing(0);
     video_set_vsync(0);
     fixture_key[SDL_SCANCODE_UP] = 1;
@@ -183,6 +316,7 @@ static int benchmark_race(race_game *g, const char *prefix)
             if (!moon_vk_render_active())
                 glFinish();
             before = moon_vk_render_statistics();
+            moon_vk_render_pass_reset();
             work_before = r3d_work_totals();
             start = SDL_GetPerformanceCounter();
         }
@@ -197,9 +331,16 @@ static int benchmark_race(race_game *g, const char *prefix)
         race_game_update(g, 1. / 60);
         Uint64 updated = SDL_GetPerformanceCounter();
         plat_video_begin_frame();
-        if(getenv("PROBE_SOLAR_HOUR"))video_begin_scene();
+        /* PROBE_GAME_SCENE: the scene layer the game's race always draws into (main.c). */
+        if(getenv("PROBE_SOLAR_HOUR")||getenv("PROBE_GAME_SCENE"))video_begin_scene();
+#ifdef _WIN32
+        sample_on = i >= 0;
+#endif
         CHECK(race_game_draw(g));
-        if(getenv("PROBE_SOLAR_HOUR"))video_end_scene();
+#ifdef _WIN32
+        sample_on = 0;
+#endif
+        if(getenv("PROBE_SOLAR_HOUR")||getenv("PROBE_GAME_SCENE"))video_end_scene();
     if(getenv("PROBE_SOLAR_HOUR"))video_end_scene();
         Uint64 drawn = SDL_GetPerformanceCounter();
         plat_video_end_frame();
@@ -211,6 +352,7 @@ static int benchmark_race(race_game *g, const char *prefix)
             frame_ms[i] = (end - start) * 1000. / SDL_GetPerformanceFrequency();
         }
     }
+    sample_report();
     Uint64 drain_start = SDL_GetPerformanceCounter();
     moon_vk_render_drain();
     if (!moon_vk_render_active())
@@ -284,6 +426,7 @@ static int benchmark_race(race_game *g, const char *prefix)
                 (unsigned long long)(before.pipeline_creations - loading.pipeline_creations),
                 (unsigned long long)(after.pipeline_creations - before.pipeline_creations),
                 (after.pipeline_ns - before.pipeline_ns) / 1e6);
+        moon_vk_render_pass_report();
     } else {
         fprintf(stderr, "GPU timing: unavailable for OpenGL in this probe\n");
     }
@@ -343,6 +486,27 @@ int main(int argc, char **argv)
         r3d_car_shadows(atoi(getenv("PROBE_CAR_SHADOWS")));
     if (getenv("PROBE_TEXTURE_FILTER"))
         r3d_texture_filtering(atoi(getenv("PROBE_TEXTURE_FILTER")));
+    if (getenv("PROBE_ENHANCED")) {
+        /* The Enhanced preset's 3D settings (video_settings_preset_values + quality);
+           PROBE_ENH_OFF names options left at Classic, for cost ablation. */
+        const char *off = getenv("PROBE_ENH_OFF") ? getenv("PROBE_ENH_OFF") : "";
+#define ENH(name) (!strstr(off, name))
+        video_scene_quality(ENH("aa") ? 4 : 0, 2);
+        r3d_texture_smoothing(ENH("smooth"));
+        r3d_texture_filtering(ENH("filter") ? 3 : 0);
+        r3d_car_shadows(ENH("carshadow"));
+        r3d_car_lamps(ENH("lamps"));
+        r3d_night_sky(ENH("night"));
+        r3d_material_shading(ENH("material"));
+        r3d_reflection_quality(ENH("reflect"));
+        r3d_shadow_map_quality(ENH("smaps") ? 2 : 0); r3d_shadow_filter(getenv("PROBE_SHADOW_FAST") != NULL);
+        r3d_modern_lighting(ENH("modern"));
+        r3d_daylight_options(ENH("daylight"), -1, 1);
+        video_hdr_options(ENH("hdr"), 0);
+        video_ambient_occlusion(ENH("ao"));
+        r3d_scene_options(ENH("visibility"), ENH("resident"));
+#undef ENH
+    }
     race_game *g = race_game_open(argv[1]);
     char msg[256];
     CHECK(g);

@@ -7,7 +7,7 @@ r=Path(output).resolve();r.mkdir(parents=True,exist_ok=True);p=r/'launcher.ini'
 for api in ['opengl','vulkan']:
  p.write_text('disc='+Path(disc).resolve().as_posix()+'\napi='+api+'\nsaves='+r.as_posix()+'/saves\ncar=gt40_race_69\nscene=laguna\n',encoding='utf-8',newline='');Path(str(p)+'.video.ini').write_text('preset=Enhanced\ngraphics.renderer='+api+'\nlauncher.guide_seen=1\n',encoding='utf-8',newline='')
  for mode in ['baseline','closed','open','title']:
-  e=dict(os.environ,SDL_AUDIODRIVER='dummy',MOON_WINDOW_HIDDEN='1',MOONSTUDIO_MUTE='1',MOONSTUDIO_CINE_AT='0',MOONSTUDIO_LAYOUT_TRACE='1',MOONSTUDIO_FRONT_SHOT=str(r/(api+'-'+mode+'.png')))
+  e=dict(os.environ,SDL_AUDIODRIVER='dummy',MOON_WINDOW_HIDDEN='1',MOONSTUDIO_MUTE='1',MOONSTUDIO_LAYOUT_TRACE='1',MOONSTUDIO_FRONT_SHOT=str(r/(api+'-'+mode+'.png')))
   if mode!='baseline':e['MOONSTUDIO_OPTIONS']='0'
   if mode=='title':e['MOONSTUDIO_OPTIONS']='2';e['MOONSTUDIO_OPTIONS_ROW']='8'
   if mode=='closed':e['MOONSTUDIO_OPTIONS_CLOSE_AT']='1'

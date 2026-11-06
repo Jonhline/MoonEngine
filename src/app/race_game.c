@@ -66,8 +66,9 @@
 
 #define STEP (1.0 / 60)
 
-/* race.field_size: the request the next menu race starts with (6 default). */
-static int field_size_request = MOON_CONDUCTOR_CARS;
+/* race.field_size: the request the next menu race starts with; 0 (phantoms off, the
+   default) keeps the cars the race was given, as the original. */
+static int field_size_request = 0;
 
 void race_game_set_field_size(int n)
 {
@@ -1125,7 +1126,7 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
         else if (g->time_trial)
             field_size = d.cars == 1 ? 2 : d.cars; /* the TT ghost entry */
         else
-            field_size = field_size_request;
+            field_size = field_size_request ? field_size_request : d.cars;
         if (field_size < 1 || field_size > MOON_MAX_CARS) {
             snprintf(msg, len, "race.field_size=%d refused: allowed 1..%d", field_size,
                      MOON_MAX_CARS);

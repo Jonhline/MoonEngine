@@ -11,7 +11,7 @@ static const preset_rule preset_rules[] = {
     {"graphics.material_shading",1}, {"graphics.reflection_quality",2},
     {"graphics.shadow_maps",3}, {"graphics.modern_lighting",1},
     {"graphics.daylight",1}, {"graphics.solar_hour",24},
-    {"graphics.solar_cycle",2}, {"graphics.hdr",1}, {"graphics.sun_rays",2}, {"graphics.ambient_occlusion",1},
+    {"graphics.solar_cycle",2}, {"graphics.hdr",1}, {"graphics.sun_rays",2}, {"graphics.ambient_occlusion",1}, {"graphics.shadow_filter",1},
     {"graphics.spatial_visibility",1}, {"graphics.resident_reflections",1},
     {"controls.desktop_menu",1}, {"controls.gtmode_edge_pan",1},
     {"interface.input_hints",1}, {"interface.main_menu_overview",1},
@@ -39,7 +39,7 @@ static int preset_value(const char *key, const char *value)
 static int preset_name(const char *name)
 {
     if (!name || !*name || strlen(name)>=64 || !strcmp(name,"Classic") ||
-        !strcmp(name,"Enhanced") || !strcmp(name,"Modified")) return 0;
+        !strcmp(name,"Enhanced") || !strcmp(name,"Performance") || !strcmp(name,"Modified")) return 0;
     for (const unsigned char *p=(const unsigned char *)name; *p; p++)
         if (*p<32 || *p==127 || *p=='=') return 0;
     return name[0]!=' ' && name[strlen(name)-1]!=' ';
@@ -59,7 +59,7 @@ int moon_preset_write(const moon_options *s, const char *path, const char *name,
                       char *error, unsigned size)
 {
     if (!s || !path || !*path || strlen(path)>1100 || !preset_name(name))
-        return preset_fail(error,size,"Choose a personal name (Classic and Enhanced are protected).");
+        return preset_fail(error,size,"Choose a personal name (Classic, Enhanced and Performance are protected).");
     moon_options output={0};
     for (int i=0;i<s->count;i++) {
         const moon_option_entry *e=&s->entries[i];

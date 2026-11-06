@@ -181,6 +181,33 @@ int r3d_shadow_map_begin(r3d_shadow_map **owner, const float centre[3], const fl
 {
     return shadow_map_begin_size(owner, centre, direction, r3d_shadow_map_size());
 }
+static int shadow_caster_inside(const r3d_shadow_map *s, const r3d_view *view, const r3d_group *g,
+                                float lamp_planes[6][4])
+{
+    if (s->perspective)
+        return r3d_bounds_visible(lamp_planes, g->lo, g->hi);
+    /* The eight world corners are shared by the three axes. */
+    float p[8][3];
+    for (int corner = 0; corner < 8; corner++)
+        for (int r = 0; r < 3; r++) {
+            p[corner][r] = view->pos[r];
+            for (int c = 0; c < 3; c++)
+                p[corner][r] += view->rot[r * 3 + c] * ((corner & (1 << c)) ? g->hi[c] : g->lo[c]);
+        }
+    for (int axis = 0; axis < 3; axis++) {
+        float lo = 2, hi = -1;
+        for (int corner = 0; corner < 8; corner++) {
+            float q = s->projection[12 + axis];
+            for (int r = 0; r < 3; r++)
+                q += s->projection[r * 4 + axis] * p[corner][r];
+            lo = fminf(lo, q);
+            hi = fmaxf(hi, q);
+        }
+        if (hi < 0 || lo > 1)
+            return 0;
+    }
+    return 1;
+}
 void r3d_shadow_map_mesh(r3d_shadow_map *s, const r3d_mesh *mesh, const r3d_view *view,
                          float opacity)
 {
@@ -202,27 +229,11 @@ void r3d_shadow_map_mesh(r3d_shadow_map *s, const r3d_mesh *mesh, const r3d_view
         if (g->reflection || (g->blend_enabled && !g->state.alpha_test) ||
             (g->lamp && (g->lamp == 2) != (view->brake != 0)))
             continue;
-        int outside = s->perspective && !r3d_bounds_visible(lamp_planes, g->lo, g->hi);
-        for (int axis = 0; !s->perspective && axis < 3; axis++) {
-            float lo = 2, hi = -1;
-            for (int corner = 0; corner < 8; corner++) {
-                float p[3], q = s->projection[12 + axis];
-                for (int r = 0; r < 3; r++) {
-                    p[r] = view->pos[r];
-                    for (int c = 0; c < 3; c++)
-                        p[r] += view->rot[r * 3 + c] * ((corner & (1 << c)) ? g->hi[c] : g->lo[c]);
-                    q += s->projection[r * 4 + axis] * p[r];
-                }
-                lo = fminf(lo, q);
-                hi = fmaxf(hi, q);
-            }
-            if (hi < 0 || lo > 1)
-                outside = 1;
-        }
-        if (outside)
+        if (!shadow_caster_inside(s, view, g, lamp_planes))
             continue;
         int vertices = g->count;
-        if (s->perspective && s->batch)
+        /* Contiguous groups of one texture and caster test draw as one. */
+        if (!s->perspective || s->batch)
             while (i + 1 < mesh->ngroups) {
                 const r3d_group *next = &mesh->groups[i + 1];
                 if (next->first != g->first + vertices || next->texture != g->texture ||
@@ -230,7 +241,7 @@ void r3d_shadow_map_mesh(r3d_shadow_map *s, const r3d_mesh *mesh, const r3d_view
                     next->lamp != g->lamp || next->state.alpha_test != g->state.alpha_test ||
                     (g->state.alpha_test && (next->state.alpha_func != g->state.alpha_func ||
                                              next->state.alpha_ref != g->state.alpha_ref)) ||
-                    !r3d_bounds_visible(lamp_planes, next->lo, next->hi))
+                    !shadow_caster_inside(s, view, next, lamp_planes))
                     break;
                 vertices += next->count;
                 i++;
@@ -269,7 +280,7 @@ static void shadow_map_receiver(const r3d_view *view)
 {
     r3d_shadow_map *s = pc_submission.shadow_map;
     int on = s && s->casters && !view->shadow && !view->ghost;
-    glUniform1i(U.shadow_on, on);
+    glUniform1i(U.shadow_on, on ? 1 + pc_submission.shadow_filter : 0);
     glUniform1i(U.shadow_map, 3);
     glActiveTexture(GL_TEXTURE3);
     glBindTexture(GL_TEXTURE_2D, on ? s->image : 0);
