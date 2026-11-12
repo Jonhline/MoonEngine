@@ -497,7 +497,7 @@ static const char *const vs_reflection_quality[] = {"Original 128", "High 256", 
 static const char *const vs_material_shading[] = {"Original", "Per-Pixel"};
 static const char *const vs_car_shadows[] = {"Original", "Projected"};
 static const char *const vs_texture_filtering[] = {"Original", "Trilinear", "Anisotropic 4x", "Anisotropic 8x", "Anisotropic 16x"};
-static const char *const vs_scale[] = {"50%", "65%", "75%", "100%", "125%"};
+static const char *const vs_scale[] = {"35%", "50%", "65%", "75%", "100%", "125%"};
 static const char *const vs_text[] = {"0%", "25%", "50%", "75%", "100%"};
 static const char *const vs_controller_tiles[] = {"Original", "By Player"};
 static const char *const vs_closed_open[] = {"Closed", "Open"};
@@ -707,11 +707,12 @@ int video_setting_get(const video_settings *s, int i)
         return v->antialiasing;
     case VS_SCALE:
         switch (v->scene_scale) {
-        case 50: return 0;
-        case 65: return 1;
-        case 75: return 2;
-        case 125: return 4;
-        default: return 3;
+        case 35: return 0;
+        case 50: return 1;
+        case 65: return 2;
+        case 75: return 3;
+        case 125: return 5;
+        default: return 4;
         }
     case VS_TEXTURE_SMOOTH:
         return v->texture_smoothing;
@@ -1048,9 +1049,9 @@ static void read_draft(video_settings *s)
 #ifndef __ANDROID__
     v->antialiasing = s->choices[17]->focus_index;
     {
-        static const int scales[] = {50, 65, 75, 100, 125};
-        v->scene_scale = scales[s->choices[18]->focus_index >= 0 && s->choices[18]->focus_index < 5
-                                    ? s->choices[18]->focus_index : 3];
+        static const int scales[] = {35, 50, 65, 75, 100, 125};
+        v->scene_scale = scales[s->choices[18]->focus_index >= 0 && s->choices[18]->focus_index < 6
+                                    ? s->choices[18]->focus_index : 4];
     }
     v->texture_smoothing = s->choices[19]->focus_index;
     v->texture_filtering = s->choices[20]->focus_index;
@@ -1157,7 +1158,7 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
         s->choices[39]->focus_index=enhanced;s->choices[40]->focus_index=enhanced;
         s->choices[37]->focus_index = s->choices[38]->focus_index = enhanced;
         s->choices[17]->focus_index = enhanced ? 4 : 0;
-        s->choices[18]->focus_index = preset == 3 ? 1 : 3;
+        s->choices[18]->focus_index = preset == 3 ? 2 : 4;
         s->choices[19]->focus_index = enhanced;
         s->choices[20]->focus_index = enhanced ? 3 : 0;
         s->choices[21]->focus_index = enhanced;
@@ -2186,7 +2187,7 @@ void video_settings_attach(video_settings *s, menu *m)
     const char *const *lists[] = {
         ratios, modes,  resolutions, filters, clarity, toggle, upscalers, toggle, presets,  toggle,
         toggle, toggle, toggle,      toggle,  toggle,  toggle, toggle,    vs_aa,  vs_scale, toggle, vs_texture_filtering, vs_car_shadows, vs_material_shading, vs_reflection_quality, vs_shadow_maps, vs_modern_lighting,vs_off_on,vs_hours,vs_cycle,vs_off_on,vs_rays,toggle,toggle,toggle,toggle,toggle,toggle,toggle,controller_tiles,toggle,toggle,vs_shadow_filter,vs_preview_mode};
-    int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, VS_MENU_MODIFIED + 1, 2, 2, 2, 2, 2, 2, 2, 2, 5, 5, 2, 5, 2, 2, 3, 4, 2, 2, 25, 3, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
+    int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, VS_MENU_MODIFIED + 1, 2, 2, 2, 2, 2, 2, 2, 2, 5, 6, 2, 5, 2, 2, 3, 4, 2, 2, 25, 3, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 #ifdef __SWITCH__
     const char *scene_sizes[]={"Classic","Balanced","Performance"};
     names[7]="SceneResolution"; titles[7]="3D Resolution"; titles[8]="Preset";

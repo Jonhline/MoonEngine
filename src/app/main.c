@@ -783,9 +783,9 @@ static const char *studio_row_value(int id, int theme, int mood)
     const video_setting_info *in = video_setting(id);
     int v = app_video_settings ? video_setting_get(app_video_settings, id) : 0;
     if (!strcmp(in->label, "3D Resolution")) {
-        static const int pct[] = {50, 65, 75, 100, 125};
-        static const int fps[] = {119, 99, 88, 65, 0};
-        int k = v >= 0 && v < 5 ? v : 3;
+        static const int pct[] = {35, 50, 65, 75, 100, 125};
+        static const int fps[] = {143, 119, 99, 88, 65, 0};
+        int k = v >= 0 && v < 6 ? v : 4;
         if (fps[k])
             snprintf(text, sizeof text, "%d%%  (about %d fps on GTX 1060)", pct[k], fps[k]);
         else
