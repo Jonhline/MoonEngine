@@ -231,6 +231,8 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     s->current.discord_presence =
         moon_options_int(&s->store, "integrations.discord_presence", 0, 0, 1);
     s->current.preview_mode = !strcmp(moon_options_get(&s->store,"interface.preview_mode","before_after"),"benchmark");
+    if (getenv("MOON_PREVIEW_MODE") && !strcmp(getenv("MOON_PREVIEW_MODE"), "benchmark"))
+        s->current.preview_mode = 1;
     s->current.preset_tools = moon_options_int(&s->store,"interface.preset_tools",enhanced,0,1);
     s->current.save_tools = moon_options_int(&s->store,"interface.save_transfer_tools",enhanced,0,1);
 #if !defined(__ANDROID__)
@@ -573,6 +575,7 @@ static const video_setting_info vs_info_values[VS_COUNT] = {
     {"Tweaks","Assist Line","Racing line with braking zones on every track and race.",2,vs_off_on},
     {"Tweaks","Phantom Opponents","Off is the original six-car race. On adds extra cars in a second conductor; they can win.",2,vs_off_on},
     {"Tweaks","Field Size","Total cars when Phantom Opponents is on, including the player's six-car conductor.",0,NULL},
+    {"Interface","Preview Mode","Before & After compares two clips. Benchmark shows the live scene and current FPS.",2,vs_preview_mode},
 };
 /* The mutable table starts as the compiled one; the field-size row's names and
    count are filled from MOON_MAX_CARS by field_size_names_init(). */

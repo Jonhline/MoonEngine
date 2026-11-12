@@ -94,6 +94,8 @@ static uint64_t profile_buckets[VIDEO_BUCKET_COUNT];
 static uint64_t profile_gap_ns, profile_last_end_ns;
 static int bench_finish;
 static uint64_t bench_finish_ns;
+static uint64_t frame_work_start, frame_work_ns;
+uint64_t video_frame_work_ns(void) { return frame_work_ns; }
 void video_set_bench_finish(int on) { bench_finish = on != 0; }
 uint64_t video_bench_finish_ns(void) { return bench_finish_ns; }
 void video_bench_reset(void) { bench_finish_ns = 0; }
@@ -791,8 +793,9 @@ void plat_video_begin_frame(void)
         profile_sleep_ns += plat_time_ns() - sleep_start;
         now = plat_time_ns();
     }
+    frame_work_start = plat_time_ns();
     if (profile_frames) {
-        profile_start = plat_time_ns();
+        profile_start = frame_work_start;
         if (!profile_window)
             profile_window = profile_start;
     }
@@ -906,6 +909,7 @@ void plat_video_end_frame(void)
     frame_presented = 1;
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     SWP_FRAME(fb_w, fb_h);
+    frame_work_ns = plat_time_ns() - frame_work_start;
     profile_last_end_ns = plat_time_ns();
 }
 

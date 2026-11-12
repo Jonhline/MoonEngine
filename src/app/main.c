@@ -3778,11 +3778,14 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
         /* the scene raster follows the window aspect (W = 448*window); the dock then draws in
            framebuffer pixels. Both map to the window at one uniform scale - nothing stretches. */
         plat_video_set_view((float)cur_rw, 448.f);
-        if (launcher_scene_ready()) /* the car in the chosen place; the room's car keeps loading */
-            launcher_scene_draw(locked ? cam_eye : eye, locked ? cam_target : target, car, angle,
-                                locked ? cam_fov : LCAM_RIG_FOV, cur_rw);
-        else
-            showroom_draw(cars, chosen, 1.f / 60.f);
+        if (!(options_open && guide_benchmark_enabled() &&
+              guide_benchmark_scene(cars, chosen, cur_rw, 1.f / 60.f))) {
+            if (launcher_scene_ready()) /* the car in the chosen place; the room's car keeps loading */
+                launcher_scene_draw(locked ? cam_eye : eye, locked ? cam_target : target, car, angle,
+                                    locked ? cam_fov : LCAM_RIG_FOV, cur_rw);
+            else
+                showroom_draw(cars, chosen, 1.f / 60.f);
+        }
         video_end_scene();
         if (dock_dirty) {
             dock_font_load(&dock, vol);
@@ -4780,8 +4783,10 @@ int main(int argc, char **argv)
     SDL_PumpEvents();
     if (preview_car)
         return preview_run(cars, preview_car, shot, color_preview);
-    if (studio_car)
+    if (studio_car) {
+        studio_disc = argv[1];
         return studio_run(cars, vol, studio_car, shot, color_preview, 0);
+    }
     if (front_end) {
         static char saved_car[96];
         int fcol = startup.preferences.color;

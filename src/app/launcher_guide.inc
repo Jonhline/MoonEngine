@@ -1120,6 +1120,19 @@ typedef struct {
     uint8_t *px[2][GUIDE_CLIP];
 } guide_options_state;
 static guide_options_state guide_options = {.split = .5f, .id = -1};
+static int guide_benchmark_enabled(void)
+{
+    return (app_video_settings && app_video_settings->current.preview_mode) ||
+           (getenv("MOON_PREVIEW_MODE") && !strcmp(getenv("MOON_PREVIEW_MODE"), "benchmark"));
+}
+static int guide_benchmark_scene(showroom *cars,const char *code,int raster,float dt)
+{
+    guide_options_state *g=&guide_options;
+    if(!g->track || !g->ready) return 0;
+    guide_scene(cars,code,raster,g->track,dt);
+    return 1;
+}
+
 static void guide_options_drop_frames(guide_options_state *g)
 {
     for (int s = 0; s < 2; s++)
@@ -1188,6 +1201,29 @@ static void guide_options_step(showroom *cars, const char *code, int raster, int
     guide_options_state *g = &guide_options;
     int graphics = 0;
     const guide_option *o = app_video_settings ? guide_option_for(id, &graphics) : NULL;
+    if (guide_benchmark_enabled()) {
+        g->want = 0;
+        video_settings_preview_options(&app_video_settings->current);
+        if (!g->track) {
+            g->track = race_view_open(studio_disc);
+            if (g->track) race_view_set_parts(g->track, "", "");
+            if (!g->track || !race_view_request(g->track, GUIDE_COURSE, GUIDE_CAR, 0)) {
+                g->failed = 1;
+                return;
+            }
+        }
+        if (!g->ready) {
+            int ready = race_view_poll(g->track, 0);
+            if (ready < 0) g->failed = 1;
+            if (ready != 1) return;
+            g->ready = 1;
+            race_view_set_pose(g->track, NULL, NULL);
+            race_view_set_camera(g->track, NULL, NULL, 0, 0, .2f);
+            race_view_camera(g->track, 2.4f, 2.f);
+            race_view_daylight_time(g->track, 0);
+        }
+        return;
+    }
     g->want = o && graphics;
     if (!g->want) return;
     pc_video_options a, b;
@@ -1453,7 +1489,33 @@ static void guide_options_draw(const studio_dock *d, int tab, int id, int theme,
         compact = 1;
         words = guide_options_words(d, o, graphics, id, rx0, 0, rw, NULL, 1, note);
     }
-    if (o && graphics) {
+    if (guide_benchmark_enabled()) {
+        static uint64_t fps_start;
+        static unsigned fps_frames;
+        static float fps_work, fps_capped;
+        uint64_t now = plat_time_ns();
+        if (!fps_start)
+            fps_start = now;
+        fps_frames++;
+        if (now - fps_start >= 250000000ull) {
+            fps_capped = fps_frames * 1e9f / (float)(now - fps_start);
+            uint64_t work = video_frame_work_ns();
+            fps_work = work ? 1e9f / (float)work : 0.f;
+            fps_start = now;
+            fps_frames = 0;
+        }
+        float ih_box = fminf(rw * .52f, bottom - y - 18.f * S - words);
+        guide_rect(rx0 - 2.f * S, y - 2.f * S, rw + 4.f * S, ih_box + 4.f * S, well);
+        char fps_line[128];
+        snprintf(fps_line, sizeof fps_line, "FPS %.0f (render)   ·   %.0f (capped)", fps_work,
+                 fps_capped);
+        guide_text(d, fps_line, rx0 + 10.f * S, y + ih_box * .52f, 1.35f, 0, gold);
+        snprintf(fps_line, sizeof fps_line, "%s  %s",
+                 app_video_settings->store.preset[0] ? app_video_settings->store.preset : "Modified",
+                 o ? o->label : "Preview");
+        guide_text(d, fps_line, rx0 + 10.f * S, y + ih_box * .52f + 22.f * S, .72f, 0, ink);
+        y += ih_box + 18.f * S;
+    } else if (o && graphics) {
         /* the picture takes what the words leave, so they never run past the panel */
         float ih_box = fminf(rw * .52f, bottom - y - 18.f * S - words);
         guide_rect(rx0 - 2.f * S, y - 2.f * S, rw + 4.f * S, ih_box + 4.f * S, well);
