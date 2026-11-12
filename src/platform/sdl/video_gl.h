@@ -17,6 +17,19 @@ float video_read_depth(int x, int y);
 
 /* Draws pending 2D quads (before 3D, captures and state changes). */
 void video_flush2d(void);
+enum {
+    VIDEO_BUCKET_TRACK,
+    VIDEO_BUCKET_CAR,
+    VIDEO_BUCKET_SHADOW,
+    VIDEO_BUCKET_BODY,
+    VIDEO_BUCKET_WHEELS,
+    VIDEO_BUCKET_LIGHTS,
+    VIDEO_BUCKET_GUEST,
+    VIDEO_BUCKET_UI,
+    VIDEO_BUCKET_PRESENT,
+    VIDEO_BUCKET_COUNT
+};
+void video_profile_bucket(int bucket, uint64_t ns);
 /* Bound frontend rendering to its native 60 Hz; race timing is separate. */
 void video_set_menu_pacing(int enabled);
 /* Frames whose pacing deadline had already passed when they began (the debug

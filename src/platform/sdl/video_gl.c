@@ -88,6 +88,12 @@ void video_set_menu_pacing(int enabled)
 static int profile_frames, profile_draws, profile_quads;
 static uint64_t profile_start, profile_total, profile_window;
 static unsigned profile_count;
+static uint64_t profile_buckets[VIDEO_BUCKET_COUNT];
+void video_profile_bucket(int bucket, uint64_t ns)
+{
+    if (profile_frames && bucket >= 0 && bucket < VIDEO_BUCKET_COUNT)
+        profile_buckets[bucket] += ns;
+}
 
 /* P: optional native-resolution filming, independent of the preview window.
    Each record is one real rendered frame; no resampling or duplicated frames.
@@ -516,6 +522,7 @@ int plat_video_init(const plat_video_desc *d)
 
 void video_flush2d(void)
 {
+    uint64_t bucket_start = profile_frames ? plat_time_ns() : 0;
     if (!nbatch)
         return;
     SWP_PUSH(SWP_GL);
@@ -569,6 +576,8 @@ void video_flush2d(void)
     }
     nbatch = 0;
     SWP_POP();
+    if (bucket_start)
+        video_profile_bucket(VIDEO_BUCKET_UI, plat_time_ns() - bucket_start);
 }
 
 void video_license_image(const plat_texture *t, float x, float y, float w, float h,
@@ -778,6 +787,7 @@ void plat_video_end_frame(void)
 {
     video_flush2d();
     capture_framebuffer();
+    uint64_t present_start = profile_frames ? plat_time_ns() : 0;
     SWP_PUSH(SWP_GL);
     glDisable(GL_SCISSOR_TEST);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
@@ -786,8 +796,12 @@ void plat_video_end_frame(void)
     graphics_size(window, &preview_w, &preview_h);
     glBlitFramebuffer(0, 0, fb_w, fb_h, 0, 0, preview_w, preview_h, GL_COLOR_BUFFER_BIT,
                       GL_NEAREST);
+    if (present_start)
+        video_profile_bucket(VIDEO_BUCKET_PRESENT, plat_time_ns() - present_start);
     if (profile_frames) {
+        uint64_t wait_start = plat_time_ns();
         glFinish();
+        video_profile_bucket(VIDEO_BUCKET_PRESENT, plat_time_ns() - wait_start);
         profile_total += plat_time_ns() - profile_start;
         profile_count++;
         if (profile_count == 30) {
@@ -809,6 +823,19 @@ void plat_video_end_frame(void)
                     (unsigned long long)vk.descriptor_builds);
             profile_count = profile_draws = profile_quads = 0;
             profile_total = profile_window = 0;
+            fprintf(stderr,
+                    "frame buckets: track=%.1f car=%.1f (shadow=%.1f body=%.1f wheels=%.1f) "
+                    "lights=%.1f guest=%.1f ui=%.1f present=%.1f ms\n",
+                    profile_buckets[VIDEO_BUCKET_TRACK] / 1e6 / 30.0,
+                    profile_buckets[VIDEO_BUCKET_CAR] / 1e6 / 30.0,
+                    profile_buckets[VIDEO_BUCKET_SHADOW] / 1e6 / 30.0,
+                    profile_buckets[VIDEO_BUCKET_BODY] / 1e6 / 30.0,
+                    profile_buckets[VIDEO_BUCKET_WHEELS] / 1e6 / 30.0,
+                    profile_buckets[VIDEO_BUCKET_LIGHTS] / 1e6 / 30.0,
+                    profile_buckets[VIDEO_BUCKET_GUEST] / 1e6 / 30.0,
+                    profile_buckets[VIDEO_BUCKET_UI] / 1e6 / 30.0,
+                    profile_buckets[VIDEO_BUCKET_PRESENT] / 1e6 / 30.0);
+            memset(profile_buckets, 0, sizeof profile_buckets);
         }
     }
     SWP_POP();

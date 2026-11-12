@@ -3194,7 +3194,10 @@ void race_game_update(race_game *g, double dt)
            test runs. Ordinary input is still sampled by read_controls. */
         if (getenv("MOON_LICENSE_TEST_BRAKE_AT"))
             read_controls(g);
-        if (!SWP_VALUE(SWP_PHYSICS, gt4_race_run_frame(g->run))) {
+        uint64_t guest_start = plat_time_ns();
+        int guest_ok = SWP_VALUE(SWP_PHYSICS, gt4_race_run_frame(g->run));
+        video_profile_bucket(VIDEO_BUCKET_GUEST, plat_time_ns() - guest_start);
+        if (!guest_ok) {
             fprintf(stderr, "race: the step failed\n");
             race_game_stop(g);
             return;

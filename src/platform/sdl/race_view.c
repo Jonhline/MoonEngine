@@ -2204,8 +2204,10 @@ static void draw_car(race_view *owner, const race_asset *env, const car_meshes *
         lit.env_color[0] = env->env_color[0];
         lit.env_color[1] = env->env_color[1];
     }
+    uint64_t shadow_start = plat_time_ns();
     if (!seen->ghost)
         draw_shadow(owner, env, m, surface, car, from, a, posed, wheels, snapshot, pit, wheel_samples>1?4:2); /* the ghost casts none (PCSX2, Laguna Seca TT) */
+    video_profile_bucket(VIDEO_BUCKET_SHADOW, plat_time_ns() - shadow_start);
     int triangle = -1;
     float ground;
     /* A: immutable surface adapter selects the triangle beneath the drawn
@@ -2252,9 +2254,12 @@ static void draw_car(race_view *owner, const race_asset *env, const car_meshes *
         }
     if (m->hull)
         r3d_draw(m->hull, car);
+    uint64_t body_start = plat_time_ns();
     if (m->body && posed) {
         r3d_view body = pit_body_place(a, car, pit, 1);
         car_draw(m->body, &body);
+        video_profile_bucket(VIDEO_BUCKET_BODY, plat_time_ns() - body_start);
+        uint64_t wheels_start = plat_time_ns();
         /* each wheel's brake before the wheel, as the race body's MDLS calls
            its brake (callbacks 11..14) before its wheel (15..18): the rim's
            see-through texels write depth, so a brake drawn after it would
@@ -2292,8 +2297,11 @@ static void draw_car(race_view *owner, const race_asset *env, const car_meshes *
                 car_draw(m->wheel[i], &w);
             }
         }
-    } else
+        video_profile_bucket(VIDEO_BUCKET_WHEELS, plat_time_ns() - wheels_start);
+    } else {
         car_draw(m->car, car);
+        video_profile_bucket(VIDEO_BUCKET_BODY, plat_time_ns() - body_start);
+    }
 }
 static void draw_driver(const driver_actor *pilot, const car_model *a, const r3d_view *car,
                         const gt4_pit_crew *pit)
@@ -2604,6 +2612,7 @@ static void update_car_lamps(race_view *v,const float pos[3],const float rot[9],
 static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float x, float y, float w,
                           float h)
 {
+    uint64_t scene_start = plat_time_ns();
     phantom_draws = 0;
     car_draws = 0;
     car_count = v ? v->other_count + 1 : 0;
@@ -2768,6 +2777,7 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
     /* 003E5338 / 003E4A28: paired shadow and normal GDGT models in the object frame,
        Env0 lighting from the original per-object RNW4 light bytes.
        Geometry/textures stay resident; each draw changes only its pose. */
+    uint64_t lights_start = plat_time_ns();
     if (v->gadgets && v->now->gadgets && !rv_env("MOON_TEST_HIDE_GADGETS")) {
         gt4_course_gadgets *g = v->now->gadgets;
         for (unsigned pass = 0; pass < 2; pass++) {
@@ -2794,9 +2804,12 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
             }
         }
     }
+    video_profile_bucket(VIDEO_BUCKET_LIGHTS, plat_time_ns() - lights_start);
+    video_profile_bucket(VIDEO_BUCKET_TRACK, lights_start - scene_start);
     car_lights = NULL;
     /* 00340950 +564/+59C: camera car requests 16, other cars 1. */
     car.brake = v->now->pilot[0].brake;
+    uint64_t car_start = plat_time_ns();
     if (!pregrid && v->now->car && (split_entry || !v->hide_car)) {
         draw_car(v, v->now, &v->mine, v->now->car, v->now->surface, &car, &v->shadow[0],
                  v->pose_on && v->wheels_on, v->wheel_pose,
@@ -2827,6 +2840,8 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
                 phantom_draws++;
         }
     }
+    video_profile_bucket(VIDEO_BUCKET_CAR, plat_time_ns() - car_start);
+    uint64_t tail_start = plat_time_ns();
     /* the backfire's flames after the cars, added over them */
     if (!pregrid && v->now->car && (split_entry || !v->hide_car) && v->flame_on[0])
         draw_afterfire(v, v->now->car, &car, v->flame[0], &v->shadow[0]);
@@ -2892,6 +2907,7 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
     r3d_shadow_map_bind(NULL);
 #endif
+    video_profile_bucket(VIDEO_BUCKET_TRACK, plat_time_ns() - tail_start);
     return v->now->car != NULL;
 }
 
