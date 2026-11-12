@@ -1,4 +1,5 @@
 #include "vk_internal.hpp"
+#include <cstring>
 #include <algorithm>
 #include <cstdio>
 
@@ -123,8 +124,18 @@ extern "C" void moon_vk_render_pass_report(void)
 extern "C" void moon_vk_gpu_mark(const char *label)
 {
     if (moon_vk_render_active() && label) {
-        moon::context().begin();
-        moon::context().pass_mark(label);
+        auto &c = moon::context();
+        if (!strcmp(label, "track")) c.draw_source = 1;
+        else if (!strcmp(label, "car")) c.draw_source = 2;
+        else if (!strcmp(label, "shadow")) c.draw_source = 3;
+        else if (!strcmp(label, "ui")) c.draw_source = 4;
+        else if (!strcmp(label, "track_end") || !strcmp(label, "car_end") ||
+                 !strcmp(label, "shadow_end") || !strcmp(label, "ui_end") ||
+                 !strcmp(label, "post") || !strcmp(label, "post_end") ||
+                 !strcmp(label, "blit") || !strcmp(label, "blit_end"))
+            c.draw_source = 0;
+        c.begin();
+        c.pass_mark(label);
     }
 }
 extern "C" void moon_vk_render_pass_reset(void)

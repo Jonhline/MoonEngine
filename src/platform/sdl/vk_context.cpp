@@ -286,18 +286,36 @@ void Context::reset_submission()
                        car = sum("car", &dc), ui = sum("ui", &du),
                        post = sum("post", nullptr), blit = sum("blit", nullptr);
                 double total = shadow + track + car + ui + post + blit;
+                uint64_t total_draws = statistics.draw_track + statistics.draw_car +
+                                       statistics.draw_shadow + statistics.draw_ui +
+                                       statistics.draw_other;
                 fprintf(stderr,
                         "gpu: shadow=%.3f track=%.3f car=%.3f ui=%.3f post=%.3f blit=%.3f "
-                        "total=%.3f | draws shadow=%llu track=%llu car=%llu ui=%llu\n",
+                        "total=%.3f | draws track=%llu car=%llu shadow=%llu ui=%llu other=%llu "
+                        "total=%llu cpu_draw=%.3f cpu_per_draw=%.4f\n",
                         shadow, track, car, ui, post, blit, total,
-                        (unsigned long long)ds, (unsigned long long)dt,
-                        (unsigned long long)dc, (unsigned long long)du);
+                        (unsigned long long)statistics.draw_track,
+                        (unsigned long long)statistics.draw_car,
+                        (unsigned long long)statistics.draw_shadow,
+                        (unsigned long long)statistics.draw_ui,
+                        (unsigned long long)statistics.draw_other,
+                        (unsigned long long)total_draws,
+                        statistics.cpu_draw_frame_ns / 1e6,
+                        total_draws ? statistics.cpu_draw_frame_ns / 1e6 / total_draws : 0.0);
+                statistics.draw_track = statistics.draw_car = statistics.draw_shadow =
+                    statistics.draw_ui = statistics.draw_other = 0;
                 pass_totals.clear();
                 pass_frames = 0;
             }
         }
         pass_labels.clear();
         pass_draws.clear();
+    }
+    if (profile_draws) {
+        uint64_t total_cpu = statistics.cpu_prepare_ns + statistics.cpu_descriptors_ns +
+                             statistics.cpu_pipeline_ns + statistics.cpu_commands_ns;
+        statistics.cpu_draw_frame_ns = total_cpu - cpu_draw_prev_ns;
+        cpu_draw_prev_ns = total_cpu;
     }
     pending = timing_written = false;
     check(vkResetFences(device, 1, &fence), "vkResetFences");
@@ -945,7 +963,8 @@ extern "C" int moon_vk_render_open(SDL_Window *window, int vsync)
     c.uncached_descriptors = getenv("MOON_VK_UNCACHED_DESCRIPTORS") != nullptr;
     c.low_latency = getenv("MOON_VK_LOW_LATENCY") != nullptr;
     c.repeat_commands = getenv("MOON_VK_REPEAT_COMMANDS") != nullptr;
-    c.profile_draws = getenv("MOON_VK_PROFILE_DRAWS") != nullptr;
+    c.profile_draws = getenv("MOON_VK_PROFILE_DRAWS") != nullptr ||
+                      getenv("MOON_GPU_PROFILE") != nullptr;
     if (getenv("MOON_VK_PROFILE_PASSES"))
         c.low_latency = true;
     c.stream_geometry = getenv("MOON_VK_STREAM_GEOMETRY") != nullptr;

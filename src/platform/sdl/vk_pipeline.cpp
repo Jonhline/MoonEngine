@@ -560,6 +560,13 @@ void Context::draw(GLenum topology, int first, int count)
 {
     if (count < 1)
         return;
+    switch (draw_source) {
+    case 1: statistics.draw_track++; break;
+    case 2: statistics.draw_car++; break;
+    case 3: statistics.draw_shadow++; break;
+    case 4: statistics.draw_ui++; break;
+    default: statistics.draw_other++; break;
+    }
     uint64_t prepare_start = profile_draws ? SDL_GetPerformanceCounter() : 0;
     auto &p = programs[state.program];
     if (!p.linked)

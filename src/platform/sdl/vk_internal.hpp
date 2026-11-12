@@ -138,6 +138,7 @@ struct Context {
     size_t arena_used = 0, default_vertex_offset = SIZE_MAX;
     unsigned descriptor_count = 0, next_id = 1;
     unsigned clear_program = 0;
+    uint64_t cpu_draw_prev_ns = 0;
     moon_vk_render_stats statistics = {};
     bool recording = false, vsync = true, rebuild_swapchain = true;
     bool sampler_anisotropy = false;
@@ -149,6 +150,7 @@ struct Context {
          transient_framebuffers = false;
     std::map<std::array<uint64_t, 17>, VkDescriptorSet> draw_sets;
     bool repeat_commands = false, profile_draws = false;
+    int draw_source = 0;
     /* MOON_VK_PROFILE_PASSES: GPU time per render pass/transfer, single frame in flight. */
     VkQueryPool pass_queries = VK_NULL_HANDLE;
     std::vector<std::string> pass_labels;

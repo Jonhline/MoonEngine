@@ -36,6 +36,8 @@ typedef struct {
     uint64_t pipeline_lookups, pipeline_misses, descriptor_builds;
     uint64_t barriers, update_buffer, queue_waits, mem_flushes;
     uint64_t last_submit_ns, last_present_ns;
+    uint64_t draw_track, draw_car, draw_shadow, draw_ui, draw_other;
+    uint64_t cpu_draw_frame_ns;
 } moon_vk_render_stats;
 moon_vk_render_stats moon_vk_render_statistics(void);
 #ifdef __cplusplus
