@@ -18,6 +18,11 @@ static int custom_modes_field_size = 12, custom_modes_thunder = 1;
 static char custom_modes_logged_category[32];
 static int custom_modes_logged_entries;
 static menu *custom_modes_picker_menu;
+#define CM_PICKER_MAX 128
+static int custom_modes_picker_count;
+static char custom_modes_picker_codes[CM_PICKER_MAX][32];
+static char custom_modes_picker_categories[CM_PICKER_MAX][32];
+static ui_widget *custom_modes_picker_items[CM_PICKER_MAX];
 
 typedef struct {
     char course[32];
@@ -316,8 +321,11 @@ static void custom_modes_picker_log(menu *m)
             continue;
         select->focus_index = i;
         menu_native_focus(m, select->kids[i]);
-        char code[96];
-        custom_modes_picker_item_text(m, select->kids[i], code, sizeof code);
+        char code[96] = "";
+        if (i < custom_modes_picker_count)
+            snprintf(code, sizeof code, "%s", custom_modes_picker_codes[i]);
+        else
+            custom_modes_picker_item_text(m, select->kids[i], code, sizeof code);
         if (i == 0)
             custom_modes_picker_dump_item(m, select->kids[i]);
         if (code[0]) {
@@ -389,8 +397,11 @@ static int custom_modes_picker_activate(ah_vm *vm, ah_obj *self, void *data, int
     select->focus_index = index;
     menu_native_focus(m, item);
     menu_tick(m);
-    char course_buf[96];
-    custom_modes_picker_item_text(m, item, course_buf, sizeof course_buf);
+    char course_buf[96] = "";
+    if (index < custom_modes_picker_count)
+        snprintf(course_buf, sizeof course_buf, "%s", custom_modes_picker_codes[index]);
+    if (!course_buf[0])
+        custom_modes_picker_item_text(m, item, course_buf, sizeof course_buf);
     const char *course = course_buf;
     if (!course || !*course)
         course = menu_game_text(m, "course_code");
@@ -401,7 +412,9 @@ static int custom_modes_picker_activate(ah_vm *vm, ah_obj *self, void *data, int
         moon_options_set(custom_modes_options, "custom.elimination.last_course", course);
         moon_options_save(custom_modes_options);
     }
-    const char *category = menu_game_menu_ref(m);
+    const char *category = index < custom_modes_picker_count
+                               ? custom_modes_picker_categories[index]
+                               : menu_game_menu_ref(m);
     custom_modes_course_select = 0;
     menu_game_stack_pop(m);
     custom_modes_request_pending = 1;
@@ -449,6 +462,89 @@ static int custom_modes_map_cancel(ah_vm *vm, ah_obj *self, void *data, int argc
     return 0;
 }
 
+static int custom_modes_picker_harvest(menu *m)
+{
+    static const char *const categories[] = {"RealCircuit", "RoadTrack", "CityCourse",
+                                             "DirtAndSnow", "DrivingPark"};
+    ui_widget *select = NULL;
+    custom_modes_picker_count = 0;
+    for (unsigned c = 0; c < sizeof categories / sizeof categories[0]; c++) {
+        menu_game_stack_push(m, categories[c]);
+        if (!ui_load_package(menu_ui(m), "/projects/gtmode", categories[c])) {
+            fprintf(stderr, "custom modes: picker harvest category=%s load failed\n",
+                    categories[c]);
+            menu_game_stack_pop(m);
+            return 0;
+        }
+        menu_native_page(m, custom_modes_course_root);
+        menu_tick(m);
+        select = custom_modes_picker_select(m);
+        int n = select ? select->nkids : 0;
+        fprintf(stderr, "custom modes: picker harvest category=%s items=%d\n", categories[c], n);
+        if (n <= 0) {
+            fprintf(stderr, "custom modes: picker harvest category=%s empty\n", categories[c]);
+            menu_game_stack_pop(m);
+            return 0;
+        }
+        for (int i = 0; i < n && custom_modes_picker_count < CM_PICKER_MAX; i++) {
+            ui_widget *item = select->kids[i];
+            char code[96];
+            custom_modes_picker_item_text(m, item, code, sizeof code);
+            if (!code[0])
+                continue;
+            ui_widget *copy = ui_widget_copy(menu_ui(m), item);
+            if (!copy)
+                continue;
+            int k = custom_modes_picker_count++;
+            snprintf(custom_modes_picker_codes[k], sizeof custom_modes_picker_codes[k], "%s",
+                     code);
+            snprintf(custom_modes_picker_categories[k],
+                     sizeof custom_modes_picker_categories[k], "%s", categories[c]);
+            custom_modes_picker_items[k] = copy;
+        }
+        menu_game_stack_pop(m);
+    }
+    fprintf(stderr, "custom modes: picker all categories=5 items=%d\n",
+            custom_modes_picker_count);
+    if (custom_modes_picker_count <= 0)
+        return 0;
+    return custom_modes_picker_count;
+}
+
+static void custom_modes_picker_build(menu *m)
+{
+    ui_widget *select = custom_modes_picker_select(m);
+    if (!select)
+        return;
+    while (select->nkids > 0)
+        ui_widget_detach(select->kids[0]);
+    for (int i = 0; i < custom_modes_picker_count; i++) {
+        ui_widget *item = custom_modes_picker_items[i];
+        if (!item)
+            continue;
+        item->x = (float)i * 150.f;
+        item->y = -28.f;
+        item->has_geometry = 1;
+        item->visible = 1;
+        ui_widget *tag = ui_widget_from_text(
+            menu_ui(m), custom_modes_course_root,
+            "TextFace {name string {\"category\"} geometry rectangle {4 4 142 20} "
+            "text_color RGBA {255 255 255 255} font string {\"hm_16\"} align digit {1} "
+            "scale_x digit {0.75} scale_y digit {0.75} }");
+        if (tag) {
+            cm_text(tag, custom_modes_picker_categories[i]);
+            tag->x = 4;
+            tag->y = 4;
+            tag->w = 142;
+            tag->h = 20;
+            tag->has_geometry = 1;
+            tag->visible = 1;
+            ui_widget_append(item, tag);
+        }
+        ui_widget_append(select, item);
+    }
+}
+
 static void custom_modes_picker_open(menu *m)
 {
     if (!m || custom_modes_course_root < 0)
@@ -460,12 +556,15 @@ static void custom_modes_picker_open(menu *m)
         last = "tsukuba";
     custom_modes_picker_menu = m;
     menu_game_set_text(m, "course_code", last);
+    if (!custom_modes_picker_harvest(m))
+        return;
     menu_game_stack_push(m, "RealCircuit");
-    ui_load_package(menu_ui(m), "/projects/gtmode", "RealCircuit");
     menu_native_page(m, custom_modes_course_root);
+    menu_tick(m);
+    custom_modes_picker_build(m);
     custom_modes_picker_bind(m);
     custom_modes_picker_log(m);
-    fprintf(stderr, "custom modes: picker open category=RealCircuit\n");
+    fprintf(stderr, "custom modes: picker open all categories\n");
 }
 
 static int custom_modes_elimination(ah_vm *vm, ah_obj *self, void *data, int argc,
