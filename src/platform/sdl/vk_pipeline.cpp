@@ -612,6 +612,7 @@ void Context::draw(GLenum topology, int first, int count)
         }
     size_t offset = reserve(
         bytes, std::max((size_t)16, (size_t)properties.limits.minUniformBufferOffsetAlignment));
+    statistics.update_buffer++;
     memcpy((uint8_t *)arena.mapped + offset, p.values.data(), p.values.size());
     size_t vertex_offset = offset + aligned((int)p.values.size(), 16);
     std::array<VkDeviceSize, 16> offsets{};
@@ -642,6 +643,7 @@ void Context::draw(GLenum topology, int first, int count)
                                            source.size() - std::min(start, source.size()));
                     if (start > source.size())
                         throw std::runtime_error("Vulkan vertex buffer bounds");
+                    statistics.update_buffer++;
                     memcpy((uint8_t *)arena.mapped + vertex_offset, source.data() + start, size);
                     statistics.vertex_upload_bytes += size;
                     offsets[i] = vertex_offset + a.offset;
@@ -652,6 +654,7 @@ void Context::draw(GLenum topology, int first, int count)
                 // command arena. A pool reset invalidates the cached offset.
                 if (repeat_commands || default_vertex_offset == SIZE_MAX) {
                     float value[4] = {0, 0, 0, 1};
+                    statistics.update_buffer++;
                     memcpy((uint8_t *)arena.mapped + vertex_offset, value, sizeof value);
                     default_vertex_offset = vertex_offset;
                     vertex_offset += sizeof value;

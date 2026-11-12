@@ -813,14 +813,18 @@ void plat_video_end_frame(void)
             fprintf(stderr,
                     "video profile: %.3f ms/frame, %.1f draws/frame, %.1f quads/frame, "
                     "%.1f fps, cars=%d car_draws=%d pipeline_lookups=%llu pipeline_misses=%llu "
-                    "descriptor_builds=%llu\n",
+                    "descriptor_builds=%llu submits=%llu barriers=%llu update_buffer=%llu "
+                    "queue_waits=%llu mem_flushes=%llu\n",
                     profile_total / 1e6 / profile_count, (double)profile_draws / profile_count,
                     (double)profile_quads / profile_count,
                     (profile_count - 1) * 1e9 / (profile_start - profile_window),
                     race_view_car_count(), race_view_car_draws(),
                     (unsigned long long)vk.pipeline_lookups,
                     (unsigned long long)vk.pipeline_misses,
-                    (unsigned long long)vk.descriptor_builds);
+                    (unsigned long long)vk.descriptor_builds,
+                    (unsigned long long)vk.submissions, (unsigned long long)vk.barriers,
+                    (unsigned long long)vk.update_buffer, (unsigned long long)vk.queue_waits,
+                    (unsigned long long)vk.mem_flushes);
             profile_count = profile_draws = profile_quads = 0;
             profile_total = profile_window = 0;
             fprintf(stderr,

@@ -95,6 +95,7 @@ const Buffer *Context::vertex_buffer(unsigned id)
     for (size_t start = 0; start < bytes;) {
         size_t count = std::min(bytes - start, (size_t)arena.size);
         size_t offset = reserve(count, 4);
+        statistics.update_buffer++;
         auto *destination = (uint8_t *)arena.mapped + offset;
         size_t used = std::min(count, source.size() - start);
         memcpy(destination, source.data() + start, used);
@@ -348,6 +349,7 @@ void Context::barrier()
     memory.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                          VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &memory, 0, nullptr, 0, nullptr);
+    statistics.barriers++;
 }
 void Context::transition(Image &im, VkImageLayout layout)
 {
@@ -364,6 +366,7 @@ void Context::transition(Image &im, VkImageLayout layout)
     barrier.dstAccessMask = layout_access(layout);
     vkCmdPipelineBarrier(command, layout_stage(im.layout), layout_stage(layout), 0, 0, nullptr, 0,
                          nullptr, 1, &barrier);
+    statistics.barriers++;
     im.layout = layout;
 }
 void Context::end_pass()
@@ -417,6 +420,7 @@ void Context::upload(Image &im, int level, int x, int y, int w, int h, GLenum fo
         return;
     int channels = format == GL_RGB ? 3 : format == GL_RED ? 1 : 4;
     size_t offset = reserve((size_t)w * h * 4, 4);
+    statistics.update_buffer++;
     auto *out = (uint8_t *)arena.mapped + offset;
     size_t stride = ((size_t)w * channels + state.unpack_alignment - 1) / state.unpack_alignment *
                     state.unpack_alignment;
@@ -466,6 +470,7 @@ void Context::read(Image &im, int x, int y, int w, int h, GLenum format, void *p
     VkMemoryBarrier host{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     host.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     host.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    statistics.barriers++;
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1,
                          &host, 0, nullptr, 0, nullptr);
     flush();
@@ -526,6 +531,7 @@ bool Context::recreate_surface()
         return false;
     if (device) {
         drain();
+        statistics.queue_waits++;
         VkResult idle = vkDeviceWaitIdle(device);
         if (idle != VK_SUCCESS) {
             if (!surface_error_reported)
@@ -577,6 +583,7 @@ bool Context::resize_swapchain()
     if (surface_lost && !recreate_surface())
         return false;
     drain();
+    statistics.queue_waits++;
     VkResult result = vkDeviceWaitIdle(device);
     if (result != VK_SUCCESS) {
         if (!surface_error_reported)
@@ -747,6 +754,7 @@ void Context::present()
     image_barrier.image = swap_images[index];
     image_barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     image_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    statistics.barriers++;
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                          0, 0, nullptr, 0, nullptr, 1, &image_barrier);
     transition(*source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -763,6 +771,7 @@ void Context::present()
     image_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
     image_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     image_barrier.dstAccessMask = 0;
+    statistics.barriers++;
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
                          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1,
                          &image_barrier);
@@ -808,6 +817,7 @@ void Context::present()
 void Context::close()
 {
     if (device) {
+        statistics.queue_waits++;
         vkDeviceWaitIdle(device);
         save_pipeline_cache();
         for (auto fb : transient_targets)
