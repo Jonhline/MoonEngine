@@ -10,7 +10,7 @@ static int choose(menu *m, ui_widget *w, int index)
     set_focus(m, w);
     menu_send_input(m, MENU_ACCEPT);
     for (unsigned n = 0; w->option_pending != index && n < 16; n++)
-        menu_send_input(m, MENU_DOWN);
+        menu_send_input(m, w->option_pending < index ? MENU_DOWN : MENU_UP);
     CHECK(w->option_pending==index);
     menu_send_input(m, MENU_ACCEPT);
     return 0;
@@ -69,10 +69,24 @@ int main(int argc, char **argv)
         CHECK(!choose(option,child(child(pane,"Velocity"),"OptionMenu"),i%2));
         CHECK(!choose(option,child(child(pane,"Power"),"OptionMenu"),i));
         CHECK(!choose(option,child(child(pane,"Torque"),"OptionMenu"),i%3));
-        set_focus(option, child(child(pane, "Buttons"), "OK"));
-        menu_send_input(option, MENU_ACCEPT);
+        ui_widget *outgoing=child(child(pane,"Buttons"),"OK");
+        pointer_set_hover(option,outgoing);
+        set_focus(option, outgoing);
+        pointer_send_input(option, MENU_ACCEPT);
         ticks(option);
         CHECK(!errors);
+        if(getenv("GT4_OPTIONS_NAV_NEGATIVE"))option->pointer_hover=outgoing;
+        CHECK(!option->pointer_hover && !option->pointer_drag && !option->focus_dimmed);
+        int active=menu_active_root(option);
+        CHECK(!strcmp(ui_root_name(option->ui,active),"OptionRoot"));
+        ui_widget *before=option->focus[active];
+        printf("units return %d focus=%s insensitive=%d depth=%d\n",i,menu_focus_name(option),before?before->insensitive:-1,option->depth);
+        int moved=0;menu_input moves[]={MENU_RIGHT,MENU_DOWN,MENU_LEFT,MENU_UP};
+        for(int k=0;k<4 && !moved;k++){
+            menu_send_input(option,moves[k]);ticks(option);
+            moved=option->focus[active]!=before;
+        }
+        CHECK(moved && available(option->focus[active]));
         if (getenv("GT4_OPTIONS_FILE"))
             menu_options_storage(getenv("GT4_OPTIONS_FILE"));
         CHECK(!strcmp(menu_option_text(option,"unit_power","?"),power[i]));
@@ -106,9 +120,12 @@ int main(int argc, char **argv)
         CHECK(child(child(pane,"Power"),"OptionMenu")->focus_index==i);
         CHECK(child(child(pane,"Torque"),"OptionMenu")->focus_index==i%3);
         CHECK(!choose(option,child(child(pane,"Power"),"OptionMenu"),(i+1)%7));
-        set_focus(option, child(child(pane, "Buttons"), "Cancel"));
-        menu_send_input(option, MENU_ACCEPT);
+        outgoing=child(child(pane,"Buttons"),"Cancel");
+        pointer_set_hover(option,outgoing);
+        set_focus(option,outgoing);
+        pointer_send_input(option,MENU_ACCEPT);
         ticks(option);
+        CHECK(!option->pointer_hover && !option->pointer_drag && !option->focus_dimmed);
         CHECK(!strcmp(menu_option_text(option,"unit_power","?"),power[i]));
         if (getenv("GT4_OPTIONS_SAVE_DIR")) {
             CHECK(gt4_save_store() && gt4_save_load_slot(1));

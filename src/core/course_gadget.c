@@ -123,6 +123,10 @@ void gt4_course_gadgets_close(gt4_course_gadgets *g)
         for (unsigned i = 0; i < g->types; i++)
             gt4_model_free(g->model[i]);
     free(g->descriptor);
+    if (g->shadow)
+        for (unsigned i = 0; i < g->types; i++)
+            gt4_model_free(g->shadow[i]);
+    free(g->shadow);
     free(g->model);
     free(g->instance);
     free(g->first);
@@ -148,20 +152,25 @@ static gt4_course_gadgets *open_gadgets(const gt4_course *c, int meshes)
     g->types = types;
     g->sections = sections;
     g->model = calloc(types, sizeof *g->model);
+    if (meshes)
+        g->shadow = calloc(types, sizeof *g->shadow);
     g->first = calloc(sections + 1, sizeof *g->first);
     g->length = calloc(sections + 1, sizeof *g->length);
     g->descriptor = malloc(types * 160);
-    if (!g->model || !g->first || !g->length || !g->descriptor)
+    if (!g->model || (meshes && !g->shadow) || !g->first || !g->length || !g->descriptor)
         goto fail;
     memcpy(g->descriptor, d + at + 32, types * 160);
     /* 003E53B8 +28..3C: descriptor's signed model index * 2; the
-       second model is its shadow. Keep the authored normal draw stream. */
+       second model is its shadow. Retain both authored streams. */
     if (meshes)
         for (unsigned i = 0; i < types; i++) {
             int model = (int16_t)u16(d + at + 32 + i * 160);
             if (model < 0 ||
-                !(g->model[i] = gt4_model_decode_part(d + mdls, n - mdls, -1, model * 2)))
+                !(g->model[i] = gt4_model_decode_part(d + mdls, n - mdls, -1,
+                                                      gt4_course_gadget_model_index(model, 0))))
                 goto fail;
+            g->shadow[i] = gt4_model_decode_part(d + mdls, n - mdls, -1,
+                                                 gt4_course_gadget_model_index(model, 1));
         }
     for (unsigned i = 0; i <= sections; i++) {
         g->first[i] = g->count;
@@ -226,4 +235,30 @@ gt4_course_gadgets *gt4_course_gadgets_open(const gt4_course *c)
 gt4_course_gadgets *gt4_course_gadgets_open_state(const gt4_course *c)
 {
     return open_gadgets(c, 0);
+}
+
+/* The input direction is Env0 +AD0 (not the car shadow's +A70 angles).
+   Keep the homogeneous matrix: the renderer divides by m[15] only when
+   adapting it to r3d_view's affine placement. No object state is changed. */
+void gt4_course_gadget_shadow_matrix(const gt4_course_gadget *g, const float direction[3],
+                                     float m[16])
+{
+    float d[3] = {-direction[0], -direction[1], -direction[2]};
+    float products[3] = {g->normal[0] * d[0], g->normal[1] * d[1], g->normal[2] * d[2]};
+    float w = -((products[0] + products[1]) + products[2]);
+    memset(m, 0, 16 * sizeof *m);
+    for (int c = 0; c < 3; c++)
+        for (int r = 0; r < 3; r++)
+            m[c * 4 + r] = r == c ? w + products[r] : g->normal[c] * d[r];
+    for (int r = 0; r < 3; r++)
+        m[12 + r] = g->plane * d[r];
+    m[15] = w;
+}
+float gt4_course_gadget_shadow_alpha(float sun, float shade, float lit, float dark)
+{
+    return (sun * (lit - dark) + dark) * shade;
+}
+int gt4_course_gadget_model_index(int descriptor_index, int shadow)
+{
+    return descriptor_index * 2 + (shadow != 0);
 }

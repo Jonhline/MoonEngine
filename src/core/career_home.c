@@ -65,10 +65,11 @@ int gt4_career_home_data_load(const char *iso, gt4_career_home_data *out)
     }
     if (ok) {
         /* 0042EE70 event names; 0042F790/+0x40 initialize the two enums. */
-        const uint32_t bases[] = {0x622d58, 0x6a5138, 0x6a51f8};
-        const unsigned counts[] = {9, 5, 8};
-        char(*names[3])[24] = {out->event_names, out->car_event_names, out->course_event_names};
-        for (unsigned group = 0; group < 3; group++)
+        const uint32_t bases[] = {0x622d58, 0x6a5138, 0x6a51f8, 0x6a5180};
+        const unsigned counts[] = {9, 5, 8, 5};
+        char(*names[4])[24] = {out->event_names, out->car_event_names, out->course_event_names,
+                                out->wheel_event_names};
+        for (unsigned group = 0; group < 4; group++)
             for (unsigned i = 0; i < counts[group]; i++) {
                 const uint8_t *entry =
                     mapped(decoded, n, bases[group] + i * (group ? 8 : 4), group ? 8 : 4);

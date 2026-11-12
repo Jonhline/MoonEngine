@@ -1,3 +1,4 @@
+#include "dialog_style.h"
 static const char *projects[] = {
     "arcade",       "gtmode",        "boot",          "option",
     "setting",      "event",         "quick",         "save",
@@ -53,6 +54,42 @@ static struct {
 
 static uint64_t presentation_clock;
 static video_settings *app_video_settings;
+/* race.field_size: the request, validated 1..MOON_MAX_CARS. A refused value
+   says its value, the range and the reason, then the stock six is used. */
+/* race.phantoms On: the field_size request reaches the race; Off: the race keeps its cars */
+static int race_phantoms_on(void)
+{
+    return app_video_settings && moon_options_int(&app_video_settings->store, "race.phantoms", 0, 0, 1);
+}
+static int race_field_size_request(void)
+{
+    const char *raw = getenv("MOON_RACE_FIELD_SIZE");
+    const char *why = NULL;
+    char *end;
+    long n;
+    if (!app_video_settings)
+        return MOON_CONDUCTOR_CARS;
+    if (!moon_options_int(&app_video_settings->store, "race.phantoms", 0, 0, 1)) {
+        fprintf(stderr, "race: phantom opponents off; field_size=%d\n", MOON_CONDUCTOR_CARS);
+        return MOON_CONDUCTOR_CARS; /* off: the original six-car race */
+    }
+    if (!raw)
+        raw = moon_options_get(&app_video_settings->store, "race.field_size", "");
+    if (!raw || !*raw)
+        return MOON_CONDUCTOR_CARS;
+    n = strtol(raw, &end, 10);
+    if (!*raw || *end)
+        why = "not an integer";
+    else if (n < 1 || n > MOON_MAX_CARS)
+        why = "outside the allowed range";
+    if (!why)
+        return (int)n;
+    fprintf(stderr,
+            "race.field_size=%s refused: allowed 1..%d (%s; the conductor holds %d, phantoms "
+            "fill the rest)\n",
+            raw, MOON_MAX_CARS, why, MOON_CONDUCTOR_CARS);
+    return MOON_CONDUCTOR_CARS;
+}
 static save_ui save_screen;
 static int present_profile_picker(menu *m);
 static gt4_replay_file replay_to_save; /* the race the memory card's save screen writes */
@@ -356,9 +393,43 @@ static void present_progress(menu *m, int state, const char *message, int button
         fill->progress = fminf(1, progress); /* ProgressFace draws its fraction */
 }
 
+/* The green touch Exit belongs to menus. The boot project's splash and its
+   opening MovieRoot have no authored back control, so it must stay away
+   there just as it already does during a race. */
+static int touch_overlay_hidden(menu *m, const char **phase)
+{
+    static const char *logged;
+    ui_project *p = menu_ui(m);
+    const char *project = p ? mp_string(ui_project_tree(p), "name") : NULL;
+    const char *page = p ? ui_root_name(p, menu_active_root(m)) : NULL;
+    const char *state = NULL;
+    if (project && !strcmp(project, "BootProject") && page) {
+        if (!strcmp(page, "LoadRoot"))
+            state = "splash";
+        else if (!strcmp(page, "MovieRoot"))
+            state = "cutscene";
+    }
+    if (phase)
+        *phase = state;
+    if (!state) {
+        logged = NULL;
+        return 0;
+    }
+    if (!logged || strcmp(logged, state)) {
+        fprintf(stderr, "touch overlay: hidden (%s)\n", state);
+        logged = state;
+    }
+    return 1;
+}
+
 static void draw_pages(menu *m, int *drawn, int *skipped)
 {
     ui_project *p = menu_ui(m);
+#ifndef __ANDROID__
+    /* Android's touch Exit is hidden in these phases below; the phase
+       diagnostic is also useful from the desktop and console builds. */
+    (void)touch_overlay_hidden(m, NULL);
+#endif
     ui_set_scene_renderer(p, draw_pregrid_face, NULL);
     int depth = menu_page_depth(m);
     if (depth > 1 && is_popup(ui_root_name(p, menu_active_root(m))))
@@ -376,7 +447,11 @@ static void draw_pages(menu *m, int *drawn, int *skipped)
                        : 1.f / 60;
         app_video_settings->touch_back_clock = now;
         plat_video_set_view(640, 480);
+#if defined(__ANDROID__)
+        if (touch_overlay_hidden(m, NULL) || ui_has_back_control(p, menu_active_root(m))) {
+#else
         if (ui_has_back_control(p, menu_active_root(m))) {
+#endif
             ui_hide_touch_back(dialog_ui);
             app_video_settings->touch_back.tap = (touch_dialog_state){0};
         } else
@@ -699,6 +774,8 @@ static void pump_loading_work(void *user)
     presentation_clock = plat_time_ns();
 }
 
+#include "storage_present.inc"
+
 static menu *load(gt4_vol *v, int k)
 {
     SWP_LOAD_BEGIN(projects[k]);
@@ -707,17 +784,23 @@ static menu *load(gt4_vol *v, int k)
                                   pump_loading_work, NULL);
     if (!m)
         fprintf(stderr, "project %s: %s\n", projects[k], err);
-    if (m && k == 7)
+    if (m && k == 7) {
         save_ui_attach(&save_screen, m);
+        save_ui_transfer_tools(&save_screen, app_video_settings && app_video_settings->current.save_tools);
+    }
     if (m) {
         ui_set_capture_renderer(menu_ui(m), video_grab);
         menu_set_profile_picker(m, present_profile_picker);
     }
+    if (m && k == 17) app_jukebox_attach(m);
     menu_set_presenter(m, present_wait, NULL);
     menu_set_music_fader(m, fade_menu_music);
     menu_set_audio_preparer(m, prepare_menu_audio, NULL);
     menu_set_dialog_presenter(m, present_dialog);
     menu_set_progress_presenter(m, present_progress);
+    menu_set_save_presenter(m, present_save);
+    menu_set_load_presenter(m, present_load);
+    menu_set_profile_change_presenter(m, present_profile_change);
     menu_set_event_presenter(m, present_event, NULL);
     if (app_car_ratings)
         menu_set_car_rater(m, rate_cars, app_car_ratings);
@@ -892,11 +975,19 @@ static void switch_to(gt4_vol *vol, menu **cache, menu **mn, int *proj, char *ne
                 menu_take_labo_arg(*mn, labo_arg, sizeof labo_arg);
             if (i == 7)
                 save_screen.enter_gtmode = menu_take_gtmode_save_entry(*mn);
+            if (*proj == 17 && i != 17) {
+                app_jukebox_leave();
+                menu_jukebox_finish(*mn);
+            }
             menu_set_origin(cache[i], projects[*proj]);
             if (i == 4)
                 menu_setting_context(cache[i], *mn);
-            if (i == 17)
+            if (!strcmp(projects[i], "option"))
+                menu_option_context(cache[i], *mn);
+            if (i == 17) {
                 menu_jukebox_context(cache[i], *mn);
+                app_jukebox_attach(cache[i]);
+            }
             if (i == 18 || i == 19)
                 menu_setting_context(cache[i],
                                      *mn); /* FreeRun/Practice exits read major_menu_project/page */
@@ -939,6 +1030,8 @@ static void switch_to(gt4_vol *vol, menu **cache, menu **mn, int *proj, char *ne
                     fprintf(stderr, "career quick selector failed\n");
             } else
                 menu_enter(*mn, target);
+            if (i == 1)
+                custom_modes_attach(*mn);
             if (new_career)
                 save_ui_new_career(&save_screen);
             /* PresentRoot.onInitialize queues get_paper/get_car (gtmode.ad
@@ -1161,10 +1254,7 @@ static int present_dialog(menu *m, const char *title, const char *message, int t
               *buttons = ui_widget_child(pane, "Buttons");
     ui_widget *single = ui_widget_child(buttons, "OK"), *pair = ui_widget_child(buttons, "YesNo");
     ui_widget *positive = ui_widget_child(pair, "Yes"), *negative = ui_widget_child(pair, "No");
-    dialog_text(ui_widget_child(heading, "title"), title);
-    ui_widget_child(heading, "bgE")->visible = 0;
-    ui_widget_child(heading, "titleE")->visible = 0;
-    ui_widget_child(body, "caution")->visible = 0;
+    title = moon_dialog_style(dialog_ui, page, type, title);
     dialog_text(ui_widget_child(body, "message"), message);
     ui_widget *message_face = ui_widget_child(body, "message");
     message_face->w = 300;

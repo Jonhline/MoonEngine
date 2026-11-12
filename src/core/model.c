@@ -36,7 +36,7 @@ typedef struct {
     float fixed;
     int human;
     unsigned hand_tween, hand_branch;
-    int tween_active, wheel, wheel_table, wing, branch;
+    int tween_active, afterfire, wheel, wheel_table, wing, branch, time_zone;
     float *radial_bounds;
 } reader;
 static int append(gt4_model *m, const gt4_vertex *a, const gt4_vertex *b, const gt4_vertex *c,
@@ -71,6 +71,7 @@ static int append(gt4_model *m, const gt4_vertex *a, const gt4_vertex *b, const 
         m->morph_capacity = m->capacity;
     }
     gt4_triangle *t = &m->triangles[m->count++];
+    memset(t, 0, sizeof *t);
     t->v[0] = *a;
     t->v[1] = *b;
     t->v[2] = *c;
@@ -91,6 +92,7 @@ static int append(gt4_model *m, const gt4_vertex *a, const gt4_vertex *b, const 
             memcpy(m->morph[m->count - 1].v[k].p, t->v[k].p, 12);
             memcpy(m->morph[m->count - 1].v[k].normal, t->v[k].normal, 12);
             memcpy(m->morph[m->count - 1].v[k].uv, t->v[k].uv, 8);
+            memcpy(m->morph[m->count - 1].v[k].rgb,t->v[k].rgb,12);m->morph[m->count - 1].v[k].alpha=t->v[k].alpha;
         }
     return 1;
 }
@@ -619,6 +621,19 @@ static int commands(reader *r, size_t p, int *table)
                 LAMP_SAVE(lamp_entry);
                 continue;
             }
+            /* 00453698 callback 7 ("timezone") returns the draw object's +0x7C, the course's
+               time of day (00387FB0: Env0 +0x10 bit 0x8000 night 1, bit 0x80000 2, else 0;
+               00390C90 copies the car's +0x1680 each frame). Branch 0 is daytime, handled
+               below; past the table is the fall-through. */
+            if (r->car && op == 6 && u16(r->d + p) == 7 && r->time_zone > 0) {
+                if ((unsigned)r->time_zone >= r->d[p + 2])
+                    break;
+                size_t entry = p + 3 + (size_t)r->time_zone * 2, offset = u16(r->d + entry);
+                if (offset < skip - (entry - p) || !span(r->n, entry, offset + 1))
+                    FAIL;
+                p = entry + offset;
+                continue;
+            }
             if (!r->car && op == 6 && r->branch >= 0 &&
                 r->branch < r->d[p + 2]) { /* the branch asked for */
                 size_t entry = p + 3 + (size_t)r->branch * 2;
@@ -833,7 +848,7 @@ static int shape(reader *r, size_t a, int table)
        strip. Retain it only after the hand's VM_pgluShapeTweenRatio. */
     unsigned tween_mode = r->d[a + 8] >> 5;
     int tween =
-        r->human >= 2 && r->tween_active && (tween_mode == 2 || (r->human == 3 && tween_mode == 1));
+        (r->human >= 2 || r->afterfire) && r->tween_active && (tween_mode == 2 || ((r->human == 3 || r->afterfire) && tween_mode == 1));
     if (r->human >= 2 && !tween)
         FAIL;
     /* 0049D328 -> 0049E548 scales the three model-matrix columns by
@@ -1096,7 +1111,7 @@ static int shape(reader *r, size_t a, int table)
             /* BC colour-tween packets carry positions/RGBA/UV, without
                normals (kind 25h, VU1 path 1). Their authored endpoint
                colours are equal; reject a different unsupported program. */
-            if (tween_mode == 1)
+            if (tween_mode == 1 && !r->afterfire)
                 for (int i = 0; i < nv; i++)
                     if (memcmp(v[i].rgb, v[i + 32].rgb, 12) || v[i].alpha != v[i + 32].alpha)
                         FAIL;
@@ -1137,6 +1152,7 @@ static int shape(reader *r, size_t a, int table)
                         memcpy(dst->p, target->p, 12);
                         memcpy(dst->normal, target->normal, 12);
                         memcpy(dst->uv, target->uv, 8);
+                        memcpy(dst->rgb,target->rgb,12);dst->alpha=target->alpha;
                     }
                 if (skinned &&
                     !skin_triangle(r->out, &skin[first + i + (i & 1 ? 2 : 0)], &skin[first + i + 1],
@@ -1214,6 +1230,10 @@ gt4_model *gt4_model_decode_branch(const uint8_t *bytes, size_t size, int model_
     return decode(bytes, size, 0, model_index, NULL, 1 / 4096.f, 0, 0, 0, branch);
 }
 
+gt4_model *gt4_model_decode_afterfire(const uint8_t *bytes,size_t size,int model_index,int branch)
+{
+    return branch>=0 && branch<6 ? decode(bytes,size,0,model_index,NULL,1/4096.f,4,0,0,branch) : NULL;
+}
 /* HumanModel hosts 003B09C0/D0 read recorded frame +80/+84 via
    003B3FB4. The hand callback in each MDLS is the same expression:
    x = host * authored_scale; branch = (int)x; tween = x % 1.
@@ -1269,9 +1289,18 @@ gt4_model *gt4_model_decode_world(const uint8_t *bytes, size_t size, gt4_model_s
 {
     return decode(bytes, size, -1, -1, stats, WORLD_FIXED, 0, 0, 0, -1);
 }
+static gt4_model *decode_zone(const uint8_t *bytes, size_t size, int color, int model_index,
+                              gt4_model_stats *stats, float fixed, int human, int wheel, int wing,
+                              int branch, int time_zone);
 static gt4_model *decode(const uint8_t *bytes, size_t size, int color, int model_index,
                          gt4_model_stats *stats, float fixed, int human, int wheel, int wing,
                          int branch)
+{
+    return decode_zone(bytes, size, color, model_index, stats, fixed, human, wheel, wing, branch, 0);
+}
+static gt4_model *decode_zone(const uint8_t *bytes, size_t size, int color, int model_index,
+                              gt4_model_stats *stats, float fixed, int human, int wheel, int wing,
+                              int branch, int time_zone)
 {
     if (stats) {
         memset(stats, 0, sizeof *stats);
@@ -1326,10 +1355,13 @@ static gt4_model *decode(const uint8_t *bytes, size_t size, int color, int model
     r.car = car;
     r.stats = stats;
     r.fixed = fixed;
-    r.human = human;
+    r.human = human == 4 ? 0 : human;
+    r.afterfire=human==4;
+    if(r.afterfire){m->morph=malloc(sizeof *m->morph);if(!m->morph)goto fail;m->morph_color=1;m->grasp_scale=1;r.tween_active=1;}
     r.wheel = wheel;
     r.wing = wing;
     r.branch = branch;
+    r.time_zone = time_zone;
     r.wheel_table = -1;
     r.ns = u16(d + 24);
     r.nm = u16(d + 26);
@@ -1397,7 +1429,7 @@ static gt4_model *decode(const uint8_t *bytes, size_t size, int color, int model
             stats->fail_line = __LINE__;
         goto fail;
     }
-    if (human >= 2 && (model_index < 0 || !hand_program(&r, mo + (size_t)model_index * 40)))
+    if (human >= 2 && human != 4 && (model_index < 0 || !hand_program(&r, mo + (size_t)model_index * 40)))
         goto fail;
     for (unsigned i = 0; i < models; i++) {
         if (model_index >= 0 && i != (unsigned)model_index)
@@ -1548,4 +1580,10 @@ int gt4_model_attach(gt4_model *m, gt4_model *part, const float tr[][6], int cou
 gt4_model *gt4_model_decode_car_wing(const uint8_t *bytes, size_t size, int color, int installed)
 {
     return decode(bytes, size, color, 0, NULL, 1 / 4096.f, 0, 0, installed ? 1 : 0, -1);
+}
+gt4_model *gt4_model_decode_car_zone(const uint8_t *bytes, size_t size, int color, int installed,
+                                     int time_zone)
+{
+    return decode_zone(bytes, size, color, 0, NULL, 1 / 4096.f, 0, 0, installed ? 1 : 0, -1,
+                       time_zone);
 }

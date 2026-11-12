@@ -23,3 +23,13 @@ Synthetic data and US executable research cover the bridge. Validation with
 a real GT3 save remains pending; other regions and actual Prologue transfer
 are not supported by that proof. See [Fidelity](FIDELITY.md) and
 [media coverage](notes/PHOTO_MEDIA_COVERAGE.md) for separate import limits.
+
+## First-run questions
+
+To import a complete GT4 save instead of creating a new profile, answer No
+to the first welcome question, then Yes to Import Savegame. This uses the
+existing GT4 file picker and import validation. A newly created profile
+also shows optional legacy-transfer instructions after the Auto Save
+explanation. Those instructions describe the US GT3 transfer above; the
+transfer itself is performed from GT Mode Status, not by acknowledging the
+welcome messages. Actual GT4 Prologue input remains unsupported.

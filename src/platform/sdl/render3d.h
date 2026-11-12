@@ -15,6 +15,14 @@
 typedef struct r3d_mesh r3d_mesh;
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
 void r3d_texture_smoothing(int enabled);
+/* P: 0 retained sampling; 1 trilinear; 2/3/4 anisotropic 4x/8x/16x. */
+void r3d_texture_filtering(int mode);
+/* P: authored material response evaluated per pixel; zero retains vertex lighting. */
+void r3d_material_shading(int enabled);
+/* P: generated reflection targets: Original 128, High 256, Ultra 512. */
+void r3d_reflection_quality(int mode);
+int r3d_reflection_size(void);
+
 #endif
 
 /* An object placement and camera: world = rot * p + pos; the camera at cam
@@ -32,10 +40,17 @@ typedef struct {
     float shadow_rgb[3]; /* shadow: added to the vertex colours (func_004A6100) */
     float env_color
         [2];   /* reflections: their colour times [0] + [1] * min(I.N, 0) / |I| (0, 0: as it is) */
+    int daylight;
+    int authored_environment; /* retain source sky/celestial placement and baked reference */
+    float sky_seconds; /* presentation clock: deterministic clouds, no wall clock */
+    float authored_night; /* P: retain authored local radiance at night, 0..1. */
+    float sun_direction[3], sun_color[3], sky_color[3], haze_color[3];
+    int modern_light; /* PC race/replay boundary; source material remains authored. */
     int brake; /* the brake pedal down: the cars' lit lamp branch (car callback 0) */
     /* func_0049AB58: the projection made with its near and far planes this
        much further, so that what is drawn comes out nearer in depth */
     float depth_bias;
+    float far_clip; /* 0 keeps the ordinary 20000 m projection; PCAM stores an explicit far plane. */
     int mirror;         /* reflected in the floor (y = 0): the car's floor reflection */
     int screen_reflect; /* rear-view projection reverses triangle winding */
     /* Optional 20 column-major pose * inverse-bind matrices. The mesh and
@@ -44,6 +59,10 @@ typedef struct {
     float grasp; /* recorded hand closure 0..1; resident authored morph only */
     int authored_color;
     float color_mul[3], color_add[3]; /* 004A60E0/004A6100 */
+    /* 004A60E0's alpha on the vertex colours (MODULATE), 1 unless set:
+       the hot brake layers' wheel block +0x28 (00453798) */
+    int vertex_alpha_set;
+    float vertex_alpha;
     int wheel_blur;                   /* 00453E68: 0 sharp, 1 authored bank, >1 accumulation */
     /* The GS's fog as the VU1 programs give it to each vertex (004A40B0):
        beyond fog_distance of view depth the colour goes to fog_rgb, by at
@@ -63,6 +82,70 @@ typedef struct {
     float ghost_alpha;
     const uint8_t *model_list; /* Vls0 u16 count + ordered u16 model indices */
 } r3d_view;
+#ifdef __ANDROID__
+/* The GLES branch keeps the desktop lighting controls compiling; the Android
+   path does not run the PC-only lamp-shadow atlas. */
+void r3d_night_sky(int enabled);
+int r3d_night_sky_enabled(void);
+void r3d_daylight_options(int enabled, int hour, int cycle);
+int r3d_daylight_enabled(void);
+float r3d_daylight_hour(double seconds);
+#define R3D_CAR_LAMPS 24
+typedef struct {float position[4], direction[4], color[4];} r3d_car_lamp;
+void r3d_car_lamp_frame(const r3d_car_lamp *lamps, unsigned count);
+typedef struct r3d_lamp_shadow r3d_lamp_shadow;
+void r3d_lamp_shadow_bind(r3d_lamp_shadow *atlas);
+#endif
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+/* P: geometric car silhouettes on the local receiver plane; Classic is disabled. */
+void r3d_car_shadows(int enabled);
+int r3d_car_shadows_enabled(void);
+/* P: local directional car shadow maps; zero keeps the retained shadow paths. */
+void r3d_night_sky(int enabled);
+int r3d_night_sky_enabled(void);
+float r3d_solar_hour(double seconds,int authored_night);
+void r3d_daylight_options(int enabled, int hour, int cycle);
+int r3d_daylight_enabled(void);
+float r3d_daylight_hour(double seconds);
+#define R3D_CAR_LAMPS 24
+typedef struct {float position[4], direction[4], color[4];} r3d_car_lamp;
+void r3d_car_lamps(int enabled);
+int r3d_car_lamps_enabled(void);
+void r3d_car_lamp_frame(const r3d_car_lamp *lamps, unsigned count);
+/* P: depth atlas for the active lamp frame, using resident visual geometry.
+   begin, then light/mesh/end_light for each source; bind finalizes the atlas
+   and restores the receiver target/viewport. No receiver draw between tiles. */
+typedef struct r3d_lamp_shadow r3d_lamp_shadow;
+void r3d_lamp_shadow_destroy(r3d_lamp_shadow *atlas);
+int r3d_lamp_shadow_begin(r3d_lamp_shadow **atlas);
+int r3d_lamp_shadow_light(r3d_lamp_shadow *atlas, unsigned index);
+void r3d_lamp_shadow_mesh(r3d_lamp_shadow *atlas, const r3d_mesh *mesh, const r3d_view *view);
+void r3d_lamp_shadow_end_light(r3d_lamp_shadow *atlas);
+void r3d_lamp_shadow_bind(r3d_lamp_shadow *atlas);
+void r3d_modern_lighting(int enabled);
+int r3d_modern_lighting_enabled(void);
+void r3d_shadow_map_quality(int mode);
+/* graphics.shadow_filter: 0 Soft (sixteen taps), 1 Fast (four taps). */
+void r3d_shadow_filter(int fast);
+int r3d_shadow_map_size(void);
+typedef struct r3d_shadow_map r3d_shadow_map;
+void r3d_shadow_map_destroy(r3d_shadow_map *map);
+int r3d_shadow_map_begin(r3d_shadow_map **map, const float centre[3], const float direction[3]);
+int r3d_shadow_map_contains(const r3d_shadow_map *map, const float point[3]);
+void r3d_shadow_map_mesh(r3d_shadow_map *map, const r3d_mesh *mesh, const r3d_view *view, float opacity);
+void r3d_shadow_map_end(r3d_shadow_map *map);
+void r3d_shadow_map_bind(r3d_shadow_map *map);
+int r3d_shadow_map_covers(const float point[3]);
+void r3d_shadow_map_volume(const r3d_view *view);
+typedef struct r3d_car_shadow r3d_car_shadow;
+r3d_mesh *r3d_wheel_contact_create(void);
+void r3d_car_shadow_destroy(r3d_car_shadow *shadow);
+int r3d_car_shadow_begin(r3d_car_shadow **shadow, const r3d_view *view,
+                         const float plane[4], const float direction[3]);
+void r3d_car_shadow_mesh(r3d_car_shadow *shadow, const r3d_mesh *mesh, const r3d_view *view);
+void r3d_car_shadow_end(r3d_car_shadow *shadow, float opacity, const float rgb[3]);
+#endif
+
 
 int r3d_available(void);
 #if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST) || defined(MOON_PC_VULKAN)
@@ -104,6 +187,9 @@ void r3d_draw(r3d_mesh *mesh, const r3d_view *view);
    No allocation, texture upload or GPU readback during updates. */
 int r3d_mesh_update_positions(r3d_mesh *mesh, const float (*positions)[3], unsigned vertices,
                               float alpha);
+/* Re-upload a rigid mesh's vertex colours from `model` (the same triangles
+   it was created from), for ribbons whose shading changes per frame. */
+int r3d_mesh_update_colours(r3d_mesh *mesh, const gt4_model *model);
 /* ModelFace's authored light; separate from the showroom/course lighting. */
 typedef struct {
     float direction[3], ambient[3], diffuse[3], specular[3];
@@ -122,6 +208,7 @@ typedef struct {
                     colour's 255 in the lights' own units), and the whole of
                     it times the texel. */
     float vertex_limit;
+    int authored_local; /* selected RNW4 list, not the global solar rig */
 } r3d_lights;
 void r3d_draw_lit(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *lights);
 /* Studio silhouette on y=0, drawn/blurred on the GPU at native half size.
@@ -160,6 +247,8 @@ int r3d_begin_target_view(int size);
    func_003411D0's loop), and it is stretched over the view from its first
    size - (blur - 0.5) texels, sampled linearly. */
 void r3d_end_target_add(const float rgb[3], int blur);
+/* P: angle-weighted rough road reflection; NULL retains the original path. */
+void r3d_end_target_add_road(const float rgb[3], int blur, const r3d_view *road);
 void r3d_end(void);
 /* Squares already in view space (x right, y up, z towards the viewer),
    each 4 corners in the GS's strip order (0 1 2, 1 3 2) of 9 floats: x y z,

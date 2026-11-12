@@ -120,8 +120,11 @@ static int film_header(film_reader *r, gt4_film *f, int *frames)
                 if (!film_string(&b, f->car[detail].parts[k], sizeof f->car[detail].parts[k]))
                     return 0;
             /* 0033A998 -> 0045B118: signed byte, not a short. */
-            if (v && !film_bytes(&b, NULL, 1))
-                return 0;
+            if (v) {
+                int8_t mode;
+                if(!film_bytes(&b,&mode,1))return 0;
+                f->car[detail].detail_mode=mode;
+            }
             if (b.at != b.n)
                 return 0;
             detail++;
@@ -202,7 +205,7 @@ static int film_driver(film_reader *r, gt4_driver_skeleton *s, float grasp[2], u
     }
     return r->at == r->n;
 }
-static int film_frame(film_reader *r, gt4_film_frame *f, int cars)
+static int film_frame(film_reader *r, gt4_film_frame *f, int cars, gt4_film *owner)
 {
     int camera = 0;
     while (r->at < r->n) {
@@ -266,6 +269,25 @@ static int film_frame(film_reader *r, gt4_film_frame *f, int cars)
             if (!parameters)
                 return 0;
             f->cars++;
+        } else if (!strcmp(tag,"GDGT")) {
+            /* 003E5408/003E55F8: version, u16 count; presence and changed
+               booleans, then age, three signed angles and XYZ when changed. */
+            uint8_t version,present,changed;uint16_t count;
+            if(f->gadget_size || !film_bytes(&b,&version,1) || version || !film_bytes(&b,&count,2))return 0;
+            for(unsigned i=0;i<count;i++) {
+                if(!film_bytes(&b,&present,1))return 0;
+                if(present) {
+                    if(!film_bytes(&b,&changed,1))return 0;
+                    if(changed) {
+                        float xyz[3];
+                        if(!film_bytes(&b,NULL,4))return 0;
+                        for(int k=0;k<3;k++)if(!film_float(&b,xyz+k))return 0;
+                    }
+                }
+            }
+            if(b.at!=b.n || b.n>sizeof owner->gadget_data-owner->gadget_size)return 0;
+            f->gadget_offset=owner->gadget_size;f->gadget_size=(unsigned)b.n;
+            memcpy(owner->gadget_data+owner->gadget_size,b.p,b.n);owner->gadget_size+=(unsigned)b.n;
         } else if (!strcmp(tag, "PTCL")) {
             /* 003C2990: version byte, particle type+1, records, zero terminator.
       LeafParticle virtual writer 0040B690: kind, 3 angles, XYZ, shade.
@@ -342,7 +364,7 @@ int gt4_media_film_decode(const uint8_t *p, size_t n, gt4_film *out)
         return 0;
     while (r.at < r.n && r.n - r.at >= 8 && word(r.p + r.at)) {
         if (!film_section(&r, tag, &b) || strcmp(tag, "SFRM") || f.frames >= 2 ||
-            !film_frame(&b, &f.frame[f.frames], f.cars))
+            !film_frame(&b, &f.frame[f.frames], f.cars, &f))
             return 0;
         f.frames++;
     }

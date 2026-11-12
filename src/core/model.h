@@ -20,6 +20,7 @@ typedef struct {
     uint8_t blend_enabled;
     gt4_draw_state state;
     uint16_t source_model;  /* MDLS model index, for Vls0 selection */
+    uint8_t night_lens; /* P metadata: an unlit surface absent from the daytime stream */
     int wheel_blur_texture; /* 0 none; authored alternate texture index + 1 */
     uint8_t attachment;     /* 0 body, 1..4 road wheels, 5+ steering frames */
     uint8_t
@@ -38,7 +39,7 @@ typedef struct {
 /* Authored second endpoint of a rigid human tween (position, normal, UV).
    Hands and the distant pit crew use this resident stream. */
 typedef struct {
-    float p[3], normal[3], uv[2];
+    float p[3], normal[3], uv[2], rgb[3], alpha;
 } gt4_morph_vertex;
 typedef struct {
     gt4_morph_vertex v[3];
@@ -53,7 +54,7 @@ typedef struct {
     gt4_skin_triangle *skin;
     int skin_capacity;
     gt4_morph_triangle *morph;
-    int morph_capacity;
+    int morph_capacity, morph_color;
     float grasp_scale, phase_scale;
     /* CAR4 callback 8: authored matrix immediately before its local Z turn.
        Decoded triangles retain their neutral coordinates for static callers. */
@@ -72,6 +73,9 @@ typedef struct {
 } gt4_model_stats;
 /* Static menu geometry, converted once; not a VU/GS execution backend. */
 gt4_model *gt4_model_decode_car_wing(const uint8_t *bytes, size_t size, int color, int installed);
+/* the same in a course's time of day (callback 7: 0 day, 1 night; 00387FB0) */
+gt4_model *gt4_model_decode_car_zone(const uint8_t *bytes, size_t size, int color, int installed,
+                                     int time_zone);
 gt4_model *gt4_model_decode(const uint8_t *bytes, size_t size, int color);
 gt4_model *gt4_model_decode_part(const uint8_t *bytes, size_t size, int color, int model_index);
 gt4_model *gt4_model_decode_stats(const uint8_t *bytes, size_t size, int color, int model_index,
@@ -92,6 +96,8 @@ gt4_model *gt4_model_decode_hand_part(const uint8_t *bytes, size_t size, int mod
 /* BC_WALK/BC_SQUAT: validated authored time VM; cache every branch once. */
 gt4_model *gt4_model_decode_pit_walk_part(const uint8_t *bytes, size_t size, int model_index,
                                           int branch, gt4_model_stats *stats);
+/* AfterFireCallback 00452F28: resident endpoint position/UV/RGBA streams. */
+gt4_model *gt4_model_decode_afterfire(const uint8_t *,size_t,int model_index,int branch);
 /* One branch of the model's callback (the after fire's frames). */
 gt4_model *gt4_model_decode_branch(const uint8_t *bytes, size_t size, int model_index, int branch);
 /* A course world model set (all models): integer vertices are 1/512 fixed point. */

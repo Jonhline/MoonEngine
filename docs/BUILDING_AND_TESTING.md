@@ -38,22 +38,48 @@ local files. An omitted test has not passed.
 
 ## Linux
 
-GCC or Clang, CMake 3.20+, the OpenGL development libraries, and `ffmpeg` on PATH for
-movies; SDL2 and miniz are fetched by CMake, so the first configure needs network access.
-Python 3 drives the application tests (`MOON_PYTHON`); the original-code oracles
-additionally need an interpreter with `rabbitizer`.
+GCC or Clang, CMake 3.20+, and the OpenGL development libraries; SDL2 and miniz are
+fetched by CMake, so the first configure needs network access. Movies and custom
+music are decoded **in-process** by the pinned libav archives built from
+`tools/build_libav.sh` — no `ffmpeg` program is needed or looked for on Linux.
+Python 3 drives the application tests (`MOON_PYTHON`) and the replay-math generator
+needs `pycparser`; the original-code oracles additionally need `rabbitizer`.
+
+The whole sequence is in `tools/build_linux.sh` (build directory as the first
+argument, defaults to `build-native`; `--no-tests` skips ctest):
 
 ```bash
-cmake -S . -B build-native -DCMAKE_BUILD_TYPE=Release
-cmake --build build-native -j4
-ctest --test-dir build-native -j4
-./build-native/moonengine "path/to/GT4.iso"
+tools/build_linux.sh                 # libav, configure, build, test
+tools/build_linux.sh build-native    # same, explicit build dir
 ```
 
-Measured 2026-10-16 (Ubuntu 24.04, GCC 13.3.0, CMake 3.28.3): every target builds,
-`ctest` reports **102/102 passing** without a disc, and the engine opens the NTSC-U
-v2.00 image and draws the arcade menu. `-DMOON_TEST_DISC=<image>` registers the
-disc-based tests on Linux exactly as on Windows.
+By hand, it is these four steps. Step 1 is not optional: without the archives,
+`MOON_LINKED_MOVIES` is off and CMake compiles the movie stub instead.
+
+```bash
+tools/build_libav.sh linux          # pinned libav for this host, idempotent
+cmake -S . -B build-native -DCMAKE_BUILD_TYPE=Release \
+      -DPython3_EXECUTABLE="$(command -v python3)"
+cmake --build build-native -j4
+ctest --test-dir build-native -j4
+./build-native/MoonEngine "path/to/GT4.iso"
+```
+
+A configure that reports `Movies: in-process libav from .../build/libav/linux/lib`
+has linked them; a configure with `MOON_LINKED_MOVIES=ON` but missing archives stops
+with an error instead of quietly dropping movies.
+
+Measured 2026-10-20 (Ubuntu 24.04, GCC 13.3.0, CMake 3.28.3, in-process libav):
+every target builds and `ctest` reports **252/258 passing** without a disc. The
+engine opens the NTSC-U v2.00 image and draws the arcade menu.
+`-DMOON_TEST_DISC=<image>` registers the disc-based tests on Linux exactly as on
+Windows.
+
+Tests need a display. With no `DISPLAY`/`WAYLAND_DISPLAY`, `tools/build_linux.sh`
+runs `ctest` under `xvfb-run`; that is enough for every OpenGL and Vulkan case on
+software Mesa. The six `deko_*` tests (the Switch renderer) still fail there with
+`Could not create GL context: GLXBadFBConfig` — they want the Switch's deko3d
+shader path, not a desktop GL context.
 
 Known limits: the standalone disc-preparation launcher is still Windows-only (`Standalone
 preparation currently requires Windows. Pass the ISO on the command line.`), and

@@ -19,6 +19,24 @@ float video_read_depth(int x, int y);
 void video_flush2d(void);
 /* 2D draw calls and quads submitted in the current frame (debug overlay). */
 void video_gl_frame_stats(unsigned *draws, unsigned *quads);
+enum {
+    VIDEO_BUCKET_TRACK,
+    VIDEO_BUCKET_CAR,
+    VIDEO_BUCKET_SHADOW,
+    VIDEO_BUCKET_BODY,
+    VIDEO_BUCKET_WHEELS,
+    VIDEO_BUCKET_LIGHTS,
+    VIDEO_BUCKET_GUEST,
+    VIDEO_BUCKET_UI,
+    VIDEO_BUCKET_PRESENT,
+    VIDEO_BUCKET_EVENTS,
+    VIDEO_BUCKET_COUNT
+};
+void video_profile_bucket(int bucket, uint64_t ns);
+void video_set_bench_finish(int on);
+uint64_t video_bench_finish_ns(void);
+void video_bench_reset(void);
+uint64_t video_frame_work_ns(void);
 /* Bound frontend rendering to its native 60 Hz; race timing is separate. */
 void video_set_menu_pacing(int enabled);
 /* Frames whose pacing deadline had already passed when they began (the debug
@@ -37,6 +55,15 @@ void video_set_aspect(int widescreen);
 /* The studio fills the window; the game keeps the disc's 4:3. */
 void video_set_fill_window(int enabled);
 int video_fill_window(void);
+/* Sense-of-speed post pass (PC only): radial blur amount 0..100, vignette 0/1. */
+void video_set_speed_post(int blur, int amount, int vignette);
+void video_set_scene_scale(int percent);
+/* 0..1 per-frame level for the existing blur/vignette pass; 0 leaves it off. */
+void video_set_speed_level(float level);
+/* Current offscreen frame target (the main FBO), for diagnostics. */
+void video_target_size(int *width, int *height);
+/* Current 3D scene target, for diagnostics. */
+void video_scene_target_size(int *width, int *height);
 float video_projection_x(void);
 int video_fsr_available(void);
 /* Android-only: shrink the 3D scene target (0 = full, 1 = 75%, 2 = 50%,
@@ -45,6 +72,17 @@ void video_set_scene_render_scale(int level);
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
 void video_scene_quality(int antialiasing, int render_scale);
 #endif
+typedef struct {
+    float camera[3], right[3], up[3], forward[3], sun[3];
+    float focal[2], clip[2], shadow_projection[16];
+    GLuint shadow;
+    int valid;
+} video_light_volume;
+void video_light_volume_view(const video_light_volume *view);
+void video_ambient_occlusion(int enabled);
+void video_hdr_options(int enabled, int rays);
+int video_hdr_active(void);
+void video_solar_projection(float x,float y,float visible,const float color[3]);
 void video_begin_scene(void);
 void video_end_scene(void);
 /* UI filtering: 0 linear, 1 sharp cubic, 2 nearest. Text is separate. */
@@ -62,6 +100,10 @@ void video_viewport(float x, float y, float w, float h, int *vx, int *vy, int *v
 float video_view_height(void);
 plat_texture *video_capture_frame(plat_texture *t);
 plat_texture *video_grab(plat_texture *t, float x, float y, float w, float h);
+/* A grab's pixels as the texture holds them (rows bottom up), to keep it on disk, and the
+   texture made again from them: screen is the grab's full-frame mark. */
+uint8_t *video_grab_pixels(const plat_texture *t, int *w, int *h, int *screen);
+plat_texture *video_grab_restore(int w, int h, const uint8_t *rgba, int screen);
 
 /* ResultLicense 004A7D90/004A8CB8. Resident GPU capture and cached CLUT. */
 void video_license_image(const plat_texture *t, float x, float y, float w, float h,

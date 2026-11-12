@@ -363,6 +363,51 @@ static int pack_definitions(const gt4_model *m, uint8_t *blob[], size_t size[], 
     return nt;
 }
 
+/* Original: func_00453698 +0x100. Callbacks 11..14 retain the road-wheel
+   frame; callback 0 selects released/pressed brake-lamp geometry. */
+static void shape_command(buf *cmd, unsigned shape, unsigned attachment, unsigned lamp)
+{
+    if (attachment) {
+        b_u8(cmd, 12);
+        b_u8(cmd, 6);
+        b_u16(cmd, 10 + attachment);
+        b_u8(cmd, 0);
+    }
+    if (!lamp) {
+        b_u8(cmd, 5);
+        b_u16(cmd, shape);
+    } else {
+        size_t branch = cmd->n;
+        b_u8(cmd, 6);
+        b_u16(cmd, 0);
+        b_u8(cmd, 2);
+        b_u16(cmd, 4);
+        b_u16(cmd, 0);
+        if (lamp == 1) {
+            b_u8(cmd, 5);
+            b_u16(cmd, shape);
+        } else
+            b_u8(cmd, 11);
+        b_u8(cmd, 9);
+        size_t jump = cmd->n;
+        b_u16(cmd, 0);
+        size_t pressed = cmd->n;
+        if (lamp == 2) {
+            b_u8(cmd, 5);
+            b_u16(cmd, shape);
+        } else
+            b_u8(cmd, 11);
+        size_t join = cmd->n;
+        b_u8(cmd, 11);
+        if (cmd->ok) {
+            put_u16(cmd->p + branch + 6, (unsigned)(pressed - branch - 6));
+            put_u16(cmd->p + jump, (unsigned)(join - jump));
+        }
+    }
+    if (attachment)
+        b_u8(cmd, 13);
+}
+
 /* The MDLS a CAR4 wraps -- also the exact format gt4_model_decode_part /
    gt4_model_decode_wheel_part read directly, unwrapped, at a rim/tyre offset
    (car_model.c:163-164: data+off straight into the decoder, no CAR4 magic
@@ -436,12 +481,16 @@ static uint8_t *encode_mdls(const gt4_model *m, size_t *size)
     int table = nt > 0 ? 0 : -1;
     for (int i = 0; i < m->count; ) {
         unsigned kind = m->triangles[i].kind & 31;
+        unsigned attachment = m->triangles[i].attachment, lamp = m->triangles[i].lamp;
+        if (attachment > 4 || lamp > 2) {
+            free(tri_mat); free(def_of); free(shapes.p); free(cmd.p); goto fail_blobs;
+        }
         int tab1 = (m->triangles[i].texture == -2);
         int def = (!tab1 && m->triangles[i].texture >= 0 && m->triangles[i].texture < m->ntextures) ? def_of[m->triangles[i].texture] : 0;
         int j = i + 1;
         while (j < m->count && (m->triangles[j].kind & 31) == kind && (m->triangles[j].texture == -2) == tab1) {
             int d2 = (!tab1 && m->triangles[j].texture >= 0 && m->triangles[j].texture < m->ntextures) ? def_of[m->triangles[j].texture] : 0;
-            if (d2 != def) break;
+            if (d2 != def || m->triangles[j].attachment != attachment || m->triangles[j].lamp != lamp) break;
             j++;
         }
         if (ns == 4096) { free(tri_mat); free(def_of); free(shapes.p); free(cmd.p); goto fail_blobs; }
@@ -460,7 +509,7 @@ static uint8_t *encode_mdls(const gt4_model *m, size_t *size)
            written (measured on bmw_0014's 1431-triangle layer), then the default back */
         int reflect = kind == 2 && tab1;
         if (reflect) { b_u8(&cmd, 32); b_u8(&cmd, 0x58); b_u8(&cmd, 0); b_u8(&cmd, 37); }
-        b_u8(&cmd, 5); b_u16(&cmd, (unsigned)ns);  /* draw shape ns */
+        shape_command(&cmd, (unsigned)ns, attachment, lamp);
         if (reflect) { b_u8(&cmd, 32); b_u8(&cmd, 0x44); b_u8(&cmd, 0); b_u8(&cmd, 38); }
         ns++;
         i = j;

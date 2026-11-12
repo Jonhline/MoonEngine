@@ -38,7 +38,8 @@ Third-party software
 ====================
 
 This program links FFmpeg n7.1 (https://ffmpeg.org/) statically to decode the
-game's menu movies: libavcodec, libavformat, libavutil, libswscale and
-libavfilter, built with --disable-gpl (LGPL version 2.1 or later). FFmpeg is
+game's menu movies and the player's own music files: libavcodec, libavformat,
+libavutil, libswscale, libswresample and libavfilter, built with
+--disable-gpl (LGPL version 2.1 or later). FFmpeg is
 Copyright (c) 2000-2024 the FFmpeg developers. Its license text is available
 at https://ffmpeg.org/legal.html and in the FFmpeg source distribution.

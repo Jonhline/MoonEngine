@@ -1,4 +1,5 @@
 #include "ipic.h"
+#include "moon_pref.h"
 typedef struct {
     gt4_vol *volume;
     gt4_ipic ipic;

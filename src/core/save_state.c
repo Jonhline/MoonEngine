@@ -4,13 +4,15 @@
 #include <math.h>
 /* The engine namespace contains transient requests, sound handles and callbacks.
    Persist the game data namespaces; unknown data members inside these are kept. */
+/* menu_legacy_import.inc (001D49C8 / 001D4698): the one-time inheritance
+   flags belong to progress too, including across fresh menu/save VMs. */
 static const char *const roots[] = {"username",       "money",           "option",
                                     "garage",         "calendar",        "race_record",
                                     "license_record", "course_record",   "machine_record",
                                     "favorite_car",   "favorite_course", "presents",
                                     "championship",   "used_car",        "statistics",
                                     "available",      "major_menu_page", "major_menu_widget",
-                                    "ps2_import"};
+                                    "ps2_import",     "withdrawn",       "withdrawnGT4p"};
 typedef struct {
     uint8_t *b;
     size_t n, cap;
@@ -310,6 +312,12 @@ static int valid_roots(ah_vm *vm, ah_obj *src)
             return 0;
         if (!strcmp(key, "money") && (v.t != AV_INT && v.t != AV_LONG))
             return 0;
+        if (!strcmp(key, "withdrawn") || !strcmp(key, "withdrawnGT4p")) {
+            if ((v.t != AV_BOOL && v.t != AV_INT && v.t != AV_LONG) ||
+                (ah_num(v) != 0 && ah_num(v) != 1))
+                return 0;
+            continue;
+        }
         if (strcmp(key, "username") && strcmp(key, "money") && strcmp(key, "major_menu_page") &&
             strcmp(key, "major_menu_widget") && !ah_as_obj(v, AO_MODULE))
             return 0;

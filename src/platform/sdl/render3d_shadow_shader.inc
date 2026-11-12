@@ -1,0 +1,38 @@
+/* P: packed light-space depth, sixteen weighted comparison taps and receiver-plane bias.
+   Alpha holds shadow opacity: authored attenuation for the retained route,
+   opaque occlusion for daylight rigid geometry. Contact uses light-space gap
+   and does not replace a hemispherical ambient-occlusion solution. */
+"uniform int u_shadow_on,u_daylight; uniform sampler2D u_shadow_map; uniform mat4 u_shadow_projection;\n"
+"in vec3 v_shadow_world;\n"
+"uniform vec3 u_sun_direction,u_sun_color,u_sky_color,u_haze_color;\n"
+"vec2 shadowCompare(ivec2 p,vec3 q,vec2 gradient,float bias,ivec2 size){\n"
+" if(any(lessThan(p,ivec2(0)))||any(greaterThanEqual(p,size)))return vec2(0.);\n"
+" vec4 t=texelFetch(u_shadow_map,p,0);vec3 bytes=floor(t.rgb*255.+.5);\n"
+" float depth=dot(bytes,vec3(65536.,256.,1.))/16777215.;\n"
+" vec2 delta=(vec2(p)+.5)/vec2(size)-q.xy;\n"
+" float gap=q.z+dot(gradient,delta)-bias-depth;\n"
+" if(gap<=0.)return vec2(0.);\n"
+" /* P: near-caster ambient occlusion, a two-metre artistic falloff, not GTAO. */\n"
+" return vec2(t.a,t.a*exp(-gap*(u_daylight>0?128.:32.)/2.));}\n"
+"vec2 shadowVisibility(){\n"
+"  vec3 q=(u_shadow_projection*vec4(v_shadow_world,1.)).xyz;\n"
+"  ivec2 size=textureSize(u_shadow_map,0);\n"
+"  vec3 dx=dFdx(q),dy=dFdy(q);float det=dx.x*dy.y-dx.y*dy.x;\n"
+"  vec2 gradient=abs(det)>1e-12?vec2(dy.y*dx.z-dx.y*dy.z,dx.x*dy.z-dy.x*dx.z)/det:vec2(0.);\n"
+"  if(any(lessThan(q,vec3(0.)))||any(greaterThan(q,vec3(1.))))return vec2(1.,0.);\n"
+"  float bias=.25/float(size.x);vec2 shadow=vec2(0.);float weight=0.;\n"
+"  ivec2 at=ivec2(floor(q.xy*vec2(size)));\n"
+/* P, graphics.shadow_filter Fast: four bilinear taps at +-0.888 tap spacing,
+   the standard deviation of the sixteen Gaussian-weighted Soft taps, so the
+   penumbra keeps its width with a quarter of the comparisons. */
+"  if(u_shadow_on==2)for(int y=0;y<2;y++)for(int x=0;x<2;x++){vec2 kernel=(vec2(x,y)-.5)*1.776;weight+=1.;vec2 at=(q.xy+kernel*((u_daylight>0?.18:.09)/(u_daylight>0?128.:32.)))*vec2(size)-.5;ivec2 p=ivec2(floor(at));vec2 f=fract(at);\n"
+"    vec2 a=shadowCompare(p,q,gradient,bias,size),b=shadowCompare(p+ivec2(1,0),q,gradient,bias,size);\n"
+"    vec2 c=shadowCompare(p+ivec2(0,1),q,gradient,bias,size),d=shadowCompare(p+ivec2(1,1),q,gradient,bias,size);\n"
+"    shadow+=mix(mix(a,b,f.x),mix(c,d,f.x),f.y);\n"
+"  } else\n"
+"  for(int y=0;y<4;y++)for(int x=0;x<4;x++){vec2 kernel=vec2(x,y)-1.5;float w=exp(-dot(kernel,kernel)*.5);weight+=w;vec2 at=(q.xy+kernel*((u_daylight>0?.18:.09)/(u_daylight>0?128.:32.)))*vec2(size)-.5;ivec2 p=ivec2(floor(at));vec2 f=fract(at);\n"
+"    vec2 a=shadowCompare(p,q,gradient,bias,size),b=shadowCompare(p+ivec2(1,0),q,gradient,bias,size);\n"
+"    vec2 c=shadowCompare(p+ivec2(0,1),q,gradient,bias,size),d=shadowCompare(p+ivec2(1,1),q,gradient,bias,size);\n"
+"    shadow+=mix(mix(a,b,f.x),mix(c,d,f.x),f.y)*w;\n"
+"  }shadow/=max(weight,1e-6);return vec2(1.-shadow.x,shadow.y);\n"
+"}\n"

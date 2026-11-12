@@ -1,4 +1,5 @@
 # Game content: never commit
+launcher-prints/
 assets/*
 extracted/*
 !assets/.gitkeep
@@ -87,3 +88,9 @@ android/app/.cxx/
 *.aab
 *.jks
 *.keystore
+
+# local build trees and tool state
+build-native/
+build-*/
+Testing/
+.opencode/

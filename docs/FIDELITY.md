@@ -1,5 +1,69 @@
 # Fidelity record
 
+## Supra boost HUD diagnostics (21 October 2026)
+
+C (host integration only): hud_boost tests load the four turbo racing
+Supras (Castrol 2000/2001, Denso, au), exercise the existing engine-drive
+routine at 8,000 rpm for 120 calls with full throttle and 120 on lift,
+and compare the watched-car HUD pressure with car+60C (003446B0,
+0039E104 -> 003A94A8). Loaded engines exceed pressure 1 under load and
+fall below 1 on lift. Woodone 2003 correctly has no turbo gauge.
+All five WILL_FAIL negatives detect a wrong pressure/enable value.
+18 focused HUD/oil checks pass, including existing needle-range checks.
+The optional HUD capture fixture accepts MOON_BOOST_HUD_VALUE.
+A/open: this does not reproduce sixth-gear live driving or prove complete
+needle pixels against PS2; no angle, pressure formula or physics fix is claimed.
+Original 00407568 sets range 0..2.4 and sweep 0..216; 003BE828 adds 90.
+The production executable compiled after adding a missing forward declaration
+used by the local launcher include. No launcher behaviour was changed.
+
+
+## Arcade oil warning cold cache (21 October 2026)
+
+C: 003437B0 calls 00350830 and 00350678 before reading the oil threshold.
+No-wear Arcade engines can leave that cache cold; the HUD used zero and
+lit the lamp on fresh cars. Both layouts now resolve the displayed limit
+from settings +D8 when +CC is clear, without modifying the simulation.
+gtmode_oil_warning compares cold/warm thresholds against original code,
+including 16 onset samples 0..255; its WILL_FAIL negative is detected.
+Oil lamp, watched-car pressure bridge and boost needle tests pass with
+negatives (8 focused checks). A/open: live turbo report not reproduced.
+
+
+## Civic underside report and GT Auto rim audit (20 October 2026)
+
+C (host data invariant only): car_wheel_body checks all 222 GT Auto rim
+labels against stock on seven cars, using both /car/lod race and /car/menu
+loaders: Civic SiR-II 1991, CR-X SiR 1990, Ka, S2000, Focus RS, Mustang GT
+and the Skyline pace car. All 3,108 combinations retain body vertex fields,
+material/draw state and referenced RGBA texture bytes. The WILL_FAIL negative
+changes one body vertex colour and is detected. This is not a PS2 pixel oracle.
+The source selection remains 00454270 +20..48 (wheel/menu versus wheel/lod),
+with attachment through 0045314C; no renderer/physics behaviour was changed.
+
+A/open: the user's bright underside seams remain unreproduced. Local low-side
+race captures include tilted bodies, wheel blur, stock and brdg001w rims;
+the Civic was checked on OpenGL and Vulkan and in its menu model. These
+samples do not certify every rim's pixels or the user's saved vehicle.
+showroom_probe now accepts MOON_PROBE_WHEEL in the race path, with optional
+MOON_PROBE_ORBIT (radians), MOON_PROBE_ROLL and MOON_PROBE_DAYLIGHT diagnostic
+fixtures. The affected player's profile/build still needs comparison. Do not
+report the white seams fixed or declare other cars unaffected from this audit.
+
+
+## Manual Save uses the authored dialog flow (20 October 2026)
+
+C: gtmode.ad L4347 asks “Do you save?”, L4350 queues saveAuto;
+L253..269 owns the optional progress dialog, and L4341 owns completion.
+The native recursive button binder no longer replaces GT Mode Save handlers.
+profile_storage checks the real Home handler: No preserves dirty data,
+Yes writes the current player, then Trade and Arcade still work. The
+save_authored_handler_negative WILL_FAIL test restores the native override
+and must fail. storage_access checks animated I/O, failures and recovery.
+P: profile files and the hard-disk artwork remain host adaptations; this
+check does not claim complete PS2 storage-error-dialog equivalence.
+
+
 This record grades individual features against the original game. Read each
 row together with its evidence and limitations: a grade applies to the
 listed fields, inputs and comparison, not automatically to an entire mode.
@@ -24,6 +88,958 @@ The inventory was reconciled with source and registered tests on 13/10/2026.
 Aggregate A grades do not override the narrower E/C proofs below; confirmed
 missing subfeatures remain F.
 
+### Current profile for ordinary storage operations (20 October 2026)
+
+P storage adaptation, requested: another-profile selection is now confined to
+GT Mode Trade's explicit other-card check (gtmode.ad Home Trade L4297, slot 1).
+Implicit checks for GarageRoot L6749, acquisition GetCarRoot's internal return,
+garage operations L13283 and pushRidingCar L13923 bind the active player.
+Arcade's garage likewise reads the active profile, rather than invoking a
+picker. Player Profiles remains the place to switch the active player.
+The old manager's stored slot cannot accidentally redirect a later implicit
+check to Trade's source. Autosave, access indicator and manual save remain.
+This supersedes the earlier row retaining an Arcade profile picker.
+
+profile_storage checks four implicit calls using a manager previously bound
+to slot 1, zero picker invocations, current file slot, actual Arcade openGarage
+while the picker would cancel, explicit Trade selection/cancel/purchase with
+source unchanged. operation_current_profile_negative deliberately records an
+unwanted picker call and fails (WILL_FAIL); owned-car negative still fails.
+Scope: native storage routing plus actual Trade/Arcade integration, not a
+complete new/used dealership purchase oracle. An attempted old special-purchase
+harness failed at GetCarRoot.onInitialize (owned-part data) before its check;
+it is not registered as evidence for this fix. No game economy/physics changes.
+
+### Page-close loading flash regression (20 October 2026)
+
+C: startPage no longer writes RootWindow.visible=0 between its two presented
+waits. Original 0022F6A0 calls Sync(2) at 0022F6E0/0022F79C; 00233D18 sets
+RootWindow+E8 bit 3, a pending-close flag, and finalization is after the second
+barrier. It does not clear visibility. Colour/direct page transitions could
+therefore show an unintended black frame in the native implementation.
+menu_tests checks visibility in both waits with no game assets; WILL_FAIL
+page_close_visible_negative hides it deliberately. This covers the adapter
+regression, not every loading route's visual parity. Hidden live loading smoke
+still fails its cold-preparation responsiveness threshold (741 ms pump gap),
+although fade alpha completes; that independent latency remains open.
+Quick Settings/QuickTunePopup is direct startPage in quick-arcade.ad L386,
+L618/L623; no original panOutIn/loading screen is present on that path.
+
+### Owned-car profile picker regression (20 October 2026)
+
+P correction to native storage adaptation: gtmode.ad GarageRoot L6749 calls
+checkGameData with implicit slot zero, matching memorycard.ad L167..172.
+It now binds the current player without asking to choose another save. Explicit
+other-card Trade and Arcade garage loads retain the picker/cancel flow.
+profile_storage verifies no picker invocation for owned-car selection, active
+slot 1, independent source slot 2, Trade purchase and cancel. WILL_FAIL
+owned_car_picker_negative deliberately records an unexpected picker call.
+No autosave event or original acquisition/calendar rule was removed.
+
+### Photo Drive Select boundary (20 October 2026)
+
+C integration: replay Select press (0xFFFF) enters the existing resident
+PhotoPause editor; release/Start/live driving do not. Select exits the editor
+to that replay without also toggling replay hold. F5 retains the existing PC
+shortcut. Retail instruction manual pp24/25/28 describes drive -> finish ->
+Start Replay -> Select, not a new entry inside common/pause.strb (whose callback
+set contains no photo action). Original caller 0010CE14 reaches 003C3CE8.
+https://db.hfsplay.fr/files/2019/12/02/Gran_Turismo_4_USA_teBOv76.pdf
+photo_drive_menu now obtains the actual authored getPhotoDriveInfoByCourse
+record and checks init_entry_item makes its button visible. race_resources
+covers Select/release/wrong-key/live-driving gates, frozen world/cursor while
+photographing and the replay return; photo_drive_select_negative deliberately
+suppresses Select and fails. Headless platform test, not hardware pad QA.
+
+### Cappuccino save-editor report (20 October 2026)
+
+P external tooling: errors from Apply power / mass are now displayed beside
+the controls as well as in Activity. Exact reported targets 160 cv / 7 kg
+were reproduced for both catalogue Cappuccinos through the actual frontend
+button and native helper: EA11R 1991 achieves 160.04 cv / 7 kg (253%,1%);
+EA21R 1995 achieves 159.80 cv / 6 kg (248%,1%). Integer percentage storage
+explains the latter quantization. save_editor_cappuccino writes/reloads the
+native profile through menu_save_refresh, compares selected current body,
+native physical stats and getCurrentPower/getCurrentWeight. WILL_FAIL expects
+1 kg. Frontend also checks an impossible target is rejected visibly and the
+document stays unchanged. User's unchanged-file report remains unreproduced
+without the specific edited file/path; no claim that this is its root cause.
+
+### Private native save editor (20 October 2026)
+
+Native vehicle / parameter follow-up, P: Garage can add a searched real model
+with factory paint, remove it and select the current car. These use native
+addNewCar/delCar/changeRidingCar and the seeded vehicle factory, not partial
+invented objects. Advanced targets metric cv/PS and kg through the actual
+vehicle-stats calculation. Serialized sheet +0x163 (power), +0x162 (mass) are
+original percentages read by physics/record.c and physics/setup.c; 0 means
+100%. Targets use the nearest 1..255 whole percent, show achieved results and
+reject out-of-range values. Compact units/flags and selected/imported caches
+are synchronized. No game physics source was modified.
+
+Advanced exposes setup groups (career_setting.c setters, 0043E2F0..0043F248,
+live offsets minus 8), paired ASM, signed ballast position, 64-bit equipment
+keys and typed access to all 0x4b8 body bytes. Unverified units remain original
+group/index labels. Arbitrary parts combinations are not proven valid. The
+separate helper rejects invalid records without applying changes; only its
+garage result is merged back. License grant/remove creates missing records.
+Generic Advanced adds/removes typed fields, array/map entries and allowed save
+sections. Save-copy protection and undo remain in effect.
+
+Tests: save_editor_vehicle uses real native operations behind mocked headless
+frontend IPC. It adds RX-7 Type RS, selects it, tunes targets 400 cv / 1000 kg
+to representable 399.56 cv / 998 kg, changes TCS, removes the selected vehicle
+and restores by undo. Checks include current selection, unchanged calendar and
+credits, missing license records, grant/remove, typed endian/sign/overflow,
+invalid model/target rejection and generic field add/remove. WILL_FAIL negative
+expects the deliberately wrong mass 1 kg. Local capture:
+`build/save-editor-vehicle.png`. Packaged WebView/dialogs still need a manual
+pass; this remains external debug tooling, not original UI.
+
+Guided-editor follow-up, P: Garage now has named owned vehicles, actual factory
+paint names/chips, kilometres, active setup and TCS/ASM/brake forms; Licenses
+has B/A/IB/IA/S tabs, individual medals/times and a confirmed bulk operation per
+16 exams. Basic categories use forms; raw types/JSON stay in Advanced. Review
+shows human-readable vehicle/exam changes before collapsible stored details.
+The read-only `moon_save_catalog` helper is embedded in the standalone binary;
+it reads the user's US disc and caches metadata in the editor's private data
+folder. No game data is committed/distributed. Current catalogue: 722 vehicle
+labels and 80 exams. The native-vehicle follow-up above adds model creation;
+guided parts installation and a named event catalogue remain outside this pass.
+
+Sources: CAR_NAME_american +0 / StrDB and menu_car.inc `car_paints` sorting;
+00430E58 / career_race_lookup.c for authoritative record ordinals; 004323D0 /
+career_license.c for ranking ordinals; 00447670/B0/F0 for medal targets;
+gtmode_game.c getOdometer reads wear +0x498 and converts metres to kilometres;
+career_setting.c original setter offsets and paired ASM bytes; career_blob.c
+base64 array storage. Paint changes all three setup bytes and compact flag
+bits 2..8; mileage updates raw wear, full body, compact unit and selected-car
+caches. Initially power/weight summaries were read-only; the native-vehicle
+follow-up above adds physical edits. Aid/brake values are u8 debug
+settings without vehicle-specific tuning range validation. License editing
+updates authoritative words, existing named caches and ranked times together,
+preserves upper record/reward bits, and refuses non-US imported license maps.
+It neither advances the calendar nor awards prize cars/credits.
+
+Tests: the guided fixture uses the actual authored GT Mode project and native
+stock-car factory. Headless Edge edits paint/mileage/setup/TCS and all 80 exams;
+the copied file is reloaded through the native reader and getters: all five
+licenses passed, gold fields/best rankings, all three paint bytes, compact
+variation, full/current body equality, metre value and TCS. WILL_FAIL negative
+expects 8 instead of 7 TCS. UI/model checks also cover undo/redo, invalid paint,
+times that contradict medals, clearing/downgrading, unchanged calendar/credits,
+cached record/high-bit preservation and non-US refusal. The original six Rust
+tests and native interop positive/negative still pass. Local screenshots:
+`build/save-editor-guided-garage.png` and `...-licenses.png`. Windows dialogs
+and the packaged WebView still need a manual pass; UI IPC is mocked in the
+headless test, with final output independently loaded by the engine.
+
+During development the first form rejected the valid stock ASM value 11:
+the invented 0..10 limit was removed in favour of the stored byte range.
+The native fixture also exposed base64-wrapped bodies instead of byte arrays;
+the editor now preserves that encoding. A harness called a nonexistent result
+method and was corrected to read the actual native `result` property. No game
+code/physics was changed for these failures. These are tooling checks, not a
+claim that arbitrary career/ghost/reward edits are semantically consistent.
+
+Initial preview (before the guided follow-up): P, standalone Windows tooling in `tools/save_editor`, using the existing Moon
+SDK Tauri/CSS shell. No game/physics changes and no player setting: this is an
+explicit external editing operation. English categories, searchable saved
+paths/values, scalar editing, typed JSON for collections, undo/redo, review,
+source-change detection, original backups and new-file-only output. Existing
+profiles cannot be overwritten. Internal IDs/opaque import arrays are editable
+as stored; the first preview did not have guided car/license controls or a named
+event catalogue. Not a PS2 memory-card or complete-package archive editor.
+
+Format evidence: `src/core/save.c` 32-byte OGT4SAVE v1 envelope, lengths, payload
+and header CRC32, timestamp; `save_state.c` tags 0..7, ordered members/maps,
+depth/count/string limits and root validation. No-op native writer -> Rust codec
+-> native reader preserves the entire envelope byte-for-byte. A changed credits
+value above JavaScript's exact integer range loads through `gt4_state_replace`
+with every other payload byte unchanged. Test fixture covers every stored tag,
+negative zero, UTF-8, an unknown nested field and integer map keys. This proves
+the fixture's storage interoperability, not semantic validity of arbitrary edits.
+
+Focused tests: six Rust unit tests (all tags, exact integers, invalid CRC/types,
+names/duplicates/non-finite values/overflow, new-file protection, exact backup,
+external modification refusal); `save_editor_interop` and its WILL_FAIL negative
+(mutates one expected native payload byte); headless Edge frontend test covers
+validation errors, edit/undo/redo, review/copy and safe search, with a local
+capture at `build/save-editor.png`. Frontend uses a mocked dialog/IPC boundary
+and real native fixture; packaged Windows dialogs/WebView interactions still
+need a manual pass. Initial test launch lacked a bundled Chromium browser and
+was changed to installed Edge; opening ES modules over file:// also required
+the test's temporary loopback server. Neither is a production dependency.
+
+### Optional full-day procedural sky (20 October 2026)
+
+P: `graphics.night_sky` is individual, Classic Off / Enhanced On, in PC Settings
+> Light & Shadow > Night Sky and the shared launcher Quality API. It requires
+Daylight; turning it on enables Daylight. Off retains the legacy daytime cycle
+and the authored-night guard. No physics or recorded control format changes.
+
+Solar Time now has all 24 hours; saved indices 0..10 still mean 07:00..17:00,
+then 11..23 mean 18:00..06:00. With the default 12:00 setting, nonzero authored
+Env0 time zones start at 22:00; explicit other hours override that default.
+Fixed, Real Time (1/3600 hour per second) and 60x (1/60) use the existing recorded
+frame clock, wrapping at 24. No wall clock or RNG. Lamp activation continues to
+follow original night/safety-car and brake flags, independently of solar time.
+
+The same shader on OpenGL/Vulkan adds a moon opposite the sun and a deterministic
+integer-hash star field, blending with the existing daytime atmosphere over
+sun elevation -0.12..0.08. Direct sunlight is zero below the horizon; solar
+shadow-map casters are skipped there. Night ambient is artistic, not recovered
+PS2 data. Course illumination is still baked into textures; this is not a fully
+relightable nighttime world. No lunar ephemeris, moonlight shadow pass or weather.
+Native Route5 captures are very dark away from the car lamps; visual balance
+and more tracks still need review. Whole-frame API equivalence is not proved.
+
+Tests: night_sky GL/Vulkan and their deliberate noon-as-night negatives;
+2400 deterministic clock/ambient samples, repeat-frame byte equality, dark-night
+and star output, default course time, wrap and legacy clamp. Initial tests failed
+because no star samples survived the float-hash/threshold combination; the
+integer hash and revised density pass. launcher_quality verifies persistence
+and Classic restoration. No equivalent PCSX2 capture: original parity remains A.
+Local captures: build/night-sky-<api>-enhanced-night.png; logs:
+build/night-sky-final-tests.log and build/night-sky-regression-tests.log.
+
+### Optional car lamps (20 October 2026)
+
+P: graphics.car_lamps, independent Classic Off / Enhanced On. World-space cones
+and attenuation illuminate course/walls/cars; nearby lens fragments emit into
+HDR/bloom. Sources are inferred from night-versus-day geometry/material changes
+and unlit pressed brake branches, area centroids and normals; no per-car positions.
+Night and safety-car gates follow the existing original selection, brakes use
+per-entry presentation. Shared GLSL on both APIs. car_lamps GPU fixtures with
+disabled-source negatives pass; launcher_quality verifies persistence/presets.
+Real Focus/Route5 has four emitters and changed pixels on both APIs. Initial
+geometry check found zero emitters because unlit normals are absent; face-normal
+fallback and comparison of lit night surfaces repaired the classification.
+A/P limits: inferred optical axis and generic cone/range/tint; no full 600-car
+survey, whole-frame API parity or PS2 image claim. The later car-lamp occlusion
+entry below supersedes the original missing-shadow limitation.
+[Parameters and evidence](RENDERER.md#optional-world-space-car-lamps-20-october-2026).
+
+### Live and replay brake-lamp presentation (20 October 2026)
+
+C (integration): the existing per-tick driver presentation copies each entry's
+CAR_BRAKE_PEDAL and publishes callback-0 pressed state. race_brake_lamps checks
+six cars on every tick for 2400 live ticks and 2400 replay ticks, with real
+keyboard brake/release commands and IA pedals; every entry has transitions.
+The deliberately inverted-state negative fails. No physics writes by the test
+or renderer adapter; normal simulation advances from controls. Existing
+car_brake_branch/negative compare authored geometry/attributes and
+brake_material/focus/negative retain independent material/texture selection.
+Seven focused cases pass. No brake-state functionality needed changing.
+A: whole-frame PS2 parity and all car/time-zone combinations still unproved;
+probe diagnostic getter is read-only and does not certify final pixels per tick.
+Local image build/race-brake-brake-lamps.png is available for comparison.
+
+### Classic night shadow parameters and sky guard (20 October 2026)
+
+C: 0038E7F8 -> 0038F168 shadow direction/tint/alpha uploads compared for 192
+cases at 2e-6, including directional/point/spot, missing surface and global paths.
+Dedicated alpha negative and lighting negative fail. Initial positive failed
+on omitted point-light alpha attenuation and was repaired. OpenGL/Vulkan compare
+identical RGB with the day-only sky disabled versus blocked on authored night;
+cleared-zone negatives fail. No physics formulas/parameters/state edited.
+
+A: model-1 per-lamp pass integrated, up to four primary/two other, skipping fewer
+than two selected lamps; retained contact and ground glow. Ground query remains
+an adapter, original scene scheduler and complete pixels not proved. 25 course
+variants captured locally; original PCSX2 equivalents still needed. This
+supersedes the F pass absence, not the A full-image grade. Details, exceptions,
+source and evidence: [night audit](notes/NIGHT_COURSES.md).
+
+### Jukebox Menu/Replay folders, Library groups and song line (19 October 2026)
+
+**P:** `audio.jukebox_folders` adds Menu and Replay rows under Racing and
+Slideshow in MusicRoot's folder column. They are clones of the authored
+PlayList2/Append2 run by the authored playlist code: music_list/music_map gain
+modes 3 and 4, and append_music_list(mode), list_box.append_playlist(mode),
+remove_playlist and set_mode work unchanged. Only set_mode_icons (three
+mode_table_list rows, L353..375) and mselect_callback (L400..402) are wrapped:
+modes 0..2 run as authored, the new modes use the playlist-folder row. Pictures
+are the disc's: gtmode HomeRoot `option.png`, labomode `folder_replay.png` and
+`to_list_mov(_over).png`; the Menu add button is `to_list_slide_bgm(_over).png`
+with its note replaced by four squares in the button's own two colours. With the
+folders the sidebar steps 68 px (was 80) and VisualEffect_library moves to the
+sixth button place. Empty Menu keeps the original menu music; empty Replay uses
+the Racing list, as the PS2 replay does. Classic sets the option to 0 and the
+page is the authored one. `custom_music_folders` (+negative) adds one song to
+both folders, shoots Library/Menu/Replay, re-enters and checks the saved lists
+and contexts.
+
+**P:** `audio.jukebox_groups` orders the Library as disc songs, then each Music
+subfolder's files by name, with the folder shown where the artist goes.
+init_music_list (L327..329) reads that order from default_library_playlist.
+
+**A:** with the mouse the help line was written after onFocusEnter, so the
+folders' "Racing playlist/No. of songs:" + count (slide.ad L1421 "%s%d") lost
+its count on hover, and a click on the focused folder restored the bare text.
+Hover now writes it before onFocusEnter, as setFocus does, and refocus keeps a
+line the script extended. The new folders and buttons show the authored Racing
+texts with the folder's name ("Add to Menu playlist", "Replay playlist/No. of
+songs:1"); `custom_music_folders` checks them by mouse hover and click.
+
+**A:** Jukebox preview played local songs fast: the stream was installed again
+every frame, each time reading its preroll from the song. It is installed once;
+`custom_music_ui` bounds about a second of play under 96000 frames (was ~260000).
+
+**A:** a ListBox moved by the pad did not call its focus_callback, so the
+Jukebox song line (list_box.focus_callback -> set_music_tooltip, L1181..1184)
+stayed on the first song. mListBox's selection change (002B29C0, virtual 69)
+dispatches it; both ListBox key paths now do, as hover already did. Only
+arcade.ad and slide.ad register one. arcade_return and the menu navigation
+tests pass.
+
+### One Jukebox page, Array.sort and MusicRoot exit (19 October 2026)
+
+**P:** the second slide/MusicRoot page the extension opened over the original
+(its own loop, input and audio; leaving it fell into the original underneath) is
+removed. Local songs are bound into the page GT Mode opens, before entry; its
+sound.startStreamEx row plays through the library, its own Exit leaves.
+Opening and leaving no longer enables `audio.custom_music`; filenames show
+without extension. `custom_music_ui` drives the page the game opened.
+
+**A (EE oracle pending):** Array.sort(less) was ignoring the script's comparator,
+so musiccontrol.h load_playlist (`list.sort(sortfunc_playlist_dispno)`) showed
+Racing/Slideshow in Library order instead of saved dispno order. Now 002EE884 ->
+002ED7A0 -> 002F03C8: SGI std::sort over 4-byte values (introsort 005EC8D0,
+threshold 16, depth 2*lg n, heap 005ECE38, median of three, unguarded partition
+005ECCE8, final insertion 005ECB28). `adhoc_array_move` covers rows by dispno and
+descending order for n 0..300, with a negative control. slide.adc is the only
+script calling sort.
+
+**A:** the authored Exit never ran MusicRoot.onFinalize (apply_bgm_playlist /
+apply_slide_playlist, slide.ad L245..252) because the slide project stays cached;
+edits were applied only on the next visit. Leaving the project now finalizes its
+page stack once, as the PS2 project destruction does, before the playlists are
+stored. outside_menu, album_pcm_bridge, playlist_cache and slideshow_playlist pass.
+
+### Jukebox folder integration and map cursor (19 October 2026)
+
+**P:** supersedes the management UI described below. The original Jukebox Library
+scans Music beside the active options file. Racing/Slideshow folders and native
+list/player/selection/removal/shuffle remain visible; no added Playlists or tools
+screen and no music F9 entry. Editing mixed lists opts in; Classic
+restores original routing. Registry and source files are retained. `custom_music_ui`
+exercises two entries, nested Unicode files, both native append controls, native
+remove/readd/play/shuffle/Exit, PCM, no duplicated tracks or undefined methods,
+and absence of management widgets. Windows tested; mobile scanner unvalidated.
+
+**P:** GT Mode map edge cursor reuses the Arcade pointer spring, points in eight
+directions only along axes that can pan, resets at limits/disabled pan. Existing
+edge-pan/smoothing options apply. `desktop_pointer` checks all eight angles,
+bounds and disabled pan; negative control and map navigation regressions retained.
+No claim that mouse controls existed in PS2 GT4.
+
+### Unified original Jukebox and mixed playlists (18 October 2026)
+
+**P:** the natural GT Mode -> Jukebox project entry opens the authored
+slide/MusicRoot, with one Library for disc and user songs and the original Racing
+and Slideshow folders/player/list controls. No F9 entry, launcher editor, Disc/Local
+split or separate user-song browser. Playlists extends the sidebar with import and
+named-list management. Lists can mix both sources and share songs independently.
+Off/Classic restores original audio routing; extended IDs never enter PS2 blobs.
+
+Evidence: custom_music_ui enters the original project without F9, imports Unicode
+files/folder, uses native Append1/Append2, Trash, Play and Shuffle, verifies mixed
+M3U output and slideshow membership, persistence, actual PCM and source preservation.
+No undefined/call-of-nil script errors are allowed. Screenshot reviewed locally.
+custom_music_mixed verifies local WAV -> disc-song transition, 8192 frames byte-exact
+against gt4_pcm_music_render, plus mixed M3U roundtrip. custom_music (+ negative),
+formats, launcher_audio (+ negative), album_pcm_bridge (+ negative) and menu_navigation
+cover adjacent paths. These are extension/integration tests, not a global PS2 grade.
+
+**A (native method translation, EE oracle pending):** missing Adhoc Array.move and
+Array.erase supplied from local disassembly: registration 002EE834 -> wrapper
+002ED8C0 -> 002F0138 (retain value, directional shifts, insert), and 002EE984 ->
+002EE0C8 -> 002F02E8 (erase one in-range index, close gap; invalid index no-op).
+adhoc_array_move tests every source/destination at sizes 1..20 and erase boundaries;
+negative control rejects swap semantics. The authored Jukebox shuffle/removal now run
+without missing-method errors. Automatic EE instruction replay remains unproved.
+
+Windows validated. The extension RNG state is independent; no matching PS2 shuffle
+sequence is claimed. See [Custom music](notes/CUSTOM_MUSIC.md) for limits.
+
+### Optional external music library (18 October 2026)
+
+**P:** independent, default-off PC extension: local playlists per menu/race/replay/
+slideshow/launcher context, edit/order/shuffle/preview, M3U import/export. The initial standalone screen was superseded by the
+authored Jukebox adaptation above. References preserve source files; no player save
+changes. Classic/Off restores original audio routing. Streaming decode is outside
+audio callbacks; race pause silences without consuming the external PCM; original
+race cue timing continues. Original jingles remain authored sources.
+
+Evidence: custom_music (+ negative), custom_music_formats (MP3/FLAC/OGG/M4A),
+custom_music_ui (real editor events, Unicode paths, folder import, PCM preview,
+export and source preservation); launcher_audio, album_pcm_bridge, race_music_pause,
+launcher_quality and desktop_options_store with negative controls. Editor screenshot
+reviewed locally. This is not a PS2 fidelity claim. Windows tested; other platform
+pickers, embedded tags, media bundling and seeking remain pending. See
+[implementation and limits](notes/CUSTOM_MUSIC.md).
+
+### Post-disc guide and graphics comparison (18 October 2026)
+
+**P:** optional first-visit guide after disc selection, redone in the launcher's
+composition (OPTIONS panel, dealer metal band, disc OptionRoot icons, font and
+cursor). Preset, per-option graphics comparisons and menu options are chosen as a
+draft and written only by DONE/OPTIONS through the Options' setters; details in
+OPTIONS. The Gran Turismo Skyline GT-R on the Tsukuba grid through the race
+renderer, no race started, no player car replaced.
+
+`tests/ui/launcher_guide.py` drives every page with real SDL key events from a
+script (MOONSTUDIO_GUIDE_SCRIPT) in the hidden fixture: five disc icons, course
+installed, screenshots of each page and of eleven comparisons, full-screen Tab
+flips that change the scene (preset and Lighting), Escape leaving option bytes and
+player files unchanged, and DONE writing exactly texture_filtering=2 and
+aspect_ratio=1 (two changes, untouched options kept). OpenGL and Vulkan pass.
+Art is subject to user review; this is not an original-game fidelity grade. The
+comparison covers this scene, not every course or race.
+Visible run with the user's settings (1920x1080, SSAA 200%, HDR, volumetric rays):
+navigating the Graphics rows keeps frames under 40 ms except HDR target rebuilds
+(up to 51 ms); before, each comparison frame took 65-115 ms.
+
+Jukebox with Custom Music off (19 October 2026, P fix): custom_music_ui runs the
+Jukebox with `audio.custom_music=0` beside a Music folder with songs and expects the
+native disc-only entry, no folder scan. Racing/Slideshow repaired to their named
+lists checked on a copy of a player file whose races pointed at an empty list
+(Racing 36 songs, Slideshow 15). SOUND rows: screenshot reviewed. Not verified: the
+real GT Mode entry with the player's save.
+
+Options column (19 October 2026, P): `tests/ui/launcher_options_guide.py` opens
+QUALITY on Lighting in the hidden fixture: "comparison Lighting" logged, the course in
+the column's picture, option bytes unchanged; the negative (VIDEO, its own pictures)
+fails. Screenshots of every tab's rows reviewed locally (the clip at its first and last
+frames through MOONSTUDIO_CLIP_FRAME); launcher, launcher_guide_ui and
+pc_settings_section tests pass. Not verified: the divider
+dragged with a real mouse, and frame times in a visible window.
+
+Launcher Scene (19 October 2026, P): `tests/ui/launcher_scene.py` starts the launcher
+with scene=tsukuba in launcher.ini: "studio: scene tsukuba" logged and the course in the
+window left of the car; the negative (scene empty, the room) fails. Screenshots of the car
+standing in Gion, Times Square, Shibuya, Grand Canyon, San Marco, Tsukuba and Suzuka
+reviewed locally (home framing). Not verified: every other place on the list, the
+cinematic shots and dock framings in each place, the free rig, and the Vulkan renderer.
+Theme and Light Colour renders, the preset buttons and a 640x400 window: screenshots
+reviewed locally. After the road-following fix, the home framing in all 35 scenes reviewed
+locally (Laguna Seca, Monte Carlo and Seattle no longer in a wall). Not verified: the car
+tilt against the game's own physics pose on a slope.
+
+Launcher prints (19 October 2026, P): `tests/ui/launcher_prints.py` focuses INTERFACE >
+Desktop Input: both prints taken by hidden runs of the launcher's own executable, the
+column's box full of the game's menu, `desktop-input-0/1.png` and `version` in
+launcher-prints/, and a second run reads them from the cache instead of printing again;
+the negative (Map Edge Pan, no print) fails. Screenshots of the six print rows reviewed
+locally. Not verified: Linux (fork/exec path) and a disc path with non-ASCII characters.
+
+PC Settings section (19 October 2026, P): `tests/ui/pc_settings_section.py` opens
+each of the five tiles from the game's Options with pad input and expects its page
+("video settings: page Music", ...), the Screen tile on Screen Settings, and back
+from Light & Shadow focused on that tile (the script itself refocuses Screen); the
+negative (Music expected as Screen) fails. quality_settings, personal_presets_ui
+open their pages through MOON_SETTINGS_PAGE. Screenshots of the grid and of every
+page reviewed locally. Not verified: the mouse on the new tiles, Android and Switch
+(unchanged by design), the Japanese/European discs' labels.
+
+Controller Tiles (19 October 2026, P): pc_settings_section walks to the Controllers row
+with pad input; By Player ends the row at Steering (right goes on to Exit) and
+Controller 1P opens the button config page; Classic keeps the disc's ten tiles.
+Screenshots of both reviewed. Not verified: a real wheel on either port, and the
+wheel models' own button pages (on the PC they show no keys; hidden in By Player).
+
+Graphics Swap Key (P): a real F7 event injected by MOON_TEST_GRAPHICS_SWAP_AFTER in a
+Tsukuba drive logs "graphics swap: classic" and the capture shows the Classic picture
+against the unswapped run at the same time; leaving the race restores the player's
+graphics. Keyboard only; no pad binding yet.
+
+### Launcher audio styling (18 October 2026)
+
+**P:** Audio/Music quick controls use the studio header typography, secondary
+shortcut labels and thin state rules instead of pale rectangular tiles. The
+expanded mixer uses the OPTIONS charcoal surface and top rule in both themes.
+Existing hit areas, F8/M shortcuts, volume and mute behavior are unchanged.
+Focused launcher_mixer and launcher_mixer_negative pass. Visual captures:
+build/mixer-style.png and build/mixer-style-dark.png. Local candidate:
+build/Release/MoonEngine-audio-style.exe; main executable was open during link.
+
+### Complete player package with shared media (18 October 2026)
+
+**P:** the save screen now exports one `.moonplayer` package: selected native
+player plus all shared photos, replays/ghosts, films, their lists, auxiliary
+files and extracted legacy-import data. This supersedes the earlier profile-only
+export limitation. Existing native/PS2 imports and the independent transfer-tools
+option remain available. Relative media names and bytes are retained; no host
+paths or disc assets are included.
+
+Focused automatic tests compare the complete serialized profile payload and all
+fixture media, then read back the replay, ghost and replay playlist. Corrupt
+members/profiles, unsupported manifests, traversal/alias/duplicate names and
+existing-library conflicts fail before changing the player. Both initial-write
+and activation-write failures roll back newly promoted media; the previous
+player remains active. save_package_negative deliberately corrupts a photo and
+fails. profile_storage regressions also pass. A real save-screen Export/Import
+fixture validates the package from another save directory, compares its complete
+member set and media bytes, and checks that original scripts still run.
+Evidence: build/save-package-ui-full and tests/ui/save_package*. Native file
+picker interaction is injected in the hidden-window UI test, not automated.
+Full multi-file crash recovery and on-device file-picking remain unverified.
+The final build replaced build/Release/MoonEngine.exe after it became available.
+The UI fixture also covers accented media/package filenames.
+
+### Optional native player-profile transfer (18 October 2026)
+
+**P:** native `.ogt4` profile export/import in the existing save screen on
+Windows. Independently switchable `interface.save_transfer_tools`; Classic
+restores the previous footer. The native format is unchanged. Imports validate
+the selected envelope/state/name before creating an empty slot; occupied or
+corrupted imports preserve the current player. Export preserves active/dirty
+state and rejects destinations under the live Windows save directory.
+The existing PS2 import route remains available. Separate photos/replays/films
+are not bundled, and the UI labels that limitation.
+
+Focused profile_storage passes a byte-identical payload roundtrip with garage
+and career state, occupied/corrupt-file rejection and export state/destination
+checks. save_transfer_negative changes one byte and fails as intended; existing
+profile_storage_negative and launcher_quality cases pass. Captures verify the
+new and restored footer (build/save-transfer-proof). After adding the settings
+row, explicit key navigation fixes a diagonal jump from Save Preset to OK;
+the real preset UI Cancel/Apply/export fixture passes again on the candidate
+build (build/save-transfer-presets-ui-fixed). Native picker automation and
+on-device file selection remain pending. The currently open main exe prevents
+replacement; candidate build/Release/MoonEngine-save-transfer.exe is linked.
+
+### Optional personal preset files (18 October 2026)
+
+**P:** shared named presentation/input-menu preset files for the original
+Screen Settings extension and official studio launcher. `interface.preset_tools`
+is independently switchable; Classic hides the Load/Save actions. File export
+omits host display/API, disc/save paths and physical-device bindings. Protected
+built-in names, bounded versioned parsing and transactional draft imports keep
+invalid files and Cancel from changing active preferences. Personal names and
+modified state persist. The existing tab labels are inset and separated; this
+is a PC layout adjustment, not a PS2 fidelity claim.
+
+Six focused store/launcher/preset cases pass, including deliberate negatives.
+Real ScreenRoot tests check Load/Save, Cancel, Apply and exported values with an
+injected host-file selection. Captures were checked for legibility and tab gaps.
+Native picker automation, dedicated library management and Switch/Android file
+selection remain pending; the broader settings, music, saves and input redesign
+is not claimed complete. The positive UI fixture passes and its invalid-value
+negative fails as required. Evidence: build/personal-presets-proof,
+build/personal-presets-ui-final and build/personal-presets-ui-negative-final.
+The validated build also replaced build/Release/MoonEngine.exe once unlocked.
+
+### Directional menu comparison (18 October 2026)
+
+**C, comparator and projection:** menu_navigation_oracle executes 0026F2B8,
+0026F0A8, 0026F630 and original 0057D008/0057D118 angle code. Forty thousand
+candidate-pair comparisons and forty thousand edge-midpoint projections
+match for four directions, clip angles 0/20/45/50, front/back origins,
+wrap on/off, group priorities and current-item/tie cases. The negative
+inverts the first comparison and fails. No original math is stubbed.
+
+**A, collection/integration:** RootWindow defaults from 00232F0C..54 and
+properties read by 00233E38 now select that comparison in native directional
+focus. Authored source/target rectangles stay distinct; wrap uses the
+original second-pass shift of 10000 (0026F5A0). SelectBox retains its separate
+ordered-list handlers. The disc-screen test checks quick-arcade default
+wrap and option/OptionRoot explicit zero; its negative fails. Existing
+menu_navigation passes with a corrected fixture specifying both source and
+target regions. Hierarchical collection is checked separately below against
+0026F9E0; class defaults and exact heap-address ties remain audit debt.
+The whole navigator is not declared exact.
+
+Before integration, options_lifecycle failed option_pending==index;
+gtmode_setting_race and gtmode_setting_catalog_menu timed out at 60 seconds
+(the catalog also logged focus_index==lo+1). Local baseline:
+build/ui-audit-baseline.log. Seven focused tests pass after collection integration.
+
+### World-space sun volume and ambient depth (18 October 2026)
+
+**P:** optional 32-step world-space scattering through the existing local light
+map, independent screen-space ambient occlusion, hemispherical sky fill and
+near-caster occlusion of reflection overlays. Opaque course geometry blocks
+full sunlight. New controls persist in shared settings/preset files; selecting
+them enables HDR/Daylight. Classic retains its route. Artistic parameters and
+local-map, transparency, off-screen, weather and unchanged-mesh limitations are
+[documented](RENDERER.md#world-space-sun-volume-and-ambient-depth-18-october-2026).
+
+GPU/store/shadow/material regression: 34 focused cases pass, including explicit
+volume/AO/hemisphere negatives. Two Options cases also pass. Controlled volume
+lit/blocked is 155/148 (disabled negative 149/149); AO corner darkens 512 pixels
+(disabled zero). Real-disc AO/volume pairs preserve all 33,554,432 simulation bytes; Classic
+images change zero pixels on both APIs in the F-150/Tsukuba fixture.
+Source geometry/silhouettes remain unchanged. Evidence:
+build/volume-proof. No full-suite run, commit or push.
+
+### Edge AA and solar post correction (18 October 2026)
+
+**P:** optional Edge AA after tone mapping on both PC APIs; Enhanced default,
+Classic unchanged. Independent shared preference and personal-preset roundtrip.
+The original HDR route's single sampling and a saved FSR reduction explain
+strong aliasing without a post filter. Depth writes are restored before scene
+clear; mirrors no longer overwrite the main solar projection, stale menu
+projection is cleared, and split-screen shafts remain disabled pending separate
+viewport buffers. The radial integration uses artistic 48/5/0.3 parameters.
+
+Sixteen focused GPU/store/menu cases pass, including explicit disabled negatives:
+476 transition pixels versus zero; flat interior 255/255; open shafts 199 versus
+blocked/off 149. Real-disc AA/rays pairs preserve every simulation byte;
+Classic images have zero changed pixels in the F-150/Tsukuba fixture on both
+APIs. Temporal AA, full volumetric transport, off-screen occlusion and weather
+remain pending. [Evidence and limits](RENDERER.md#scene-edge-filtering-and-solar-post-fixes-18-october-2026),
+build/aa-rays-proof.
+
+### Daylight contact shadow correction (18 October 2026)
+
+**P:** opaque daylight casters no longer inherit the old blended-shadow alpha.
+Filtered near-caster occlusion also reduces sky fill, which previously washed
+out contact after the hard authored mesh was removed. Two-metre decay/0.8
+strength are intentional presentation parameters; this directional-map
+approximation is not full AO. Six focused GPU cases pass, including separate
+contact negatives: 38 darkened fixture pixels, minimum brightness 51.4%, versus
+zero/100% when disabled. Classic/non-daylight attenuation remains unchanged.
+F-150/Tsukuba front-grid crop mean RGB: 42.53 -> 32.05 on both APIs.
+Classic capture differences: zero pixels; paired simulation states match in
+all 33,554,432 bytes. Twelve related lighting/daylight cases also pass.
+Evidence and limits: [renderer](RENDERER.md#daylight-contact-regression-18-october-2026),
+build/contact-shadow-proof.
+
+### Optional daytime atmosphere and HDR scene (18 October 2026)
+
+**P:** Daylight/HDR/Sun Rays and solar hour/cycle preferences on both PC APIs.
+Enhanced has a procedural clear-day sky shared with reflection faces, solar
+illumination, nearby course shadow casting, a float main scene and GPU
+screen-space depth-occluded shafts. Classic retains the authored path.
+The hard authored contact blot is suppressed only under active depth maps;
+comparison interpolation replaces snapped penumbra taps. Reflection targets
+retain their encoded LDR convention and avoid accidental HDR conversion.
+
+Solar hours 07..17 use a fixed 35-degree/equinox presentation scenario;
+Fixed/Real Time/60x read the existing simulation frame count. The eight/four
+sample atmosphere is reduced single scattering. Numerical atmosphere,
+lighting and post-processing parameters are intentional PC presentation
+choices, not recovered PS2 values. Clouds/rain/night, whole-course cascades,
+multiple scattering, HDR10, full HDR reflection maps and removal of baked
+track lighting remain pending. Split/mirror shaft placement is unverified.
+
+Focused validation passes 34 renderer/store cases and two options-menu cases,
+including deliberate negatives. HDR-to-RGBA8 snapshot conversion reads
+64/128/255 for float input 0.25/0.5/2.
+
+Ford GT/Tsukuba real-disc regression: Original has zero changed pixels
+against the pre-change renderer on both APIs. Daylight time and replay pairs
+retain all 33,554,432 simulation bytes, while their rendered images change.
+Evidence: build/daylight-proof/comparison.json; this is scoped PC regression
+evidence, not an E grade for PS2 imagery.
+
+GPU fixtures on each API retain float headroom (2/4 -> 246/252), isolate
+nested LDR targets, measure real depth occlusion (open shafts 185 versus
+blocked/off 149), check procedural zenith/time response and exact Original
+restoration, with dedicated disabled negatives. Continuous penumbra fixtures
+resolve 19/19/16 intermediate levels for 512/1024/2048 and retain the prior
+flat/sloped/cutout regressions. The historical local-shadow description below
+is superseded for covered mapped cars. See [scope and current evidence](RENDERER.md#optional-daytime-atmosphere-and-hdr-scene).
+
+### Optional local shadow maps and modern lighting (18 October 2026)
+
+**P:** independent graphics.shadow_maps (Off/512/1024/2048) and
+graphics.modern_lighting (Original/Modern) on both PC renderers. Classic
+keeps both original paths; Enhanced uses 1024 and Modern. Local car body,
+fitted-wing and wheel depth shadows receive on course geometry and the car,
+with native-alpha cutouts and sixteen weighted taps. Flat/sloped self-surface
+regressions catch triangular boundary artifacts; the repaired derivative order
+reduces the reproducer from 20 false-shadow pixels to zero. Glass is excluded
+from opaque casting; reflection layers do not cast twice.
+
+Modern uses GGX, separate sky ambient fill, elevation-dependent daylight colour
+and filmic SDR highlights. Roughness/F0 conversion and atmospheric optical
+parameters are deliberate approximations, documented in the renderer scope.
+This does not replace baked track lighting or implement full-scene HDR, global
+illumination, a new time of day, world/driver casting or glass transmission.
+
+Each API passes 120 independent CPU/GPU BRDF cases (maximum error 1 byte/channel,
+allowed 2), opacity/unlit invariance, exact Original restoration and deliberate
+negative checks. Shadow cases cover three resolutions, soft edges, moving/union
+casting, raised/sloped receivers, self-shadow rejection and alpha-cutout energy.
+All 28 distinct focused render/store/menu tests pass, including deliberate
+negatives. Previous-build Original race images have zero changed pixels on
+both APIs; all 33554432 simulation bytes agree in race/replay comparisons.
+Race/replay image and complete 32-MiB state comparisons are scoped
+in build/shadow-map-proof/comparison.json; timing is a local sample, not an FPS
+promise. See [shadow implementation](RENDERER.md#local-car-depth-shadows-on-pc)
+and [lighting limits](RENDERER.md#optional-modern-race-lighting).
+
+### A-Spec tyre-condition HUD (18 October 2026)
+
+**C, scoped integration:** the live wheel-condition colours now reach both
+A-Spec panels, including the split player bridge, instead of B-Spec only.
+The original simple/onboard draw gates (003A7968 / 003A88F4) use driving
+state; anchors come from 003A7F24 (58,464), 003A92A4 (26,465), and
+003A7CE4 for split (32,464). Wheel-layout mapping and signed condition
+colours retain 003446D8 / 003677F8; inactive heat/wear returns black.
+The physics still chooses heat over wear for the encoded gauge when both
+are active; this change does not alter simulation. B-Spec AI-watch black
+indicators remain unchanged.
+
+Focused bridge checks cover ten signed-colour boundaries, four wheel
+layouts, both players and inactive/wear/heat flags. Draw checks require
+four tyre blocks at the original simple/onboard coordinates and none
+outside driving state. Four existing focused tests pass; two additional
+omission negatives fail as required (build/aspec-tires-*-negative.log).
+PC build: build/Release/MoonEngine-aspec-tires.exe, because the running
+main executable prevented replacement. Full PS2 image comparison and
+on-device Switch/Android validation remain pending.
+
+### Optional generated reflection quality (18 October 2026)
+
+**P:** graphics.reflection_quality selects Original 128, High 256 or Ultra
+512 on OpenGL and Vulkan, independently of other PC effects. Classic keeps
+128; Enhanced selects 256. The race/replay uses the existing six views,
+position, cadence and remap at the selected resolution. Generated studio
+maps also resize; their source faces remain 448 pixels. High/Ultra studio
+composition uses the GPU when resident reflections are enabled, with CPU
+fallback. Source environment textures, materials and physics are unchanged.
+
+The synthetic angular-stripe fixture measures spatial standard deviation
+0.000 / 62.052 / 112.105 for 128 / 256 / 512 on each API. It checks all
+sizes, invalid-mode fallback and byte-exact Original restoration; deliberately
+using 128 for Ultra makes its negative fail. Positive/negative shared-store
+and real-menu checks cover persistence/presets; seven Rendering rows retain
+28-pixel spacing. Existing material/shadow/filter cases are area regressions; 24 focused
+tests passed including the two real-menu cases.
+
+Race Original images match the pre-change build with zero changed pixels
+on both APIs. Within-instance race and studio cycles 128->256->512->128
+restore Original exactly. Same-time studio comparison also keeps the upper
+wall region unchanged in both larger modes; separate-process studio captures
+can differ in their asynchronous-load timeline, so do not treat their raw
+pixel difference as a quality metric. The panel camera basis is preserved
+across rebuilds. Race and replay comparisons retain all 33554432 simulation
+bytes between levels. The forced CPU High path loads and renders on both APIs. Studio CPU
+quality cycles also restore Original exactly on each API.
+Evidence: build/reflection-quality-proof/comparison.json, timing-replay.json,
+*-studio-cycle logs/images and GPU fixture output; menu: build/pc-quality-settings.
+
+In the warmed 180-frame Vulkan sample, GPU time is 5.716 / 5.736 / 6.066 ms
+and total frame time 16.362 / 16.777 / 17.210 ms for Original / High / Ultra.
+OpenGL total is 14.546 / 14.581 / 14.530 ms, without GPU timestamps. These
+are local samples, not an FPS gain claim. All levels keep 216757 draws /
+7912611 triangles and zero readbacks with resident reflections; the forced
+CPU High sample intentionally reads back six faces per frame. Larger targets
+cost storage/fill work. No roughness filtering, new reflected objects,
+refraction or new claim of full PS2 reflection-image equivalence is included.
+
+### Optional per-pixel material shading (18 October 2026)
+
+**P:** graphics.material_shading selects Original / Per-Pixel on OpenGL
+and Vulkan. Classic retains vertex lighting and interpolated environment
+coordinates. Per-Pixel evaluates the same authored coefficients with
+interpolated normals and a fragment view ray; reflection colour, pass
+separation, alpha tests and masks remain in use. No inferred paint/glass/
+rubber profiles, new lights or physical material parameters are introduced.
+
+Original source checked: func_0049EB90 +0x84..0x94 isolates specular colours;
+func_0049E918 +0x100..0x150 selects the race's exponent program. The existing
+model reader retains MDLS ambient/diffuse/specular/shine fields. Direct
+read-only disc measurements find 14/18 material rows (menu/race) on Ka,
+8/10 on Ford GT and 7/8 on M5, with different authored coefficients and
+powers. Local numbers/provenance: build/material-shading-proof/disc-materials.json.
+
+Sixty analytical surface cases per API have maximum measured byte error 0
+(allowance 2). Gradient-reflection/strength, zero-specular, separate-pass,
+flat/unlit invariance, opacity and byte-exact restoration checks pass.
+The curved-normal fixture changes its centre from 0 to 127; deliberately
+retaining Original makes the negative fail. Twenty focused tests pass:
+material shading and negatives, existing materials/shadows/filtering,
+shared presets/store and real-menu persistence/cancellation on both APIs.
+Six Rendering rows keep the 28-pixel spacing and four-page layout.
+
+Old-build versus current Original Tsukuba captures have zero changed pixels
+on each API. Per-Pixel changes 22406 pixels (OpenGL) / 22402 (Vulkan).
+Ka/Ford GT/M5, recorded replay and warmed timing probes preserve all
+33554432 simulation bytes between modes on both APIs. Captures were
+inspected locally. GPU readbacks, draw and triangle counts do not increase
+in the warmed probe. Vulkan's 360-frame GPU sample is 7.885 ms Original /
+8.095 ms Per-Pixel; total frame time is 20.910/20.979 ms. OpenGL total is
+14.005/13.120 ms, without GPU timestamps. These are local samples, not an
+FPS improvement claim. Evidence: build/material-shading-proof/comparison.json,
+scenarios.json and the corresponding logs; UI: build/pc-quality-settings.
+
+Limits: low-resolution environments and authored normals/geometry remain;
+no roughness-filtered reflections, refraction or complete physically based
+material model. Complete car-image equivalence to PS2 remains unproved;
+this P feature does not upgrade the older aggregate material fidelity grade.
+
+### Optional geometric car shadows (18 October 2026)
+
+**P:** Original / Projected car-shadow choice on both PC APIs, independent
+of texture sampling. Classic retains the existing cast volume. Projected
+unions current body/wing and posed wheel geometry on the GPU, softens its
+edge, depth-tests the local ground receiver and retains the contact blot.
+Authored cast alpha and existing course/pose inputs determine opacity,
+tint and direction. No simulation changes.
+
+Four focused renderer cases include a deliberate omitted-pass negative;
+positives measure 180 projected and 116 soft-edge pixels on each API and
+verify union, zero opacity, moving geometry, foreground occlusion and exact
+restoration. Shared settings and positive/negative real-menu tests cover
+persistence and presets. Prior-build versus current Original Tsukuba images
+have zero changed pixels per API; the enabled image changes 4590 pixels.
+Race and recorded-replay state comparisons match all 33554432 bytes per API.
+Evidence: build/car-shadow-proof/comparison.json and timing-replay.json.
+The 360-frame warmed timing sample measured total frame time 13.338/13.191 ms
+(OpenGL Original/Projected) and 16.410/17.235 ms (Vulkan). These are local
+samples, not a universal speed claim; the effect adds GPU work.
+
+Limits: local receiver plane only; no self-shadowing, wall receivers,
+complete curved-terrain conformity, glass transmission or alpha cutouts.
+These are future shadow-map/material work, not E/C claims. Desktop video
+settings are separated into four pages to avoid overlapping rows; layout
+is checked visually, while option behaviour has automatic coverage.
+
+### Optional PC texture filtering (18 October 2026)
+
+**P:** independent Original / Trilinear / Anisotropic 4x, 8x and 16x
+selection on OpenGL and Vulkan. Classic selects Original; Enhanced selects
+8x. The hardware limit caps anisotropy; unavailable anisotropy falls back
+to trilinear. GS region clamp/repeat retains the existing manual sampling.
+No physics, colour grading or lighting changes are included.
+
+The elongated-footprint fixture measures contrast 0 for trilinear and
+238 (OpenGL) / 223 (Vulkan) for 16x. It checks byte-exact restoration of
+Original within one process and unchanged region-clamp pixels. Its negative
+substitutes Original for anisotropic sampling and fails. Four renderer and
+two settings-store cases pass; positive/negative UI checks cover both APIs.
+On the Tsukuba probe, old-build versus new Original captures have zero
+changed channels on each API. Enhanced and Original simulation dumps are
+byte-identical (32 MiB per backend). These are scoped PC regression proofs,
+not a full PS2-image fidelity claim or a measured frame-rate improvement.
+Evidence: build/texture-filter-proof and build/pc-quality-settings.
+
+### Functional mod-car export (18 October 2026)
+
+**P:** SDK exposes authored rim/tyre GLBs, per-mesh released/pressed brake
+branches and per-label engine/exhaust WAV banks. The native CAR4 writer
+retains original callback-0 lamp tags and callback-11..14 wheel frames;
+KHR_materials_unlit stays an explicit material choice. Functional mesh
+roundtrip and GLB export have deliberate corruption/missing/duplicate
+negatives; original brake-branch/material regression cases pass.
+Ten focused metadata/export/material/branch tests and two original audio-clock
+regressions pass (each area includes a negative). Five rig and two sound Rust
+cases pass; Node specs/functions/pictures and syntax checks pass.
+Own camera inheritance is independent of wheel inheritance. Native assembly
+checks four authored wheels/1024 triangles plus 35561 body triangles.
+Custom JSON banks compile to the existing ENGN/SPU decoder/controller;
+a 2800-frame sine fixture measures 56.32 dB SNR against the source WAV.
+Silent Vulkan racing and OpenGL replay load both per-car banks (1/3/1
+engine/road/exhaust layers), while donor asset rows and sound-number files
+are untouched. Evidence: build/sdk-functions-proof; SDK Rust/Node focused
+tests cover persistence, import, invalid WAV/loop/ranges and rig binding.
+Total custom-car independence is unfinished: donor-free specification
+bundles, event sounds, steering/pilot/wing and arbitrary animations remain
+outside this change. See the SDK runbook for format and exact scope.
+
+### User-operated SDK export verified (18 October 2026)
+
+**P** authoring workflow: user completed export in moonsdk.exe. Resulting
+moon_banana.zip (40087118 bytes) passes CRC validation, contains both Tex1
+images (6100/64100 bytes), and all three models match the project build
+(25 cameras at 0x488, only rig slot 6 authored, cabin Drop, compression .35).
+Images match an independent repeated conversion of the fresh project PNGs.
+This closes the pending interactive export artifact check; no automated UI
+click coverage or original-game image equivalence is claimed.
+
+### Vulkan preview shutdown (18 October 2026)
+
+**P:** Context destruction now calls close while all members remain alive.
+Command-line preview returns without explicit video shutdown; previously
+reverse member destruction destroyed target_cache before texture image
+deleters consulted it, producing STATUS_HEAP_CORRUPTION (0xC0000374).
+Explicit shutdown remains valid because close clears the instance handle.
+**C** rendering regression: explicit/implicit close GL/Vulkan fixtures pass
+with the existing two-channel-level tolerance; deliberately corrupted
+fixtures fail under WILL_FAIL. Four focused CTest cases pass. Three real
+Banana Vulkan picture captures exit zero and produce identical PNG pairs;
+white pixels match the pre-fix capture exactly. SDK capture again uses
+the selected renderer; the temporary OpenGL restriction is removed.
+Evidence: build/sdk-picture-proof/render-vk-fixed-{0,1,2}.log and PNGs.
+
+### SDK automatic package pictures (18 October 2026)
+
+**P:** Export renders missing catalogue PNG inputs before packing, reusing
+Make Pictures; failed rendering/conversion stops export. Offline capture
+uses the selected renderer after the shutdown correction above. Initial OpenGL proof:
+OpenGL exit 0, both PNGs, Tex1 outputs 6100/64100 bytes (50x30/160x100).
+Focused JavaScript tests cover automatic/manual/mixed sources and renderer
+and converter failures. This is pipeline validation, not original-image E.
+The initially failing Vulkan capture (0xC0000374) is corrected and verified
+in the shutdown entry above. Evidence: build/sdk-picture-proof.
+
+### Authored Banana roof camera and 35% export preset (18 October 2026)
+
+**P:** Custom model camera 6 is authored in the rig, not patched into game
+camera logic. The 35% gltfpack export (`-si .35 -sv -kn -noq`) removes 59
+interior parts with `--no-interior`: 35561 body triangles, 7232 donor wheel
+triangles, 42793 total; assembly reports zero unsupported/nonfinite parts.
+The measured source bounds, facing/centering/scale and axle shift put the
+roof at 1.459313 m. The authored eye is 1.559313 m, with 0.1-m clearance
+chosen from the existing renderer near plane (race_game.c camera path).
+This is an intentional custom-car placement, not an original-camera E claim.
+**C** geometry check: eye/transform agreement within 1e-5 m, and an explicit
+old-height negative fails clearance. **E** retained-data scope: the other
+24 camera rows remain byte-identical in all three slots (25 @ 0x488).
+A silent 720-frame race passes; before/after OpenGL images were inspected
+(**V**, custom framing only). Local evidence: build/sdk-interior-proof.
+SDK `inherit: true` camera slots emit no rig line; editing marks them
+explicit again. Four focused Rust rig tests and both camera/sound CTest
+cases pass, including invalid-pose and deliberate corruption cases; Node
+serialization/syntax checks and cargo build pass. Prepared SDK project:
+Banana-camera-check.moonproj, using the full source with cabin Drop and
+compression .35. Interactive export through moonsdk.exe still needs the
+manual UI confirmation: this execution session has no app-control tool.
+
+### Independent mod vehicle specifications (18 October 2026)
+
+**P:** Optional weight, torque/RPM/redline, drivetrain, gear count/final/ratios
+author new mod rows; no physics source changes. Data **E** scope: mass at
+CHASSIS +6/+12, ENGINE curve/RPM/catalogue fields, DRIVETRAIN +0x10 and GEAR
+ratios/count/final are measured through both native readers and pristine
+Ka/M5/NSX/BTR/Lancer rows. Stock four-part rows and assembly surveys remain
+byte-identical with/without the package. Native integration **C**: example
+150.002 PS / 200.018 Nm (tolerances .5 PS/.099 Nm from table quantization),
+4500-RPM torque peak, 7500 redline, 1100 kg; the real Arcade CarRoot emits
+150PS/7300rpm and 200.02NM/4500rpm. A local OpenGL UI capture was inspected;
+full showroom rendering is outside that harness. Five drivetrain choices
+complete 1200 race ticks; FR/six-gear example reads final 3.900 in runtime
+parameters, with 1170-kg mass after the driver addition. Four focused CTest
+cases pass, including camera/mass corruption WILL_FAIL negatives and an
+explicit missing-UI-payload rejection. SDK serializer/restore/flags test,
+node syntax check and cargo build pass. A joint PS/torque override authors
+a documented two-segment curve (P); no claim of real engine curve fidelity.
+Interactive SDK export and custom interior-camera framing remain pending.
+Installed folder/adjacent ZIP camera headers are checked as 25 @ 0x488;
+default loader trace selects the folder named in mods.ini. See
+[package runbook](vulcan4/SDK-MAKING-A-CAR.md).
+
+### Mod camera and independent sound authoring (18 October 2026)
+
+**P:** SDK rig camera overrides and independent sound-donor selection are mod
+authoring features; retail physics is unchanged. Narrow **E** data proof:
+`mod_car_rig_sound` compares all 800 Ka camera-table bytes (25 @ `0x488`),
+checks that sound changes only ENGINE `+0x18..19` (37701 to 52601), and compares
+the untouched source ENGINE rows and Ka survey with/without the package.
+No-donor/no-rig output matches the previous converter SHA-256 exactly.
+Authored rotation matrices pass an independent synthetic comparison within
+`2e-5`; this is a transform contract, not an original-game oracle. The
+deliberate camera corruption fails under the registered WILL_FAIL negative.
+Both focused CTest cases and three SDK rig tests pass. A silent PC race probe
+renders 720 frames switching modes 1/0/6 and opens sound bank 52601.
+All-camera framing, audible equivalence and interactive SDK export remain
+unverified; unchanged donor interior eyes can intersect a different body.
+
 ### Championship pre-race score identity (18 October 2026)
 
 **C:** Pre-race championship summaries now map persistent driver scores into
@@ -36,6 +1052,148 @@ on the first car. This changes presentation association, not scoring or saves.
 `championship_grid_points` checks all six rows over three cumulative rounds
 with the player in slot six; its negative restores the old raw copy and fails.
 Full championship screen raster equivalence is not claimed.
+
+### Empty Home garage preview (18 October 2026)
+
+**C:** Re-entering the cached GT Mode Home without a selected car clears
+its stale CarFace model before the authored initialization. gtmode.ad
+HomeRoot L3946..3965 gates car loading on hasRidingCar, so the native
+cached widget previously retained the sold car when that branch was skipped.
+The focused Home garage test exercises populated Home, deletion of all cars,
+empty Home, and purchase/selection of another model in the same project.
+The negative reinstates the stale model and must fail. Ownership, sale prices
+and save format are unchanged; full PS2 raster equivalence is not claimed.
+
+### Playback controller motors (18 October 2026)
+
+**C (host-output regression):** SDL controller rumble now shares the existing
+force-feedback playback/pause/photo gate, with an explicit demonstration gate.
+Disabled output sends zero to cancel the previous pulse; race shutdown clears
+both controllers. The underlying 00353EE8 output bytes and simulation are
+unchanged. `replay_rumble` intercepts the actual host adapter and checks P1/P2
+live amplitudes, replay/demo/pause/photo silence, unrelated-car rejection and
+shutdown cancellation; the negative injects leaked replay vibration and fails.
+This proves host output policy, not physical controller timing or a complete
+comparison with the original game's motor commands.
+
+### First-run welcome dialogue (18 October 2026)
+
+**P (host profile setup):** The four welcome cards are replaced by successive
+Yes/No questions for profile creation, PS2 save import, existing profiles and
+guest play. The frame and button hierarchy come from the player's authored
+cursor/ConfirmDialog project, retained by the destination UI with its GPB
+resources; wording and profile flow remain host adaptations. No returns to
+the next question, declining guest play returns to creation, and leaving
+profile selection returns to the welcome dialogue. Name entry cancellation,
+creation, existing-player boot and all question routes pass the 11-case
+first-run application smoke test with disposable saves. Welcome and guest
+screens were visually inspected. The import parser is unchanged; an actual
+file-picker/import transaction is outside this smoke test. No console screen
+or exact original onboarding-flow equivalence is claimed.
+
+### Visible native profile transactions and restart persistence (18 October 2026)
+
+**C, scoped file-I/O integration:** the game's bootstrap now probes only the
+active index before video initialization. It reads and validates the actual
+profile on the authored boot LoadRoot with the load face active, following
+boot.ad L190..198. The temporary access menu is not ticked, so its queued
+boot script cannot launch another load. The host launcher/legal sequence
+and native profile files remain adaptations; this is not a claim of complete
+PS2 boot equivalence.
+
+Create, rename and GT4-import commits now use the same presented immutable
+writer as Auto Save. Profile activation-index writes are included in those
+transactions and in presented loads. Legacy inheritance uses the presented
+save path too. Final shutdown persistence uses a separate access screen,
+without drawing already released race/photo resources. The original menu
+scripts still choose their save boundaries (memorycard.ad L607..625;
+gtmode.ad checkAutoSave/doAutoSave L230..269); Auto Save Off and guest play
+retain their original no-automatic-write gates. No per-input writes or fake
+storage delay were added. Capture failure now returns IO_ERROR instead of
+being reported as successful by the native autoSave adapter.
+
+**C, native persistence fix:** withdrawn/withdrawnGT4p, the one-time legacy
+transfer flags (menu_legacy_import.inc, 001D49C8/001D4698), were absent from
+the serialized root whitelist. They now persist as strictly validated
+boolean/integer 0/1 values. Existing containers and the other progress fields
+are unchanged; older profiles without these fields still load. A failed
+new-profile activation also retains the previous profile's dirty flag.
+
+storage_access checks live blinking on creation, rename, load and save;
+failed data/index writes preserve the prior player and unsaved state;
+Auto Save Off makes no write; successful Auto Save clears dirty only after
+writing; startup reload restores money and both transfer flags into a menu
+whose old flags were explicitly cleared. Invalid flag value 2 is rejected.
+The existing blink negative, profile-storage, legacy-transfer, purchase,
+Home and welcome pairs are area regressions. Real PS2 import fixtures and
+console visual/timing comparison remain outside this test's proof.
+
+### First-run import guidance and HD indicator alignment (18 October 2026)
+
+**P:** the host welcome retains the full GT4 save import route (No to create,
+then Yes to import) and now names that route in the first question's help.
+After the three Auto Save notices, optional legacy-transfer instructions
+restore the purpose of boot.ad ExplainRoot L789..800. The US edition's
+001D4500/001D4598 both select US GT3 data: credits up to 100,000 and B/A
+completion respectively. Instructions lead to GT Mode Status/START and the
+existing extracted-file boundary documented in SAVEGAMES.md; they do not
+claim to import actual GT4 Prologue saves or other regions.
+
+The example arrow aligns its authored bg (x8, width22) with the visible HD
+body (x4.5..20.5), rather than centering their composite rectangles.
+`first_run_dialog` checks those centres, the GT4 import question, all legacy
+instruction stages, accept/decline and icon cleanup; its negative restores
+the incorrect rectangle alignment. Application smoke routes use disposable
+profiles. Existing storage/profile and legacy-transfer tests are regressions.
+Auto Save timing remains scoped to the previously documented native I/O
+integration: no claim of complete original startup or save-trigger parity.
+
+### Profile access indicators and first-run Auto Save explanation (18 October 2026)
+
+**C (native integration):** Memorycard save/load faces are no longer suppressed
+by the renderer. The menu adapter follows share/memorycard.ad L26..50: only the
+active face is visible, with MBlinkActor period 0.10000000149011612; both actors
+stop and both faces hide at the end. Native file reads and writes run on an
+SDL worker while the main thread presents the existing menu and actors.
+Serialization, validation and session changes remain on the caller; bytes,
+atomic replacement and error handling are unchanged. No artificial device
+wait or post-operation busy state is added. Headless callers retain direct I/O.
+
+`storage_access` exercises delayed real file I/O, visible/hidden blink phases,
+load/save face selection, cleanup, failed write preserving the previous file
+and dirty flag, and failed load preserving the active player. Its negative
+rejects a non-animated indicator. Profile storage and Home regression pairs
+and original dialog-background regression pairs pass (10 focused tests total). Full device/controller/GPU coverage is not claimed.
+
+**P (host profile setup):** First-run profile completion restores the three
+ExplainRoot L780..785 notice stages before the opening: Auto Save, its animated
+icon/arrow example, and the storage safety warning. Frame/buttons and the
+indicator layout/arrow come from the player's original cursor/boot projects.
+Both access faces reuse the native hard-disk artwork already used by Replay
+Theater, with the example arrow centered below it; wording
+refers to native files rather than a console memory card. Guest play skips
+this explanation. The 14-route application smoke test uses temporary saves;
+welcome and explanation screenshots were inspected. Automatic profile probing
+before video initialization remains a host bootstrap operation, without a
+rendered access animation. No complete PS2 startup-flow equivalence is claimed.
+
+### Secondary launcher quick audio mixer (18 October 2026)
+
+**P:** Launcher-only Audio controls provide independent music/effects sliders
+and a separate music mute that preserves the selected music level and effect
+volume. M toggles music mute; F8 opens the panel; sliders support drag/wheel,
+with arrow keys and Shift for fine adjustment. The shared options store keeps
+three registered audio.launcher_* values; no new configuration file or game
+volume mapping is introduced. The previous launcher levels (78/128 music,
+128/128 effects) remain the defaults. This launcher-only access was explicitly
+requested; it does not change the in-game sound settings or official launcher.
+
+Four focused tests pass: mixer input/persistence and its mute-leak negative,
+plus existing native launcher audio waveform/mute tests and their negative.
+They cover restoring music, independent effects, clamping, drag cancellation,
+keyboard repeats and unrelated shared preferences. Light/dark launcher captures
+were inspected. Physical controller navigation of this quick panel is not
+implemented; mouse and keyboard are the supported controls.
 
 ### Switch setup host interface (2026-10-17)
 
@@ -286,6 +1444,19 @@ confirmação ou correção.
 | PC pause Circle confirmation | P | Requested Circle/B confirmation added alongside Cross/A only in the race pause poller, including player 2. pause_buttons drives real virtual SDL pads into the original pause movie: Continue on both buttons/ports; wrong-button negative fails. Result and pit-menu Circle behavior retained. |
 | Arcade course-card still-picture fallback | C | arcade.ad loadIpic("course") L30 and original 001FD528 +0x3C..0x68, 002771C8 +0x0C..0x20, 00277228 +0x38..0x70: original archive names/order/offsets restored. movie_ipic decodes all 56 disc pictures (including the two 640x512 entries) and compares batched output byte for byte with independent single-picture decodes. Actual draw_movie stays ready for 112 forward/backward changes with the PSS decoder absent and uploads the selected picture; missing-archive negative fails. The previous readiness gate blocked input until video decoding/blending completed. PC cache preloads asynchronously once; only one GPU poster texture is retained. C covers readiness and picture selection, not complete PS2 RGB conversion or universal frame-time guarantees. |
 | PC car material pass separation | A | Original func_0049EB90 +0x84..0x94 selects specular colours alone; VU1 0x215 handles environment colour independently of surface lights. Shared OpenGL/Vulkan shader no longer erases specular-only race layers after vertex saturation or lights reflection geometry as a diffuse surface. car_material_opengl/vulkan check 21 GPU samples each against the isolated formula (1/255 tolerance), with deliberately wrong material negatives; previous shader failed both paths. Eight focused material/frame/disc checks pass, including negatives; no full suite. Complete glass/paint image and PS2 comparison remain pending, so no full material fidelity claim. [Scope](RENDERER.md#car-material-lighting). |
+| PC per-pixel material shading | P | Independent Original/Per-Pixel setting on both APIs; 60 analytical cases per API (maximum measured byte error 0), reflection/pass/opacity/invariance checks and deliberate disabled negatives. Retained Original Tsukuba images match the prior PC build exactly; race/replay state matches all 32 MiB between modes. Full PBR, refraction and roughness filtering remain outside scope. [Implementation and limits](RENDERER.md#optional-per-pixel-material-shading). |
+| PC generated reflection quality | P | Independent 128/256/512 generated targets on both APIs; angular-detail positive/negative checks, persisted levels, live race/studio Original restoration, previous-build Original images and 32 MiB race/replay state comparisons. Local Vulkan GPU sample 5.716/5.736/6.066 ms; no claimed FPS gain. [Scope and limits](RENDERER.md#generated-reflection-quality-on-pc). |
+| PC local car depth shadow maps | P | Optional 512/1024/2048 maps on both APIs, native-alpha cutouts, soft kernel, raised/sloped receivers and exact self-surface/Off checks with deliberate disabled negatives. Local rigid cars cast; world/driver casters and transmission remain pending. [Scope](RENDERER.md#local-car-depth-shadows-on-pc). |
+| World-space sun volume and ambient depth | P | Local-map ray integration, independent screen-space AO, hemispherical fill and reflection contact. Focused positive/negative GPU and Options tests. Unchanged source geometry, local-map and off-screen limits remain. [Evidence](RENDERER.md#world-space-sun-volume-and-ambient-depth-18-october-2026). |
+| HDR sheen and daylight reflection balance | P | Encoded course sheen enters HDR as linear light; coverage/source passes avoid double relighting. Daylight car overlays use bounded dielectric Fresnel with authored tint. 38 focused renderer tests pass, including deliberate negatives. Peugeot 206/Tsukuba measurements, zero changed Classic pixels on both APIs and identical 32 MiB simulation states. Baked track lighting, roughness-prefiltering and metallic classification limits remain. [Evidence](RENDERER.md#hdr-sheen-and-daylight-reflection-balance-18-october-2026). |
+| Shared daylight irradiance for cars and courses | P | One direct/sky calibration replaces separate vehicle/course intensities. GPU neutral-surface comparison: sky 200/200 and sun 204/204 on both APIs, analytic tolerance two bytes; dedicated negative fails at 102/200. All 26 focused modern-lighting/daylight cases pass. Artistic coefficients and baked course lighting remain limitations; full visual integration is not claimed. [Evidence](RENDERER.md#shared-daylight-irradiance-for-cars-and-courses-18-october-2026). |
+| Bounded paint overlays and wheel contact | P | Daylight additive reflection capped at artistic 0.16, controlled grazing 195 to 80/255; original weighting retained. Existing optional car shadows add four soft tire footprints from visible wheel pose and loaded dimensions, with height fade and receiver depth rejection. Four-contact positive/negative GPU fixtures and 22 focused renderer tests pass on both APIs. Real Ka contact toggle changes 526 pixels per API. Planar approximation and detached-pit-wheel limits remain. [Evidence](RENDERER.md#bounded-paint-overlays-and-wheel-contact-18-october-2026). |
+| Daylight paint albedo and ambient body footprint | P | Daylight sky uses diffuse paint albedo; textured car colours normalize GS 128-white before linear decoding. Controlled texture 97 versus analytic 96.62, coloured sky-only paint 45/63/169, deliberate negatives fail. Broad soft body footprint supplements directional shadow and tire contacts; centre 79 versus 128 without it, raised receiver rejects it. All 28 focused renderer cases pass on both APIs. Artistic planar/composited AO, texture clipping and material-calibration limits remain. [Evidence](RENDERER.md#daylight-paint-albedo-and-ambient-body-footprint-18-october-2026). |
+| Rough road reflection composition | P | Optional daylight sheen uses rough dielectric angular weighting after HDR decoding; original mask/source/blur and Classic route retained. Controlled original/normal/grazing 153/10/17, zero-mask and deliberate bypass negative. All 18 focused daylight cases pass on both APIs. Peugeot/Tsukuba comparison, zero changed Classic pixels and identical 32 MiB simulation state. Artistic roughness, horizontal ground and no inferred wetness remain limitations. [Evidence](RENDERER.md#rough-road-reflection-composition-18-october-2026). |
+| Scene Edge AA and solar post | P | LDR/HDR edge filtering, mirror-safe main projection, depth clear and expiring shafts. GPU/store positives and disabled negatives; real-disc Classic/state regression pairs on both APIs. [Evidence](RENDERER.md#scene-edge-filtering-and-solar-post-fixes-18-october-2026). |
+| Daylight contact occlusion | P | Full opaque solar occlusion plus filtered near-caster ambient attenuation; six focused GPU cases including contact negatives. Artistic 2 m/0.8 parameters; directional approximation. [Evidence](RENDERER.md#daylight-contact-regression-18-october-2026). |
+| PC daylight atmosphere, HDR scene and shafts | P | Independent shared preferences; procedural clear-day sky/reflection source, solar hour/cycle, nearby course casting, float main scene and depth-occluded screen-space shafts on both APIs. Positive/disabled negative GPU fixtures; source/scenario parameters and clouds/rain/night/cascade/HDR10 limitations documented. [Scope](RENDERER.md#optional-daytime-atmosphere-and-hdr-scene). |
+| PC modern race material lighting | P | Independent Original/Modern option; GGX/direct daylight/sky fill/filmic SDR response, 120 CPU/GPU cases per API (maximum error 1 byte), unchanged opacity and Original restoration, deliberate disabled negatives. PS2 material conversions and daylight parameters are PC approximations; baked tracks/full HDR/GI remain outside this implementation. [Scope](RENDERER.md#optional-modern-race-lighting). |
 | Screen Setting: original race/replay option selection and parameters | E | `screen_setting_oracle` runs original `003EFEA8/003EFEE8 -> 003EFDF0 -> 003EFC10`, selecting the independent four-value option arrays and comparing all six float parameters bit for bit. Negative replaces contrast with identity. Existing `gtmode_license_image` compares original CLUT/mix generation with deliberate negatives. |
 | Screen Setting: application before race/replay HUD | C | `screen_setting` invokes the real `race_game_draw_hud` presentation boundary on clean race and replay frames, compares GPU output with original-verified LUT/mix within one byte per channel in 4:3 and 16:9, and verifies unmodified overlay colors, SETVAL/DEFAULTVAL, preservation of saturation/temperature, independent preferences and profile reload. Negative changes brightness before rendering. Complete PS2 scene rasterization is outside this proof. ResultLicense retains its separate saturation pass without double correction. |
 | Nintendo Switch: bounded GPU loading submissions | A | Hardware log14 passes composition/alpha probes but driver kickoff is rejected without a GPU error notification after 592 uploads / 60157548 bytes and 372 draws. Switch-only partial Submit/Flush after 32 transfers or 4 MiB (P work budgets, not driver limits), preserving FIFO lists/barriers and frame-fenced storage; no ordinary CPU idle/readback. Raw libnx Result wrapper observes failures without retry. Shared helper host test checks 674 transfers, exact order/uniqueness, byte cap and no wait; three deliberate negatives, 32/32 focused deko checks pass. Synthetic 592-image/60 MB native boot probe and actual race entry await hardware; root driver limit/reason and crash resolution unproved. See SWITCH.md. |
@@ -418,7 +1589,7 @@ confirmação ou correção.
 | Modelos: descarte de faces | A | Dois controles do contexto de desenho, como `00455708`: comandos 45/46 ligam e desligam (00456170/00456180 -> 004A1638/004AB040 com 0Fh), 78/79 escolhem o lado (00456190/004561A0 -> 004A19B0 grava 2 ou 1 em 70002000h +0x2C8), 64 troca o lado sem argumento (00456288). Antes 78 ligava o descarte: o Integra Type R '04 (hond0036) escolhe lados sem ligar e perdia a traseira. Conferido nas nossas imagens; 807 modelos com a mesma contagem de triângulos. Sem comparação com PCSX2; lado padrão (1) e estado ligado no início de cada modelo (desligado) não lidos (c) |
 | Pistas: camadas de brilho (tipo 4) | A | As camadas só especulares das pistas (tipo 4, mistura 0x58 Cs * Ad + Cd: Tsukuba texturas 73-80, 427-431, 468 e uma sem textura) não têm cor própria (`0049D1A0` -> `0049EB90` carrega direções de luz e especular, sem o bloco ambiente/difuso); a pista é desenhada sem luz e elas usavam a cor de vértice 1,0 dobrada, o que deixava brancas as marcas de pneu do grid de Tsukuba (relato do usuário, PCSX2 mostra escuras). Agora somam zero. Quais luzes o jogo dá a elas não foi lido: se houver brilho de sol nas zebras e guard-rails ele sumiu junto. Conferido em `race_inspect_probe` com PROBE_DIST=2000 (c) |
 | Corrida: freios atrás dos aros | A | Na sequência do modelo cada freio vem antes da sua roda (callbacks 11, 15, 12, 16, 13, 17, 14, 18 em subr0013, ford0011, fdeu0006); `draw_car` desenhava os quatro freios depois das rodas, e os texels transparentes do aro, que gravam profundidade, os escondiam (Legacy B4 Blitzen, relato do usuário). Agora freio e roda por roda, nessa ordem. As camadas misturadas do freio (brilho aditivo 0x48 e tinta 0x44) passam pelo multiplicador de cor do callback (`00453798` -> `004A60E0`, alfa no bloco da roda +0x28) e somem com ele em 0: desenhadas frias. Conferido em `race_inspect_probe` (PROBE_CAR) no Legacy, Mustang e Integra; quem escreve o +0x28 (calor do freio) não achado; sem comparação com PCSX2 (c) |
-| Carros: aros dos modelos de corrida | A | WheelContext `00453E68`: ramo 0 e banco em slot externo 2. Recortes na borda corrigidos pela ordem pneu → aro de `00453028`: o aro transparente gravava profundidade antes do pneu. Prancha `extracted/renderer/ka-wheel-order-comparison.png` compara antes/depois e close original enviado pelo usuário, em outro ângulo; borda contínua observada. Banco ctx+8=1 e acumulação ctx+8>1 implementados. Capturas `ka-wheel-accum-{sharp,blurred,cached}.png`: aro borrado, pneu preservado; comparação com câmera/luz equivalentes no PCSX2 pendente. Geometria leve original mantida; montagem não prova aparência de todos os carros (c) |
+| Carros: aros dos modelos de corrida | A | WheelContext `00453E68`: ramo 0 e banco em slot externo 2. Recortes na borda corrigidos pela ordem pneu → aro de `00453028`: o aro transparente gravava profundidade antes do pneu. Prancha `extracted/renderer/ka-wheel-order-comparison.png` compara antes/depois e close original enviado pelo usuário, em outro ângulo; borda contínua observada. Banco ctx+8=1 e acumulação ctx+8>1 implementados. Capturas `ka-wheel-accum-{sharp,blurred,cached}.png`: aro borrado, pneu preservado; comparação com câmera/luz equivalentes no PCSX2 pendente. Geometria leve original mantida; montagem não prova aparência de todos os carros (c)  18 October audit: 20 focused cases pass; Ka/Legacy B4/Esprit sharp-vs-exposure fixtures on both APIs, cached images exact and all 32 MiB simulation bytes unchanged. Registered exposure/accumulation oracles and independent CPU/GPU pixel comparator (4/255). Overall image remains A without matched PS2 capture. [Audit](RENDERER.md#wheel-rim-and-brake-visibility-audit-18-october-2026). |
 | Captação PC: clipes 1080p/60 separados, sem música ou upscale da UI | P | (c) 12/10: pedido final substitui montagem de 90 s/trilha única. Exportador opt-in grava RGBA do FBO final 1920x1080 antes de reduzir apenas a prévia no secundário. Sete corridas usam relógio original, sem CAPTURE_FIXED_STEP: PTS/DTS reconstruídos do CSV, depois CFR60 com repetição/descarte de quadros captados se a cadência varia, sem interpolação de movimento; não é prova de desempenho constante de 60 fps. UI_HD=0, FSR off, filtro original e text_sharpness=0. CAPTURE_NO_MUSIC força só bgm_option=-1; race_capture_stems compara controles/pitch/PCM de CR-X/Mustang em batches 1/2/4 com mistura sem BGM; negativo deixa música ligada e falha. native_video_capture confere seis cores, FBO independente da janela, ordem/timestamps/gate/reset e negativo de 1 canal. 6/6 com race_audio_clock e negativos. Entrega local clipes-sem-musica e ZIP: 14 MP4, sete corridas com SFX AAC estéreo 48 kHz e sete tomadas silenciosas UI/foto (exportação offline). A captura desktop estava coberta por outra janela e foi retirada; refilmagem cancelada pelo usuário para filmar manualmente com F9. Validação local decodifica todos os arquivos, verifica 1920x1080/60, compara AAC ao PCM (>0,98; negativo com 0,5 s <0,9), confere filtros/clock nos CSVs e preserva manifestos/PID/módulos/hash. Executável filmado moonengine-capture.exe, alvo nativo com nome temporário, PE AMD64 sem moon_ee; prova da proveniência, não certificação integral de fidelidade/arquitetura por vídeo. Nenhuma fórmula/parâmetro da física alterado. |
 | Captação PC: vídeo nativo (câmeras, PCM e monitor) | P | Adaptação PC: abertura com ângulos novos, várias pistas/carros/modos e revelação do port. MOON_RACE_FILM (low/orbit/crane) só lê poses e publica câmera; probe confere matrizes finitas/ortonormais e os 32 MiB de física inalterados em nove poses, negativo altera um byte e falha. Segundo motorista automático 2P é seleção opt-in do controlador original 5, sem fórmulas/parâmetros novos. Shutter automático usa o mesmo caminho do F5 no Photo Travel; enquadramento opt-in aponta à carroceria (+0,65 m, escolha P do fotógrafo) e solicita AF nativo antes do disparo. Gion/NSX e Brooklyn/Viper refeitos e inspecionados com carro em foco. MoonEngine-native-90s.mp4 tem 2700 quadros 1080p/30, áudio estéreo 48 kHz, decodificação integral conferida e 22 s finais contínuos da janela real; manifestos registram PID/módulos/hash/comando e o link Release sem moon_ee. MOON_WINDOW_POSITION coloca a janela no secundário sem ativá-la; PCM capturado após a mistura SDL exclui os outros programas. native_audio_capture compara música + voz exatas (tolerância 0), timestamp e estéreo S16; negativo de 1 unidade falha. Capturas/edição locais em captures/native-showcase-20261012, nunca no Git. Não comprova imagem/câmera original: trajetórias, lente e montagem são escolhas para filmagem. |
 | Rodas: montagem determinística para upload | C | (c) 12/10: `append` inicializa `source_model=0` na montagem PC; `decode` continua atribuindo o índice MDLS authored após cada stream (00455598), sem mudar Vls0/ordem/pixels dos modelos do disco. A falta de inicialização deixava bytes do allocator nas rodas anexadas e `r3d_mesh_create` rejeitava índices inválidos, causando rodas ausentes em carros diferentes a cada execução. `model_attach_upload`: 32 buffers pré-preenchidos, oito triângulos por montagem, quatro instâncias visíveis por imagem (1/255); negativo reintroduz índice 0xA5A5 e falha no upload. `render3d_vision` e negativo mantêm 32 quadros/listas authored passando. `race_inspect_probe`, PROBE_ALL_ENTRIES/PROBE_STEPS=1400/PROBE_DRAW_STEPS=1: 24 meshes reais aceitos e 24 capturas de CR-X, Ka, Act, Today, Midget e S500, nos dois lados, frente e trás. Evidência local captures/native-showcase-20261012/fixed-wheels-*.png; Today traseira e Midget dianteira inspecionados, sem roda ausente. C só da fronteira PC; imagem integral/borrão continuam A, sem nova prova GS/PCSX2. Física preservada. |
@@ -870,8 +2041,8 @@ em [CLASSIC_RESOURCE_AUDIT.md](notes/CLASSIC_RESOURCE_AUDIT.md).
 | Foto: interpolação temporal de partículas/objetos/equipe | F | Histórico interpola carros/rodas/sombras/64 canais do piloto; objetos/partículas/box sem histórico completo. photo_motion/race_resources provam os estados já suportados, não esses passes. Câmera editada host A. |
 | Ghost de melhor volta importado do PS2 | F | FileReplayLicense 001CFE20/001D0360 não importado como ghost. GHST nativo testado por tt_game_probe --saved não prova leitura do formato PS2. |
 | Filme PS2: body/LOD CDTL, GDGT, clipping SMOK e projeção develop | F | ps2_media.c/photo_travel.c restauram wheel/wing/DRVR/SMOK/PTCL/ENVP, mas body/LOD, gadgets, plano SMOK e uso integral de far clip não existem. Aspecto/retrato já aplicado; rotação/composição integral A. film_develop C não certifica esses dados ausentes. |
-| Sombra noturna por lâmpada | F | race_view.c draw_shadow explicita passe 0038F168/00451EE0 ainda ausente; só sombra solar/contato. Luz RNW4 tem provas próprias C; não classificar toda pista noturna como ausente. |
-| Sombras dos gadgets/objetos de largada e chegada | F | Passe de modelo ímpar 003E4A28 +F0..1A8 ausente; draw_gadgets só desenha modelos normais. course_objects/coffee_objects testam modelos/matrizes, não essa sombra. |
+| Sombra noturna por lâmpada | A | Passe 0038F168/00451EE0 integrado; parametros C contra original em 192 casos e negativo. Consulta de chao, agendamento completo e pixels PS2 pendentes. [Audit](notes/NIGHT_COURSES.md). |
+| Sombras dos gadgets/objetos de largada e chegada | A | Odd-model pass restored from 003E4A28; scalar projection/alpha/model selection C and GL/Vulkan pixel/immutable-state checks pass with dedicated negatives. Complete original raster and all-course coverage pending; see Original course gadget shadows below. |
 | Backfire: tween/cor original e brilho no chão | F | draw_afterfire desenha chama básica; 00456850/004A60E0 e passe a2=1/model1 não implementados. Produtor/áudio já E/C; não voltar a listar chama ou som inteiro como ausente. |
 
 Seleção nesta tarefa: nenhuma. A implementação aguarda escolha do usuário.
@@ -1899,3 +3070,1631 @@ Logs persistem etapa/HRESULT; Nxlink captura saída e usa cinco tentativas,
 sem declarar corrigida a descoberta real sem teste na rede do usuário.
 Self-test, FTP/hash negativo, sete fixtures de serial + ISO real e dois testes
 de pacote passaram. Mesmo NRO; nenhuma ISO ou save incluído no pacote.
+
+### 18/10: setFocus durante onInitialize entrega o foco depois (Photo Travel)
+
+C: o setFocus original (00233268 -> 00235C80) só guarda o widget em root+0xC8,
+sob mutex, sem evento; o update do gerenciador (0022FE6C..0022FF4C) compara
+com o foco entregue (0022F000) e manda FocusLeave/FocusEnter (00295260,
+002946B8). Um setFocus dentro de onInitialize chega ao onFocusEnter depois
+do resto do onInitialize. PhotoTravelRoot.init_menu (gtmode.ad L13605..13630)
+foca o primeiro Ticket e o onInitialize esconde Slide em seguida (L13518);
+Ticket.onFocusEnter (L13703..13712) carrega o swf e mostra Slide. Antes o
+nosso disparava na hora e o preview do primeiro curso ficava escondido.
+menu.c set_focus guarda o foco anterior enquanto a página inicializa e
+deliver_held_focus manda os eventos ao fim de menu_enter/panIn (o onEnter
+legado continua no mesmo lugar). Teste photo_travel_focus: Slide visível com
+image/gtmode/photo/ss_louisburg.swf; com o disparo imediato fica 0; o
+negativo falha. Ordem de várias trocas na mesma página: só a última entrega,
+como no original. Comparação visual com o PCSX2 pendente.
+
+### 18/10: hover do mouse não deixa a concessionária acesa (P)
+
+P: com o mouse só o item sob o ponteiro aparece destacado (ui.c desenha hover,
+não foco), mas o foco guarda a animação do próprio FocusEnter (arcade.ad
+MakerRoot::hidden::Item L3601 bg.actor.out=1). Ao voltar do CarRoot o
+fabricante clicado continuava aceso com o ponteiro em outro. pointer_set_hover
+apaga a animação do foco (onFocusLeave de apresentação, sem setFocus) quando
+o hover começa em outro item da página; o controle a acende de novo
+(menu_send_input). Teste arcade_dealer_hover: clica ford, volta com botão
+direito, passa sobre chrysler: ford 0, chrysler 1; sem a correção ford fica 1;
+o negativo falha.
+
+### 18/10: teclado do nome mostra maiúsculas na primeira letra (P)
+
+P: a tela de perfil (save_ui.c sobre boot.mproject EntryRoot Keyboard, sem
+script no disco; o EntryRoot do ranking.ad começa em minúsculas e não tem
+maiúscula automática) já gravava a primeira letra maiúscula, mas mostrava as
+teclas minúsculas. show_case mostra UpperCase com o campo vazio ou com Caps
+Lock/Shift do teclado do PC, e as teclas na tela digitam maiúsculas com Caps
+Lock; o foco fica na mesma tecla ao trocar. Teste save_keyboard_case: vazio
+maiúsculo, "A" minúsculo, caps maiúsculo, apagar tudo volta a maiúsculo; o
+negativo falha.
+
+### Directional candidate collection (18 October 2026)
+
+C: `0026F9E0` collection, `0026F868` intersections and `0026F7E8` empty-top
+handling are ported at the UI boundary. A focusable widget stops descent only
+when admitted; clipped-out widgets can still expose eligible children. The
+nearest `navigate_box` of the current focus starts its own clipping/priority
+group, with nested clips restored on return. No simulation code changes.
+`menu_navigation_collect` compares the candidates, order, groups and both
+projected regions against the recompiled original in 2,000 generated 40-widget
+trees (four directions, hidden/insensitive nodes, nested and empty clips).
+Widget getters are fixture boundaries; collection, recursion, projection and
+clip-stack code run from the executable. Its WILL_FAIL negative corrupts a
+candidate's group and is rejected by the same comparison. The comparator oracle
+also compares 40,000 actual original clip-stack intersections.
+A: class-specific default flags and original heap-address tie ordering are not
+proven by those fixtures. Native stable collection order resolves exact ties;
+visual coverage of all authored screens remains part of the dynamic tour.
+
+### 18/10: faróis pela hora do dia da pista (callback 7 "timezone")
+
+C: o callback 7 do modelo do carro (00453698, nome "timezone" na tabela do
+ELF) devolve o +0x7C do objeto de desenho, copiado a cada quadro do +0x1680 do
+carro (00390C90, setter 005F6FE8). A montagem da corrida (00387FB0) grava em
+todos os carros o valor do Env0 +0x10 da pista: bit 0x80000 dá 2, senão bit
+0x8000 dá 1 (noite), senão 0. No disco: valor 1 em hongkong, lasvegas, seattle,
+route5(+club), motegi (3), sarthe/sarthe24/sarthe_old24, paris_rally e nos
+ss_ de Brooklyn, Fremont, Gion, San Marco, Shibuya, Times e Tsukiji (e versões
+r_); nenhuma pista usa 2. Antes o nosso escolhia sempre o ramo 0 (dia), e os
+faróis nunca acendiam. model.c escolhe o ramo da pista (fora da tabela segue
+o caminho padrão); race_view.c lê o Env0 e passa por car_model_tables_time_zone.
+Teste car_time_zone: os 600 modelos /car/lod decodificam nos dois; o dia é
+idêntico ao de antes; 597 têm o callback e mudam à noite (ac__0014: 3664 ->
+3668 triângulos); o negativo (noite = dia) falha. car_brake_branch e negativo
+seguem.
+
+Safety car: 00388290 compara o rótulo do carro (00447CA0) com D_0061870C =
+"r34_gtr_v_gtcolor_pc_01" e, se for ele, grava 1 mesmo de dia: luzes sempre
+acesas. race_view.c faz o mesmo por carro.
+
+Brilho das luzes: depois da sombra, 00451D18 +17C desenha o modelo 3 do carro
+(00452998) no mesmo quadro da sombra do modelo 2 (pose no chão, 0.02 acima,
+viés 0.008) quando o slot +0x78 do carro é maior que 0. Esse slot (003D7430,
+lido na vtable 0x682F98 do carro numa captura de corrida) devolve o Env0
++0x58 da pista: 0 nas de dia, 0.2 a 1 nas de noite (route5 0.75, hongkong 0.5,
+sarthe24 0.25, ss_times 1). Escala de cor (1, 1, 1, esse valor) e deslocamento
+0 (004A60E0/004A6100), mistura do próprio modelo. O modelo 3 existe em 560 dos
+600 carros: um quadrado no chão logo à frente do para-choque (ac__0014: z
+-2.39..-1.78 com a carroceria em -1.87..2.10, alfa de vértice 19/128).
+car_model.c carrega o modelo 3; race_view.c desenha com o modo de sombra do
+render (cor do vértice, alfa vezes o valor) e, quando a sombra P (mapa de
+profundidade) substitui a sombra autoral, desenha a luz antes de sair.
+
+Photo Travel: só os carros da corrida (RaceEntry, construídos em 003B4B38)
+gravam o +0x7C (004513B8, chamado só por 00390C90). Fora da corrida todo carro
+passa por 00451A00 (showroom 00156950 e 001D6DC8), com o objeto de desenho
+zerado no construtor (00450A04) e uma pose genérica (vtable D_00688698) cujo
+slot +0x78 devolve 0 (00459D60): dia e sem brilho. O Photo Travel fica assim, e
+race_view.c descarta o modelo 3 quando photo == 1.
+
+Teste car_time_zone também confere: 560 modelos de brilho; route5, hongkong e
+sarthe24 com bit 0x8000 e +0x58 > 0; tsukuba e laguna sem bit e com 0.
+brake_material e brake_material_focus seguem. Captura em route5 com o quadrado
+virado para trás só para o teste (chave temporária, já removida): aparece uma
+mancha clara e fraca no chão, com uma linha na borda mais próxima. Não comparado
+com o PCSX2: a cor, a mistura e essa borda ficam A até a captura equivalente.
+Na câmera de perseguição o quadrado fica escondido pela própria carroceria.
+Fora desta mudança: na corrida, o céu da route5 sai azul de dia, enquanto a tela
+de pré-corrida mostra céu escuro.
+
+### 18/10: mapa do GT Mode no controle não prende nas pistas do canto (P)
+
+P: a grade autoral do mapa (navigate_source/target) fica longe dos marcos
+(DirtAndSnow: a célula 520 à direita). Com o scroll nativo do mapa (não o
+MScrollWindow traçado), a célula do foco sai do clip, o 0026F9E0 corta a
+origem até ficar vazia e nenhuma direção acha vizinho: o jogador ficava preso
+no canto esquerdo de baixo. navigation_pick refaz a coleta sem clip quando a
+origem do foco sai vazia e, nos marcos do mapa (ModelFace "bg"), sempre: lá o
+clip corta a grade deslocada conforme a rolagem, e direções sumiam ou mudavam
+no meio da animação (Home sem esquerda nem direita). Fora do mapa segue a
+coleta original. Teste gtmode_map_navigation: "dddr" a partir de Home chega em
+TunerCar; os 37 marcos têm saída; 127 movimentos iguais com o mapa rolado
+160/90 unidades; Home vai a GTAuto pela esquerda e a ExtremeHall pela direita;
+sem a correção para em DirtAndSnow; o negativo falha. A: o mapa do PCSX2 no
+controle não foi comparado direção por direção.
+menu_navigation_collect e os testes de navegação seguem.
+
+### 18/10: mostrador do turbo no painel interno (posição, ângulo e cor)
+
+C: 003A9008 põe o mostrador (+0x964) em (320+0xAF, 452-0x15), 54x54, alinhado
+(0, 1): termina em 431, então o topo fica em 377, com o centro na altura do
+conta-giros. O nosso usava 404 como topo (27 abaixo, encostando no ícone do
+óleo). 00407568: faixa 0..2.4, 003BE828(0, 216) soma 90 nas duas pontas (90 a
+306, partindo do "-", preso em 306 + 2), desenhado pelo 003BE5F8 dos
+mostradores grandes (vtable D_00686298) em 5 passos a 1/6, não no 0x80FFFFFF de
++0x2C. O modelo é o do turbo (slot 0x60, 00407638: D_006A42F0), escalado 1.35
+depois de -0.5 (+0x54 - +0x50) e por 27 (003BE818): de 13.5 atrás do pivô
+(meia largura 1.6) a 22.95 à frente (1.0), com as cores do modelo base
+(D_006A2900): 0xC8 no eixo, 0x40 nas bordas. Antes era um traço de 1 de
+largura. O degradê sai em três faixas por lado (P, a plataforma não tem cor por
+vértice no 2D). O valor é o +0x60C do carro direto (0039E104 -> 003446B0 ->
+slot 0x90, 003A94A8 em +0x97C), na faixa 0..2.4: 1.0 (pressão ambiente) fica
+no "0". Medido na nossa corrida: ~0.66 em marcha lenta, ~0.58 segurando o giro
+na largada, 1.7 a 1.95 acelerando. hud_suggested_gear confere 90+108 a 1.2 e
+90+216+2 no máximo; o negativo segue. V: captura em tsukuba lado a lado com
+print do PCSX2: mesma posição, espessura e cor, mostrador na altura do centro
+do conta-giros. A: o ponteiro em marcha lenta e acelerando não foi comparado
+com o PCSX2 no mesmo momento.
+
+### 18/10: GT Auto, mecânicos da lavagem só depois do giro
+
+C: loadModelOptionMotion (001391D0 -> 0013A678 -> 00154290) só troca o
+controle da câmera em +0x88; quem liga o +0x10 dela e das trilhas adicionais
+é o playModelMotion (001525F0 -> 00153E20). O nosso já tocava a câmera ao
+carregar, então durante o giro da lavagem (CarWashRoot L11864..11887, antes
+do playModelMotion) o canal de fade dela já acendia os mecânicos parados na
+pose 0, presos ao carro girando. Rodas e asa (L11480, L11595, L12261) nunca
+chamam playModelMotion: a câmera fica no quadro 0. gtmode_gtauto_menu confere,
+nos quatro casos de serviço, câmera parada ao entrar e tempo 0 enquanto as
+trilhas não tocam; gtmode_gtauto_camera_negative liga a câmera ao entrar e
+falha. V: lavagem no app quadro a quadro: sem mecânicos no giro, entram com o
+carro parado. Troca de óleo 4WD (L12050..12077): o script usa
+oil_change_start no alinhamento 9 e oil_change_end no 10 (0x00156E38 e
+0x00156E18 conferidos), então o mecânico entra pela frente e sai por trás;
+showroom_probe com MOON_PROBE_SERVICE_4WD mostra um mecânico só, nessa ordem.
+A: essa troca 4WD não foi comparada com o PCSX2.
+
+### 19/10: mouse no Arcade, prévia do carro já selecionado (P)
+
+P: o hover numa lista (pointer_set_hover) mostra o item pelos callbacks do
+script (CarRoot CarScroll onValueChanged) e devolve focus_index. Só fazia
+isso com índice diferente do foco, então, depois de passar por outro carro,
+voltar ao selecionado (o primeiro de cada montadora, ao entrar) deixava o
+último carro na tela. Agora a lista guarda o que a prévia mostra
+(hover_shown) e mostra o selecionado de novo; teclado e clique zeram isso.
+arcade_dealer_hover confere, duas vezes, Ford Ka de novo depois do 2º e do
+3º carro; arcade_car_hover_negative tira a marca e falha. A: não testado no
+app com o mouse de verdade.
+
+### 19/10: freio aquecido e transparência do borrão das rodas (A)
+
+Freio: 003F38D8 grava o calor do freio (0..1) na roda +A4; 003D75F0
+(vtable 0x682F98 +C0) faz calor² × Env0 +4C / +38 e 00390C90 -> 00451550
+grava no bloco do freio +28, o alfa (004A60E0) com que 00453798 desenha as
+camadas misturadas do freio (GS 0x48 aditiva e 0x44). Antes essas camadas
+eram descartadas; agora vão num modelo à parte (car_model brake_glow) com
+u_valpha. A razão do Env0 é 0,1 em todas as pistas extraídas e o calor
+medido com o piloto automático chega a 0,062 (Tsukuba) e 0,016 (Sarthe),
+então o brilho fica perto de 0,0004: invisível em pilotagem normal, como
+na conta do original. A: não comparado com PCSX2.
+
+Borrão: 00453BB0 desliga ABE (004AB040(6) limpa PRIM bit 6), profundidade
+(5) e testes de alfa/destino (4, 3) antes das rotações, então o acúmulo é
+média direta de RGBA, como o nosso. Lido de volta no Impreza WRX STI em
+Tsukuba (16 amostras, 0,93 rad): alfa por anel do acumulado 0,45/0,34/0,29
+contra 0,44/0,33/0,29 da textura já borrada do próprio disco (banco); o
+banco só difere no RGB, mais escuro onde é transparente (asset pronto, não
+o caminho em tempo real). GL e Vulkan dão os mesmos números. O aro desenha
+com 0x44, sem teste de alfa, depois do freio (ordem do MDLS). A: aparência
+ainda sem print do PCSX2 na mesma câmera.
+
+### Race display option persistence and existing HUD elements (18 October 2026)
+
+C: constructor `00436400/00436498` supplies word `0x3FA`; the seven missing
+`race_display_*` element defaults now match it and all seven persist through
+native option capture/restore. `menu_race_display_flags` reads the preference
+word only at presentation. Older preferences with only Simple/config are
+expanded using option.ad L2124..2128, without overriding explicitly saved flags.
+Original option.ad RaceRoot.apply L2104..2131 is executed by
+`race_display_options` for Full/Simple x Map x Steering. It checks the resulting
+word, stored preferences and restoration of each independent element at 0/1.
+The WILL_FAIL negative corrupts the expected lap bit and the comparison rejects
+it. No new setting or simulation option is introduced; `race_display_mode`
+remains the unrelated PS2 HDTV setting, without a PC rendering effect (P).
+
+C: `0039F718/0039F878/0039FAD0` gate map, position, lap and time; labels and
+figures now follow those bits together. `0039FFF8` gates the whole panel on
+meter, then suggested gear and G-meter independently. Both native camera
+panels follow that grouping, without suppressing countdown/messages or licence
+medal targets. `0039F878` alone also gates replay interval lines with time;
+their clock still advances while hidden. Tests record actual HUD image draws
+for both panels and each independent bit; suggested-gear regression and its
+negative also pass. Eleven focused tests pass, silent and without a visible
+window. Release links successfully; no full suite is run.
+
+F: the native HUD still lacks the name elements at RaceDisplay +0x23DC/+0x291C
+drawn by `003A0178`. Their stored option bit does not implement the timed
+replay messages (`0039CFD8/0039D138`); this reader and its original layout/state
+remain open. Steering-wheel verification is recorded below. No physics code
+is changed.
+
+The three reported pre-existing menu failures were rebuilt and repeated after
+integration with the same 60-second limit and isolated preferences:
+`options_lifecycle` still fails `option_pending==index`;
+`gtmode_setting_race` and `gtmode_setting_catalog_menu` still time out (the
+catalog repeats `focus_index==lo+1`). These match the pre-change baseline,
+not new passes or new failures. Local output: build/ui-known-failures-after.log.
+
+### Original steering-wheel HUD element (18 October 2026)
+
+C: `00344680` reads car +0x560 and controller kind +0x569; presentation in
+`0039E7CC..0039E818` multiplies the normalized display value by -90 degrees.
+The native HUD now reads those fields at presentation, without changing the
+simulation. `003A1EE0` permits kinds 0/3 only after a nonzero steering value
+has been observed, excludes modes 8/9 (split), and requires the steering bit.
+`0039FFF8` draws it independently of meter and suppresses G-meter while it is
+visible. This restores the existing original option, not a new improvement.
+
+C: `003A5D30`, layout `003A1970` and update `003A5D20` supply the authored
+170-square replay_sign_gtforce image centred at (320,450), four quarter-step
+rotation samples, 7/16 opacity and previous-angle state. The first frame uses
+zero angular difference. `hud_steering_oracle` runs the original visibility
+routine for 1,792 combinations and original image/transform drawing for 1,000
+angle pairs, substituting graphics calls only. The negative changes an angle
+and is rejected. `hud_detail` loads the actual disc image and checks native
+geometry, pivot, opacity, four samples, sticky visibility, kinds, option off,
+meter off and split exclusion; its WILL_FAIL negative demands drawing with
+the option disabled and is rejected. All four tests pass silently. Visual
+PCSX2 comparison and timed car-name messages remain open; this is not proof
+of the complete HUD or complete race-display lifecycle.
+
+### Linear-box end packing and dialog order (18 October 2026)
+
+C: `00266338` reads bit 2 of widget +0x9C (`pack_reverse`, registered by
+`00258670/0025C560`). Allocator `002E99E0` consumes either the near or far
+edge for each eligible child in authored order; it does not reverse the child
+list. Native HBox/VBox allocation now applies that choice, axis-specific
+expansion/fill, centring within an expanded slot, spacing and padding.
+Existing VBox content-height requesting and overlay faces are preserved.
+
+`pack_reverse_oracle` executes `002E99E0` and the original reverse accessor
+for 4,096 fixtures of 1..8 children. Only widget queries, request/available
+sizes, child iteration and final rectangle publication are fixture boundaries;
+the allocator's arithmetic and branches execute unchanged. Both ends and
+all expansion/fill combinations match within 0.0001 UI units. The WILL_FAIL
+negative flips reverse and the rectangle comparison rejects it.
+
+C (authored resources/native integration): `pack_reverse` loads cursor's
+ConfirmDialog from the disc, checks its reverse-packed Buttons row, and draws
+the original No/Yes pair at x=0/120 inside the centred x=40 composite. Its
+fixed-position children must not be swapped by their reverse property. The
+test also draws horizontal and vertical three-child fixtures with mixed end
+packing; its negative expects the old forward position and fails. Nine
+focused packing/dialog/pregrid tests, including negatives, pass silently.
+`tools/ui_audit.py` was rerun; report remains local in extracted/.
+
+A: this does not prove the entire request/allocate lifecycle, runtime property
+setters, grid/MBox reverse packing (`002B8778`) or the Logger screens. The
+existing VBox request policy was not replaced. A matching PCSX2 screenshot
+is still needed before marking shared-dialog visual parity complete.
+The additional first_run_dialog rebuild encountered an unrelated unresolved
+`moon_save_package_is_file` from local save-UI work; it is not recorded as a
+pass. No physics code or new user setting is introduced.
+
+### Watched replay car caption (18 October 2026)
+
+C: the native caption follows a change of watched entry, not every frame
+(`0039CDF0/0039EC40/0039CFD8`). Entry zero is the constructor's initial target.
+It uses CAR_NAME's short string at +8 (`003B4D80 -> 00445450`), copied to at most
+127 bytes; results continue using the full string at +0. The presentation owns
+its cached strings. No physics fields or update routines are changed.
+
+C: original `003A4E00/003A98E8/003A9780` match 6,300 native envelope steps
+at three cadences and five durations, tolerance 0.0001 in opacity and identical
+state transitions. Original `0039CCF0` matches 3,072 car-name mask decisions:
+Normal replay selects the name-only word even with Simple settings. The
+original `003A1970` layout table is executed with geometry setters substituted:
+chase x=24,y=328,width=280, alignment 4/1; onboard x=320,y=430,width=240,
+alignment 2/1. Original callback `0039CFD8` selects five seconds and .25-second
+rise/fall; the actual disc font is hn_20R#1*90,90. Long names fit their width.
+The WILL_FAIL oracle negative corrupts opacity and is rejected. `hud_name`
+checks disc-backed glyph draws, target changes, expiry, Full/Simple hiding,
+Normal replay override and suppression of new captions while the display
+fades; its negative requires drawing a disabled caption and is rejected.
+
+A: these scoped comparisons do not prove all replay camera transitions or
+free-camera suppression (+0x43), nor the secondary text-message slot +0x291C
+queued by `0039D138`. That slot is distinct from the replay mode plate already
+drawn at the upper left. Visual PCSX2 comparison remains open. The complete
+race display is not declared exact on the strength of the caption tests.
+
+### Original static UI queries (18 October 2026)
+
+C: MCarData.GetShortCarName (`00131068` registration, `0012DFC8 -> 00448280`)
+now reads CAR_NAME's +8 string index instead of leaving the engine method
+undefined. The shared full-name callback retains field +0. `native_ui_queries`
+compares every available disc catalogue row's short label, including more than
+50 rows whose full label differs; the WILL_FAIL negative substitutes the full
+label and is rejected. Unknown labels return the original empty-string path.
+No car parameters or physics change.
+
+C (retail NTSC-U scope): MUnit.GetUnitOfMass (`001AF928`) returns the literal
+"kg" at `00693048`; it does not choose a new mass unit. MSystem.IsOEM
+(`001AD528`) constructs false with `002FE278`, argument zero, matching this
+retail build. Both bindings are exercised through their actual script modules.
+The test uses dummy audio, no window and an empty mod overlay. This restores
+existing original queries, introduces no player option and makes no claim about
+OEM/demo executables. The dynamic discovery tour supplied the boot IsOEM warning;
+caller-dependent warnings in unrelated roots are not hidden by this fix.
+
+### Original OptionMenu item enumeration (18 October 2026)
+
+C: MOptionMenu.Count/getItem now expose logical popup choices to scripts,
+including hidden choices, instead of remaining undefined. Evidence:
+002C7970 -> 002C9B50 -> 0057CE60 counts the entry range; 002C7840 ->
+002C9AF8 retrieves an entry. arcade.ad L900..905 enumerates those entries
+and selects by name. option_items exercises more than 100 authored choices,
+checks object identity and hidden-item counts through the VM. Its WILL_FAIL
+negative rotates the expected item and is rejected. This covers valid indices;
+it does not claim the separate MSelectBox callbacks or malformed-index parity.
+No player option or physics change is introduced.
+
+### Headless UI discovery tour (18 October 2026)
+
+P (developer tooling, no player option): tests/ui/ui_tour.c opens arbitrary
+original project/root pairs without the launcher, profile UI or a visible
+window, using dummy audio. Unknown roots fail rather than silently opening
+another screen. The runner preserves VM diagnostics, records the active root
+after initialization and captures the requested tree under extracted/.
+ui_tour_report and ui_tour_cursor pass; WILL_FAIL negatives reject dropped
+warnings and unknown roots. Scope excludes network/online/message/eyetoy/
+print/event projects and named network/printing roots.
+
+A: the local discovery run covered 172 requested roots with 172 captures and
+zero nonzero exits; 84 roots emitted diagnostics and three redirected during
+initialization. Captures are discovery evidence, not PCSX2 visual comparisons.
+Direct entry supplies no caller-specific car/stock/navigation arguments, and
+the harness does not install the full game's 3D/movie presenters. Missing
+context must be reproduced through the authored route before changing game
+behavior. The earlier main-executable tour could silently fall back to another
+project; only extracted/ui_tour_native/report.json is the corrected run.
+The first-run adaptation owned by another session is outside this work.
+
+## Packed HDR depth transport
+
+The HDR scene depth copy now uses matching packed depth/stencil formats:
+DEPTH32F_STENCIL8 for reversed depth and DEPTH24_STENCIL8 for normal depth.
+Previously the destination was depth-only DEPTH_COMPONENT32F, which violates
+OpenGL depth-blit format requirements (OpenGL 4.6, section 18.3.1):
+https://registry.khronos.org/OpenGL/specs/gl/glspec46.core.pdf
+A rejecting driver could leave the depth sampled by ambient occlusion and
+volumetric lighting invalid. Vulkan accepts the same packed target formats.
+The original preset with HDR disabled does not use this copy.
+
+C (PC depth transport only): six focused hdr_depth cases pass, including
+negative comparators, both APIs and both OpenGL depth conventions. Four
+resolution/AA modes are checked. Maximum copied depth error is zero with
+reversed depth and 2.98023224e-08 with normal depth (tolerance 2e-6).
+The 18 daylight regression cases also pass. Evidence is in
+build/suzuka-shadow-proof/depth-details.log and depth-tests.log.
+The reported black asphalt patches near Suzuka's first corner have not been
+reproduced locally; this fix does not establish that report's cause or visual
+resolution on the affected computer.
+
+### Save transfer footer stays outside onboarding (18 October 2026)
+
+P: the optional native Export control belongs to the normal save-management
+page, not the welcome/Auto Save dialogue sequence. Applying the transfer-tools
+option every frame previously re-exposed that button behind all onboarding
+modals. Visibility now combines the option with the current page state, and
+re-entering the save page also honors the disabled option. This changes no PS2
+script or physics; original dialog resources remain unchanged. No new option
+is introduced. save_export_visibility checks both option values at all eleven
+onboarding steps, repeated option application and normal-page return. The
+WILL_FAIL negative exposes the footer during onboarding and is rejected.
+Both focused tests pass with dummy audio; Release rebuilt successfully.
+
+### Controller recovery after pointer scrolling (18 October 2026)
+
+P: mouse wheel scrolling can move the viewport without changing script focus.
+At the pointer-to-controller boundary, reveal that retained focus before the
+original clipped directional navigation runs. Previously an offscreen focused
+widget could be excluded from the candidate list, leaving the cursor stuck at
+the clip edge. This repairs the existing optional pointer adaptation, adds no
+option and leaves controller-only navigation and physics unchanged. Original
+navigation evidence remains 0026F9E0 / 00270118; pointer takeover has no PS2
+equivalent. scroll_takeover reproduces a scrolled clip with retained offscreen
+focus and checks focus movement, visibility and subsequent navigation. Its
+WILL_FAIL negative restores the offscreen viewport and is rejected. Seven
+focused pointer/navigation checks, including negatives and the navigation
+oracle, pass with dummy audio. No full suite was run.
+
+### Results use the original entry short names (19 October 2026)
+
+C: ResultArcade's 003DFBC8 calls its name callback (table +0x50),
+003DFC50, which copies entry +0x350C with 005A609C. That entry contains
+the short CAR_NAME +8 label (003B4D80 -> 00445450), already loaded for
+the watched-car HUD. The presentation bridge incorrectly supplied the full
+CAR_NAME +0 catalogue name, causing long model descriptions to overlap the
+time column. Results now receive the existing short label; catalogue names,
+fonts, movie geometry, timing and physics remain unchanged. No option is
+introduced for this original-behavior correction.
+
+result_name opens a real Tsukuba session and invokes the actual draw_result
+bridge; it distinguishes the cached short name from a deliberately different
+full label and verifies the ResultArcade row. Its WILL_FAIL negative replaces
+the short cache with the full label and is rejected. Eight focused result,
+short-name VM and HUD/oracle checks pass with dummy audio and hidden windows.
+Release rebuilt. A: this checks label selection, not complete visual parity
+of every result movie or every catalogue label's rasterized width; PCSX2 visual
+comparison and the exact screenshot's six-car composition remain unverified.
+
+### Launcher column bounds and long labels (19 October 2026)
+
+P: launcher labels and values now share a measured column budget. A long
+value reserves its rendered width before the label is drawn; labels, action
+captions, the preview title and unbreakable description words fit their
+available width. Value-arrow hit testing uses the same fitted scale. The
+status column also fits long disc/profile/car labels. The comparison divider
+is constrained by the panel width. This repairs the existing PC launcher
+presentation and introduces no setting, original-game behavior or physics
+change. It does not turn any graphics effect off.
+
+launcher_layout captures all six tabs through the real launcher on OpenGL
+and Vulkan with isolated preferences, dummy audio and hidden windows. It
+checks 126 measured row bounds, the panel background and preference immutability.
+Both focused tests pass; twelve captures were generated and representative rows reviewed.
+The WILL_FAIL negative supplies an overflowing measured label and is rejected;
+this is a deliberate checker control, not an EE oracle. Captures remain local
+under build/launcher-layout. A: captures check the initial visible rows and
+values, not every value, custom font or resize state. The reported dark scenery
+remains open: local Classic/Enhanced comparisons show a lighting difference,
+but do not establish a safe correction or complete visual parity. The missing
+panel/dark text from the supplied cropped picture was not reproduced in these
+current-build captures. Do not declare those rendering reports fixed.
+
+
+### 2026-10-19 â€” P: preserve baked course detail under Daylight
+
+The optional Daylight pass previously multiplied absolute lighting into course
+colours that already contain baked illumination. Lighting is now relative to the
+existing artistic model at neutral noon. Its 35-degree reference is not recovered
+PS2 metadata. This is P presentation calibration, not original lighting parity.
+Classic/Daylight-off and physics are unchanged.
+
+The old shader fails both new GPU positives. The fixed fixture covers four source
+levels and four normal cases, including generated normals: noon preserves each
+channel within 1/255, switching off restores bytes exactly, and evening still
+changes lighting. Deliberate-loss negatives use WILL_FAIL. All 22 focused Daylight
+tests passed with dummy audio; no full suite. Eight local before/after launcher
+captures cover Laguna/Tsukuba in OpenGL/Vulkan, recovering wall detail. These are
+visual checks, not no-mod PS2 oracles. Other scenes remain unreviewed; real shadows
+remain.
+
+
+### 2026-10-20 — P: launcher panel fade and title clearance
+
+Launcher guide text drew two fixed-opacity shadow passes even when the panel's
+text alpha had faded to zero. Both shadow alphas now follow the foreground, and
+zero-alpha labels submit no glyphs. The description starts at the first option's
+baseline instead of twelve scaled pixels above it, keeping its actual font ink
+below the tab divider. This fixes the existing PC launcher presentation, adds no
+setting and does not alter original game menus or physics.
+
+launcher_panel_fade captures the same fixed Laguna camera before opening and
+after closing General, in OpenGL and Vulkan. The right-column pixel region must
+match exactly (no residual LIGHT ROOM/DARK ROOM shadows). It also captures Save
+Transfer and checks actual title glyph bounds against the tab divider. The
+WILL_FAIL negative injects persistent residue. Both focused tests passed; no full
+suite. Open/closed/title captures were visually checked. Other resolutions and
+all other scenes are not covered by this comparison.
+
+
+### 2026-10-20 — P: discoverable custom Music folder
+
+Music is now prepared beside the active options store at startup, independently
+of successful disc seeding or the custom-music toggle. Jukebox scanning uses the
+same helper, with recursive UTF-8 directory creation and a logged failure instead
+of silently ignoring it. Windows launcher Sound offers Open Music Folder; it
+creates that same folder and opens it through ShellExecuteW, without changing
+playlists or enabling playback. Existing audio.custom_music still gates playback.
+No new setting, original menus and physics unchanged.
+
+music_folder covers nested Unicode paths, repeated creation without losing a
+sentinel, short-buffer/empty-config rejection and blocked directory creation.
+The WILL_FAIL negative wrongly expects creation through an existing file. Both
+passed. custom_music_ui passed; a fresh hidden launcher created Music before
+Jukebox and its Sound-button capture was checked. Windows Explorer's interactive
+window was not automated. No full suite, no Switch/Android validation.
+
+
+### 2026-10-20 — P: custom playlist order survives context changes
+
+The custom audio worker used to discard its order and cursor on every context or
+preview-generation change, restarting ordered lists at their first song. It now
+keeps an independent in-memory pass for Menu, Racing, Replay, Slideshow and
+Launcher. Returning starts the next selection in that context; preview does not
+consume that pass. A changed playlist invalidates its saved order. A new process
+still starts a new pass. Existing shuffle insertion and PCM decoding are retained;
+no change to original disc-only playback, settings defaults or physics.
+
+custom_music_sequence switches all five contexts between two distinguishable WAV
+fixtures, previews one track, then checks that every context selects the other
+track. custom_music_sequence_shuffle checks the same non-repeating pass shuffled;
+the WILL_FAIL negative demands the repeated first track. The former worker fails
+the positive sequence test; the fixed worker passes it, shuffle, negative, and
+existing custom_music/custom_music_negative (5 focused tests). Release rebuilt;
+no full suite, no Android/Switch or interactive remote-user verification.
+
+
+### 2026-10-20 — P: first-drive resize and bounded Vulkan transfers
+
+Reproduced the first-drive crash with real SDL window sizes: OpenGL survived,
+Vulkan lost its device and exited 0xC0000005. The width-filled capture requested
+1920x1344 at y=-132 from a 1920x1080 screen. Guide captures now temporarily use
+the fitted game viewport and restore the launcher's fill setting afterwards.
+A second invalid blit on returning to the launcher showed that Vulkan also
+needed the OpenGL transfer semantics: jointly clip source/destination intervals,
+retaining scale and flips, before issuing Vulkan blits/copies. Valid rectangles
+remain unchanged. Integer clip endpoints round to the nearest pixel; no claim
+of exhaustive fractional OpenGL raster equivalence. No physics/new setting.
+
+Four focused tests passed: vulkan_frame and its negative, vulkan_blit_clip and
+its WILL_FAIL negative (valid, clipped, scaled, flipped, empty intervals). The
+real hidden first-drive resize script passed in both APIs at 1920x1080, 640x480,
+and 1280x720, then returned to the launcher without writing settings. Its negative
+omits the first resize and is rejected by the capture-size assertion. Welcome
+capture visually checked. These application checks used an isolated executable
+because the user's running standard executable blocked replacement. No full
+suite; no manual OS maximize-button or Android/Switch validation.
+
+### Event bronze trophy source-colour audit (20 October 2026)
+
+C (material data only): quick-event.ad L837..844 defines 1st.mdl, 2nd.mdl,
+3rd.mdl, then L893 selects piece/prize/ + model_files[order]. The native
+setModelSetPath registration 002BB220 calls 002BE908/002BE938/002BE968:
+the three arguments write loading bits 2/3/4 of ModelFace +0x308, not a
+colour index. The third-place asset really contains a rose material:
+material 1 diffuse RGB (0.4, 0.2, 0.22039999067783356), specular
+(0.6000000238418579, 0.36000001430511475, 0.49112001061439514).
+It must not be recoloured to an assumed generic bronze.
+
+Original 0049CEA0 selects material descriptors and 0049E228 loads their
+ambient/diffuse/specular vectors at +00/+10/+20, storing them at rendering
+context +A60/+A70/+A80. prize_materials loads all three actual disc models
+and checks decoded lit vertices against every source material's ambient and
+specular vectors without tolerance; the third-place diffuse is also checked
+explicitly. The WILL_FAIL negative recolours that source expectation and is
+rejected. Both focused tests pass, dummy audio and no mods. No game code or
+physics was changed by this audit.
+
+A: this proves source hue and material transport only. The complete GPU
+reflection coordinates, blend strength, lighting and final pixels in the
+reported trophy screenshot remain unverified. An embedded-reflection-map
+experiment retained the pink hue and was removed; it is not a shipped fix.
+The trophy rendering issue is not declared closed by the material test.
+
+
+### 2026-10-20 — C/P: GT Auto oil background regression coverage
+
+The original custom-music hotfix executable reproduces the user's exact vertical
+bands on entering GTAutoRoot -> OilChangeRoot with Vulkan/Enhanced at 1920x1080
+16:9. In the background crop its maximum difference from OpenGL is 195/255.
+The bounded framebuffer-transfer correction already delivered in 4e35009 fixes
+this case too: both that v2 package and the current Release retain the authored
+heading, description and textured floor. No additional renderer workaround,
+effect disabling, setting, transaction or physics change was needed here.
+
+New gtauto_oil_background drives the real page through right/accept with an
+isolated Cappuccino profile, both APIs and Classic/Enhanced (texture smoothing
+on for Enhanced). It compares a background crop outside the moving models, max
+channel tolerance 2/255, and requires the expected page and image dimensions.
+Its WILL_FAIL negative repeats a single image row to simulate the lost vertical
+detail. Both focused CTests passed with dummy audio; no full suite. Captures of
+the old build, v2 and current Vulkan were inspected. C is limited to this
+cross-backend crop; the capture/composition remains the existing PC adaptation
+(P), not a PS2 pixel oracle. Paid-animation captures were also inspected on both
+APIs. The user's separate crash was not reproduced by these successful entries;
+this is not a claim that every possible GT Auto crash is solved.
+
+### Completion audit approval list (20 October 2026)
+
+A/P: [Completion audit](notes/COMPLETION_AUDIT.md) reconciles the requested
+15 areas, existing scoped E/C evidence, remaining original F subpaths and
+optional P limitations, with provisional engineering effort ranges. It
+supersedes stale missing-experience/favourites/Screen Setting and demo/gold
+counts by citing later original-code tests. This is document/source review,
+not a new full-game comparison or certification; no audited feature was
+implemented, no suite was run and no new PCSX2 images were available for
+this audit. Local document links were checked. Implementation of that list
+awaits user approval; the custom-car/course publication condition remains open.
+
+
+### Original course gadget shadows (20 October 2026)
+
+C, bounded presentation: the GDGT reader retains the odd shadow model alongside
+its normal even model, selected by descriptor index *2 + pass (003E53B8).
+The race renderer projects it before the normal object using 003E4968's
+homogeneous plane matrix, Env0 +AD0 direction and original Env0 +10 bit 0800
+(00340170..19C / 0033ED28..54). Alpha uses 003983E0's
+(sun*(Env0+AB0 - Env0+AB8) + Env0+AB8)*shade. Depth bias is 0.005 from
+003E4B40..50. Object transforms, contact/physics fields and update cadence are
+read-only; mesh/texture resources remain resident and are freed together.
+This restores an original pass, so it is not an optional enhancement.
+
+gadget_shadow_original compares 2048 complete 16-float matrices/alpha values
+(tolerance 2e-6 absolute/relative) and 4096 model selections against locally
+recompiled original instructions. Independent matrix, alpha and even-model
+negatives fail at their intended assertions. Initial oracle execution failed
+because the excluded draw callback was not bound; the hook was fixed, not
+silenced or skipped. The first GPU link also failed on a nonexistent library
+name, corrected to the existing shared SDL stack.
+
+Both actual-race-view GPU tests load Tsukuba's six model pairs and 59 placements:
+1155 changed RGB pixels on each backend, byte-exact Off restoration and unchanged
+placement-state bytes after draw. Disabled-pass negatives fail on zero changed
+pixels; negative teardown closes video normally. Six original prop-dynamics
+checks plus Coffee Break contact/count and negative regressions pass (16/16
+focused cases total); the four GPU cases pass again after teardown repair.
+Main Windows Release builds. Logs: build/gadget-shadow-final-tests.log,
+build/gadget-shadow-cleanup-tests.log and initial gadget-shadow-oracle-tests.log.
+Captures: build/gadget-shadow-<api>-on.png / -off.png.
+
+A: complete original raster/blending/fog and homogeneous-to-affine placement
+remain unverified against equivalent PCSX2 frames. The diagnostic capture
+initializes its static viewer ground planes with the existing immutable surface
+query; live races retain their original object-state bridge. No all-course,
+reflection/pregrid/PhotoPause or console GPU coverage is claimed. This closes
+the absent shadow pass, not complete race/Classic visual fidelity.
+
+
+### Enhanced night: retain authored local radiance (20 October 2026)
+
+P correction within graphics.night_sky / graphics.daylight, no new option.
+The procedural night multiplied already-lit course radiance by near-zero solar
+irradiance; modern car lighting could also erase the original local RNW4 response.
+The new night_baked GPU positive fails before the fix on both APIs (source20,
+night0). The fragment path now retains its original lit colour before modern
+shading, blends back to that radiance during authored night, then adds optional
+car lamps. HDR retains linear radiance, SDR retains encoded source colour.
+Original fog remains after the mix; the procedural sky is separate.
+
+The weight is 1-smoothstep(-.12,.08,sun elevation), and only nonzero original
+Env0 time zones may retain authored night radiance. Day courses are not forced
+bright at night; noon and Classic have weight zero. The weight depends on the
+same recorded frame clock as the sky, never track labels, wall clock or physics.
+This preserves existing baked artificial light; it is not light-source recovery,
+new global illumination or removal of baked daytime shadows.
+
+Twenty focused GPU tests cover night surfaces/cars, HDR/SDR, source night/day,
+legacy restoration, the existing baked-day/noon path, sky, car lamps and authored
+night guards, including deliberately disabled-source negatives. A car fixture
+initially lacked its modern_light flag and was corrected without relaxing the
+radiance equality. Retained synthetic radiance agrees within 1 byte/channel;
+Off restoration is byte exact. Both APIs captured all 25 source environments
+again: build/night-balanced-<api>/index.html. Route5 now retains lit buildings and
+asphalt; the optional lamps remain additive. No equivalent PCSX2 frames, complete
+source-scene photometry or console GPU certification. Overall visual grade A/P.
+Logs: build/night-baked-before-tests.log, night-baked-final-tests.log and
+night-baked-regression-tests.log. Initial test compile errors were fixture-only
+(include entrypoint alias and light-field name), corrected before GPU comparisons.
+
+
+### Full daily sun/moon cycle (20 October 2026)
+
+P, optional PC presentation: graphics.night_sky plus graphics.daylight enable the
+full daily path. The existing graphics.solar_cycle is exposed as Sun / Moon Cycle
+(Fixed / Real Time / 60x), not a second competing clock. Real Time is one solar
+hour per 3600 recorded-frame seconds; 60x is one hour per 60 seconds, so a full
+cycle lasts 24 real minutes. The sky uses only the recorded frame index /60.
+Sunrise/sunset follow the existing artistic equinox/35-degree model. The moon is
+a stylized full moon opposite the sun, not a lunar ephemeris or monthly phases.
+Stars rotate about that model's celestial pole and wrap with the same 24h clock.
+Moon/star rays below the horizon are rejected before the daytime integrator's
+horizon clamp. Moon radiance uses the existing RGB optical depths
+(.0428,.1,.24414), elevation floor .08 and disc transition .009..008 radians.
+These are presentation choices, not recovered original-game astronomy.
+
+Solar Time now has 25 entries: the existing 24 explicit-hour indices keep their
+mapping; new index24 is Course. Enhanced defaults to Course (12:00 for source day,
+22:00 for nonzero original Env0 time zone); Classic retains inactive index5.
+An explicitly selected 12:00 now really means noon even on a night course; the
+former implicit 12:00->22:00 substitution is removed. Stored indices0..23 remain
+manual hours. New/default presets select Course, not an inference that overwrites
+old modified player choices. Personal presets accept index24. Startup and runtime
+share video_settings_solar_hour, fixing the startup path's previous +7-only mapping
+for late hours. No profile, vehicle command or physics/replay format is changed.
+
+celestial_cycle checks 1441 clock samples over a day, opposite unit sun/moon
+vectors, sunrise/moonrise and actual GPU disc contrast at six times. Star motion
+and exact midnight repetition are checked on both APIs. Moon-disabled and
+clock-held negatives fail their intended assertions. Initial disc comparison used
+the window centre instead of the actual content viewport; querying the viewport
+fixed the fixture without weakening its contrast threshold. The early CPU-negative
+shutdown attempted video teardown before initialization; it now only tears down
+a started device, and returns the intended assertion failure rather than crashing.
+
+celestial_clock uses the actual app: 240 live and replay ticks both publish exactly
+4 seconds / solar23.0666656, pause30 updates preserve the frame count and complete
+scene bytes, and deliberately changed reported time fails. This is bounded clock/
+pause integration, not an entire 24h simulated endurance or universal replay-image
+proof. launcher_quality checks 25 choices, Course/manual-noon resolution, night-hour
+persistence, Classic and Enhanced defaults. Focused sky/baked/lamps/guard regressions
+remain in build/celestial-final-tests.log. Original-code comparison is inapplicable
+to new astronomy; original Classic rendering remains the separate baseline.
+
+Local previews on both APIs: build/celestial-preview-<api>/index.html and cycle.mp4,
+97 fixed-camera Route5 samples at quarter-hour intervals. PNG0 and PNG96 are byte
+identical. No original-game assets/captures are committed. Authored baked lights,
+car lamp activation and callback7 model selection still follow source time-zone
+rules: the optional daily sky does not certify fully dynamically relit tracks,
+automatic day-car geometry swaps or monthly lunar phases. Full scene comparison A.
+
+
+### Optional car-lamp occlusion (20 October 2026)
+
+P: the existing independent `graphics.car_lamps` option now includes a perspective
+shadow atlas for its additive light. Classic Off / Enhanced On; no new setting,
+physics, replay controls or source time-zone/brake gates. The original RNW4 lamp
+shadow/model-3 floor glow passes remain separate. This is a PC adaptation, not a
+claim that these spot shadows reproduce PS2 passes 0038F168/00451EE0.
+
+Each active light gets a 256x256 depth tile (24 maximum, 1536x1024 RGBA8 atlas,
+one reusable depth target). Source geometry supplies the emitter pose. Resident
+course/scenery, posed rigid car bodies/wheels and visible live gadgets are
+submitted from the light's view, independently of the camera visibility list.
+Ghosts, reflection copies and blended non-cutout surfaces are excluded; authored
+alpha rejection is retained. Packed linear depth, four comparisons and a 3 cm
+receiver bias affect added light only; emissive lenses and baked lighting stay.
+Atlas entries are invalidated on each new lamp frame. No GPU readback.
+
+C within bounded tests: lamp_occlusion OpenGL/Vulkan checks an opaque blocker
+behind the viewing camera, movement restoring illumination, transparent glass,
+alpha rejection, final atlas slot 23, HDR and byte-exact Off restoration. The
+negative omits the atlas and fails the same blocked-surface assertion. Real
+Focus/Route5 integration changes 7587 OpenGL / 7604 Vulkan pixels (max 30/channel)
+and restores Classic byte-for-byte, with sampled car/driver state unchanged;
+its no-caster negative fails. 26 focused cases pass including existing solar
+shadow, night radiance, sky and car-lamp regressions. The initial build lacked
+the fixture's miniz dependency; repaired without relaxing assertions. Local log:
+build/lamp-occlusion-regression-tests.log. Native comparison images:
+build/lamp-occlusion-<api>-{classic,clear,blocked,restored}.png.
+
+A/P limits: 256-pixel tiles can alias; caster coverage omits skinned drivers,
+pit crews and particles; light inference still needs a broad car survey. No
+complete-race FPS/memory benchmark, 24-lamp race stress test, console GPU coverage,
+whole-frame API parity or equivalent PCSX2 capture. This closes missing rigid
+world/car occlusion in the tested path, not every transparency or shadow case.
+
+
+### Car-lamp model coverage, ghosts and bounded cost (20 October 2026)
+
+P/C: `graphics.car_lamps` (Classic Off / Enhanced On) now accepts lit kind-1
+pressed-brake geometry, recovering missing rear emitters on F-150, BEAT, R390,
+GT-One and the pace car in the 12-model survey. All twelve night models produce
+two front/two rear candidates; day models retain rear candidates, with the pace
+car's source always-night selection. These counts do not certify optical axes,
+all materials or full PS2 images. Ghost entries no longer emit physical light.
+A native six-car fixture checks all 24 depth tiles, ghost/opaque/day/brake gates,
+pose/driver state preservation and no renderer readback. The initial survey and
+ghost positives failed before their corrections; deliberate negatives fail.
+
+Lamp-only support-point frustum bounds reduce unnecessary shadow submissions;
+19,995 generated-box decisions match an independent corner reference, excluding
+five numerical-boundary cases. Focus/BEAT Classic/lamps/night images before and
+after culling are byte-identical on both APIs (12 comparisons). 38 focused cases
+pass. Native gallery: build/lamp-coverage-gallery/index.html, 24 car/API runs.
+Bounded six-visible-car timing on GTX 1650 is about 14.1 ms OpenGL / 26.9 ms Vulkan
+with occlusion, native 640x480 and other enhanced passes Off. This is a static,
+unpaced snapshot, not a full race FPS or all-options benchmark; Vulkan remains
+a performance concern. Physics and replay formats are unchanged. No equivalent
+PCSX2 capture; full appearance A/P. Details, failures, timings and limits:
+[coverage note](notes/CAR_LAMP_COVERAGE.md).
+
+
+### Direct car-lamp atlas and shadow batching (20 October 2026)
+
+P: performance-only change inside graphics.car_lamps, Classic Off / Enhanced On.
+All 24 256px depth tiles remain; one atlas framebuffer replaces 24 scratch/copy
+transfers. Contiguous caster ranges merge only with identical shadow-relevant
+texture/alpha/brake state and retained visibility, preserving primitive order.
+Directional solar maps retain their previous path. No physics/replay changes.
+42 focused automated cases pass; legacy OpenGL depth also passes the reference
+and deliberate negative. Logs: build/lamp-atlas-final-tests.log and
+build/lamp-atlas-legacy-depth.log.
+C: GPU copy-reference fixture on OpenGL/Vulkan retains 159000 occupied pixels,
+zero alpha mismatches and max depth error 5.96046e-8 (limit 2e-6). A missing-last-
+tile negative fails. Four native before/after six-car images are byte-identical.
+Native submissions fall 4527 to 4080 with the same triangle count. The modest
+paired timing gain is hardware/sample-specific; Vulkan remains above 16.67 ms.
+Depth storage grows approximately 11.25 MiB in the tested D32F/S8 mode; full-race
+FPS, memory residency, broader GPUs, Enhanced combinations and PS2 imagery are
+not certified. [Reference, measurements and limits](notes/CAR_LAMP_COVERAGE.md#direct-atlas-and-shadow-only-batching-20-october-2026).
+
+
+### Tagged emissive lamp materials (20 October 2026)
+
+P: graphics.car_lamps, Classic Off / Enhanced On. Lens emission now follows the
+loaded night-lens/pressed-brake geometry tags, independently of lit/unlit material
+kind. Group creation and draw merging retain that tag, preventing nearby paint
+from acquiring lens emission. Brake release keeps the authored released branch;
+no source geometry, original lighting, physics or replay command change.
+34 focused cases pass on OpenGL/Vulkan, including missing-emission negatives,
+lit/unlit night and pressed branches, released lamps, adjacent-paint exclusion,
+HDR bloom outside the lens and byte-exact Off restoration. Four native BEAT/F150
+API captures retain Classic byte-exact against prior images. Local captures:
+build/lamp-emission-<api>-<car>-enhanced-lamps.png; logs:
+build/lamp-emission-final-tests.log and build/lamp-emission-native.log.
+A/P: generic source inference/axis/output and .22m emission falloff remain; no
+all-car material or equivalent PCSX2 image certification. This extends emission
+to tagged lit lenses, not arbitrary untagged emissive surfaces.
+
+
+## 2026-10-20 — Original backfire interpolation, tint and ground pass
+
+- **E (bounded callback):** `00452F28 -> 00456850 -> 004A7B40` compared
+  with the native draw adapter at 599 particle times. Integer branch and uploaded
+  fractional tween match exactly; the deliberately erased fraction fails.
+- **C (native rendering/data), A (complete image):** both MDLS models and all
+  six branches retain position/UV/RGBA endpoints. Original `00452AC8` uses model
+  0 in the body frame and model 1 in the shadow frame, zero exhaust Y for the
+  ground pass (`00452DD0`), yaw only, local +.02 and projection +.005 bias.
+  `Env0 +17B4..17C0` supplies RGBA, +17C4/+17C8 the independent sizes
+  (`00398718`, `00452A90`, `00452AB0`, `004A60E0`). Ground submission,
+  colour, inactive gate and source-frame positions have bounded adapter checks.
+  Both OpenGL and Vulkan tests demonstrate fractional colour/geometry, tint,
+  and native route5/Focus flame plus ground glow. Missing tween and omitted ground
+  negatives fail. No physics/producer changes; original behavior also in Classic.
+- Decoder allocation now zeroes all triangle metadata (including `night_lens`)
+  instead of allowing allocator bytes to classify a material as a lens.
+- **24 focused tests pass**, including producer, preload, driver/pit tween and
+  optional lamp emission regressions; `build/backfire-final-tests.log`.
+  Initial fixtures incorrectly assumed every vertex had endpoint alpha 1 and
+  required late ground frames below the original alpha-test threshold to draw;
+  corrected to the authored ranges/threshold. The initial scene looked at the
+  car's front; the final rear view exposes the exhaust. A missing-ground negative
+  initially lacked a post-mutation assertion; fixed and rerun.
+- Local captures: `build/backfire-scene-{opengl,vulkan}-{off,on}.png` and
+  isolated `build/backfire-{opengl,vulkan}-{flame,ground}.png`.
+  No equivalent PCSX2 capture, all-car image survey, Switch/Android GPU run or
+  complete PS2/VU pixel comparison. Full-image fidelity remains **A**; this
+  supersedes the historical F for absent tween/tint/ground, not that A rating.
+
+
+## 2026-10-20 — Photo camera regions, edge sliding and PhotoPause restrictions
+
+- **E (bounded data/selection):** `003FECB0/003C9E70/003C9DB0` match
+  6,615 region/centroid samples across all 15 Photo Travel destinations;
+  `003FFC68` matches 1,999 distance/FOV limits with atan as the library boundary.
+- **C (bounded geometry/angles):** native `003FEE08 -> 003C9A38` edge/corner
+  contact and four-pass remaining-movement logic compared with the original on
+  160 consecutive moves per nonempty destination region, absolute point tolerance
+  .002 m. `003FEF60/00370EF8` aiming window, zoom adjustment and rejection compare
+  across 36 headings per region (.001 degree). Host trig is a boundary, not an
+  original-library/pixel proof. The comparator caught and corrected the corner
+  remainder origin and angle-window wrapping; negatives corrupt these results.
+- **E (bounded ordered list):** `003FDC50/003DE268` native active REP4 point
+  ordering, look-back and lap wrap match 505 positions over route5, Tsukuba,
+  Sarthe24, Hong Kong and Motegi, including the start/end seam. The executable's
+  `003DE198` partition base is explicitly zero; no invented spatial partition.
+- **C (bounded rejection):** `00380C50/003FDD60` compare 2,000 camera samples,
+  car dimensions, near clip and FOV. Pose/matrix boundary is identity in this
+  comparator; arbitrary frozen renderer pose conversion remains A. Native
+  PhotoPause now rejects the original enlarged car box, retains the dynamic zoom
+  minimum, and keeps authored height/pitch bounds and maximum FOV per camera.
+  Random camera placement also calls the existing original `003FE7B0` wall query
+  with .15 margin before the ground test. No solver formula, parameter or state
+  was changed. `race_resources` exercises these callbacks and the complete
+  32-MiB world image stays byte-identical while taking/developing a replay photo.
+- `can_shoot` is a writable original property, default true (`00192BE0`,
+  `005CD6A8/005CD6B0`); the shipped photo script tests it and opens its warning
+  dialog when false. Native getter/setter and default now retain that contract;
+  the UI test verifies warning/no photo and then successful capture. This is not
+  evidence of a complete original visibility/occlusion calculation; the former
+  audit conflated the property with that missing proof.
+- **23 unique focused tests pass after repair**, including dedicated region,
+  movement, aiming, point-order, zoom and can_shoot negatives plus existing photo
+  flows and replay memory/return guards. Initial `photo_travel_flow` failed because
+  its fixture lacked the modal warning presenter; added acknowledgement and
+  rechecked the positive and negative. Original run: `build/photo-constraints-final-tests.log`;
+  repaired flow: `build/photo-constraints-repair-tests.log`.
+- Native captures: `build/photo-flow.png`, `build/race-resources.png` and its
+  editor/preview companions. No equivalent PCSX2 capture, all dynamic camera
+  paths/visibility pixels, arbitrary-pose oracle, Switch or Android GPU check.
+  Full camera/Photo Travel fidelity remains **A**. Map-car motion, input ramps,
+  native floor search and complete original visibility semantics still need
+  further coverage; these scoped results do not certify the whole Photo Mode.
+
+
+## 2026-10-20 — Photo Drive viewfinder and original camera HUD
+
+- **C, native integration / A, full PS2 image:** restored the original PhotoPause
+  composition from `003C5AB8`: landscape photograph 410 x 308 at (20,20),
+  portrait 308 x 410 at (20,20), wide horizontal scale 0.75 with source
+  translations 72.480003356933594 / 289.5. The scene previously filled the
+  screen underneath the controls and its optical centre missed the viewfinder.
+  The editor now reserves the original black area for the authored HUD.
+- `/menu/common/racephoto.strb` supplies all geometry, 35 edit fields, bitmaps
+  and scripts; no replacement HUD artwork. Two focus brackets are open,
+  three-segment stroke-only paths (fill FFFF, line table +70, white width 1.75).
+  The STRB player had discarded them. Straight strokes now render from their
+  stored endpoints without closing the path. Curved stroke caps/joins and GS
+  raster equivalence remain **A**.
+- The camera counter uses embedded textured glyphs. The embedded-font path
+  treated their rectangular texture bounds as solid polygons. Bitmap glyphs
+  now retain the authored texture/UVs and the field tint, restoring digits
+  instead of solid blocks. Other font sizing/rounding remains **A**.
+- `003C4BD8 -> 00475488` advances the 12-fps movie by 1/12 per PhotoPause
+  update. The host interval adapter now supplies that cadence at 60-Hz updates.
+  Focus presentation is retained after native depth readback clears its request,
+  until the movie consumes it (`00374130 -> 00380D78` supplies the original
+  camera trigger byte). This repairs the previously lost focus animation.
+  Complete original autofocus/depth and trigger timing are still **A**.
+- Focused GPU tests: `photo_hud` checks original labels/readouts, counter digit
+  transparency, bracket pixels, portrait switching, manual-focus state and a
+  focus pulse after its camera request was consumed. OpenGL and Vulkan each
+  pass; negatives remove brackets, restore solid glyph bounds and restore a
+  full-width photograph. All three deliberately fail. `photo_pause_movie`
+  and its negative also pass: 10 cases total.
+- Initial GPU positives failed because the test expected a 12-fps movie to
+  advance during a 1/30-second interval. The repaired test exercises the actual
+  PhotoPause update adapter. Both initial failure and repaired results are kept
+  in `build/photo-hud-tests.log` / `build/photo-hud-repair-tests.log`.
+- Existing Photo Drive/session, film import/develop and format regression run:
+  15 focused cases pass (`build/photo-hud-final-integration.log`). The session
+  checks full 32-MiB world preservation, camera restoration, save/return and
+  black margins outside the photograph. This does not certify pending CDTL,
+  GDGT or SMOK reconstruction work. No physics formulas, parameters or state
+  were changed. Vulkan session evidence: `build/photo-hud-vulkan-session.log`.
+- Native captures: `build/race-resources.png.editor.png` (OpenGL),
+  `build/photo-hud-scene-vulkan.png.editor.png` (Vulkan), plus isolated authored
+  HUD captures `build/photo-hud-opengl.png` / `build/photo-hud-vulkan.png`.
+  No equivalent PCSX2 image was captured: full Photo Drive appearance stays **A**.
+  Android/Switch were not built or exercised for this change.
+
+
+### 2026-10-20 — P: launcher initial saved paint
+
+studio_run previously awaited the default-colour model, then asynchronously
+requested the selected colour. A live course scene could read the old active
+paint and stop pumping the room until another action. It now submits car and
+paint atomically with showroom_set_selection before waiting for readiness.
+No new preference, original game logic or physics change.
+
+launcher_initial_paint starts with Cappuccino '91, selected second paint (Saturn
+Silver), and a Tsukuba launcher scene, without simulated user actions. The first
+model load must report the matching authored colour ID, the scene must load and
+a capture must exist, on OpenGL and Vulkan. The old v2 executable fails this
+check (initial colour ID 1 instead of 2); the fixed Release and deliberate wrong-
+paint WILL_FAIL negative both pass (2 focused CTests, dummy audio, no full suite).
+Silver captures were visually checked on both APIs. Coverage uses isolated
+launcher preferences, not every imported save/paint combination. Startup's
+existing saved-car extraction remains unchanged.
+
+### 2026-10-20 — P: live controller tile layout
+
+`interface.controller_tiles` now updates an already-built Options page on its
+next menu tick. Classic restores the disc device tiles and translated labels
+(option.ad L228..310). By Player starts from that baseline before hiding wheel
+model tiles. No repeated row compression or project reopening.
+`controller_tiles_live` switches both values six times, checking labels, exact
+height/positions, child count and recovery from a hidden focused tile.
+Its WILL_FAIL negative skips the update and catches the stale layout.
+Both focused tests passed. No device binding or vehicle physics changes.
+
+### 2026-10-20 — P/C: Driving Missions mouse grid
+
+The existing desktop mouse setting now scrolls horizontal ScrollWindow content
+with the wheel, using the existing viewport-fraction step, clamping and easing.
+Classic controller navigation is unchanged. MissionRoot has two rows extending
+horizontally; the old mouse path only handled vertical spaces or strips.
+`mission_pointer` loads all 34 authored cards, checks the original focus overlay
+fade (gtmode.ad L8854, L9007..9015), partial intermediate opacity in both directions,
+horizontal easing and unchanged controller focus. The overlay intentionally fades
+out on focus in the authored script. Its WILL_FAIL negative restores the old
+zero horizontal target. Both focused tests passed. No added hover artwork.
+
+### 2026-10-20 — C/E: oil colour and warning lamp
+
+Fixed two presentation omissions without changing wear, power or physics.
+MColorObject.interpolate follows 00203A60..00203ABC: first*t + second*(1-t),
+not first*(1-t) + second*t. OilChangeRoot L12018/12019/12094 supplies dirty
+(100,90,30) first and clean (240,195,85) second. gtauto_oil_color runs the
+actual authored page for fresh/worn car state, checking both endpoint RGBs;
+its WILL_FAIL negative reverses those colours. Intermediate RGBA floating
+point parity remains unproved; this grade C covers the authored endpoints.
+
+The race presentation reads watched-car wear+8 against D_00620320+20,
+00344640 -> 003437B0 -> 00350830; 0039E2F0..0039E308 maps false/true to
+0/2 using D_006A06A0. Previously both HUD layouts always passed zero.
+The shared boundary predicate matches the recompiled getter at 12,288
+normal-float below/equal/above-threshold cases (E in that scope).
+Both chase/onboard drawing paths now display the original sign; split-player
+and watched-car bridges read their own car. hud_oil_warning observes actual
+HUD draws in both layouts. Three positive tests and three WILL_FAIL negatives
+passed. Visual parity of every dashboard and whole races remains separate.
+
+### 2026-10-20 — C: Warning versus Info dialog presentation
+
+The application previously hid caution/bgE/titleE unconditionally and supplied
+Info even when the script omitted its title. Shared dialog styling now follows
+cursor.ad ConfirmDialog.open L169..203: type 2 shows the authored warning art
+and warning heading; types 0/1/3/4 restore the normal heading. Missing captions
+come from the disc's Confirm/Dialog/Incomplete translations. Explicit titles
+are retained. The VM bridge preserves an omitted title for that selection.
+`dialog_style` uses the real cursor project, alternates all five types on the
+same dialog and checks warning art, both headings and translated/explicit titles.
+Both focused tests passed; the WILL_FAIL negative hides the caution icon.
+This proves the common style boundary, not every warning trigger in every game
+mode. Existing button handling, default selection and opening/closing actors
+are unchanged; full PS2 pixel comparison remains outside this test.
+
+### 2026-10-20 — C/A: car maintenance and tuning audit
+
+Focused audit: 28 service/Quick Tune/transmission/fitted-purchase checks passed,
+including their intentional WILL_FAIL negatives. Original service value, Mot1
+channel and placement oracles retain their existing narrower E/C grades.
+GT Auto wash/oil script transactions, 50-credit charge, refusal with 49 credits,
+full body persistence and cached reopen pass in gtmode_gtauto_menu. Camera
+fade/lift/shadowOpacity sampling remains checked by gtmode_service_motion;
+whole mechanic images and every service animation are not newly certified.
+
+Three Settings menu tests passed (A/B/C ballast edits and negative control/flow
+cases). Four engine/gear curve tests passed: stock and upgraded disc catalogues,
+plus curve/label negatives. This audit changes no simulation arithmetic.
+New tuning_effects executes the native setParts callback for a Ford Ka's three
+LIGHTWEIGHT and three MUFFLER stages, then rebuilds equipped vehicle statistics.
+Mass changes 965 -> 936/907/878 kg; power changes 6155 -> 6278/6401/6462 in
+native hundredths. The WILL_FAIL negative substitutes unchanged stock stats.
+Both tests passed. This proves equipped effects for these parts/car, not every
+Tune Shop purchase, price or arbitrary upgrade combination.
+
+A: smooth wheel/wing preview replacement still requires the original CarModel
+virtual setters' transition proof and a matching visual capture. gtmode.ad
+WheelShopRoot.tryon L11645 and WingShopRoot.tryon L12311 assign the parts directly;
+that alone is not evidence of the native model fade. No guessed fade was added.
+The common warning style is fixed separately; exhaustive warning triggers remain
+part of the dynamic UI audit. These limitations are explicit, not a claim that
+all car features or all screens now match the PS2.
+
+
+## 2026-10-20 — P: coherent realistic sky/lighting controls and reference pass
+
+P: user-requested Realistic Lighting / Realistic Skybox / Realistic Car Lamps
+labels, with the former time/night/material/HDR/shadow controls folded into
+the first two switches. Classic disables the added rendering. New daytime
+clouds attenuate sunlight; direct/sky balance follows a measured noon ratio,
+with relative sun normalization and no global saturation boost. The user's
+requested warmer direct sun is a luminance-preserving artistic tint, not a
+measured solar spectrum. Environment
+reflections now integrate GGX roughness instead of a fixed angular cap.
+
+C (bounded native/GPU checks, not PS2 fidelity): 28 focused renderer/settings
+checks pass in build/realistic-warm-tests.log, including deliberately failing
+negatives on OpenGL and Vulkan; 6 UI checks passed in
+build/realistic-lighting-ui-tests.log. Covers analytic direct response,
+independent white-environment quadrature, roughness broadening, direct/fill
+contrast, clear baked noon preservation, cloud repeatability/motion and Off
+restoration. Native paired Classic captures have zero changed pixels and
+identical 32 MiB race state against the previous local binary, whose precise
+source revision is not known. New native images are local only.
+
+A/P: this does not establish photorealism or equivalent original imagery.
+PS2 baked textures, LDR probes, generic material conversion, approximate cloud
+transport and complete-radiance post AO remain limitations; no equivalent
+PCSX2 capture, Android/Switch or broad GPU performance validation.
+[References, failed attempts and exact scope](notes/REALISTIC_LIGHTING.md).
+
+
+### 20 October 2026: mission mouse edges and controller scroll takeover
+
+- **P**, existing `controls.desktop_menu`: horizontal mission grids now share the
+  manufacturer edge-pan adapter; the fixed clip viewport keeps its hit bounds
+  while content moves. Both edges preserve the authored selection and feed the
+  existing optional smooth cursor animation. The GT Mode map retains its separate
+  edge-pan setting. Classic input remains covered by `desktop_pointer`.
+- **P**: switching from mouse scrolling to controller navigation restores the
+  selected row immediately in SelectBox strips instead of easing from an unrelated
+  clipped offset. Real Jukebox MusicRoot navigation covers its 65-song list,
+  top/bottom offsets and controller continuation; Missions also resumes navigation.
+- **C**, ListBox signed `drag_index` getter/setter only: original callback
+  002AEEB0, read 002AEEE8, write 002AEF78 (+12C), inactive state -1 from
+  002B5270. The Jukebox script reads this at slide L1181/L1266; an undefined value
+  previously selected the wrong state path. Full drag-reordering is not claimed.
+- Focused verification: all 10 cases passed: desktop_pointer and negative,
+  scroll_takeover and negative, mission_pointer and negative, jukebox_takeover and
+  negative, mission_edge_negative and scroll_strip_takeover_negative. Negative
+  cases use WILL_FAIL and deliberately restore the fault; audio is dummy.
+  Release MoonEngine.exe rebuilt. Static UI audit regenerated locally (44 classes,
+  427 properties, 1042 engine names); no full suite or physics changes.
+
+
+### 20 October 2026: custom Menu songs are map-only
+
+**P**, existing audio.custom_music/audio.jukebox_folders: Menu overrides only the
+MAP MIDI group. Other menu MIDI groups and menu PCM retain their disc music;
+Race, Replay and Slideshow custom contexts remain independent. Original evidence:
+extracted/ui_audit/gtmode/gtmode.mproject L2405 requests MAP; HOME is separate at
+L3385/L3506, consumed by request_music in menu_engine_objects.inc.
+The MIDI callback test enables a fake custom source, verifies MAP replacement and
+Arcade exclusion. The PCM bridge compares both default_quick tracks to disc PCM
+with the custom source installed and verifies contexts 1/2/3 still override.
+All eight focused audio tests passed, including menu_custom_scope_negative and
+menu_custom_pcm_scope_negative (WILL_FAIL), plus existing transport/preroll/loading/
+volume negatives. SDL_AUDIODRIVER=dummy; no full suite. Release rebuilt; static
+UI audit regenerated locally. No change to original music when custom songs are off.
+
+
+### 20 October 2026: launcher Options text lifetime, all rows
+
+**P**, launcher-only correction (no PS2 counterpart): all Options text goes through
+one scoped opacity boundary at dock_name_pass, including preview captions,
+Classic/Enhanced facts, warning notes and their shadows. Existing panel colours
+cannot outlive the panel even if a helper supplies a fixed alpha; the boundary is
+reset before drawing the launcher itself. This fixes the newer facts helper's
+constant opacity without changing other sessions' preview/layout work.
+Reproduced with the previous private release, Quality > Anti-Aliasing: after
+closing, the yellow Classic/Enhanced line remained (maximum channel delta 234,
+4267 changed channels in the checked region).
+`launcher_options_ink.py` exercised every visible row in all six tabs (60 rows)
+at partial and sub-byte opacity on OpenGL and Vulkan. Real closed Quality and
+Interface captures match the bare launcher exactly in the tested right-column
+region. Its negative disables the text boundary and fails on an actual leaked
+caption; registered launcher_options_ink_negative passes with WILL_FAIL.
+Dummy audio, isolated launcher preferences, no full suite. Updated the local
+executable and private Windows package revision 2; UI audit regenerated locally.
+
+
+### 20 October 2026: runtime can_focus in GT Mode Courses
+
+**C**, runtime focus gating only: original can_focus registration 00258D9C /
+0025C964 binds 00256B58, which calls 00265F10 to update widget+98 bit 16.
+The authored GTmode CourseEntryRoot set_can_focus L3306..3309 and init_mode
+L3118..3130 enable the course rows or the race-mode buttons exclusively.
+The port previously stored writes outside the native widget while getter,
+controller collection and pointer collection kept using static defaults.
+Runtime overrides now reach all three paths without changing the defaults.
+The regression failed before the fix on the first disabled FreeRun button.
+`course_entry_buttons` / `_mouse` check all 29 currently available course rows
+across six categories, race-button focus, outgoing-list exclusion, Back restoring
+list navigation and no additional VM errors. The two pre-existing optional-arrow
+actor diagnostics at script L3293/L3295 are outside this correction. Negative
+removes the override and fails the same assertion (WILL_FAIL).
+All 11 focused course/pointer/mission/Jukebox/scroll cases passed with dummy audio;
+no full suite. Local UI audit regenerated and Release executable updated.
+Limits: real captures with a copied player profile opened the buttons both with
+and without audio before the correction; the user's prolonged intermittent wait
+was not reproduced. User confirmation of that symptom remains pending.
+
+
+## 2026-10-20 — P/C: pregrid sky initialization and cached Enhanced shading
+
+P: supersedes the constant warm filter/artificial orbit in the earlier realistic
+lighting pass. Course sky artwork retains original sun/moon placement. Surface
+light follows the first enabled Env0 direction (00398210), and the pregrid now
+initializes the same environment as the race. High sun is neutral, low sun warmer;
+course celestial movement is suspended as requested. The clouds remain moving.
+
+C, bounded native/GPU integration:42 unique focused checks passed, including
+negative failures, on OpenGL/Vulkan. Cloud volume/shadow lookup and linear
+reflection-source decode reduce repeated per-pixel work; the32 GGX samples and
+original shadow/lamp features remain. Classic comparison has zero changed pixels;
+all32MiB race state matches before/after for both presets/APIs. Saved baseline
+was copied before this task. Six native course/API direction checks cover
+Tsukuba/Laguna/Route5; a source-colour fixture rejects synthetic sky replacement.
+
+Local GTX1650/1600x900 grid benchmark: mean frame29.979→16.797ms OpenGL,
+35.424→21.937ms Vulkan; Vulkan GPU24.216→10.077ms. Scope is one90-frame sample,
+not a whole-game60fps guarantee. Lookup approximation and existing PS2 renderer
+limits remain; no equivalent PCSX2 capture, full-course celestial survey or
+console validation. Failed Vulkan allocation and discarded preliminary timings,
+exact tolerances, captures and remaining limits are recorded in
+[the performance note](notes/LIGHTING_PERFORMANCE.md).
+
+
+## 2026-10-20 — C/P: invariant lighting submission and building-colour comparison
+
+Native paired captures remain byte-identical in Classic and Enhanced on both
+renderers after removing repeated per-material view uniforms, caching lens-tag
+state and indexing Vulkan sampler uniforms at link time. All32MiB race state
+matches the pre-follow-up binary.32 focused graphics tests pass, including
+missing material/sky/reflection/lens-emission negatives. Small local total-frame
+gain (~5% GL/~3% Vulkan), not a guaranteed frame rate or GPU-shading speedup.
+
+The Tsukuba building's mauve tint is also visible in the Classic capture at the
+same camera. This does not establish whether the original PS2 artwork or a base
+renderer difference causes it: equivalent PCSX2 comparison is pending (A).
+Retained source sky artwork supplies the visible celestial placement; this is
+separate from the enabled Env0 light direction used on surfaces.
+[Captures, metrics and limitations](notes/LIGHTING_PERFORMANCE.md#20-october-2026--submission-overhead-follow-up-and-tsukuba-building-tint).
+
+### 20 October: tuning values and controller adjustment cursor (C, bounded)
+
+Original evidence: setting.ad setupSlider L77..111 prints disabled bars as `--`
+and gear ratios with `%.3t` through MUtilityGetFormatString (00490A40).
+Support the three-decimal format: previously GearRoot.onInitialize aborted at
+L111 after the first upgraded gear. MScaleBar uses its popup child at +0xF0
+(00238D10), whereas MSliderBar uses the popup digit. Integer-backed ScaleBars
+now open before editing and cancel/confirm correctly. Opening hides the context
+arrow (00238BE0 +4C, 002DF738 +4C -> 002306D0(context,0)); closing restores it
+(00238C60 +84, 002DF7B0 +6C). Keep the authored pinch hand and mouse behavior.
+
+`setting_display` runs stock/equipped Ka and Civic SiR-II: 34 resolved panels,
+166 nonempty slider labels, disabled gears, NOS ownership masks, gear edits,
+confirm/cancel, 128 controller focus moves and original cursor_align=3 targets
+for sliders/dropdowns. Two WILL_FAIL controls remove a gear label or restore
+the duplicate arrow. Eight focused tests passed, including menu navigation,
+setting lifecycle and catalog positives/negatives. Catalog run intentionally
+limited to three cars: 189 panels/153 adjustable controls. Fixed older fixture
+errors that stepped closed popup bars and returned success on failed assertions.
+Main Release rebuilt; static UI audit regenerated. Physics unchanged.
+
+Limits: no new PCSX2 visual comparison, full-catalog claim or Switch validation.
+Missing native part-row ranges remain errors; this does not prove all unavailable
+wrenches/panels or the user's other reported tuning UI problems are fixed.
+
+
+### Wheel purchase diary category enum (20 October 2026)
+
+C: the diary bridge now loads CORE table 006A5180 (NONE, NORMAL, RACING,
+DIRT, SNOW), initialized by 0042F7A8..0042F7C0 and read by 00134474 ->
+0042EEF0. It no longer substitutes wheel fitting's different four-entry
+0068FB80 enum (NORMAL_SPORTS, RACING, DIRT, SNOW). The write bridge follows
+00135208 -> 0042EF18: inverse lookup with zero for an unknown name.
+In particular the authored shop's NORMAL_SPORTS becomes NONE, as in that
+original lookup, rather than leaking WheelCategory_NORMAL_SPORTS to the page.
+Existing event bytes are read as stored; no speculative save migration.
+
+diary_wheel_labels checks all five actual MCalendar.getEvent results and
+localized disc text for all four nonempty categories; its WILL_FAIL negative
+reintroduces NORMAL_SPORTS and fails. fitted_purchase/negative pass. The
+shop-catalog fixture passes all four written wheel categories, wing events,
+and reserved-byte checks, as well as actual purchase/save/reload.
+A: no equivalent PCSX2 diary screenshot was captured; category text and
+schemas are checked, not full visual equivalence. Physics untouched.
+
+### 20 October: tuning field/cursor visual mismatch (C)
+
+Corrects the earlier cursor-only validation: comparing a cursor with our own
+widget rectangle does not establish its alignment with the visible PS2 field.
+Local PCSX2 slot 01 backup screenshot shows SettingRoot's Exhaust background
+at x78..258 (180 units), while the old native background ended around x234.
+The widget/cursor already used 180: the inherited ImageFace was drawn using
+its source PNG size. Original 002A2608 +7C..C0 draws the current client size;
+00230B68 -> 0025BAA0 and 00230CF8 use the widget rectangle, inset 2. Preserve
+that anchor and make Setting image backgrounds fill their inherited clients.
+The closed/popup retained entry (002C8198 -> 00263368) and its authored
+highlight/disabled overhang now follow the same width. No manual cursor offset.
+
+Nine focused tests pass, with three existing intentional negatives and the new
+WILL_FAIL setting_field_negative restoring the old narrow field. Render-call
+checks cover normal/selected field dimensions and reject short backgrounds.
+The strengthened observer and three negatives were rerun after its last edit.
+A test-only optional directory exports an isolated equipped Civic profile for
+screenshots. Captures cover parts, gear selection/editing, brakes, NOS, ballast
+and aids; local PCSX2 backup is used for the parts-layout comparison. Release
+rebuilt, static audit regenerated, physics untouched. Full-screen pixel identity,
+all labels, unresolved tuning ranges and Switch remain outside this proof.
+
+
+### Photo Travel preview return and pointer focal control (20 October 2026)
+
+C native regression: photo_shoot.ad PreviewRoot.onCancel L2890..2892 calls
+panOut, syncOut, startPage(ShootRoot). The adapter's shared render surface
+kept that completed outgoing fade opaque indefinitely. Reproduced with the
+old code: active root was ShootRoot, fade opacity 1, remaining time zero.
+The photo_shoot page boundary now queues the incoming leg using the existing
+transition's period, retaining destination initialization overrides.
+A: native context/surface adaptation; original per-context transition and
+GS composition have not been proved with an equivalent PCSX2 capture.
+
+P under the existing controls.desktop_menu option: wheel input opens the
+targeted floating ScaleBar before adjusting, and direct drag preserves its
+floating range/step and one-argument authored onValueChanged callback.
+Previously a closed focal control routed wheel detents as focus navigation;
+float ScaleBars were excluded from direct drag. Controller cancel still
+restores its saved value. No physical camera constraints or physics changed.
+
+photo_travel_flow checks twelve increasing wheel detents, drag to maximum,
+persistence after mouse exit, shot/PNG/frozen preview, return with fade zero,
+new shot with changed camera, and destination re-entry. The presenter also
+draws/animates during synchronous transition waits. Regression negative
+photo_preview_return_negative restores opaque black and fails; pointer
+negative dispatches the old closed-bar arrow path and fails. Existing export
+hash negative still fails. Twelve focused CTests pass, including desktop
+pointer/navigation and Photo Drive entry, with their negatives.
+
+GPU runs also pass on ss_grandcanyon with Realistic Lighting/Skybox, material
+shading and HDR enabled, separately in OpenGL and Vulkan. Local captures:
+build/photo-canyon-gl.png, build/photo-canyon-gl.png-return.png and Vulkan
+counterparts. Brooklyn covers the default/original rendering settings.
+An initial Canyon fixture failed its fresh-image hash check after zooming
+all the way into a wall: moving an off-screen car did not change that image.
+The check now restores framing and changes live camera yaw as well; frozen
+preview and fresh-shot checks both pass. No emulator, Switch or Android QA;
+this does not prove every possible cause of a black screen is eliminated.
+
+
+### Light & Shadow settings-page crash (21 October 2026)
+
+C native UI correction: the Light & Shadow row table mixed launcher API VS_*
+identifiers with the independent in-game widget indices. The car-lamp entry
+accessed beyond the 41 allocated rows. The table now references rows 25,26,39;
+an absent Options focus is also guarded when determining an entry page.
+The real executable previously exited with 0xC0000005 after printing the page
+title. settings_pages now opens all six pages with disposable preferences,
+checks the three intended Light & Shadow controls, and captures every page.
+Its negative rejects a deliberately wrong page identity. Both CTests pass.
+An initial build hit an unrelated in-flight launcher declaration conflict;
+the current shared tree builds again. No physics or graphics value changes;
+this verifies native routing/memory safety for these pages, not PS2 pixels.
+
+### 21 October: launcher controller binding list (P)
+
+The launcher cycled live physical-key assignments through studio_binding_set.
+Passing an occupied key immediately removed its prior assignment. Controls now
+open a two-column list: a pending selection changes on hover/key/pad navigation,
+confirmation edits the live map, and cancel leaves it untouched. A destination
+already occupied by another action is named before confirmation. Same-value
+confirmation is a no-op; changing a function no longer rebuilds unrelated actions
+or erases their alternate bindings. Storage remains launcher_options' existing
+per-player controller map. This is host editor presentation/repair, not an
+assertion about a new original PS2 menu or altered vehicle input physics.
+
+Four focused CTests passed: launcher_bindings / launcher_binding_input and their
+WILL_FAIL negatives. They cover all 11 pending action choices for both player
+indices, signed list navigation, byte-identical browsing/cancel/no-op behavior,
+intentional destination reassignment, alternate bindings, and actual launcher
+key events, mouse hover and direct mouse selection with isolated preferences.
+Negatives restore live mutation during browsing and are rejected. Captured and
+inspected the real list layout; English labels, every key visible in two columns.
+Physical controller hardware was not exercised; its edge handling shares the
+pending/confirm state. Main Release rebuilt; static audit regenerated. No push.
+
+### 21 October: procedural sky layers and night guard (P / A)
+
+Realistic Skybox now replaces source sky radiance instead of retaining its
+cloud layer under procedural clouds. The authored-environment flag still
+calibrates surface irradiance. Day-only sky settings also leave authored night
+sky and reflection sky untouched. The existing Env0 solar/lunar directions
+are unchanged; Motegi carries the original night time-zone flag.
+Full daylight sky radiance is cached at 256x128 with the existing deterministic
+clock; night stars/moon and the solar disc bypass that cache. This reuses the
+existing sampler budget in both backends. Night avoids daytime scattering work.
+Focused OpenGL/Vulkan sky and cloud-cache checks pass, including deliberately
+retained-source, disabled-cloud and bright-night negatives. Real Motegi and
+Hong Kong captures are under build/oct21-*-fixed-*.png: no equivalent emulator
+frames were captured, so real-course visual comparison remains A. An initial
+extra-sampler implementation exceeded Vulkan's limit; it was removed and the
+GPU tests passed with sampler reuse. No physics changes or universal FPS claim.
+
+### 21 October: low-beam receiving surfaces (P)
+
+Realistic Car Lamps now orients receiver normals to the visible side before
+its diffuse calculation. Opposite source winding previously removed received
+light. Front radiance is increased inside this existing optional effect and
+uses a soft horizontal low-beam cutoff with a right-side upsweep. Lamp placement
+and direction still come from authored geometry; original lamp activation and
+Classic rendering are untouched. Geometry depth still occludes lamp light.
+The generic pattern uses world gravity, not body roll or market-specific optics.
+This is an approximation, not measured IES photometry or a fidelity claim.
+Reference: HELLA TechWorld headlight-adjustment and light-distribution guidance.
+OpenGL/Vulkan surface, winding and cutoff tests and failing negatives pass.
+A Route5 native capture shows illuminated asphalt/curb in front of the car
+(build/oct21-headlamp-road-enhanced-lamps.png). Equivalent PCSX2 capture was
+not taken; varied weather, all cars, slopes and hardware costs remain unverified.
+
+### 21 October: loading handoff reveal (C adapter / A visual coverage)
+
+A queued sequence or replacement Quick command no longer reveals its outgoing
+page between fade-out and the app-owned destination loader. nat_finish also
+retains black for replacement commands; save/load dialogs retain their existing
+reveal. Original source scripts still select the fade periods and destination.
+The new positive failed before the repair, then menu_navigation, its forced
+reveal WILL_FAIL negative and photo_travel_flow passed. It covers both queued
+projects and COMMAND_START through the actual native finish entry point.
+This proves the handoff gap, not every loading transition or PS2 frame timing.
+No physics changes. Car settings checks also passed with all three negatives:
+a gear ratio keyboard step is 0.001 (one stored unit), not 100 units. Absolute
+pointer placement can span more units per pixel; no tuning formulas changed.
+
+### 21 October: reflected coating independent of highlight exponent (P)
+
+Realistic Lighting no longer maps the legacy highlight shininess to environment
+reflection roughness. These are separate authored passes. The existing optional
+reflection mask now uses a smooth dielectric coat (roughness 0.1), preserving
+source tint/mask/strength. Direct highlight conversion is unchanged; this does
+not infer metallic flakes, chrome, paint class or measured material properties.
+Reference: https://google.github.io/filament/Filament.md (clearcoat model).
+The new exponent-invariance positive fails against the previous shader. Both
+APIs pass all 18 focused material/environment checks, including removed-reflection
+and bypassed-cache negatives. Independent incident-direction quadrature checks
+white-environment energy at normal and grazing incidence. Initial old roughness-1
+oracle expectations failed after the change; the oracle now integrates roughness
+0.1 and uses the actual pixel view angle. A coarse quadrature under-resolved the
+grazing lobe; increasing its resolution converged to within one display byte.
+Classic restoration remains byte-exact in the fixture. Whole-car comparison,
+all paint types and equivalent emulator images remain unverified (A).
+
+### 21 October: authored sheen coverage versus guessed asphalt (P / A)
+
+The modern additive sheen compositor treated every pixel in the original
+003411D0 destination-alpha mask as rough horizontal asphalt, multiplying
+radiance by 0.04..0.10. The mask does not carry that material classification.
+The compositor now preserves source tint, mask, blur and intensity; encoded
+LDR-to-linear conversion for HDR is unchanged. Classic output is unchanged.
+A controlled GPU positive failed before repair (normal/grazing 10/17 versus
+153 reference), then passes on GL/Vulkan with zero coverage still zero.
+The retained rough-road-named negative explicitly reduces sheen radiance and
+fails. Six focused daylight/sheens CTests pass. No track-name exceptions.
+The read-only course_surface_probe captures arbitrary cameras, Classic/modern/
+no-sheen and optional HDR, and surveys geometry without simulation access.
+Hong Kong orla captures remain dark in both native paths; this viewpoint did
+not visibly change after the compositor correction. The user's black-water
+report is still A, not fixed. The mask defect is separately proven. No equivalent
+PCSX2 frame is available. Local captures: build/oct21-water-*.png.
+
+### 21 October: keep selected RNW4 lamps in modern shading (C data / P shader)
+
+The read-only RNW4 selector now carries whether it selected a local candidate
+list (0038E960..0038EBF0), distinct from the global Env0 rig. Original uploaded
+directions, attenuation and colors are unchanged and still match the native
+oracle in 192 cases, including missing lists. Modern shading previously discarded
+all but one lamp and replaced it with global solar radiance. Selected local
+rigs now retain every uploaded direction/color, without solar cloud shadows or
+a solar tint over artificial light. Classic does not use the new shader flag.
+GL/Vulkan positives cover a second colored lamp with the solar source off;
+removing the local flag fails. Changing the unused first light cannot alter
+that result, and Classic images are identical with/without the metadata.
+Seven focused GPU/native light checks pass with negatives. This is not a new
+track light generator. The surveyed disc uses RNW4 custom lists on Route5,
+Las Vegas, Paris and some Photo Travel places, not Grand Valley. Therefore
+this correction alone does not resolve the Grand Valley tunnel report.
+
+### 21 October: authored baked light loses shadow detail through host tone mapping (P / A)
+
+The confirmed report is Grand Valley's fully enclosed tunnel, not the gallery
+with side openings. Native read-only captures reproduce darker walls with modern
+lighting/HDR. Authored baked course colours were decoded as reflectance and
+compressed by the host filmic curve again: a neutral controlled level 13 became
+4. The retained authored-night HDR world path similarly turned source 20 into 8.
+For authored world draws only, the colour now lifts through the inverse of our
+own host compression curve before optional relighting and the final compression.
+This is a display-preserving host adaptation; it does NOT assert that GT4 used
+ACES, recover physical albedo, remove baked shadows or invent new tunnel lamps.
+The authored-night world retention path uses the same lift in HDR.
+Thirty-two daylight fixtures (four intensities/four normals, SDR/HDR) preserve
+Classic display levels within two bytes; night fixtures do likewise. Positives
+failed before repair, and targeted negatives removing the authored handling fail
+at those new checks. Existing negatives retain their separate entry points.
+Nineteen focused light/baked GPU/native CTests passed in OpenGL/Vulkan; after a
+test failure-return cleanup, all six night cases passed again. No full suite.
+Grand Valley enclosed-tunnel captures: build/oct21-grandvalley-full-fixed-*.png
+and full-vulkan-*.png. Static wall crops changed from 29.94/5.15 to 58.25/13.52
+red mean on the sampled left/right areas; Vulkan agrees within .01 crop mean.
+Classic before/after captures are byte-identical. These are native comparisons,
+not equivalent emulator frames, so whole-tunnel parity remains A. The static
+probe car has neutral ground-light input and does not certify live CarOnGround
+lighting or physical lamp pools. Hong Kong HDR captures also retain more source
+detail, but sea animation/reflection completeness is still unproven.
+Release MoonEngine.exe rebuilt; no simulation changes, assets or push.
+
+### 21 October: Units mouse return navigation state (C host lifecycle / A full report)
+
+Page entry now releases the outgoing desktop hover, drag, dimmed-focus and
+scroll ownership, removes its UI pointer target and cursor hold, and permits
+the incoming script to establish focus outside an old hover dispatch. Native
+selection/defaults remain the authored page's responsibility; no setting values
+or physics change. This also applies to cached page entry and modal return.
+The real-disc lifecycle positive now leaves UnitRoot through the mouse dispatch
+path, with OK hovered. It failed before repair because the hidden outgoing OK
+remained the hover owner; seven apply/cancel cycles now clear transient state
+and allow navigation on OptionRoot. A stale-owner negative fails. Seven focused
+menu/options checks pass, including profile persistence and existing negatives.
+The test helper originally assumed option lists wrapped downwards; it now moves
+toward the requested index to respect bounded native dropdowns. The keyboard-only
+return worked before repair. This reproduces stale mouse ownership, not every
+possible cause of a complete freeze; full application mouse/keyboard QA remains A.
+
+
+## GT Auto independent mechanic fade (21 October 2026)
+
+C (host composition): the camera Mot1 fade reaches the additional-model
+context at 00232388..A0; 00217420..48 also separates contexts for flags,
+not only a translucent car body. The host had combined crew with a fully
+opaque body, discarding their fade until the original 0.02 cutoff. Separate
+unequal opacities now preserve the camera fade in both reflected and normal
+passes. No authored duration/channel, geometry or physics was changed.
+The disc-backed oil/wash GPU fixtures hold geometry/camera fixed and check
+0/0.5/1 crew opacity: before correction zero intermediate colour channels;
+afterwards oil has 18,851. A negative forces opacity one at the midpoint
+and fails. Nine focused composition, original-motion and GT Auto menu checks
+pass, including negatives. Local captures: build/gtauto-oil-fade.png.fade0.png
+through fade2.png and the corresponding wash captures.
+A/open: no equivalent PCSX2 capture; complete service/end-navigation visual
+parity is not asserted. Wheel/wing preview fades are a separate enhancement.
+
+
+## GT Auto optional wheel/wing transitions (21 October 2026)
+
+P: interface.part_preview_fades holds the previous resident GPU preview while
+the replacement loads, then uses a 0.12-second smoothstep crossfade. It never
+retains the freed model, reads pixels back or mixes the Options/HUD layer.
+A changed page, car, viewport, hidden showroom or disabled option clears the
+transition ownership. Authored WingShopRoot.tryon (gtmode.adc L12304..12)
+only changes CarFace.wing; no original fade is claimed. Classic disables the
+new setting and preserves the former replacement path. No physics changes.
+Disc-backed S2000 wheel and wing tests exercise three immediate requests,
+require unchanged RGB throughout loading and intermediate pixel values
+after installation. OpenGL and Vulkan pass; disabling the effect makes the
+negative fail. Shared-store and Classic/Enhanced persistence checks pass;
+all six native settings pages open, including the new Graphics control.
+Ten initial focused checks and six final focused checks passed, including
+negative controls. Local midpoint captures: build/gtauto-parts-opengl.png.wheel.png
+and .wing.png, with Vulkan counterparts. A/open: Android/Switch, allocation
+failure, arbitrary camera animation during a swap and equivalent PCSX2
+captures were not checked. This is an optional improvement, not PS2 parity.
+
+
+## Car coating receives direct sunlight (21 October 2026)
+
+P: Realistic Lighting now evaluates the existing smooth reflection-coating
+lobe against the sun as well as the environment. The disc's reflection
+colour/mask and opacity remain inputs; base-material specular zero no longer
+prevents a solar highlight on an authored reflective surface. GGX/Smith/
+Schlick follow https://google.github.io/filament/Filament.md.html ; roughness
+0.1/F0 0.04 and the shared renderer solar calibration remain host assumptions,
+not measured automotive materials or recovered original constants. Visibility
+and cloud occlusion affect the direct term; no new texture, loop or light
+direction is introduced. Existing graphics.modern_lighting owns this change.
+Before correction the black-environment solar coating fixture returned 0/0
+for aligned/off-axis illumination and failed. Afterwards it returns 255/0;
+an independent unsaturated double-precision BRDF predicts 180.36 versus GPU
+180 on both OpenGL/Vulkan. Alpha stays exact; the negative disables modern
+lighting and fails. Eight focused positive/negative material checks pass.
+Disc-backed Tsukuba Alfa 147 captures before/after: Classic RGB identical;
+Enhanced changed bounds (162,174)..(408,290), confined to the car.
+Local before/after: build/oct21-alfa-front-modern.png and
+build/oct21-alfa-front-modern-coat.png. Classic counterparts have exact RGB.
+The read-only MOON_PROBE_MATERIAL_AUDIT diagnostic exports source geometry,
+normals and coefficients to local CSV; Alfa 147/Taurus lit/reflection vertices
+have nonzero normals. This does not certify their vertex ordering, material
+seams or silhouette. A/open: the user's exact faceting frame, complete metallic
+paint appearance, PS2-equivalent capture, HDR photo/replay coverage and
+geometry smoothing remain unverified/unimplemented. No global roughness
+retuning, normal welding, geometry/physics changes or full-realism claim.
+
+
+## Correction: GT Auto part transitions belong to the base game (21 October 2026)
+
+The user identifies wheel/wing transitions as original behaviour in both disc
+versions. The previous entry incorrectly classified their presence as an
+Enhanced-only feature from the absence of an explicit fade in Adhoc tryon.
+WheelShopRoot L11638..46 and WingShopRoot L12304..12 delegate the change to
+CarFace. The native wheel/wing setters dispatch through 0013ABC0/0013ABF8,
+vtable slots +198/+1A0, then the asynchronous model loader (wheel 001561F0,
+wing 00156340); a script-only inspection cannot establish the visual swap.
+
+C (host availability): removed interface.part_preview_fades from native and
+launcher settings, persistence fields and preset interchange. The shop
+transition no longer reads any preset/preference, so Classic also retains it.
+The resident GPU path and its page/car/viewport invalidation remain. Shared
+settings tests reject the removed option; the six native pages must not
+contain its row. Wheel/wing loading and midpoint pixels pass on both graphics
+backends; negative omits the shop-page identity and fails.
+
+A/open: source tracing above establishes delegation/loading, not the original
+blend curve or duration. The host still uses its prior 0.12-second smoothstep;
+these numbers are NOT recovered PS2 constants. Neither equivalent PCSX2 video
+nor a second-disc timing oracle was captured. This corrects availability and
+classification, not full original transition fidelity. No physics changes.
+
+
+## Race render cost pass, identical image (27 October 2026)
+
+P, PC implementation only: no option, preset or look changes. The destination
+alpha test copies only the screen box a group can cover instead of the whole
+viewport; debug switches are read once per scene instead of per draw; AO reads depth once
+per sample; sun shadow casters reuse their corner transform and merge contiguous
+groups; Vulkan images keep their sampler. Physics unchanged.
+
+C: reference vs new binary on Tsukuba, Hong Kong and Grand Valley East,
+OpenGL and Vulkan, Classic and Enhanced, 120 frames at 1080p: zero changed
+pixels and identical 32 MiB race state in all 12 pairs. GTX 1650 Vulkan GPU, for
+example Grand Valley East Enhanced 21.69 -> 14.96 ms and Classic 10.42 -> 4.86 ms.
+150 focused GL/Vulkan graphics tests pass, negatives included.
+
+A/open: other GPUs (the reported RTX 4050 included), other resolutions and
+cameras, night courses, split screen, Android and Switch. The Enhanced shadow
+filter stays the largest cost (about 5.6 ms here); making it cheaper changes the
+look and needs its own option. [Measurements, tools and what was not kept](RENDERER.md#race-render-cost-pass-27-october-2026).
+
+Second step, same day. P: Vulkan texture-unit, descriptor-set and pipeline caches;
+C: 12 of 12 pairs against 202dcd4 with zero changed pixels and identical race
+state, 155 Vulkan/shadow tests pass. P, option: Shadow Filter Soft (Classic and
+Enhanced, unchanged image) or Fast (four taps; the Performance preset, PC only,
+is Enhanced with Fast). Fast is not the Enhanced image: it differs mostly on the
+car body's own shadow. A: other GPUs, Hong Kong gains nothing.

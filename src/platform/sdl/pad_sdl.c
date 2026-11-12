@@ -232,6 +232,26 @@ unsigned plat_sdl_menu_buttons(void)
             out |= bits[i].bit;
     return out;
 }
+
+unsigned plat_sdl_menu_directions(int desktop_keys)
+{
+    const Uint8 *keys = SDL_GetKeyboardState(NULL);
+    unsigned held = (keys[SDL_SCANCODE_UP] ? 1u : 0) |
+                    (keys[SDL_SCANCODE_DOWN] ? 2u : 0) |
+                    (keys[SDL_SCANCODE_LEFT] ? 4u : 0) |
+                    (keys[SDL_SCANCODE_RIGHT] ? 8u : 0);
+    if (desktop_keys && !SDL_IsTextInputActive())
+        held |= (keys[SDL_SCANCODE_W] ? 1u : 0) | (keys[SDL_SCANCODE_S] ? 2u : 0) |
+                (keys[SDL_SCANCODE_A] ? 4u : 0) | (keys[SDL_SCANCODE_D] ? 8u : 0);
+    plat_pad_state p;
+    if (plat_input_poll(0, &p)) {
+        if (p.axes[0] <= -.5f) held |= 4;
+        if (p.axes[0] >= .5f) held |= 8;
+        if (p.axes[1] <= -.5f) held |= 1;
+        if (p.axes[1] >= .5f) held |= 2;
+    }
+    return held;
+}
 int plat_sdl_ps2_key(const SDL_Event *e, int *release)
 {
     /* the engine's D_006192E4 keysyms for the buttons the menus' four

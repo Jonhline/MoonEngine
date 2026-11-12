@@ -30,13 +30,17 @@ int main(int argc, char **argv)
     for (int i = 0; i < ui_root_count(m->ui); i++)
         if (!strcmp(ui_root_name(m->ui, i), "CourseEntryRoot"))
             ah_set_member(vm, page, "name", ah_str(vm, ui_root_name(m->ui, i)));
-    ah_obj *info = ah_module_new(vm, "Photo Drive info", NULL, NULL, NULL);
-    ah_set_member(vm, info, "race_code", ah_str(vm, "photo_drive"));
-    ah_set_member(vm, info, "entrance_fee", ah_int(0));
-    ah_val infoarg = ah_objv(info);
+    /* Exercise the authored lookup rather than inventing a PhotoDrive record. */
+    ah_val course_arg = ah_str(vm, "tsukuba"), infoarg;
+    CHECK(ah_call_member(vm,m->project,"getPhotoDriveInfoByCourse",1,&course_arg,&infoarg)>=0);
+    CHECK(infoarg.t!=AV_NIL);
     CHECK(ah_call_member(vm,page,"setPhotoDriveInfo",1,&infoarg,&ret)>=0);
     ah_obj *button = get(vm, get(vm, get(vm, page, "Buttons").u.o, "Unit").u.o, "PhotoDrive").u.o;
     CHECK(button);
+    ah_val context_arg=ah_objv(m->context);
+    CHECK(ah_call_member(vm,page,"init_entry_item",1,&context_arg,&ret)>=0);
+    ah_val visible;
+    CHECK(ah_get_member(vm,button,"visible",&visible)&&ah_truthy(visible));
     ah_val args[] = {ah_objv(m->context), ah_nil(), ah_nil()};
     CHECK(ah_call_member(vm,button,"onActivate",3,args,&ret)>=0);
     ticks(m);

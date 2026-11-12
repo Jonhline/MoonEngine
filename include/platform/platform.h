@@ -56,6 +56,9 @@ typedef struct {
     int vsync;
     int upscale; /* 0 native; 1..4 FSR 1 ultra quality/quality/balanced/performance */
     int backend; /* PC graphics API: 0 OpenGL, 1 Vulkan. Ignored by Switch. */
+    int x, y;    /* windowed position, used only when placed is nonzero */
+    int placed;  /* restore x/y instead of centering the first window */
+    int maximized; /* maximize after the windowed size/position is applied */
 } plat_video_desc;
 
 int plat_video_init(const plat_video_desc *desc);

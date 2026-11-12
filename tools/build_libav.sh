@@ -4,9 +4,16 @@
 # No programs, no network, no GPL, static archives only. The raw `mpegvideo`
 # demuxer is the codec probe MPEG-PS needs when a stream has no program stream
 # map; the `ipu` parser splits the IPU archive's raw pictures; `il` deinterlaces
-# the interlaced MPEG-2 menu movies.
+# the interlaced MPEG-2 menu movies. The audio demuxers/decoders and swresample
+# serve the custom music (WAV, MP3, FLAC, OGG Vorbis/Opus, M4A AAC/ALAC), decoded
+# in-process to 48 kHz stereo s16.
 #
-#   tools/build_libav.sh [linux] [windows] [android-arm64]
+#   tools/build_libav.sh [linux] [windows] [windows-msvc] [windows-msvc-mt] [android-arm64]
+#
+# windows-msvc builds archives for the MSVC (Visual Studio) build with the DLL CRT (/MD),
+# windows-msvc-mt for the release build with the static CRT (/MT); run them from an
+# MSYS2 shell whose PATH has cl.exe/link.exe/lib.exe ahead of /usr/bin (for
+# example after VsDevCmd.bat -arch=x64). It needs no assembler (--disable-x86asm).
 #
 # Defaults to every target. Outputs build/libav/<target>/lib/libav*.a and is
 # idempotent: a target whose configuration did not change is left alone.
@@ -28,6 +35,15 @@ CONFIG="--disable-everything --disable-programs --disable-doc --disable-network 
 --enable-protocol=file \
 --enable-filter=scale --enable-filter=format --enable-filter=null --enable-filter=fps \
 --enable-filter=setfield --enable-filter=yadif --enable-filter=il \
+--enable-demuxer=wav --enable-demuxer=mp3 --enable-demuxer=flac --enable-demuxer=ogg \
+--enable-demuxer=mov --enable-demuxer=aac \
+--enable-decoder=pcm_s16le --enable-decoder=pcm_s24le --enable-decoder=pcm_s32le \
+--enable-decoder=pcm_f32le --enable-decoder=pcm_u8 --enable-decoder=mp3float \
+--enable-decoder=flac --enable-decoder=vorbis --enable-decoder=opus --enable-decoder=aac \
+--enable-decoder=alac \
+--enable-parser=mpegaudio --enable-parser=flac --enable-parser=vorbis --enable-parser=opus \
+--enable-parser=aac \
+--enable-swresample \
 --enable-swscale --enable-avfilter --enable-avformat --enable-avcodec --enable-avutil"
 
 need_source() {
@@ -60,7 +76,8 @@ build_target() {
 
     if [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$config" ] &&
         [ -f "$lib/libavcodec.a" ] && [ -f "$lib/libavformat.a" ] &&
-        [ -f "$lib/libavutil.a" ] && [ -f "$lib/libswscale.a" ] && [ -f "$lib/libavfilter.a" ]; then
+        [ -f "$lib/libavutil.a" ] && [ -f "$lib/libswscale.a" ] && [ -f "$lib/libavfilter.a" ] &&
+        [ -f "$lib/libswresample.a" ]; then
         echo "libav: $name already built"
     else
         echo "libav: configuring $name"
@@ -79,10 +96,10 @@ build_target() {
         }
         cp "$build"/libavcodec/libavcodec.a "$build"/libavformat/libavformat.a \
            "$build"/libavutil/libavutil.a "$build"/libswscale/libswscale.a \
-           "$build"/libavfilter/libavfilter.a "$lib"/
+           "$build"/libavfilter/libavfilter.a "$build"/libswresample/libswresample.a "$lib"/
         printf '%s\n' "$config" > "$stamp"
     fi
-    for archive in avcodec avformat avutil swscale avfilter; do
+    for archive in avcodec avformat avutil swscale avfilter swresample; do
         f=$lib/lib$archive.a
         printf 'libav: %-14s %10s bytes  %s\n' "$name" "$(wc -c < "$f")" "$f"
     done
@@ -105,6 +122,17 @@ for target in $targets; do
         fi
         build_target windows --arch=x86_64 --target-os=mingw32 --enable-cross-compile \
             --cross-prefix=x86_64-w64-mingw32- || failed="$failed $target"
+        ;;
+    windows-msvc | windows-msvc-mt)
+        if ! command -v cl >/dev/null 2>&1; then
+            echo "libav: $target skipped (cl.exe not on PATH; run VsDevCmd first)" >&2
+            failed="$failed $target"
+            continue
+        fi
+        crt=-MD
+        [ "$target" = windows-msvc-mt ] && crt=-MT
+        build_target "$target" --toolchain=msvc --arch=x86_64 --target-os=win32 \
+            --disable-x86asm --extra-cflags=$crt || failed="$failed $target"
         ;;
     android-arm64)
         toolchain=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64

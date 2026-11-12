@@ -312,6 +312,54 @@ static int position_order(uint32_t cond, uint32_t a, uint32_t b)
     return da ? 1 : -1;
 }
 
+/* The same order across two conductors (official and phantom). Each car's
+   blend distance and the final rules branch use that car's own conductor;
+   both conductors carry the same rules. Blocks are car+0x104. */
+int gt4_position_order_cross(uint32_t cond_a, uint32_t a, uint32_t cond_b, uint32_t b)
+{
+    uint32_t ka = GT4_U8(a + 0x441), kb;
+    float fa, fb;
+    int32_t la, lb;
+    uint8_t da, db;
+    if (ka && ((uint8_t)(GT4_U8(a + 0x466) - 1) < 2 || GT4_U8(a + 0x467)))
+        return -1;
+    kb = GT4_U8(b + CAR_BLOCK_VIBRATION_ON);
+    if (kb && ((uint8_t)(GT4_U8(b + CAR_BLOCK_DRIVING_CONTROL_MODE) - 1) < 2 ||
+               GT4_U8(b + CAR_BLOCK_PIT_LANE_STATE)))
+        return 1;
+    fa = GT4_F32(a + 0x4a4);
+    fb = GT4_F32(b + CAR_BLOCK_COURSE_DISTANCE);
+    if (ka == 2) {
+        fa = distance_between(car_at(cond_a, GT4_U8(a + 0x440)), 0);
+        kb = GT4_U8(b + CAR_BLOCK_VIBRATION_ON);
+    }
+    if (kb == 2)
+        fb = distance_between(car_at(cond_b, GT4_U8(b + CAR_BLOCK_PLAYER)), 0);
+    la = laps_done(a);
+    lb = laps_done(b);
+    if (lb < la)
+        return 1;
+    if (la < lb)
+        return -1;
+    da = GT4_U8(b + CAR_BLOCK_FINISH_DRIVE_STARTED);
+    db = GT4_U8(a + 0x4b2);
+    if (!(da | db)) {
+        if (fb < fa)
+            return 1;
+        if (fa < fb)
+            return -1;
+        return 0;
+    }
+    if (da && db) {
+        int32_t d = (int32_t)(GT4_U32(b + CAR_BLOCK_LAP_TIMING_REFERENCE) - GT4_U32(a + 0x614));
+        return d < 0 ? -1 : d > 0 ? 1 : 0;
+    }
+    if (GT4_U8(cond_a + CONDUCTOR_FIELD_RULE_KIND_U) == 2 ||
+        GT4_U8(cond_b + CONDUCTOR_FIELD_START_KIND_U) == 1)
+        return da ? -1 : 1;
+    return da ? 1 : -1;
+}
+
 /* func_00365BC0: the race order (conductor+0xF8A4, car indices) by
    insertion, then each car's position (+0x5B3, from 1) */
 static void race_positions(uint32_t cond)

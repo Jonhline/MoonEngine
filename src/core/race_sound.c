@@ -116,6 +116,27 @@ gt4_engine_bank *gt4_engine_bank_open(gt4_vol *v, unsigned id, int variant)
     free(b);
     return bank;
 }
+gt4_engine_bank *gt4_engine_bank_open_car(gt4_vol *v, const char *label, unsigned id, int variant)
+{
+    if (label && *label && !strchr(label, '/') && !strchr(label, '\\') && !strstr(label, "..") &&
+        variant >= -1 && variant <= 7) {
+        char path[192];
+        int n = snprintf(path, sizeof path, "/sound/car/%s/%s.es", label,
+                         variant < 0 ? "engine" : "exhaust");
+        size_t bytes = 0;
+        uint8_t *data = n > 0 && (size_t)n < sizeof path ? gt4_overlay_read(path, &bytes) : NULL;
+        if (data) {
+            gt4_engine_bank *bank = gt4_engine_bank_decode(data, bytes, 0);
+            fprintf(stderr, "mod sound: %s %s layers=%u%s\n", label,
+                    variant < 0 ? "engine" : "exhaust", bank ? bank->count : 0,
+                    bank ? "" : " INVALID");
+            free(data);
+            return bank;
+        }
+    }
+    return gt4_engine_bank_open(v, id, variant);
+}
+
 void gt4_engine_bank_close(gt4_engine_bank *b)
 {
     if (b) {

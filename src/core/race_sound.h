@@ -49,6 +49,9 @@ int gt4_race_sample_decode(gt4_race_sample *out, const uint8_t *data, size_t byt
 void gt4_race_sample_clear(gt4_race_sample *sample);
 gt4_engine_bank *gt4_engine_bank_decode(const uint8_t *data, size_t bytes, unsigned bank);
 gt4_engine_bank *gt4_engine_bank_open(gt4_vol *vol, unsigned id, int variant);
+/* P: a per-label mod bank takes precedence without replacing the sound donor.
+   A missing override retains the original reader; a malformed override fails. */
+gt4_engine_bank *gt4_engine_bank_open_car(gt4_vol *vol, const char *label, unsigned id, int variant);
 void gt4_engine_bank_close(gt4_engine_bank *bank);
 void gt4_engine_control_init(gt4_engine_control *control);
 void gt4_engine_control_step(const gt4_engine_bank *bank, gt4_engine_control *control, int rpm,

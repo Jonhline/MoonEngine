@@ -1,0 +1,12 @@
+/* P: bounded world-space spot lamps, linear-light additive response and lens glow.
+   Artistic range/cone/output; depth atlas blocks additive illumination only. */
+"uniform int u_car_lamp_count,u_lamp_lens; uniform vec4 u_car_lamp_position[24],u_car_lamp_direction[24],u_car_lamp_color[24];\n"
+"uniform int u_lamp_shadow_mask;uniform sampler2D u_lamp_shadow_map;uniform mat4 u_lamp_shadow_projection[24];\n"
+"float carLampVisibility(int i,vec3 world,float range){if((u_lamp_shadow_mask&(1<<i))==0)return 1.;vec4 q=u_lamp_shadow_projection[i]*vec4(world,1.);if(q.w<=.05)return 1.;vec2 uv=q.xy/q.w;if(any(lessThan(uv,vec2(0.)))||any(greaterThan(uv,vec2(1.)))||q.z>1.)return 1.;vec2 tile=vec2(i%6,i/6);float result=0.;for(int y=0;y<2;y++)for(int x=0;x<2;x++){vec2 at=clamp(uv+(vec2(x,y)-.5)/256.,vec2(.5/256.),vec2(255.5/256.));vec4 t=texture(u_lamp_shadow_map,(tile+at)/vec2(6.,4.));float depth=dot(floor(t.rgb*255.+.5),vec3(65536.,256.,1.))/16777215.;result+=q.z-.03/range<=depth?1.:1.-t.a;}return result*.25;}\n"
+"vec3 carLampShade(vec3 src,vec3 texel){\n"
+" vec3 normal=length(v_material_normal)>1e-5?v_material_normal:cross(dFdx(v_shadow_world),dFdy(v_shadow_world));vec3 n=normal/max(length(normal),1e-5);if(dot(n,-v_material_ray)<0.)n=-n;vec3 sum=vec3(0.);\n"
+" for(int i=0;i<24;i++){if(i>=u_car_lamp_count)break;vec3 delta=v_shadow_world-u_car_lamp_position[i].xyz;float distance=length(delta);vec3 ray=delta/max(distance,1e-5);float range=u_car_lamp_position[i].w;float cone=smoothstep(u_car_lamp_direction[i].w,1.,dot(ray,u_car_lamp_direction[i].xyz));\n"
+" if(u_car_lamp_color[i].w>0.){vec3 forward=normalize(u_car_lamp_direction[i].xyz),right=normalize(cross(vec3(0,1,0),forward)),up=cross(forward,right);float ahead=max(dot(ray,forward),1e-5),h=dot(ray,right)/ahead,v=dot(ray,up)/ahead;float cutoff=u_car_lamp_color[i].w+max(h,0.)*.267949;cone*=1.-smoothstep(cutoff-.003,cutoff+.003,v); }\n"
+" float falloff=pow(max(1.-distance/range,0.),2.)/(1.+distance*distance*.06);float diffuse=max(dot(n,-ray),0.);sum+=u_car_lamp_color[i].rgb*cone*falloff*diffuse*carLampVisibility(i,v_shadow_world,range);\n"
+" if(u_mode==0 && u_lamp_lens==1 && distance<.22)sum+=u_car_lamp_color[i].rgb*pow(1.-distance/.22,2.)*3.;}\n"
+" if(dot(sum,sum)<1e-12)return src;vec3 base=modernLinear(clamp(texel,0.,1.));vec3 addition=base*sum;vec3 c=modernLinear(max(src,vec3(0.)))+addition;return u_hdr==1?src+addition:mix(c*12.92,1.055*pow(c,vec3(1./2.4))-.055,step(vec3(.0031308),c));}\n"

@@ -101,3 +101,45 @@ original allocated. A seventh entry has to come from somewhere.
 - Does the conductor's car array have slack beyond six, or is it exactly six strides?
 - How many grid slots does a course actually publish (`grid_slot`, `init.c:98-101`)? Some courses may not have a seventh slot — that alone could bound the feature per course.
 - Does the SpecDB/menu opponent pick (`menu_race_entries`) have a natural cap below six?
+
+---
+
+## MEASURED 2026-10-24 (batch 5) — the entry blocks have scratch, the conductor does not
+
+The audit correction named three six-slot structures in the guest conductor, and the open question was
+whether the six fixed entry addresses have slack beyond six. `tests/ui/race_audio.c --field-audit`
+(`ctest -R race_field_size_audit`) builds a real six-car Arcade race from the retail disc and prints the
+addresses. Its output on the captain's v2.00 disc:
+
+```
+field audit: conductor 0x01cf8ed0, 6 cars
+  entry blocks: 0x01bd7710..0x01ce6910, stride 0x35e0
+  next slot after entry 1: 0x01bde2d0; after entry 5: 0x01ce6910 (= WORLD)
+  per-car blocks: 0x01cf8f68..0x01cff568 (6 x 0x1100)
+  car states:     0x01cff568..0x01d05928 (6 x 0x10a0)
+  a 7th block would start at 0x01cff568 (= car state 0)
+  a 7th state would start at 0x01d05928 (= driver/FFB +0xca58)
+```
+
+What this settles:
+
+1. **The entry blocks are not the wall.** The CORE.GT4 image loads only `0x00100000..0x00617a14` and
+   `0x00617a80..0x006d5dfc` (BSS to `0x008a215c`); all six entry blocks sit in scratch RAM above that.
+   Block A has a free next stride slot at `0x01bde2d0`, so a seventh (and probably eighth) 0x35E0 block
+   could be placed without touching the image. Block B's next slot is already `WORLD` (`0x01ce6910`).
+2. **The conductor arrays are the wall.** The per-car block array starts at `cond+0x98`, six strides of
+   `0x1100` later is exactly `cond+0x6698` — which is the first car state, not free space. The car-state
+   array starts there and six strides of `0x10A0` later is exactly `cond+0xCA58` — the driver/FFB field.
+   There are **zero spare bytes** between either array and the next conductor field. A seventh car's
+   per-car block would overwrite car state 0; its car state would overwrite the FFB record.
+3. **The count-driven loops cannot save this.** `NCARS(c)` and the physics/AI loops would happily iterate
+   seven, but they index these two contiguous arrays. The seventh iteration is the corruption above. To
+   support seven honestly, both arrays and every conductor field from `+0x6698` onward (course, rules,
+   car count, position order, session vtable at `+0x10140`, …) would have to move and every hardcoded
+   offset in the physics would have to follow. That is not a safe change behind a switch.
+
+**Verdict: 5 opponents is the wall.** The `tweaks.field_size` switch was NOT added, the field clamps were
+NOT raised, and no seventh entry was written. The research question is answered with the measurement
+above; custom modes must be built on a six-car field unless the conductor layout is versioned/relocated as
+its own project. The audit probe stays as a regression pin: if someone later gives the conductor real
+slack, that test must be updated first.

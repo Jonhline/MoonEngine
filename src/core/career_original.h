@@ -135,7 +135,7 @@ void gt4_career_process_mission_result(gt4_career_event_result *state, int finis
                                        int32_t position, uint32_t race_time, int32_t aspec,
                                        uint32_t prize);
 /* 003EEFE0/003EF1E8: ordered driver ids; an abandoned player is skipped. */
-void gt4_career_championship_points(int32_t points[6], const uint8_t order[6], unsigned count,
+void gt4_career_championship_points(int32_t points[6], const uint8_t *order, unsigned count,
                                     int finished, const int8_t awards[6]);
 /* 003EF298/003EF2D8: ties prevent victory and count ahead of the player. */
 int gt4_career_championship_rank(const int32_t points[6]);

@@ -6,12 +6,14 @@
  * rotation and suspension travel.
  */
 #include "platform/switch_profile.h"
+#include "race_limits.h"
 #include "race_view.h"
 #ifdef MOON_PC_VULKAN
 #include "vk_render.h"
 #endif
 #include "switch_render.h"
 #include "video_gl.h"
+#include "vk_render.h"
 #ifdef _WIN32
 /* Windows calling-convention aliases collide with course field names. */
 #undef near
@@ -21,11 +23,14 @@
 #include "vk_render.h"
 #endif
 #include "race_lights.h"
+#include "car_lamps.h"
 #include "car_model.h"
 #include "driver_pose.h"
 #include "course.h"
+#include "assist_line.h"
 #include "gpb.h"
 #include "render3d.h"
+#include "daylight.h"
 #include "race_smoke.h"
 #include "race_leaves.h"
 #include "wheel_motion.h"
@@ -42,7 +47,28 @@
 #define W 640
 #define H 448
 
-#define OPPONENTS 7
+#define OPPONENTS MOON_MAX_OPPONENTS
+static int phantom_draws, car_draws, car_count;
+int race_view_phantom_draws(void) { return phantom_draws; }
+int race_view_car_draws(void) { return car_draws; }
+int race_view_car_count(void) { return car_count; }
+/* Debug switches, read once per name and scene: getenv scans the environment
+   block and some were read for every car and course object of every frame. */
+static const char *rv_env_names[16];
+static signed char rv_env_values[16];
+static int rv_env_count;
+static int rv_env(const char *name)
+{
+    for (int i = 0; i < rv_env_count; i++)
+        if (rv_env_names[i] == name)
+            return rv_env_values[i];
+    int value = getenv(name) != NULL;
+    if (rv_env_count < 16) {
+        rv_env_names[rv_env_count] = name;
+        rv_env_values[rv_env_count++] = (signed char)value;
+    }
+    return value;
+}
 typedef struct {
     char key[128];
     gt4_driver_rig rig;
@@ -68,6 +94,8 @@ typedef struct {
     gt4_course_surface *surface;
     gt4_model *world, *sky, *scenery, *far;
     car_model *car, *other[OPPONENTS];
+    moon_car_lamp lamps[OPPONENTS+1][4];
+    unsigned lamp_count[OPPONENTS+1];
     tex1_image *env;
     int env_count;
     r3d_lights lights;
@@ -81,12 +109,17 @@ typedef struct {
     int sheen_size, sheen_blur, sheen_fog;
     float sheen_rgb[3], sheen_fog_distance, sheen_fog_max, sheen_fog_rgb[3];
     /* the cars' shadows (func_0038F240, func_00398758): colour, alpha, the sun's way times its length, the alpha's factor in the sun and out of it */
-    int shadow;
+    int shadow, time_zone;
     float shadow_rgb[3], shadow_alpha, shadow_way[3], shadow_sun, shadow_shade;
+    int gadget_shadow;
+    float gadget_shadow_direction[3];
+    float afterfire_color[4], afterfire_scale[2];
+    float glow_alpha; /* Env0 +0x58: the cars' lamp light (003D7430), 0 by day */
     driver_asset driver[OPPONENTS + 1];
     int drivers;
     driver_actor pilot[OPPONENTS + 1];
     float wheel_exposure;
+    float brake_glow_scale; /* 003D75F0: Env0 +4C / +38 */
     gt4_course_gadgets *gadgets;
     gt4_model *photo_map;
     uint8_t photo_environment[0x17f4];
@@ -99,13 +132,13 @@ typedef struct {
 
 /* A car's meshes: whole, or body (with its dark hull) and wheels apart */
 typedef struct {
-    r3d_mesh *car, *shadow, *cast, *hull, *body, *wheel[4], *brake[4],
+    r3d_mesh *car, *shadow, *cast, *glow, *hull, *body, *wheel[4], *brake[4], *brake_glow[4],
         *steering[GT4_MODEL_STEERING_MAX];
-    float lo[3], hi[3];
+    float lo[3], hi[3], cast_alpha;
 } car_meshes;
 typedef struct {
     int on, wheels_on, snapshot_on;
-    float snapshot[4][8], interval[4], pos[3], rot[9], wheel_pose[4][3], ghost;
+    float snapshot[4][8], interval[4], brake_glow[4], pos[3], rot[9], wheel_pose[4][3], ghost;
 } car_pose;
 typedef struct {
     int on;
@@ -118,12 +151,21 @@ typedef struct {
     car_pose car[OPPONENTS + 1];
     car_shadow shadow[OPPONENTS + 1];
     driver_actor pilot[OPPONENTS + 1];
-    float eye[3], rows[9], projection[3];
+    float eye[3], rows[9], projection[3], far_clip;
     int camera, hide;
 } photo_frame;
 
 struct race_view {
     char *disc;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    r3d_car_shadow *projected_shadow;
+    r3d_mesh *wheel_contact;
+    r3d_shadow_map *mapped_shadow;
+    r3d_lamp_shadow *lamp_shadow;
+    int mapped_shadow_ready;
+    double daylight_seconds;
+    moon_daylight daylight;
+#endif
     SDL_Thread *worker;
     SDL_atomic_t done;
     race_asset *pending;
@@ -135,6 +177,9 @@ struct race_view {
     r3d_mesh *photo_map;
     float film_tires[OPPONENTS + 1][4][3];
     uint8_t film_tires_on[OPPONENTS + 1];
+    char film_body[OPPONENTS+1][32];
+    gt4_course_gadget *film_gadget_base;
+    unsigned film_gadget_count;
     char other_request[OPPONENTS][32], other_wheel[OPPONENTS][32], other_wing[OPPONENTS][32];
     int other_color[OPPONENTS], other_count;
     race_asset *now;
@@ -142,7 +187,7 @@ struct race_view {
     int pose_on;
     float pose_pos[3], pose_rot[9];
     int wheels_on, wheel_snapshot_on;
-    float wheel_snapshot[4][8], wheel_interval[4], wheel_pose[4][3];
+    float wheel_snapshot[4][8], wheel_interval[4], wheel_brake_glow[4], wheel_pose[4][3];
     car_shadow shadow[OPPONENTS + 1];
     const gt4_pit_crew *pit_crew[OPPONENTS + 1];
     r3d_mesh *world, *sky_mesh, *scenery, *far, *sheen_mask, *sheen_set, *sheen_sky;
@@ -150,27 +195,41 @@ struct race_view {
     car_pose other_pose[OPPONENTS];
     plat_texture *sky;
     r3d_mesh *env_sky;
+    int reflection_size;
     uint8_t *env_faces;
     switch_gpu_image *gpu_env;
     tex1_image env_map;
     int env_ok; /* the cars' reflection of the course */
     int warned;
     int hide_car, gadget_section;
-    r3d_mesh **gadgets;
+    r3d_mesh **gadgets, **gadget_shadows;
     unsigned gadget_types;
     int grade_on;
     float grade[6]; /* race_view_set_grade */
+    gt4_model *best_line;          /* the disc's authored licence ribbon */
+    r3d_mesh *best_line_mesh;
+    char best_line_code[32];
+    int best_line_missing;
+    gt4_assist_line assist;        /* the AI line's ribbon, one course at a time */
+    r3d_mesh *assist_mesh;
+    char assist_course[64];
+    float assist_speed;            /* m/s last painted */
+    uint64_t assist_paint_ns;      /* last repaint, to keep it off every frame */
+    int assist_speed_set;
+    uint32_t assist_lines;         /* the guest's lines object (car+0xEC) */
+    int assist_index;              /* the line the car is running (car+0x1C) */
+
     float photo_jitter[2];
     int screen_reflect;
     photo_frame photo_current, photo_previous, photo_saved;
     int photo_history, photo_sampling;
     int cam_on;
-    float cam_eye[3], cam_rows[9], cam_sx, cam_sy, cam_near; /* race_view_set_camera */
+    float cam_eye[3], cam_rows[9], cam_sx, cam_sy, cam_near, cam_far; /* race_view_set_camera */
     r3d_sprite_texture *smoke_tex;
     const race_smoke *smoke; /* race_view_set_smoke */
     r3d_sprite_texture *leaf_tex[8];
     const race_leaves *leaves; /* race_view_set_leaves */
-    r3d_mesh *afterfire[6];
+    r3d_mesh *afterfire[6], *afterfire_ground[6];
     int afterfire_tried; /* race/after_fire.mdl's six frames */
     float flame[OPPONENTS + 1][4][3];
     int flame_on[OPPONENTS + 1]; /* race_view_set_afterfire */
@@ -480,6 +539,21 @@ static void course_shadow(const uint8_t *data, size_t size, race_asset *a)
     memcpy(&env, data + 0x80, 4);
     if (!env || env > size || size - env < 0xABC || memcmp(data + env, "Env0", 4))
         return;
+    /* 00398718 -> 00452A90/00452AB0: authored backfire tint and sizes. */
+    if (size - env >= 0x17CC) {
+        memcpy(a->afterfire_color, data + env + 0x17B4, 16);
+        memcpy(a->afterfire_scale, data + env + 0x17C4, 8);
+    }
+    /* 00340170..19C: author explicitly enables the GDGT shadow pass. */
+    if (size - env >= 0xADC) {
+        uint32_t flags;
+        memcpy(&flags, data + env + 0x10, 4);
+        a->gadget_shadow = (flags & 0x800) != 0;
+        memcpy(a->gadget_shadow_direction, data + env + 0xAD0, 12);
+    }
+    memcpy(&a->glow_alpha, data + env + 0x58, 4);
+    if (!(a->glow_alpha > 0))
+        a->glow_alpha = 0;
     memcpy(c, data + env + 0xA60, 16);
     memcpy(t, data + env + 0xA70, 12);
     memcpy(f, data + env + 0xAB0, 12);
@@ -506,7 +580,7 @@ static void course_shadow(const uint8_t *data, size_t size, race_asset *a)
 static race_asset *load(const char *disc, const char *course, const char *car, int color,
                         const char *wheel, const char *wing, char others[][32],
                         char other_wheels[][32], char other_wings[][32], const int *other_colors,
-                        int nothers, int photo, const float tires[][4][3], const uint8_t *tires_on)
+                        int nothers, int photo, const float tires[][4][3], const uint8_t *tires_on, const char bodies[][32])
 {
     const char *err = NULL;
     gt4_vol *v = gt4_vol_open(disc, &err);
@@ -577,7 +651,15 @@ static race_asset *load(const char *disc, const char *course, const char *car, i
         uint32_t env;
         memcpy(&env, a->data + 0x80, 4);
         if (env && env < size && size - env >= 0xEA4 && !memcmp(a->data + env, "Env0", 4))
+        {
             memcpy(&a->wheel_exposure, a->data + env + 0xEA0, 4);
+            float num, den;
+            memcpy(&num, a->data + env + 0x4C, 4);
+            memcpy(&den, a->data + env + 0x38, 4);
+            a->brake_glow_scale = den != 0 ? num / den : 0;
+            uint32_t flags; memcpy(&flags,a->data+env+0x10,4);
+            a->time_zone=flags & 0x80000 ? 2 : flags & 0x8000 ? 1 : 0;
+        }
     }
     { /* the smoke's Tex1 (course header +0x68, the world's +0x31D0 +0x34): four frames side by side */
         uint32_t t;
@@ -609,28 +691,52 @@ static race_asset *load(const char *disc, const char *course, const char *car, i
     }
     if ((car && *car) || nothers) {
         car_model_tables *t = car_model_tables_open(v);
+        int zone = 0;
+        { /* 00387FB0: every car's time of day (+0x1680, callback 7) from Env0 +0x10:
+             bit 0x80000 gives 2, else bit 0x8000 1 (night: route5, hongkong, sarthe24...),
+             else 0. Only the race's cars (RaceEntry, 003B4B38) set it (004513B8 from
+             00390C90); every other car is drawn through 00451A00 with the draw object's
+             constructor 0 (00450A04) and a pose whose light (slot +0x78, 00459D60) is 0:
+             Photo Travel keeps daytime and no lamp light. */
+            uint32_t env, flags = 0;
+            memcpy(&env, a->data + 0x80, 4);
+            if (photo != 1 && env && env < size && size - env >= 0x14 &&
+                !memcmp(a->data + env, "Env0", 4))
+                memcpy(&flags, a->data + env + 0x10, 4);
+            zone = flags & 0x80000 ? 2 : flags & 0x8000 ? 1 : 0;
+        }
+        /* 00388290: the pace car (label D_0061870C) always has 1, lamps lit by day too */
+#define CAR_ZONE(label)                                                                            \
+    car_model_tables_time_zone(t, photo != 1 && !strcmp(label, "r34_gtr_v_gtcolor_pc_01") ? 1 : zone)
+        if (car && *car)
+            CAR_ZONE(car);
         /* Photo Travel has a static car without RaceCar's driver/LOD path.
            A: high menu geometry adapter until PhotoCar's draw selection is tested. */
         if (car && *car)
             a->car = photo == 2 && tires_on[0]
-                         ? car_model_load_film_parts(v, t, car, color, nothers + 1, 0, wheel, wing,
-                                                     tires[0])
+                         ? car_model_load_film_body(v, t, car, color, nothers + 1, 0, wheel, wing,
+                                                     tires[0],bodies[0])
                      : photo == 1
                          ? car_model_load_parts(v, t, car, color, wheel, wing)
                          : car_model_load_race_parts(v, t, car, color, nothers + 1, 0, wheel, wing);
         for (int i = 0; i < nothers && i < OPPONENTS; i++)
-            if (others[i][0])
+            if (others[i][0] && (CAR_ZONE(others[i]), 1))
                 a->other[i] =
                     photo == 2 && tires_on[i + 1]
-                        ? car_model_load_film_parts(v, t, others[i], other_colors[i], nothers + 1,
+                        ? car_model_load_film_body(v, t, others[i], other_colors[i], nothers + 1,
                                                     (unsigned)i + 1, other_wheels[i],
-                                                    other_wings[i], tires[i + 1])
+                                                    other_wings[i], tires[i + 1],bodies[i+1])
                         : car_model_load_race_parts(v, t, others[i], other_colors[i], nothers + 1,
                                                     (unsigned)i + 1, other_wheels[i],
                                                     other_wings[i]);
         load_driver(v, a, a->car, 0);
         for (int i = 0; i < nothers; i++)
             load_driver(v, a, a->other[i], (unsigned)i + 1);
+#undef CAR_ZONE
+        if (photo == 1 && a->car) {
+            gt4_model_free(a->car->glow);
+            a->car->glow = NULL;
+        }
         car_model_tables_close(t);
     }
     if (photo && !a->car) {
@@ -646,6 +752,10 @@ static race_asset *load(const char *disc, const char *course, const char *car, i
     free(env);
     free(package);
     gt4_vol_close(v);
+    for(unsigned entry=0;entry<=OPPONENTS;entry++) {
+        const car_model *model=entry?a->other[entry-1]:a->car;
+        if(model)a->lamp_count[entry]=moon_car_lamps(model->car,a->lamps[entry]);
+    }
     return a;
 }
 
@@ -656,7 +766,7 @@ static int worker(void *ptr)
     v->pending =
         load(v->disc, v->course_request, v->car_request, v->color_request, v->wheel_request,
              v->wing_request, v->other_request, v->other_wheel, v->other_wing, v->other_color,
-             v->other_count, v->photo_request, v->film_tires, v->film_tires_on);
+             v->other_count, v->photo_request, v->film_tires, v->film_tires_on,v->film_body);
     SWP_LOAD_END();
     SDL_AtomicSet(&v->done, 1);
     return 0;
@@ -667,11 +777,13 @@ static void drop_car(car_meshes *m)
     r3d_mesh_destroy(m->car);
     r3d_mesh_destroy(m->shadow);
     r3d_mesh_destroy(m->cast);
+    r3d_mesh_destroy(m->glow);
     r3d_mesh_destroy(m->hull);
     r3d_mesh_destroy(m->body);
     for (int i = 0; i < 4; i++) {
         r3d_mesh_destroy(m->wheel[i]);
         r3d_mesh_destroy(m->brake[i]);
+        r3d_mesh_destroy(m->brake_glow[i]);
     }
     for (int i = 0; i < GT4_MODEL_STEERING_MAX; i++)
         r3d_mesh_destroy(m->steering[i]);
@@ -680,9 +792,13 @@ static void drop_car(car_meshes *m)
 
 static void drop_meshes(race_view *v)
 {
-    for (unsigned i = 0; i < v->gadget_types; i++)
+    for (unsigned i = 0; i < v->gadget_types; i++) {
         r3d_mesh_destroy(v->gadgets[i]);
+        r3d_mesh_destroy(v->gadget_shadows ? v->gadget_shadows[i] : NULL);
+    }
     free(v->gadgets);
+    free(v->gadget_shadows);
+    v->gadget_shadows = NULL;
     v->gadgets = NULL;
     v->gadget_types = 0;
     if (v->now)
@@ -734,6 +850,16 @@ static void make_car(car_meshes *m, const car_model *a)
     m->car = r3d_mesh_create(a->car);
     m->shadow = r3d_mesh_create(a->shadow);
     m->cast = r3d_mesh_create(a->cast);
+    m->glow = r3d_mesh_create(a->glow);
+    /* P: use the authored volume's maximum opacity for the replacement
+       silhouette; retaining its height fade would require a different receiver.
+       Original: func_004524B8 uses model-1 vertex alpha. */
+    m->cast_alpha = 0;
+    if (a->cast)
+        for (int t = 0; t < a->cast->count; t++)
+            for (int j = 0; j < 3; j++)
+                m->cast_alpha = fmaxf(m->cast_alpha, a->cast->triangles[t].v[j].alpha);
+
     int steering_parts = 0;
     for (unsigned i = 0; i < a->car->steering_count; i++)
         if (a->steering[i]) {
@@ -810,6 +936,12 @@ static void make_car(car_meshes *m, const car_model *a)
                 brake.textures = a->car->textures;
                 brake.ntextures = a->car->ntextures;
                 m->brake[i] = r3d_mesh_create_shared(&brake, m->car);
+                if (a->brake_glow[i]) {
+                    gt4_model glow = *a->brake_glow[i];
+                    glow.textures = a->car->textures;
+                    glow.ntextures = a->car->ntextures;
+                    m->brake_glow[i] = r3d_mesh_create_shared(&glow, m->car);
+                }
             }
     }
 }
@@ -818,21 +950,30 @@ static void make_car(car_meshes *m, const car_model *a)
 static void install(race_view *v, race_asset *a)
 {
     drop_meshes(v);
+    free(v->film_gadget_base);v->film_gadget_base=NULL;v->film_gadget_count=0;
     free_asset(v->now);
     v->now = a;
     v->gadget_section = -1;
     if (a->gadgets) {
         v->gadget_types = a->gadgets->types;
         v->gadgets = calloc(v->gadget_types, sizeof *v->gadgets);
-        if (v->gadgets)
+        v->gadget_shadows = calloc(v->gadget_types, sizeof *v->gadget_shadows);
+        if (v->gadgets && v->gadget_shadows)
             for (unsigned i = 0; i < v->gadget_types; i++) {
                 v->gadgets[i] =
                     r3d_mesh_create_shared(a->gadgets->model[i], i ? v->gadgets[0] : NULL);
+                v->gadget_shadows[i] = r3d_mesh_create_shared(a->gadgets->shadow[i], v->gadgets[0]);
+                gt4_model_free(a->gadgets->shadow[i]);
+                a->gadgets->shadow[i] = NULL;
                 gt4_model_free(a->gadgets->model[i]);
                 a->gadgets->model[i] = NULL;
             }
-        else
+        else {
+            free(v->gadgets);
+            free(v->gadget_shadows);
+            v->gadgets = v->gadget_shadows = NULL;
             v->gadget_types = 0;
+        }
         fprintf(stderr, "course objects: %u models, %u placements, %u sections\n",
                 a->gadgets->types, a->gadgets->count, a->gadgets->sections);
     }
@@ -858,6 +999,7 @@ static void install(race_view *v, race_asset *a)
     for (int i = 0; i < 8; i++)
         v->leaf_tex[i] = a->bit_count > i + 1 ? r3d_sprite_texture_create(&a->bits[i + 1]) : NULL;
     memset(v->wheel_interval, 0, sizeof v->wheel_interval);
+    memset(v->wheel_brake_glow, 0, sizeof v->wheel_brake_glow);
     memset(v->other_pose, 0, sizeof v->other_pose);
     for (int i = 0; i < OPPONENTS; i++) {
         make_car(&v->other[i], a->other[i]);
@@ -934,17 +1076,51 @@ race_view *race_view_open(const char *disc)
     return v;
 }
 
+static void best_line_free(race_view *v)
+{
+    if (!v)
+        return;
+    r3d_mesh_destroy(v->best_line_mesh);
+    v->best_line_mesh = NULL;
+    gt4_model_free(v->best_line);
+    v->best_line = NULL;
+    v->best_line_code[0] = 0;
+    v->best_line_missing = 0;
+}
+
+static void assist_line_free(race_view *v)
+{
+    if (!v)
+        return;
+    r3d_mesh_destroy(v->assist_mesh);
+    v->assist_mesh = NULL;
+    gt4_assist_line_free(&v->assist);
+    v->assist_course[0] = 0;
+    v->assist_speed_set = 0;
+}
+
 void race_view_close(race_view *v)
 {
     if (!v)
         return;
+    best_line_free(v);
+    assist_line_free(v);
     if (v->worker) {
         SDL_WaitThread(v->worker, NULL);
         free_asset(v->pending);
     }
-    for (int f = 0; f < 6; f++)
+    for (int f = 0; f < 6; f++) {
         r3d_mesh_destroy(v->afterfire[f]);
+        r3d_mesh_destroy(v->afterfire_ground[f]);
+    }
     drop_meshes(v);
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    r3d_car_shadow_destroy(v->projected_shadow);
+    r3d_mesh_destroy(v->wheel_contact);
+    r3d_shadow_map_destroy(v->mapped_shadow);
+    r3d_lamp_shadow_destroy(v->lamp_shadow);
+#endif
+    free(v->film_gadget_base);v->film_gadget_base=NULL;v->film_gadget_count=0;
     free_asset(v->now);
     plat_texture_destroy(v->sky);
     free(v->env_faces);
@@ -976,6 +1152,52 @@ int race_view_set_film_parts(race_view *v, unsigned entry, const char *wheel, co
          *g = entry ? v->other_wing[entry - 1] : v->wing_request;
     strcpy(w, wheel);
     strcpy(g, wing);
+    return 1;
+}
+int race_view_set_film_body(race_view *v,unsigned entry,const char *body)
+{
+    if(!v || v->worker || entry>OPPONENTS || !body || strlen(body)>=32 || strchr(body, '/') || strchr(body, 92))return 0;
+    strcpy(v->film_body[entry],body);return 1;
+}
+/* GDGT stream was validated by the film reader; retain a second boundary
+   check here because this API is also used by native scene tools. */
+int race_view_set_film_gadgets(race_view *v,const uint8_t *data,size_t size)
+{
+    if(!v || !v->now || !data || size<3 || data[0])return 0;
+    gt4_course_gadgets *g=v->now->gadgets;
+    unsigned count=data[1]|(unsigned)data[2]<<8;
+    if(count!=(g?g->count:0))return 0;
+    size_t at=3;
+    for(unsigned i=0;i<count;i++){
+        if(at>=size)return 0;
+        if(data[at++]){
+            if(at>=size)return 0;
+            if(data[at++]){
+                if(size-at<16)return 0;
+                for(int k=0;k<3;k++){float x;memcpy(&x,data+at+4+k*4,4);if(!isfinite(x))return 0;}
+                at+=16;
+            }
+        }
+    }
+    if(at!=size)return 0;
+    if(!count)return 1;
+    if(!v->film_gadget_base){
+        v->film_gadget_base=malloc(count*sizeof *g->instance);if(!v->film_gadget_base)return 0;
+        memcpy(v->film_gadget_base,g->instance,count*sizeof *g->instance);v->film_gadget_count=count;
+    }
+    if(v->film_gadget_count!=count)return 0;
+    memcpy(g->instance,v->film_gadget_base,count*sizeof *g->instance);
+    at=3;
+    for(unsigned i=0;i<count;i++){
+        gt4_course_gadget *p=g->instance+i;
+        if(!data[at++]){p->active=0;continue;}
+        if(!data[at++])continue;
+        p->age=data[at++];
+        for(int k=0;k<3;k++)p->angles[k]=(float)(int8_t)data[at++] * 3.141592502593994f / 128;
+        memcpy(p->pos,data+at,12);at+=12;
+        memset(p->velocity,0,sizeof p->velocity);memset(p->angular,0,sizeof p->angular);
+        gt4_course_gadget_rotation(p->angles,p->rot);
+    }
     return 1;
 }
 int race_view_set_film_tires(race_view *v, unsigned entry, const float tires[4][3])
@@ -1074,14 +1296,137 @@ int race_view_request_film(race_view *v, const char *course, const char *car, in
 
 void race_view_clear(race_view *v)
 {
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    r3d_car_lamp_frame(NULL,0);
+#endif
     if (v) {
         v->photo_history = 0;
         v->photo_sampling = 0;
         drop_meshes(v);
-        free_asset(v->now);
+        free(v->film_gadget_base);v->film_gadget_base=NULL;v->film_gadget_count=0;
+    free_asset(v->now);
         v->now = NULL;
         v->pose_on = v->wheels_on = 0;
+        best_line_free(v);
+        assist_line_free(v);
     }
+}
+
+/* The disc's own licence ribbon (/crs/bestline/<region><code>), authored
+   in world coordinates with vertex colours: blue acceleration, red braking.
+   Loaded only while wanted; OFF means no read, no mesh, no allocation. */
+int race_view_set_best_line(race_view *v, const char *code, int on)
+{
+    if (!v)
+        return 0;
+    if (!on || !code || !*code) {
+        if (v->best_line_mesh || v->best_line)
+            best_line_free(v);
+        return 0;
+    }
+    if (!strcmp(v->best_line_code, code) && (v->best_line_mesh || v->best_line_missing))
+        return v->best_line_mesh != NULL;
+    best_line_free(v);
+    snprintf(v->best_line_code, sizeof v->best_line_code, "%s", code);
+    static const char *const regions[] = {"us", "jp", "uk", "kr"};
+    const char *err = NULL;
+    gt4_vol *vol = gt4_vol_open(v->disc, &err);
+    if (!vol)
+        return 0;
+    for (unsigned r = 0; r < sizeof regions / sizeof *regions && !v->best_line; r++) {
+        char path[64];
+        snprintf(path, sizeof path, "/crs/bestline/%s%s", regions[r], code);
+        size_t size = 0;
+        uint8_t *bytes = gt4_vol_read(vol, path, &size);
+        if (!bytes)
+            continue;
+        gt4_model_stats stats;
+        gt4_model *m = gt4_model_decode_stats(bytes, size, -1, 0, &stats);
+        free(bytes);
+        if (!m) {
+            fprintf(stderr, "assist line: %s did not decode (op %d at 0x%zx)\n", path,
+                    stats.fail_op, stats.fail_offset);
+            continue;
+        }
+        v->best_line = m;
+        v->best_line_mesh = r3d_mesh_create(m);
+        fprintf(stderr, "assist line: loaded %s, %d triangles\n", path, m->count);
+    }
+    gt4_vol_close(vol);
+    if (!v->best_line_mesh) {
+        v->best_line_missing = 1;
+        fprintf(stderr, "assist line: no authored best line for %s\n", code);
+    }
+    return v->best_line_mesh != NULL;
+}
+
+void race_view_set_assist_source(race_view *v, uint32_t lines, int index)
+{
+    if (!v)
+        return;
+    v->assist_lines = lines;
+    v->assist_index = index;
+}
+
+/* Repaint only when the speed moved enough to matter, at most every 50 ms:
+   the gradient is a function of the live speed, not of the frame rate. */
+static void assist_paint(race_view *v, float speed_kmh)
+{
+    if (!v->assist_mesh || !v->assist.model)
+        return;
+    float speed = speed_kmh > 0 ? speed_kmh / 3.6f : 0;
+    uint64_t now = plat_time_ns();
+    if (v->assist_speed_set && fabsf(speed - v->assist_speed) < .15f)
+        return;
+    if (v->assist_paint_ns && now - v->assist_paint_ns < 50000000ull)
+        return;
+    gt4_assist_line_paint(&v->assist, speed);
+    r3d_mesh_update_colours(v->assist_mesh, v->assist.model);
+    v->assist_speed = speed;
+    v->assist_speed_set = 1;
+    v->assist_paint_ns = now;
+}
+
+/* The line built from the game's own AI course line, cached by course name.
+   The points come from the loaded race's lines object; nothing is generated
+   or recorded. */
+int race_view_set_assist_line(race_view *v, const char *course, int on, float speed_kmh)
+{
+    if (!v)
+        return 0;
+    if (!on || !course || !*course || !v->assist_lines) {
+        assist_line_free(v);
+        return 0;
+    }
+    if (v->assist_mesh && !strcmp(v->assist_course, course)) {
+        assist_paint(v, speed_kmh);
+        return 1;
+    }
+    assist_line_free(v);
+    snprintf(v->assist_course, sizeof v->assist_course, "%s", course);
+    if (!v->now)
+        return 0;
+    enum { AI_LINE_MAX = 16384 };
+    gt4_ai_line_point *points = calloc(AI_LINE_MAX, sizeof *points);
+    if (!points)
+        return 0;
+    int active = -1;
+    int n = gt4_ai_line_export(v->assist_lines, v->assist_index, points, AI_LINE_MAX, &active);
+    int built = n > 1 && gt4_assist_line_build(&v->now->course, points, n, &v->assist);
+    free(points);
+    if (!built) {
+        fprintf(stderr, "assist line: no usable AI line for %s (active %d, %d points)\n", course,
+                active, n);
+        return 0;
+    }
+    gt4_assist_line_paint(&v->assist, speed_kmh > 0 ? speed_kmh / 3.6f : 0);
+    v->assist_mesh = r3d_mesh_create(v->assist.model);
+    v->assist_speed = speed_kmh > 0 ? speed_kmh / 3.6f : 0;
+    v->assist_speed_set = 1;
+    v->assist_paint_ns = plat_time_ns();
+    fprintf(stderr, "assist line: %s AI line %d, %d points, %d triangles, %.2f ms\n", course,
+            active, v->assist.count, v->assist.triangles, v->assist.build_ms);
+    return v->assist_mesh != NULL;
 }
 
 int race_view_set_opponents(race_view *v, const char *const *cars, const int *colors, int n)
@@ -1177,12 +1522,9 @@ void race_view_set_afterfire(race_view *v, unsigned entry, const float flames[4]
         memcpy(v->flame[entry], flames, sizeof v->flame[entry]);
 }
 
-/* func_00452AC8, the race's pass (a2 0): each outlet k takes particle k & 3
-   (time, size, turn from the car's parameters +0xD8); burning (time above
-   0), the outlet's place, Ry(atan2(dx, dz)) Rx(-asin dy) Rz(turn) and
-   D_008465D8 (1.0) x size, then model 0 of race/after_fire.mdl whose
-   AfterFireCallback (00452F28) picks frame (int)(time x 6). A: the
-   frames' tween (00456850, the fraction) and 004A60E0's colour not done */
+/* 00452AC8: body flame (model 0) and ground glow (model 1), with
+   Env0 +17B4 colour / +17C4,+17C8 scale. 00452F28 selects time*6's
+   integer branch and uploads its fractional tween through 00456850. */
 static r3d_view body_place(const car_model *a, const r3d_view *car);
 /* Same six immutable branches as the lazy draw path. Switch prepares them
    before readiness, so the first gear-change flame cannot decode mid-frame. */
@@ -1197,9 +1539,14 @@ static void prepare_afterfire(race_view *v)
         size_t size = 0;
         uint8_t *bytes = vol ? gt4_vol_read(vol, "/race/after_fire.mdl", &size) : NULL;
         for (int f = 0; bytes && f < 6; f++) {
-            gt4_model *m = gt4_model_decode_branch(bytes, size, 0, f);
+            gt4_model *m = gt4_model_decode_afterfire(bytes, size, 0, f);
             if (m) {
                 v->afterfire[f] = r3d_mesh_create(m);
+                gt4_model_free(m);
+            }
+            m = gt4_model_decode_afterfire(bytes, size, 1, f);
+            if (m) {
+                v->afterfire_ground[f] = r3d_mesh_create(m);
                 gt4_model_free(m);
             }
         }
@@ -1212,24 +1559,37 @@ static void prepare_afterfire(race_view *v)
     SWP_LOAD_END();
 }
 static void draw_afterfire(race_view *v, const car_model *a, const r3d_view *car,
-                           const float flames[4][3])
+                           const float flames[4][3], const car_shadow *shadow)
 {
     if (!a || !a->exhaust_points)
         return;
     prepare_afterfire(v);
     r3d_view body = body_place(a, car);
+    for (int pass = 0; pass < 2; pass++) {
+    if (pass && (!shadow || !shadow->on)) continue;
+    if (pass) {
+        body = *car;
+        memcpy(body.pos, shadow->pos, sizeof body.pos);
+        memcpy(body.rot, shadow->rot, sizeof body.rot);
+        /* 00452418: local ground offset; projection bias handled below. */
+        for (int r = 0; r < 3; r++) body.pos[r] += body.rot[r * 3 + 1] * .02f;
+    }
     for (unsigned k = 0; k < a->exhaust_points; k++) {
         const float *q = flames[k & 3], *e = a->exhaust[k];
         if (!(q[0] > 0))
             continue;
-        int frame = (int)(q[0] * 6);
+        float phase = q[0] * 6;
+        int frame = (int)phase;
+        float tween = phase - frame;
         if (frame > 5)
             frame = 5;
-        if (!v->afterfire[frame])
+        r3d_mesh *mesh = pass ? v->afterfire_ground[frame] : v->afterfire[frame];
+        if (!mesh)
             continue;
         const float rad = 0.01745329252f;
         float yaw = atan2f(e[3], e[5]), pitch = -asinf(fmaxf(-1, fminf(1, e[4]))),
-              roll = q[2] * rad, s = q[1];
+              roll = q[2] * rad, s = q[1] * v->now->afterfire_scale[pass];
+        if (pass) pitch = roll = 0;
         float cy = cosf(yaw), sy = sinf(yaw), cp = cosf(pitch), sp = sinf(pitch), cr = cosf(roll),
               sr = sinf(roll);
         float ry[9] = {cy, 0, sy, 0, 1, 0, -sy, 0, cy}, rx[9] = {1, 0, 0, 0, cp, -sp, 0, sp, cp},
@@ -1254,11 +1614,20 @@ static void draw_afterfire(race_view *v, const car_model *a, const r3d_view *car
                 w.rot[r * 3 + c] = 0;
                 for (int i = 0; i < 3; i++)
                     w.rot[r * 3 + c] += body.rot[r * 3 + i] * local[i * 3 + c];
-                w.pos[r] += body.rot[r * 3 + c] * e[c];
+                w.pos[r] += body.rot[r * 3 + c] * (pass && c == 1 ? 0 : e[c]);
             }
         }
         w.brake = 0;
-        r3d_draw(v->afterfire[frame], &w);
+        w.depth_bias = pass ? .005f : 0;
+        w.grasp = tween;
+        w.unlit = 1;
+        w.color_scale = 1;
+        w.authored_color = 1;
+        memcpy(w.color_mul, v->now->afterfire_color, sizeof w.color_mul);
+        w.vertex_alpha_set = 1;
+        w.vertex_alpha = v->now->afterfire_color[3];
+        r3d_draw(mesh, &w);
+    }
     }
 }
 
@@ -1287,6 +1656,14 @@ const gt4_driver_car *race_view_car_geometry(const race_view *v, int entry)
     return c ? &c->driver : NULL;
 }
 
+void race_view_set_camera_far(race_view *v,float far_clip)
+{
+    if(v && isfinite(far_clip) && far_clip>v->cam_near)v->cam_far=far_clip;
+}
+float race_view_camera_far(const race_view *v)
+{
+    return v && v->cam_far>v->cam_near?v->cam_far:20000;
+}
 void race_view_set_camera(race_view *v, const float eye[3], const float rows[9], float sx, float sy,
                           float near_clip)
 {
@@ -1299,6 +1676,7 @@ void race_view_set_camera(race_view *v, const float eye[3], const float rows[9],
         v->cam_sx = sx;
         v->cam_sy = sy;
         v->cam_near = near_clip;
+        v->cam_far = 20000;
     }
 }
 
@@ -1350,6 +1728,14 @@ void race_view_set_wheels(race_view *v, const float wheels[4][3])
         memcpy(v->wheel_pose, wheels, sizeof v->wheel_pose);
 }
 
+void race_view_set_opponent_wheel_spin(race_view *v, int i, float degrees)
+{
+    if (!v || i < 0 || i >= OPPONENTS)
+        return;
+    for (int k = 0; k < 4; k++)
+        v->other_pose[i].interval[k] = degrees;
+}
+
 void race_view_set_wheel_motion(race_view *v, unsigned entry, const float current[4],
                                 const float previous[4], float interpolation)
 {
@@ -1361,6 +1747,17 @@ void race_view_set_wheel_motion(race_view *v, unsigned entry, const float curren
                           ? gt4_wheel_motion_degrees(current[i], previous[i], interpolation,
                                                      v->now->wheel_exposure)
                           : 0;
+}
+/* 003D75F0 -> 003F3A28 (interpolation 0): the wheel's brake heat (+A4)
+   squared, times Env0 +4C / +38; 00390C90 -> 00451550 makes it the
+   brake's wheel block +28, the alpha its blended layers are drawn under. */
+void race_view_set_brake_heat(race_view *v, unsigned entry, const float heat[4])
+{
+    if (!v || !v->now || entry > OPPONENTS)
+        return;
+    float *glow = entry ? v->other_pose[entry - 1].brake_glow : v->wheel_brake_glow;
+    for (int i = 0; i < 4; i++)
+        glow[i] = heat ? heat[i] * heat[i] * v->now->brake_glow_scale : 0;
 }
 /* CPRM +3C angles / +48 hub XYZ, stride +34. 00452008 +4C..CC
    passes both vectors to 004514A0/00451518 without axis conversion. */
@@ -1438,6 +1835,10 @@ int race_view_set_driver_frame(race_view *v, unsigned entry, const float channel
     p->grasp[1] = channels[0x84 / 4];
     p->ready = 1;
     return 1;
+}
+int race_view_brake_lamp(const race_view *v, unsigned entry)
+{
+    return v && v->now && entry <= OPPONENTS ? v->now->pilot[entry].brake : 0;
 }
 int race_view_step_driver(race_view *v, unsigned entry, const int transmission[4],
                           const gt4_driver_animation_input *input)
@@ -1671,14 +2072,20 @@ static void car_draw(r3d_mesh *mesh, const r3d_view *view)
      alpha with height, 77 of 128 at the ground down to 0 at the roof;
    - func_00452660: model 2, the soft blot under the car, with the alpha
      as it is.
-   Both blend (Cs - Cd) * As + Cd without writing depth. Not done: the
-   courses with a table of lamps (func_0038F168: one flat volume a lamp,
-   func_00451EE0). Without the
+   Both blend (Cs - Cd) * As + Cd without writing depth. RNW4 lamps
+   select one flat volume per sampled light (0038F168/00451EE0). Without the
    race's frame (the course viewer) the shadow is laid on the surface
    under the car and the ground counts as lit. */
-static void draw_shadow(const race_asset *env, const car_meshes *m,
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+#include "race_view_car_shadow.inc"
+#include "race_view_shadow_map.inc"
+#include "race_view_lamp_shadow.inc"
+#endif
+static void draw_shadow(race_view *owner, const race_asset *env, const car_meshes *m,
                         const gt4_course_surface *surface, const r3d_view *car,
-                        const car_shadow *from)
+                        const car_shadow *from, const car_model *model, int posed,
+                        const float wheels[4][3], const float snapshot[4][8], const gt4_pit_crew *pit,
+                        int lamp_limit)
 {
     r3d_view shadow = *car;
     shadow.shadow = 1;
@@ -1711,11 +2118,58 @@ static void draw_shadow(const race_asset *env, const car_meshes *m,
     for (int k = 0; k < 3; k++)
         shadow.pos[k] += shadow.rot[k * 3 + 1] * .02f;
     shadow.depth_bias = .008f;
+    /* 00451D18 +17C: after the shadow, model 3 in the same frame when the course's Env0
+       +0x58 is above 0 (slot +0x78, 003D7430): colour scale (1, 1, 1, that) and no offset
+       (004A60E0/004A6100), its own blend (func_00452998). The P shadow paths below replace
+       only the shadow, so the light is drawn before them there. */
+    r3d_view glow = shadow;
+    memset(glow.shadow_rgb, 0, sizeof glow.shadow_rgb);
+    glow.shadow_alpha = env ? env->glow_alpha : 0;
+    int lit = m->glow && glow.shadow_alpha > 0;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    if (lit && (r3d_shadow_map_covers(car->pos) || (r3d_car_shadows_enabled() && env && env->shadow)))
+        r3d_draw(m->glow, &glow), lit = 0;
+    /* Original: func_004524B8 draws the authored contact geometry.
+       P: the depth-map path replaces that hard polygonal blot, rather than
+       drawing it on top of the filtered geometry shadow. */
+    if (car->daylight && r3d_car_shadows_enabled())
+        draw_ambient_contacts(owner, m, model, car, &shadow, posed, wheels, snapshot);
+    if (r3d_shadow_map_covers(car->pos)) return;
+    if (r3d_car_shadows_enabled() && env && env->shadow &&
+        draw_projected_shadow(owner, env, m, model, car, &shadow, sun, level,
+                              posed, wheels, snapshot, pit))
+        return;
+#endif
+    race_lamp_shadows lamps={0};
+    if (env && surface && m->cast) {
+        int triangle=-1; float ground_y;
+        gt4_course_surface_triangle(surface,car->pos[0],car->pos[2],car->pos[1]+5,
+                                    &ground_y,NULL,&triangle);
+        race_lights_shadows(&env->course,triangle,car->pos,
+                            env->photo_environment_on ? env->photo_environment : NULL,
+                            sizeof env->photo_environment,&lamps);
+    }
+    if (lamps.count && !rv_env("MOON_NO_CAST_SHADOW")) {
+        for (int i=0;lamps.count>=2 && i<lamps.count && i<lamp_limit;i++) {
+            r3d_view flat=shadow;
+            float way[3]={0};
+            for(int c=0;c<3;c++) for(int k=0;k<3;k++)
+                way[c]+=shadow.rot[k*3+c]*lamps.lamp[i].way[k];
+            for(int k=0;k<3;k++)
+                flat.rot[k*3+1]=shadow.rot[k*3]*way[0]+shadow.rot[k*3+2]*way[2];
+            memcpy(flat.shadow_rgb,lamps.lamp[i].rgb,sizeof flat.shadow_rgb);
+            flat.shadow_alpha=lamps.lamp[i].alpha;
+            flat.depth_bias=.005f; /* 00452580: biased lamp pass, not solar .008 */
+            if (flat.shadow_alpha>0) r3d_draw(m->cast,&flat);
+        }
+        /* The contact layer retains Env0's colour, independent of each lamp. */
+        if (env) {memcpy(shadow.shadow_rgb,env->shadow_rgb,sizeof shadow.shadow_rgb);shadow.shadow_alpha=env->shadow_alpha;}
+    } else
     if (env && env->shadow) {
         memcpy(shadow.shadow_rgb, env->shadow_rgb, sizeof shadow.shadow_rgb);
         float alpha = env->shadow_alpha *
                       (sun * (env->shadow_sun - env->shadow_shade) + env->shadow_shade) * level;
-        if (m->cast && alpha > 0 && !getenv("MOON_NO_CAST_SHADOW")) {
+        if (m->cast && alpha > 0 && !rv_env("MOON_NO_CAST_SHADOW")) {
             r3d_view flat = shadow;
             float way[3] = {0, 0, 0};
             for (int c = 0; c < 3; c++)
@@ -1729,17 +2183,25 @@ static void draw_shadow(const race_asset *env, const car_meshes *m,
         shadow.shadow_alpha = env->shadow_alpha;
     }
     r3d_draw(m->shadow, &shadow);
+    if (lit)
+        r3d_draw(m->glow, &glow);
 }
 
 static void draw_driver(const driver_actor *pilot, const car_model *a, const r3d_view *car,
                         const gt4_pit_crew *pit);
 
-static void draw_car(const race_asset *env, const car_meshes *m, const car_model *a,
+/* 12-car Tsukuba, 1280x960 Vulkan, MOON_VIDEO_PROFILE=1 frame buckets:
+   baseline 25.1 ms (present 18.1); graphics.car_shadows=0 29.9 ms (22.5);
+   graphics.material_shading=0 25.0 ms (18.2); 640x480 18.9 ms (13.2).
+   No per-car layer dominated; brake_glow has no store/env toggle. LOD not shipped. */
+static void draw_car(race_view *owner, const race_asset *env, const car_meshes *m, const car_model *a,
                      const gt4_course_surface *surface, const r3d_view *seen,
                      const car_shadow *from, int posed, const float wheels[4][3],
-                     const float snapshot[4][8], const float interval[4], int wheel_samples,
-                     float steering, const gt4_pit_crew *pit, const driver_actor *pilot)
+                     const float snapshot[4][8], const float interval[4],
+                     const float brake_glow[4], int wheel_samples, float steering,
+                     const gt4_pit_crew *pit, const driver_actor *pilot)
 {
+    car_draws++;
     r3d_lights lights;
     r3d_view lit = *seen;
     const r3d_view *car = &lit;
@@ -1747,8 +2209,10 @@ static void draw_car(const race_asset *env, const car_meshes *m, const car_model
         lit.env_color[0] = env->env_color[0];
         lit.env_color[1] = env->env_color[1];
     }
+    uint64_t shadow_start = plat_time_ns();
     if (!seen->ghost)
-        draw_shadow(env, m, surface, car, from); /* the ghost casts none (PCSX2, Laguna Seca TT) */
+        draw_shadow(owner, env, m, surface, car, from, a, posed, wheels, snapshot, pit, wheel_samples>1?4:2); /* the ghost casts none (PCSX2, Laguna Seca TT) */
+    video_profile_bucket(VIDEO_BUCKET_SHADOW, plat_time_ns() - shadow_start);
     int triangle = -1;
     float ground;
     /* A: immutable surface adapter selects the triangle beneath the drawn
@@ -1795,9 +2259,12 @@ static void draw_car(const race_asset *env, const car_meshes *m, const car_model
         }
     if (m->hull)
         r3d_draw(m->hull, car);
+    uint64_t body_start = plat_time_ns();
     if (m->body && posed) {
         r3d_view body = pit_body_place(a, car, pit, 1);
         car_draw(m->body, &body);
+        video_profile_bucket(VIDEO_BUCKET_BODY, plat_time_ns() - body_start);
+        uint64_t wheels_start = plat_time_ns();
         /* each wheel's brake before the wheel, as the race body's MDLS calls
            its brake (callbacks 11..14) before its wheel (15..18): the rim's
            see-through texels write depth, so a brake drawn after it would
@@ -1814,6 +2281,13 @@ static void draw_car(const race_asset *env, const car_meshes *m, const car_model
                 wheel_place(a, pose, snapshot ? brake_snapshot : NULL, i, car, &w);
                 pit_mounted_place(pit, (unsigned)(i ^ 1), &w);
                 car_draw(m->brake[i], &w);
+                /* 00453798: the blended layers under the block +28 alpha;
+                   at 0 they add nothing (GS 0x48) or keep the scene (0x44) */
+                if (m->brake_glow[i] && brake_glow && brake_glow[i] > 0) {
+                    w.vertex_alpha_set = 1;
+                    w.vertex_alpha = brake_glow[i];
+                    car_draw(m->brake_glow[i], &w);
+                }
             }
             if (m->wheel[i]) {
                 if (draw_pit_tire(pit, (unsigned)(i ^ 1), car, m->wheel[i]))
@@ -1828,8 +2302,11 @@ static void draw_car(const race_asset *env, const car_meshes *m, const car_model
                 car_draw(m->wheel[i], &w);
             }
         }
-    } else
+        video_profile_bucket(VIDEO_BUCKET_WHEELS, plat_time_ns() - wheels_start);
+    } else {
         car_draw(m->car, car);
+        video_profile_bucket(VIDEO_BUCKET_BODY, plat_time_ns() - body_start);
+    }
 }
 static void draw_driver(const driver_actor *pilot, const car_model *a, const r3d_view *car,
                         const gt4_pit_crew *pit)
@@ -1899,6 +2376,25 @@ static void course_reflection(race_view *v, const float centre[3], const r3d_vie
     const float turn[9] = {cy, 0, sy, sx * sy, cx, -sx * cy, -cx * sy, sx, cx * cy}; /* Rx * Ry */
     if (!v->env_sky && !v->scenery)
         return;
+    int env_size = ENV_SIZE;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    env_size = r3d_reflection_size();
+#endif
+    /* P: resize only on a quality change, retaining the same six views/remap. */
+    if (v->reflection_size != env_size) {
+#ifndef MOON_DEKO3D
+        r3d_gpu_environment(0, 0, 0);
+#endif
+        switch_gpu_image_destroy(v->gpu_env);
+        v->gpu_env = NULL;
+        free(v->env_faces);
+        v->env_faces = NULL;
+        free(v->env_map.rgba);
+        memset(&v->env_map, 0, sizeof v->env_map);
+        v->env_ok = 0;
+        v->reflection_size = env_size;
+        fprintf(stderr, "race reflections: face=%d map=%d\n", env_size, env_size);
+    }
     int gpu = 0;
     /* PC and native Switch retain the six views and remap on the GPU.
        CPU composition remains available for independent comparisons. */
@@ -1908,15 +2404,15 @@ static void course_reflection(race_view *v, const float centre[3], const r3d_vie
     int resident_environment = r3d_resident_reflections();
 #endif
     if (resident_environment && !v->gpu_env)
-        v->gpu_env = switch_gpu_env_create(ENV_FACE, ENV_SIZE);
+        v->gpu_env = switch_gpu_env_create(env_size, env_size);
     gpu = resident_environment && v->gpu_env != NULL;
-    if (!gpu && !v->env_faces && !(v->env_faces = malloc((size_t)6 * ENV_FACE * ENV_FACE * 4)))
+    if (!gpu && !v->env_faces && !(v->env_faces = malloc((size_t)6 * env_size * env_size * 4)))
         return;
     if (!gpu && !v->env_map.rgba) {
-        if (!(v->env_map.rgba = malloc((size_t)ENV_SIZE * ENV_SIZE * 4)))
+        if (!(v->env_map.rgba = malloc((size_t)env_size * env_size * 4)))
             return;
-        v->env_map.width = v->env_map.height = v->env_map.tex_w = v->env_map.tex_h = ENV_SIZE;
-        v->env_map.max_u = v->env_map.max_v = ENV_SIZE - 1;
+        v->env_map.width = v->env_map.height = v->env_map.tex_w = v->env_map.tex_h = env_size;
+        v->env_map.max_u = v->env_map.max_v = env_size - 1;
     }
     for (int face = 0; face < 6; face++) {
         const float *ff = axes[face][0], *uu = axes[face][1];
@@ -1925,15 +2421,24 @@ static void course_reflection(race_view *v, const float centre[3], const r3d_vie
         f.focal_y = 224;
         f.near_clip = .05f;
         f.unlit = 1; /* as the GS has it in memory: not doubled */
+        f.daylight=eye->daylight;
+        f.authored_environment=eye->authored_environment;
+        f.sky_seconds=eye->sky_seconds;
+        memcpy(f.sun_direction,eye->sun_direction,12);
+        memcpy(f.sun_color,eye->sun_color,12);
+        memcpy(f.sky_color,eye->sky_color,12);
+        memcpy(f.haze_color,eye->haze_color,12);
         memcpy(f.f, ff, 12);
         memcpy(f.u, uu, 12);
         f.r[0] = ff[1] * uu[2] - ff[2] * uu[1];
         f.r[1] = ff[2] * uu[0] - ff[0] * uu[2];
         f.r[2] = ff[0] * uu[1] - ff[1] * uu[0];
-        if (!r3d_begin_target(ENV_FACE))
+        if (!r3d_begin_target(env_size))
             return;
         if (v->env_sky) {
             r3d_view s = f;
+            /* Reflection source has the retained half-intensity convention. */
+            s.daylight=r3d_daylight_enabled() && (!v->now->time_zone || r3d_night_sky_enabled())?3:0;
             memcpy(s.rot, turn, sizeof turn);
             r3d_draw(v->env_sky, &s);
             r3d_clear_depth();
@@ -1945,17 +2450,17 @@ static void course_reflection(race_view *v, const float centre[3], const r3d_vie
         if (gpu)
             switch_gpu_env_capture(v->gpu_env, face);
         else
-            r3d_end_target(v->env_faces + (size_t)face * ENV_FACE * ENV_FACE * 4);
+            r3d_end_target(v->env_faces + (size_t)face * env_size * env_size * 4);
     }
     if (gpu) {
         switch_gpu_env_remap(v->gpu_env, eye->r, eye->u, eye->f);
         v->env_ok = 1;
         return;
     }
-    for (int y = 0; y < ENV_SIZE; y++)
-        for (int x = 0; x < ENV_SIZE; x++) {
+    for (int y = 0; y < env_size; y++)
+        for (int x = 0; x < env_size; x++) {
             /* sphere-map texel -> view-space reflection -> world direction (the showroom's) */
-            float mx = ((x + .5f) / ENV_SIZE - .5f) * 2, my = -((y + .5f) / ENV_SIZE - .5f) * 2,
+            float mx = ((x + .5f) / env_size - .5f) * 2, my = -((y + .5f) / env_size - .5f) * 2,
                   m2 = mx * mx + my * my;
             if (m2 > 1) {
                 float k = 1 / sqrtf(m2);
@@ -1983,18 +2488,18 @@ static void course_reflection(race_view *v, const float centre[3], const r3d_vie
                   qy = (D[0] * uu[0] + D[1] * uu[1] + D[2] * uu[2]) / big;
             /* filtered between the face's four nearest pixels: the PS2 remaps
            its views drawn as textures on the mesh (its TEX1 not read) */
-            float fx = fminf(ENV_FACE - 1, fmaxf(0, ENV_FACE / 2 + qx * ENV_FACE / 2 - .5f)),
-                  fy = fminf(ENV_FACE - 1, fmaxf(0, ENV_FACE / 2 - qy * ENV_FACE / 2 - .5f));
-            int x0 = (int)fx, y0 = (int)fy, x1 = x0 + 1 < ENV_FACE ? x0 + 1 : x0,
-                y1 = y0 + 1 < ENV_FACE ? y0 + 1 : y0;
+            float fx = fminf(env_size - 1, fmaxf(0, env_size / 2 + qx * env_size / 2 - .5f)),
+                  fy = fminf(env_size - 1, fmaxf(0, env_size / 2 - qy * env_size / 2 - .5f));
+            int x0 = (int)fx, y0 = (int)fy, x1 = x0 + 1 < env_size ? x0 + 1 : x0,
+                y1 = y0 + 1 < env_size ? y0 + 1 : y0;
             float wx = fx - x0, wy = fy - y0;
-            const uint8_t *face = v->env_faces + (size_t)best * ENV_FACE * ENV_FACE * 4;
-            uint8_t *out = v->env_map.rgba + ((size_t)y * ENV_SIZE + x) * 4;
+            const uint8_t *face = v->env_faces + (size_t)best * env_size * env_size * 4;
+            uint8_t *out = v->env_map.rgba + ((size_t)y * env_size + x) * 4;
             for (int c = 0; c < 3; c++) {
-                float a = face[(y0 * ENV_FACE + x0) * 4 + c] * (1 - wx) +
-                          face[(y0 * ENV_FACE + x1) * 4 + c] * wx;
-                float b = face[(y1 * ENV_FACE + x0) * 4 + c] * (1 - wx) +
-                          face[(y1 * ENV_FACE + x1) * 4 + c] * wx;
+                float a = face[(y0 * env_size + x0) * 4 + c] * (1 - wx) +
+                          face[(y0 * env_size + x1) * 4 + c] * wx;
+                float b = face[(y1 * env_size + x0) * 4 + c] * (1 - wx) +
+                          face[(y1 * env_size + x1) * 4 + c] * wx;
                 out[c] = (uint8_t)(a * (1 - wy) + b * wy + .5f);
             }
             out[3] = 255;
@@ -2014,14 +2519,16 @@ static void road_sheen(race_view *v, const r3d_view *world)
 {
     const race_asset *a = v->now;
     r3d_view m = *world, t = *world;
-    if (!v->sheen_mask || a->sheen_size <= 0 || getenv("MOON_NO_SHEEN"))
+    if (!v->sheen_mask || a->sheen_size <= 0 || rv_env("MOON_NO_SHEEN"))
         return;
     r3d_clear_alpha(0);
     m.fog = 0;
+    m.daylight = 0; /* A coverage mask is not a relit surface. */
     r3d_draw(v->sheen_mask, &m);
     if (!r3d_begin_target_view(a->sheen_size))
         return;
     t.color_scale = 1;
+    t.daylight = 0; /* Retained encoded sheen source, converted once at composition. */
     if (v->sheen_sky) {
         r3d_view s = t;
         memset(s.cam, 0, sizeof s.cam);
@@ -2036,14 +2543,85 @@ static void road_sheen(race_view *v, const r3d_view *world)
     memcpy(t.fog_rgb, a->sheen_fog_rgb, sizeof t.fog_rgb);
     if (v->sheen_set)
         r3d_draw(v->sheen_set, &t);
-    r3d_end_target_add(a->sheen_rgb, a->sheen_blur);
+    if (world->daylight)
+        r3d_end_target_add_road(a->sheen_rgb, a->sheen_blur, world);
+    else
+        r3d_end_target_add(a->sheen_rgb, a->sheen_blur);
+}
+
+/* 003E4A28: odd GDGT model, shadow projection then object placement.
+   Original homogeneous W is constant for a directional light, so its divide
+   belongs in this read-only affine adapter, not in the object's physics. */
+static int gadget_shadow_view(const race_asset *a, const gt4_course_gadget *g,
+                              const r3d_view *object, r3d_view *out)
+{
+    if (!a->gadget_shadow)
+        return 0;
+    float m[16];
+    gt4_course_gadget_shadow_matrix(g, a->gadget_shadow_direction, m);
+    if (!isfinite(m[15]) || m[15] == 0)
+        return 0;
+    *out = *object;
+    for (int r = 0; r < 3; r++) {
+        out->pos[r] =
+            ((m[r] * object->pos[0] + m[4 + r] * object->pos[1]) + m[8 + r] * object->pos[2]) +
+            m[12 + r];
+        out->pos[r] /= m[15];
+        for (int c = 0; c < 3; c++)
+            out->rot[r * 3 + c] = ((m[r] * object->rot[c] + m[4 + r] * object->rot[3 + c]) +
+                                   m[8 + r] * object->rot[6 + c]) /
+                                  m[15];
+    }
+    out->shadow = 1;
+    out->unlit = 1;
+    out->daylight = 0;
+    out->modern_light = 0;
+    memset(out->shadow_rgb, 0, sizeof out->shadow_rgb);
+    out->shadow_alpha =
+        gt4_course_gadget_shadow_alpha(g->sun, g->shade, a->shadow_sun, a->shadow_shade);
+    out->depth_bias = .005f; /* 0049AB58, bits 3BA3D70A. */
+    return out->shadow_alpha > 0;
 }
 
 static int split_mode;
 static int split_entry; /* active drawing pass, never a simulation index */
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+static void update_car_lamps(race_view *v,const float pos[3],const float rot[9],int pregrid)
+{
+    r3d_car_lamp lights[R3D_CAR_LAMPS];unsigned count=0;
+    if(!pregrid && r3d_car_lamps_enabled())for(unsigned entry=0;entry<=OPPONENTS;entry++) {
+        const car_model *model=entry?v->now->other[entry-1]:v->now->car;
+        if (!model ||
+            (entry && (!v->other_pose[entry - 1].on || v->other_pose[entry - 1].ghost > 0)))
+            continue;
+        int on=v->now->time_zone || !strcmp(model->code,"r34_gtr_v_gtcolor_pc_01");
+        int brake=v->now->pilot[entry].brake;
+        const float *p=entry?v->other_pose[entry-1].pos:pos,*r=entry?v->other_pose[entry-1].rot:rot;
+        for(unsigned i=0;i<v->now->lamp_count[entry] && count<R3D_CAR_LAMPS;i++) {
+            const moon_car_lamp *lamp=&v->now->lamps[entry][i];
+            if(!on && !(lamp->rear && brake))continue;
+            r3d_car_lamp *out=&lights[count++];memset(out,0,sizeof *out);
+            for(int k=0;k<3;k++) {
+                out->position[k]=p[k];
+                for(int c=0;c<3;c++){out->position[k]+=r[k*3+c]*lamp->pos[c];out->direction[k]+=r[k*3+c]*lamp->direction[c];}
+                out->color[k]=lamp->color[k]*(lamp->rear?(brake?3.f:.35f):100.f);
+            }
+            out->color[3]=lamp->rear?0:.02f; /* cutoff above the downward optical axis */
+            out->position[3]=lamp->rear?8.f:60.f;
+            out->direction[3]=cosf((lamp->rear?65.f:25.f)*.0174532925199433f);
+        }
+    }
+    r3d_car_lamp_frame(lights,count);
+}
+#endif
 static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float x, float y, float w,
                           float h)
 {
+    uint64_t scene_start = plat_time_ns();
+    phantom_draws = 0;
+    car_draws = 0;
+    car_count = v ? v->other_count + 1 : 0;
+    rv_env_count = 0;
     if (!v || !v->now)
         return 0;
     if (!r3d_available()) {
@@ -2067,6 +2645,9 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
     plat_draw_quad(v->sky, x, y, w, h, 0, 0, 1, 1, tint);
     float pos[3], rot[9], cam[3], target[3];
     place(v, pos, rot, cam, target);
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    update_car_lamps(v,pos,rot,pregrid);
+#endif
     r3d_view world = {{1, 0, 0, 0, 1, 0, 0, 0, 1}};
     world.focal = v->focal;
     world.unlit = 1;
@@ -2079,7 +2660,7 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
        colours (71 -> 142). Where the game doubles (its vertex program or
        a pass over the frame) is not read yet. */
     world.color_scale = 2;
-    world.fog = v->now->fog && !getenv("MOON_NO_FOG");
+    world.fog = v->now->fog && !rv_env("MOON_NO_FOG");
     world.fog_distance = v->now->fog_distance;
     world.fog_max = v->now->fog_max;
     memcpy(world.fog_rgb, v->now->fog_rgb, sizeof world.fog_rgb);
@@ -2095,9 +2676,36 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
         world.focal = v->cam_sx * (menu ? 320 : (H * 4.f / 3) / 2);
         world.focal_y = v->cam_sy * H / 2;
         world.near_clip = v->cam_near;
+        world.far_clip = race_view_camera_far(v);
     }
     memcpy(world.jitter, v->photo_jitter, sizeof world.jitter);
     world.screen_reflect = v->screen_reflect;
+    world.modern_light = 1;
+
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    if(!r3d_daylight_enabled() || (v->now->time_zone && !r3d_night_sky_enabled()))video_solar_projection(0,0,0,world.fog_rgb);
+    if ((r3d_daylight_enabled() || r3d_modern_lighting_enabled()) && (!v->now->time_zone || r3d_night_sky_enabled())) {
+        /* 00398210: primary enabled Env0 +D0 directional light. Source sky
+           geometry/textures retain sun and moon positions; no synthetic orbit. */
+        float direction[3];
+        for(int c=0;c<3;c++)direction[c]=v->now->lights.count?v->now->lights.direction[0][c]:-v->now->shadow_way[c];
+        v->daylight=moon_daylight_authored(direction,v->now->time_zone!=0);
+        world.authored_environment=1;
+        world.daylight=r3d_modern_lighting_enabled()?1:0;
+        world.sky_seconds=(float)v->daylight_seconds;
+        world.authored_night =
+            moon_authored_night_weight(v->now->time_zone != 0, v->daylight.sun[1]);
+        memcpy(world.sun_direction,v->daylight.sun,12);
+        memcpy(world.sun_color,v->daylight.direct,12);
+        memcpy(world.sky_color,v->daylight.sky,12);
+        memcpy(world.haze_color,v->daylight.haze,12);
+        float forward=dot3(world.sun_direction,world.f);
+        float sx=.5f,sy=.5f;
+        if(forward>.001f){sx+=dot3(world.sun_direction,world.r)*world.focal/640/forward*video_projection_x();sy+=dot3(world.sun_direction,world.u)*(world.focal_y>0?world.focal_y:world.focal)/448/forward;}
+        if (!v->screen_reflect)
+            video_solar_projection(sx,sy,!split_mode && forward>.001f?1:0,world.sun_color);
+    }
+#endif
     r3d_view car = world;
     car.unlit = 0;
     car.color_scale = 0;
@@ -2105,11 +2713,23 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
     memcpy(car.pos, pos, sizeof pos);
     if (!pregrid)
         course_reflection(v, pos, &world);
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    v->mapped_shadow_ready = 0;
+    r3d_shadow_map_bind(NULL);
+    if (!pregrid) {
+        moon_vk_gpu_mark("shadow");
+        prepare_lamp_shadow(v, &car);
+        prepare_shadow_map(v, &car, split_entry);
+        moon_vk_gpu_mark("shadow_end");
+    }
+#endif
+
     /* the Dive's filter on the course, not the cars: rp_04 (PCSX2) shows
        its fence at (1, 0.6, 0.35) of the grey and the cars' paint as it
        is (A: the pass that does it is not read) */
     if (!menu && v->grade_on)
         memcpy(world.grade, v->grade, sizeof world.grade);
+    moon_vk_gpu_mark("track");
     if (v->gpu_env && v->env_ok
 #if !defined(__SWITCH__)
         && r3d_resident_reflections()
@@ -2119,8 +2739,8 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
             r3d_begin_ui_environment(x, y, w, h, NULL);
         else
             r3d_begin(x, y, w, h, NULL);
-        r3d_gpu_environment(video_texture_id(switch_gpu_image_texture(v->gpu_env)), ENV_SIZE,
-                            ENV_SIZE);
+        r3d_gpu_environment(video_texture_id(switch_gpu_image_texture(v->gpu_env)), v->reflection_size,
+                            v->reflection_size);
     } else
         if (photo)
         r3d_begin_ui_environment(x, y, w, h,
@@ -2135,6 +2755,7 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
         r3d_view s = world;
         memset(s.cam, 0, sizeof s.cam);
         s.near_clip = .01f;
+        s.daylight=r3d_daylight_enabled() && (!v->now->time_zone || r3d_night_sky_enabled())?2:0;
         s.fog = 0; /* func_00396B80: the sky with the fog at distance 0 and floor 1, none */
         r3d_draw(v->sky_mesh, &s);
         /* The dome (some 40 m across) is behind everything: the distant
@@ -2147,14 +2768,25 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
     r3d_view selected = world;
     unsigned pass = v->screen_reflect ? 1 : split_mode ? 2 : 0;
     selected.model_list = gt4_course_vision_select(v->now->vision + pass, world.cam, NULL);
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    if (!pregrid) r3d_shadow_map_bind(v->mapped_shadow_ready ? v->mapped_shadow : NULL);
+#endif
     r3d_draw(v->world, &selected);
 #ifndef MOON_DEKO3D
     road_sheen(v, &world);
 #endif /* P: native Switch forward shading replaces the road reflection passes. */
-    /* 003E5338 / 003E4A28: normal GDGT models in the object frame,
+    if (v->best_line_mesh || v->assist_mesh) {
+        r3d_view line = world;
+        line.unlit = 1;
+        line.color_scale = 0;
+        line.model_list = NULL;
+        r3d_draw(v->best_line_mesh ? v->best_line_mesh : v->assist_mesh, &line);
+    }
+    /* 003E5338 / 003E4A28: paired shadow and normal GDGT models in the object frame,
        Env0 lighting from the original per-object RNW4 light bytes.
        Geometry/textures stay resident; each draw changes only its pose. */
-    if (v->gadgets && v->now->gadgets && !getenv("MOON_TEST_HIDE_GADGETS")) {
+    uint64_t lights_start = plat_time_ns();
+    if (v->gadgets && v->now->gadgets && !rv_env("MOON_TEST_HIDE_GADGETS")) {
         gt4_course_gadgets *g = v->now->gadgets;
         for (unsigned pass = 0; pass < 2; pass++) {
             if (pass && (v->gadget_section < 0 || (unsigned)v->gadget_section >= g->sections))
@@ -2169,19 +2801,30 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
                 memcpy(object.rot, p->rot, 36);
                 object.unlit = 0;
                 object.color_scale = 0;
+                r3d_view shadow;
+                if (v->gadget_shadows && v->gadget_shadows[p->type] &&
+                    !rv_env("MOON_TEST_HIDE_GADGET_SHADOWS") &&
+                    gadget_shadow_view(v->now, p, &object, &shadow))
+                    r3d_draw(v->gadget_shadows[p->type], &shadow);
                 r3d_lights lights;
                 car_light(&v->now->lights, v->now->light_fade, p->sun, p->shade, &lights);
                 r3d_draw_lit(v->gadgets[p->type], &object, &lights);
             }
         }
     }
+    video_profile_bucket(VIDEO_BUCKET_LIGHTS, plat_time_ns() - lights_start);
+    video_profile_bucket(VIDEO_BUCKET_TRACK, lights_start - scene_start);
     car_lights = NULL;
     /* 00340950 +564/+59C: camera car requests 16, other cars 1. */
     car.brake = v->now->pilot[0].brake;
+    moon_vk_gpu_mark("track_end");
+    moon_vk_gpu_mark("car");
+    uint64_t car_start = plat_time_ns();
     if (!pregrid && v->now->car && (split_entry || !v->hide_car)) {
-        draw_car(v->now, &v->mine, v->now->car, v->now->surface, &car, &v->shadow[0],
+        draw_car(v, v->now, &v->mine, v->now->car, v->now->surface, &car, &v->shadow[0],
                  v->pose_on && v->wheels_on, v->wheel_pose,
                  v->wheel_snapshot_on ? v->wheel_snapshot : NULL, v->wheel_interval,
+                 v->wheel_brake_glow,
                  split_entry == 0 ? 16 : 1, v->now->pilot[0].steering, v->pit_crew[0],
                  &v->now->pilot[0]);
     }
@@ -2198,15 +2841,21 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
         o.ghost_alpha = p->ghost;
         for (int pass = p->ghost > 0; pass <= (p->ghost > 0 ? 2 : 0); pass++) {
             o.ghost = pass;
-            draw_car(v->now, &v->other[i], v->now->other[i], v->now->surface, &o, &v->shadow[i + 1],
+            draw_car(v, v->now, &v->other[i], v->now->other[i], v->now->surface, &o, &v->shadow[i + 1],
                      p->wheels_on, p->wheel_pose, p->snapshot_on ? p->snapshot : NULL, p->interval,
+                     p->brake_glow,
                      split_entry == i + 1 ? 16 : 1, v->now->pilot[i + 1].steering,
                      v->pit_crew[i + 1], &v->now->pilot[i + 1]);
+            if (i >= 5)
+                phantom_draws++;
         }
     }
+    video_profile_bucket(VIDEO_BUCKET_CAR, plat_time_ns() - car_start);
+    moon_vk_gpu_mark("car_end");
+    uint64_t tail_start = plat_time_ns();
     /* the backfire's flames after the cars, added over them */
     if (!pregrid && v->now->car && (split_entry || !v->hide_car) && v->flame_on[0])
-        draw_afterfire(v, v->now->car, &car, v->flame[0]);
+        draw_afterfire(v, v->now->car, &car, v->flame[0], &v->shadow[0]);
     for (int i = 0; !pregrid && i < OPPONENTS; i++) {
         const car_pose *p = &v->other_pose[i];
         if (!v->now->other[i] || !p->on || p->ghost > 0 || !v->flame_on[i + 1])
@@ -2214,7 +2863,7 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
         r3d_view o = car;
         memcpy(o.rot, p->rot, sizeof o.rot);
         memcpy(o.pos, p->pos, sizeof o.pos);
-        draw_afterfire(v, v->now->other[i], &o, v->flame[i + 1]);
+        draw_afterfire(v, v->now->other[i], &o, v->flame[i + 1], &v->shadow[i + 1]);
     }
     if (!pregrid &&
         v->leaves) { /* func_003C2838 from the cars' draw (0033EAB8): each leaf, its picture */
@@ -2244,15 +2893,15 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
         }
     }
     if (!pregrid && v->smoke && v->smoke_tex) { /* func_003E7CC8 from the cars' draw (0033F2E8) */
-        static race_smoke_quad quads[256];
-        static float corners[256 * 4 * 9];
+        static race_smoke_quad quads[256 * 3];
+        static float corners[256 * 3 * 4 * 9];
         float rows[9];
         for (int k = 0; k < 3; k++) {
             rows[k] = world.r[k];
             rows[3 + k] = world.u[k];
             rows[6 + k] = -world.f[k];
         }
-        int n = race_smoke_quads(v->smoke, world.cam, rows, quads, 256);
+        int n = race_smoke_quads(v->smoke, world.cam, rows, quads, 256 * 3);
         for (int q = 0; q < n; q++)
             for (int c = 0; c < 4; c++) {
                 float *o = corners + ((size_t)q * 4 + c) * 9;
@@ -2262,7 +2911,14 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
             }
         r3d_draw_sprites(v->smoke_tex, &world, corners, n, race_smoke_blend(v->smoke) == 0x48);
     }
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    if(!v->screen_reflect && !split_mode)r3d_shadow_map_volume(&world);
+#endif
     r3d_end();
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    r3d_shadow_map_bind(NULL);
+#endif
+    video_profile_bucket(VIDEO_BUCKET_TRACK, plat_time_ns() - tail_start);
     return v->now->car != NULL;
 }
 
@@ -2288,6 +2944,23 @@ void race_view_set_leaves(race_view *v, const race_leaves *l)
 static int draw_scene(race_view *v, int pregrid, int menu)
 {
     return draw_scene_box(v, pregrid, menu, 0, 0, 0, W, menu ? 480 : H);
+}
+double race_view_daylight_seconds(const race_view *v)
+{
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    return v ? v->daylight_seconds : 0;
+#else
+    (void)v;
+    return 0;
+#endif
+}
+void race_view_daylight_time(race_view *v,double seconds)
+{
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    if(v)v->daylight_seconds=seconds;
+#else
+    (void)v;(void)seconds;
+#endif
 }
 int race_view_draw(race_view *v)
 {
@@ -2334,6 +3007,7 @@ static void photo_get(const race_view *v, photo_frame *f)
     memcpy(c->rot, v->pose_rot, sizeof c->rot);
     memcpy(c->wheel_pose, v->wheel_pose, sizeof c->wheel_pose);
     memcpy(c->interval, v->wheel_interval, sizeof c->interval);
+    memcpy(c->brake_glow, v->wheel_brake_glow, sizeof c->brake_glow);
     memcpy(f->car + 1, v->other_pose, sizeof v->other_pose);
     memcpy(f->shadow, v->shadow, sizeof v->shadow);
     if (v->now)
@@ -2345,6 +3019,7 @@ static void photo_get(const race_view *v, photo_frame *f)
     f->projection[0] = v->cam_sx;
     f->projection[1] = v->cam_sy;
     f->projection[2] = v->cam_near;
+    f->far_clip = race_view_camera_far(v);
 }
 static void photo_put(race_view *v, const photo_frame *f)
 {
@@ -2357,6 +3032,7 @@ static void photo_put(race_view *v, const photo_frame *f)
     memcpy(v->pose_rot, c->rot, sizeof c->rot);
     memcpy(v->wheel_pose, c->wheel_pose, sizeof c->wheel_pose);
     memcpy(v->wheel_interval, c->interval, sizeof c->interval);
+    memcpy(v->wheel_brake_glow, c->brake_glow, sizeof c->brake_glow);
     memcpy(v->other_pose, f->car + 1, sizeof v->other_pose);
     memcpy(v->shadow, f->shadow, sizeof v->shadow);
     if (v->now)
@@ -2368,6 +3044,7 @@ static void photo_put(race_view *v, const photo_frame *f)
     v->cam_sx = f->projection[0];
     v->cam_sy = f->projection[1];
     v->cam_near = f->projection[2];
+    v->cam_far = f->far_clip;
 }
 void race_view_photo_record(race_view *v)
 {
@@ -2534,7 +3211,8 @@ int race_view_draw_license_menu(race_view *v)
    at the picture's left),
    the size in the box from the Race Monitor print (00393CF0's own turn
    not read) */
-void race_view_draw_icon_front(race_view *v, int i, float x, float y, float w, float h)
+void race_view_draw_icon_front_alpha(race_view *v, int i, float x, float y, float w, float h,
+                                     float opacity)
 {
     const car_model *a;
     const car_meshes *m;
@@ -2598,7 +3276,12 @@ void race_view_draw_icon_front(race_view *v, int i, float x, float y, float w, f
     if (m->hull)
         r3d_draw_lit(m->hull, &c, &lights);
     r3d_draw_lit(m->car, &c, &lights);
-    r3d_end();
+    r3d_end_layer(opacity, 0);
+}
+
+void race_view_draw_icon_front(race_view *v, int i, float x, float y, float w, float h)
+{
+    race_view_draw_icon_front_alpha(v, i, x, y, w, h, 1);
 }
 
 /* A car's icon (the game's CarIconMaker, func_00393D20, the side view the

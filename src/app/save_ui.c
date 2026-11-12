@@ -1,5 +1,6 @@
 #include "save_ui.h"
 #include "save.h"
+#include "save_package.h"
 #include "save_ps2.h"
 #include "ps2_media.h"
 #include "plat_sdl.h"
@@ -14,12 +15,64 @@
 #include <commdlg.h>
 #endif
 static save_ui *screen;
+/* Hidden-window fixtures inject only the host file choice, not transfer logic. */
+static int package_fixture_path(char path[1200])
+{
+    const char *hidden=getenv("MOON_WINDOW_HIDDEN");
+    if (!hidden || strcmp(hidden,"1")) return 0;
+#ifdef _WIN32
+    /* Match the real wide-character picker, including non-ASCII paths. */
+    wchar_t value[1200];DWORD count=GetEnvironmentVariableW(L"MOON_TEST_SAVE_PACKAGE",value,1200);
+    return count && count<1200 && WideCharToMultiByte(CP_UTF8,0,value,-1,path,1200,NULL,NULL)>0;
+#else
+    const char *value=getenv("MOON_TEST_SAVE_PACKAGE");
+    if (!value || !*value || strlen(value)>=1200) return 0;
+    snprintf(path,1200,"%s",value);return 1;
+#endif
+}
+static int choose_export(char path[1200])
+{
+    if (package_fixture_path(path)) return 1;
+#ifdef _WIN32
+    wchar_t chosen[1200]=L"Player.moonplayer";
+    char suggested[160]; snprintf(suggested,sizeof suggested,"%s",gt4_save_player());
+    for (char *p=suggested;*p;p++) if (strchr("<>:\"/\\|?*",*p)) *p='_';
+    if (suggested[0]) strncat(suggested,".moonplayer",sizeof suggested-strlen(suggested)-1);
+    if (suggested[0]) MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,suggested,-1,chosen,1200);
+    OPENFILENAMEW dialog={0}; dialog.lStructSize=sizeof dialog;
+    SDL_SysWMinfo info; SDL_VERSION(&info.version);
+    if (SDL_GetWindowWMInfo(plat_sdl_window(),&info)) dialog.hwndOwner=info.info.win.window;
+    dialog.lpstrFilter=L"Complete Moon Engine player package\0*.moonplayer\0";
+    dialog.lpstrFile=chosen; dialog.nMaxFile=1200;
+    dialog.lpstrDefExt=L"moonplayer"; dialog.lpstrTitle=L"Export complete player, photos, replays, films and lists";
+    dialog.Flags=OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR|OFN_OVERWRITEPROMPT;
+    if (!GetSaveFileNameW(&dialog)) return 0;
+    return WideCharToMultiByte(CP_UTF8,0,chosen,-1,path,1200,NULL,NULL)!=0;
+#else
+    (void)path;
+    return 0;
+#endif
+}
 static int action(ah_vm *, ah_obj *, void *, int, const ah_val *, ah_val *);
 static void heading(save_ui *, ui_widget *, const char *);
+static void welcome_question(save_ui *s);
+static int enter_cards(ah_vm *, ah_obj *, void *, int, const ah_val *, ah_val *);
+static int welcome_answer(ah_vm *, ah_obj *, void *, int, const ah_val *, ah_val *);
 static int complete_first_run(save_ui *s)
 {
     if (!s->onboarding)
         return 0;
+    if (!s->autosave_explained && gt4_save_active() && gt4_save_auto_enabled()) {
+        /* boot.ad ExplainRoot L780..785: notice, icon example, safe removal. */
+        s->first_run = 1;
+        s->welcome_step = 4;
+        if (menu_active_root(s->owner) == s->root) {
+            ah_val result;
+            enter_cards(NULL, NULL, s, 0, NULL, &result);
+        } else
+            menu_native_page(s->owner, s->root);
+        return 1;
+    }
     s->first_run = s->onboarding = 0;
     menu_request_project(s->owner, menu_option_number(s->owner, "opening_after_autoload", 1)
                                        ? "boot:MovieRoot"
@@ -47,10 +100,42 @@ static int none(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *arg
     *ret = ah_int(0);
     return 0;
 }
+/* P: Caps Lock (and Shift held) on the PC keyboard, as the text it types. */
+static int typing_capitals(const save_ui *s)
+{
+    SDL_Keymod mod = SDL_GetModState();
+    return s->caps ^ !!(mod & KMOD_CAPS) ^ !!(mod & KMOD_SHIFT);
+}
+/* P: the keyboard shows the capitals that the next key types: the first letter (append()
+   capitalizes it) and every letter while caps is on; otherwise lower case. The focus stays
+   on the same key across the two layouts. */
+static void show_case(save_ui *s)
+{
+    if (!s->keyboard)
+        return;
+    ui_widget *lower = ui_widget_child(s->keyboard, "LowerCase"),
+              *upper = ui_widget_child(s->keyboard, "UpperCase");
+    if (!lower || !upper)
+        return;
+    int capitals = typing_capitals(s) || !s->name[0];
+    if (upper->visible == capitals && lower->visible == !capitals)
+        return;
+    const char *focus = s->editing ? menu_focus_name(s->owner) : NULL;
+    char key[64] = "";
+    if (focus)
+        snprintf(key, sizeof key, "%s", focus);
+    lower->visible = !capitals;
+    upper->visible = capitals;
+    ui_widget *same = key[0] ? ui_widget_child(capitals ? upper : lower, key) : NULL;
+    if (s->editing)
+        menu_native_focus(s->owner,
+                          same ? same : ui_widget_child(capitals ? upper : lower, "key_q"));
+}
 void save_ui_name(save_ui *s, const char *name)
 {
     snprintf(s->name, sizeof s->name, "%s", name ? name : "");
     text(s->name_label, s->name);
+    show_case(s);
 }
 static void refresh(save_ui *s)
 {
@@ -100,11 +185,14 @@ static int enter_cards(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_v
         int decoration =
             child->name && (!strcmp(child->name, "bg") || !strcmp(child->name, "ToolTip"));
         child->visible = decoration ? 1 : child == s->welcome ? s->first_run : !s->first_run;
+        if (child->name && !strcmp(child->name, "Export"))
+            child->visible = !s->first_run && s->transfer_tools;
     }
     if (s->first_run) {
-        heading(s, s->page, "Welcome to Moon Engine");
-        menu_native_focus(s->owner, ui_widget_child(s->welcome, "Begin"));
-        tip(s, "Create a player profile, import a savegame, or continue without saving.");
+        ui_widget *title = ui_widget_child(s->page, "Title");
+        if (title)
+            title->visible = 0;
+        welcome_question(s);
         *ret = ah_int(0);
         return 0;
     }
@@ -129,9 +217,11 @@ static int enter_name(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_va
     text(s->name_label, s->name);
     ui_widget *lower = ui_widget_child(s->keyboard, "LowerCase"),
               *upper = ui_widget_child(s->keyboard, "UpperCase");
+    s->caps = 0;
     lower->visible = 1;
     upper->visible = 0;
     menu_native_focus(s->owner, ui_widget_child(lower, "key_q"));
+    show_case(s);
     tip(s, "Enter your name using the keyboard. Select ENTER to confirm; Escape cancels.");
     *ret = ah_int(0);
     return 0;
@@ -145,6 +235,7 @@ static void backspace(save_ui *s)
         } while (n && ((unsigned char)s->name[n] & 0xc0) == 0x80);
         s->name[n] = 0;
         text(s->name_label, s->name);
+        show_case(s);
     }
 }
 static void append(save_ui *s, const char *input)
@@ -177,7 +268,8 @@ static void name_done(save_ui *s)
         return;
     }
     menu_save_capture(s->owner);
-    int ok = s->rename ? gt4_save_rename(s->name) : gt4_save_create(s->slot, s->name);
+    int ok = menu_save_profile_change(s->owner, s->rename ? MENU_PROFILE_RENAME : MENU_PROFILE_CREATE,
+                                      s->slot, s->name);
     if (!ok) {
         tip(s, gt4_save_error());
         menu_play_effect(s->owner, "disable");
@@ -209,16 +301,12 @@ static int key_action(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_va
         backspace(s);
         menu_play_effect(s->owner, "cancel");
     } else if (strstr(key, "caps")) {
-        ui_widget *lower = ui_widget_child(s->keyboard, "LowerCase"),
-                  *upper = ui_widget_child(s->keyboard, "UpperCase");
-        lower->visible = !lower->visible;
-        upper->visible = !upper->visible;
-        menu_native_focus(s->owner, ui_widget_child(lower->visible ? lower : upper, "key_q"));
+        s->caps = !s->caps;
+        show_case(s);
         menu_play_effect(s->owner, "param");
     } else if (!strncmp(key, "key_", 4) && key[4]) {
         char c[2] = {key[4], 0};
-        ui_widget *upper = ui_widget_child(s->keyboard, "UpperCase");
-        if (upper->visible && c[0] >= 'a' && c[0] <= 'z')
+        if (typing_capitals(s) && c[0] >= 'a' && c[0] <= 'z')
             c[0] -= 32;
         append(s, c);
     }
@@ -249,6 +337,7 @@ static void bind_keys(save_ui *s, ui_widget *w)
 }
 static int choose_import(char path[1200], int media)
 {
+    if (!media && package_fixture_path(path)) return 1;
 #ifdef _WIN32
     wchar_t chosen[1200] = L"";
     OPENFILENAMEW open = {0};
@@ -258,7 +347,7 @@ static int choose_import(char path[1200], int media)
     if (SDL_GetWindowWMInfo(plat_sdl_window(), &info))
         open.hwndOwner = info.info.win.window;
     open.lpstrFilter = media ? L"GT4 media archives\0*.psu;*.ps2\0All files\0*.*\0"
-                             : L"GT4 savegames\0*.psu;*.ps2;*GAMEDATA\0All files\0*.*\0";
+                             : L"GT4 savegames\0*.moonplayer;*.ogt4;*.psu;*.ps2;*GAMEDATA\0All files\0*.*\0";
     open.lpstrFile = chosen;
     open.nMaxFile = 1200;
     open.lpstrTitle = media ? L"Import GT4 Media" : L"Import GT4 Savegame";
@@ -308,8 +397,12 @@ static int action(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *a
         menu_play_effect(s->owner, "select");
         goto end;
     }
-    if (!strcmp(op, "Back") && s->first_run) {
-        complete_first_run(s);
+    if (!strcmp(op, "Back") && s->onboarding) {
+        if (s->first_run)
+            return welcome_answer(vm, self, NULL, argc, argv, ret);
+        s->first_run = 1;
+        s->welcome_step = 0;
+        enter_cards(vm, self, s, 0, NULL, ret);
         goto end;
     }
     if (!strcmp(op, "Back")) {
@@ -348,10 +441,22 @@ static int action(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *a
             menu_play_effect(s->owner, "select");
             goto end;
         }
-        ok = gt4_save_load_slot(slot);
+        ok = menu_save_load(s->owner, slot);
     } else if (!strcmp(op, "Save")) {
         menu_save_capture(s->owner);
-        ok = gt4_save_store();
+        ok = menu_save_store(s->owner);
+    } else if (!strcmp(op,"Export")) {
+        if (!s->transfer_tools || !gt4_save_active()) {
+            tip(s,"Load a player profile first."); goto end;
+        }
+        menu_save_capture(s->owner);
+        if (gt4_save_dirty()) {
+            if (!menu_confirm(s->owner,"Export Savegame","Save current progress before exporting this player?")) goto end;
+            if (!menu_save_store(s->owner)) {tip(s,gt4_save_error()); goto end;}
+        }
+        char path[1200];
+        if (!choose_export(path)) goto end;
+        ok=menu_save_profile_change(s->owner,MENU_PROFILE_EXPORT_PACKAGE,gt4_save_active(),path);
     } else if (!strcmp(op, "Rename")) {
         if (!gt4_save_active()) {
             tip(s, "Load a player profile first.");
@@ -412,7 +517,7 @@ static int action(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *a
         if (!choose_import(path, 0))
             goto end;
         menu_save_capture(s->owner);
-        ok = gt4_save_import_ps2(slot, path);
+        ok = menu_save_profile_change(s->owner, moon_save_package_is_file(path) ? MENU_PROFILE_IMPORT_PACKAGE : MENU_PROFILE_IMPORT, slot, path);
         if (ok)
             s->first = ((slot - 1) / 3) * 3;
     }
@@ -428,6 +533,7 @@ static int action(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *a
         refresh(s);
         tip(s, gt4_save_error()[0]     ? gt4_save_error()
                : !strcmp(op, "Save")   ? "Game saved successfully."
+               : !strcmp(op, "Export") ? "Complete player package exported: progress, shared photos, replays, films and their lists."
                : !strcmp(op, "Delete") ? "Savegame removed. A recovery copy is in the save folder."
                                        : "Player loaded successfully.");
         menu_play_effect(s->owner, "select");
@@ -444,6 +550,11 @@ static int card_activate(ah_vm *vm, ah_obj *self, void *data, int argc, const ah
 {
     screen->slot = screen->first + (int)(intptr_t)data + 1;
     return action(vm, self, "Card", argc, argv, ret);
+}
+void save_ui_update(save_ui *s)
+{
+    if (s->editing)
+        show_case(s);
 }
 int save_ui_event(save_ui *s, int key, const char *input)
 {
@@ -553,14 +664,15 @@ void save_ui_attach(save_ui *s, menu *m)
         ui_text_adjust_scale(ui, ui_widget_child(s->cards[i], "label"));
         menu_native_method(m, s->cards[i], "onActivate", card_activate, (void *)(intptr_t)i);
     }
-    const char *names[] = {"Previous", "Next", "Save", "Rename", "Delete", "Import", "Media"},
+    const char *names[] = {"Previous", "Next", "Save", "Rename", "Delete", "Import", "Media", "Export"},
                *labels[] = {"<",           ">", "Save", "Rename", "Delete", "Import Savegame",
-                            "Import Media"};
-    float xs[] = {252, 352, 116, 260, 404, 116, 328}, ys[] = {352, 352, 382, 382, 382, 414, 414},
-          ws[] = {36, 36, 120, 120, 120, 196, 196};
-    for (int i = 0; i < 7; i++) {
+                            "Import Media", "Export"};
+    float xs[] = {252, 352, 116, 260, 404, 116, 328, 260}, ys[] = {352, 352, 382, 382, 382, 414, 414, 414},
+          ws[] = {36, 36, 120, 120, 120, 196, 196, 120};
+    for (int i = 0; i < 8; i++) {
         ui_widget *b = button(s, s->page, names[i], labels[i], xs[i], ys[i], ws[i], 23, 0);
         menu_native_method(m, b, "onActivate", action, (void *)names[i]);
+        if (!strcmp(names[i],"Export")) b->visible=0;
     }
     ui_widget *exit = ui_widget_from_text(
         ui, s->root,
@@ -588,34 +700,145 @@ void save_ui_attach(save_ui *s, menu *m)
     menu_enter(m, s->root);
 }
 
+static void welcome_question(save_ui *s)
+{
+    static const char *questions[] = {
+        "Would you like to create a player profile?",
+        "Would you like to import a GT4 savegame?",
+        "Would you like to load an existing player profile?",
+        "Continue as a guest?\nYour progress will not be saved.",
+        "This game uses Auto Save to save your progress.",
+        "This icon flashes while your game is being saved.",
+        "Do not close the game or disconnect storage while this icon is flashing.",
+        "Earlier Gran Turismo save data can be transferred. Would you like instructions?",
+        "You can transfer up to 100,000 credits from a US Gran Turismo 3 save, once per profile.",
+        "The US edition also transfers completed B and A licenses from GT3. GT4 Prologue saves are not supported here.",
+        "Place extracted GT3 data in the profile imports folder. In GT Mode, open Status and press START to transfer."};
+    ui_project *ui = menu_ui(s->owner);
+    ui_widget *pane = ui_widget_child(s->welcome, "Dialog");
+    ui_widget *body = ui_widget_child(pane, "Message");
+    ui_widget *message = ui_widget_child(body, "message");
+    text(message, questions[s->welcome_step]);
+    ui_text_wrap(ui, message, 300);
+    ui_text_adjust_scale(ui, message);
+    int explaining = s->welcome_step >= 4;
+    int information = explaining && s->welcome_step != 7;
+    text(ui_widget_child(ui_widget_child(pane, "Title"), "title"),
+         s->welcome_step >= 7 ? "Transfer Game Data"
+         : explaining         ? "Auto Save"
+                              : "Welcome to Moon Engine");
+    ui_widget *buttons = ui_widget_child(pane, "Buttons");
+    ui_widget *pair = ui_widget_child(buttons, "YesNo");
+    ui_widget *ok = ui_widget_child(buttons, "OK");
+    pair->visible = !information;
+    ok->visible = information;
+    text(ui_widget_child(ok, "label"), "OK");
+    menu_native_focus(s->owner, information ? ok : ui_widget_child(pair, "Yes"));
+    if (explaining) {
+        if (!s->welcome_arrow) {
+            ui_widget *source = ui_widget_from_project(ui, s->root, "boot", "ExplainRoot");
+            s->welcome_arrow = source ? ui_widget_child(source, "Arrow") : NULL;
+            ui_widget *indicator = source ? ui_widget_child(source, "Memorycard") : NULL;
+            if (indicator) {
+                ui_widget *old = ui_widget_child(s->page, "Memorycard");
+                if (old)
+                    ui_widget_detach(old);
+                ui_widget_detach(indicator);
+                ui_widget_append(s->page, indicator);
+            }
+            if (s->welcome_arrow) {
+                ui_widget_detach(s->welcome_arrow);
+                if (indicator)
+                    /* boot.mproject Arrow/bg: x=8, width=22. The native
+                       30px disk body (ui.c disk_cover) spans x=4.5..20.5.
+                       Align visible centres, not the enclosing composites. */
+                    s->welcome_arrow->x = indicator->x + 12.5f - (8 + 22 * .5f);
+                ui_widget_append(s->page, s->welcome_arrow);
+            }
+        }
+        if (s->welcome_arrow)
+            s->welcome_arrow->visible = s->welcome_step >= 5 && s->welcome_step <= 6;
+        menu_save_access(s->owner, s->welcome_step >= 5 && s->welcome_step <= 6 ? 1 : 0);
+    }
+    tip(s, explaining             ? ""
+           : s->welcome_step == 0 ? "Choose No to import an existing GT4 savegame instead."
+           : s->welcome_step == 3 ? "Guest play does not create a savegame."
+                                  : "Choose Yes to continue, or No for another way to start.");
+}
+static int welcome_answer(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
+                          ah_val *ret)
+{
+    save_ui *s = screen;
+    if (s->welcome_step >= 4) {
+        menu_save_access(s->owner, 0);
+        /* boot.ad ExplainRoot L789..800 explains legacy transfer after
+           the access notice. These are instructions, not a transfer itself. */
+        if (s->welcome_step < 10 && (s->welcome_step != 7 || data)) {
+            s->welcome_step++;
+            welcome_question(s);
+        } else {
+            if (s->welcome_arrow)
+                s->welcome_arrow->visible = 0;
+            s->autosave_explained = 1;
+            complete_first_run(s);
+        }
+        menu_play_effect(s->owner, "ok");
+        *ret = ah_int(2);
+        return 0;
+    }
+    if (!data) {
+        s->welcome_step = (s->welcome_step + 1) % 4;
+        welcome_question(s);
+        menu_play_effect(s->owner, "cursor");
+        *ret = ah_int(2);
+        return 0;
+    }
+    static const char *actions[] = {"Begin", "Import", "Profiles", "Skip"};
+    return action(vm, self, (void *)actions[s->welcome_step], argc, argv, ret);
+}
 void save_ui_first_run(save_ui *s)
 {
     if (!s || !s->owner)
         return;
     s->first_run = s->onboarding = 1;
+    s->welcome_step = 0;
     if (!s->welcome) {
         ui_project *ui = menu_ui(s->owner);
-        s->welcome = ui_widget_from_text(
-            ui, s->root,
-            "Composite {name string {\"Welcome\"} geometry rectangle {0 0 640 480} children [1] {TextFace {name string {\"Introduction\"} geometry rectangle {60 80 520 60} font string {\"hm_16\"} align digit {1} text_color RGBA {35 35 38 255} }}}");
-        text(ui_widget_child(s->welcome, "Introduction"),
-             "Your journey begins here.\nChoose how you want to start.");
-        ui_widget_append(s->page, s->welcome);
-        const char *names[] = {"Begin", "Import", "Profiles", "Skip"};
-        const char *labels[] = {"New Player", "Import Savegame", "Player Profiles",
-                                "Play as Guest"};
-        const char *icons[] = {"image/gtmode/home/status.png", "image/gtmode/home/diary.png",
-                               "image/gtmode/home/garage.png", "image/labo/exit.png"};
-        const char *details[] = {"Create your profile", "Bring your GT4 progress",
-                                 "Choose a saved player", "Continue without saving"};
-        for (int i = 0; i < 4; i++) {
-            ui_widget *b = button(s, s->welcome, names[i], labels[i], 60 + (i % 2) * 270,
-                                  172 + (i / 2) * 124, 250, 102, 1);
-            ui_widget_set_image(ui_widget_child(b, "icon"), icons[i]);
-            text(ui_widget_child(b, "details"), details[i]);
-            ui_text_adjust_scale(ui, ui_widget_child(b, "label"));
-            menu_native_method(s->owner, b, "onActivate", action, (void *)names[i]);
+        s->welcome = ui_widget_from_project(ui, s->root, "cursor", "ConfirmDialog");
+        if (!s->welcome) {
+            s->first_run = s->onboarding = 0;
+            tip(s, "Welcome dialog unavailable. Select a profile or use Back for guest play.");
+            return;
         }
+        s->welcome->name = "Welcome";
+        ui_widget *pane = ui_widget_child(s->welcome, "Dialog");
+        ui_widget *title = ui_widget_child(pane, "Title");
+        text(ui_widget_child(title, "title"), "Welcome to Moon Engine");
+        ui_widget_child(title, "bgE")->visible = 0;
+        ui_widget_child(title, "titleE")->visible = 0;
+        ui_widget *body = ui_widget_child(pane, "Message");
+        ui_widget_child(body, "caution")->visible = 0;
+        ui_widget *message = ui_widget_child(body, "message");
+        message->w = 300;
+        message->h = 50;
+        body->h = 100;
+        ui_widget *buttons = ui_widget_child(pane, "Buttons");
+        buttons->y = body->y + body->h;
+        pane->h = buttons->y + buttons->h;
+        pane->y = (480 - pane->h) * .5f;
+        ui_widget_child(pane, "bg")->h = pane->h;
+        ui_widget *ok = ui_widget_child(buttons, "OK");
+        ok->visible = 0;
+        menu_native_method(s->owner, ok, "onActivate", welcome_answer, (void *)(intptr_t)1);
+        ui_widget *pair = ui_widget_child(buttons, "YesNo");
+        pair->visible = 1;
+        const char *names[] = {"No", "Yes"};
+        for (int i = 0; i < 2; i++) {
+            ui_widget *button = ui_widget_child(pair, names[i]);
+            text(ui_widget_child(button, "label"), names[i]);
+            menu_native_method(s->owner, button, "onActivate", welcome_answer, (void *)(intptr_t)i);
+        }
+        ui_widget_append(s->page, s->welcome);
     }
     ah_val result;
     enter_cards(NULL, NULL, s, 0, NULL, &result);
@@ -629,4 +852,29 @@ void save_ui_new_career(save_ui *s)
     s->enter_gtmode = 1;
     ah_val result;
     action(NULL, NULL, "Begin", 0, NULL, &result);
+}
+
+/* Optional native transfer tools retain the old two-button footer when off. */
+void save_ui_transfer_tools(save_ui *s, int enabled)
+{
+    if (!s || !s->page) return;
+#ifndef _WIN32
+    enabled=0; /* Host file selection is currently implemented on Windows. */
+#endif
+    enabled=enabled!=0;
+    ui_widget *export_button=ui_widget_child(s->page,"Export");
+    int visible = enabled && !s->first_run;
+    if (s->transfer_tools==enabled && export_button && export_button->visible==visible) return;
+    s->transfer_tools=enabled;
+    if (export_button) export_button->visible=visible;
+    ui_widget *import_button=ui_widget_child(s->page,"Import"), *media=ui_widget_child(s->page,"Media");
+    if (!import_button || !media) return;
+    import_button->w=enabled ? 120 : 196;
+    media->x=enabled ? 404 : 328; media->w=enabled ? 120 : 196;
+    for (int i=0;i<2;i++) {
+        ui_widget *b=i ? media : import_button;
+        for (int j=0;j<b->nkids;j++) b->kids[j]->w=b->w;
+        ui_widget *label=ui_widget_child(b,"label");
+        text(label,i ? (enabled ? "Media" : "Import Media") : (enabled ? "Import" : "Import Savegame"));
+    }
 }

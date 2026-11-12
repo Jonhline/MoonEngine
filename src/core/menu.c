@@ -1,5 +1,7 @@
 #include "gtmode_game.h"
 #include "menu.h"
+#include "menu_repeat.h"
+#include "menu_navigation.h"
 
 #include "adhoc/adhoc_vm.h"
 #include "mod_manifest.h"
@@ -184,6 +186,15 @@ static void make_engine(menu *m)
     ah_set_member(vm, option, "race_display_config", ah_int(0));
     ah_set_member(vm, option, "race_display_map", ah_int(1));
     ah_set_member(vm, option, "race_display_steering", ah_int(0));
+    /* 00436498: all seven display elements start enabled (word 0x3FA). */
+    ah_set_member(vm, option, "race_display_meter", ah_int(1));
+    ah_set_member(vm, option, "race_display_time", ah_int(1));
+    ah_set_member(vm, option, "race_display_lap", ah_int(1));
+    ah_set_member(vm, option, "race_display_position", ah_int(1));
+    ah_set_member(vm, option, "race_display_car_name", ah_int(1));
+    ah_set_member(vm, option, "race_display_suggested_gear", ah_int(1));
+    ah_set_member(vm, option, "race_display_g_meter", ah_int(1));
+
     ah_set_member(vm, option, "can_watch_ending", ah_int(0));
     ah_set_member(vm, option, "sound_type", ah_str(vm, "STEREO"));
     ah_set_member(vm, option, "enableAC3", ah_int(0));
@@ -330,8 +341,10 @@ static void make_engine(menu *m)
     ah_set_member(vm, unit, "GetTorqueForDisplay",
                   ah_native(vm, "GetTorqueForDisplay", nat_torque_unit, (void *)1));
     ah_set_member(vm, menu_, "MQuickWork", ah_native(vm, "MQuickWork", nat_quick_work, m));
+    ah_set_member(vm, unit, "GetUnitOfMass", ah_native(vm, "GetUnitOfMass", nat_ui_constant, (void *)1));
     ah_obj *car = submodule(vm, menu_, "MCarData");
     ah_set_member(vm, car, "GetCarName", ah_native(vm, "GetCarName", nat_car_name, m));
+    ah_set_member(vm, car, "GetShortCarName", ah_native(vm, "GetShortCarName", nat_car_name, (void *)1));
     static const char *const methods[] = {"GetCarLabel",      "GetTuner",     "GetCountry",
                                           "GetOpenModelType", "GetModelYear", "GetCategory",
                                           "GetPrice",         "NotForSell",   "GetDescriptionID"};
@@ -411,6 +424,7 @@ static void make_engine(menu *m)
                           ah_native(vm, statics[i], nat_mc_static, (void *)statics[i]));
     }
     ah_obj *system = submodule(vm, menu_, "MSystem");
+    ah_set_member(vm, system, "IsOEM", ah_native(vm, "IsOEM", nat_ui_constant, NULL));
     ah_set_member(vm, system, "GetLanguage", ah_native(vm, "GetLanguage", nat_language, NULL));
     ah_set_member(vm, system, "SetLanguage", ah_native(vm, "SetLanguage", nat_language, (void *)1));
     ah_set_member(vm, system, "GetRegionCode", ah_native(vm, "GetRegionCode", nat_region, NULL));
@@ -570,6 +584,7 @@ menu *menu_open_presented(gt4_vol *vol, const char *project, char *err, size_t e
     m->entered = calloc((size_t)(n ? n : 1), 1);
     m->loaded = calloc((size_t)(n ? n : 1), 1);
     m->focus = calloc((size_t)(n ? n : 1), sizeof *m->focus);
+    m->last_focus = calloc((size_t)(n ? n : 1), sizeof *m->last_focus);
     m->vm = ah_vm_new();
     ui_set_prepare_presenter(m->ui, progress, user);
     ah_set_progress(m->vm, progress, user);
@@ -711,6 +726,9 @@ void menu_close(menu *m)
 {
     if (!m)
         return;
+    if (jukebox_menu == m)
+        jukebox_menu = NULL;
+    controller_layout_free(m);
     gt4_sound_close(m->sound);
     gt4_disc_replay_close(m->disc_replays);
     free(m->race_labels);
@@ -732,6 +750,7 @@ void menu_close(menu *m)
     free(m->entered);
     free(m->loaded);
     free(m->focus);
+    free(m->last_focus);
     free(m);
 }
 
@@ -818,6 +837,7 @@ void menu_project_entry(menu *m)
             m->initializing++;
             ah_call_member(m->vm,transition.u.o,"panIn",1,&context,&result);
             m->initializing--;
+            deliver_held_focus(m);
             break;
         }
 }
@@ -826,7 +846,18 @@ void menu_enter(menu *m, int root)
 {
     if (root < 0 || root >= ui_root_count(m->ui))
         return;
-    if (!gt4_save_active())
+    /* Desktop ownership belongs to the outgoing page. Its hover callbacks,
+       drag target and dimmed focus must not follow a cached page transition. */
+    m->pointer_hover = NULL;
+    m->pointer_drag = NULL;
+    m->focus_dimmed = NULL;
+    m->hover_dispatch = 0;
+    ui_pointer_hover(m->ui, NULL);
+    ui_pointer(m->ui, 0, 0, 0);
+    ui_pointer_scroll_clear(m->ui);
+    ui_cursor_hold(m->ui, 0);
+
+    if (!m->jukebox_external && !gt4_save_active())
         options_restore(m);
     if (!m->page_transition_depth && strcmp(ah_module_name(m->project), "SettingProject"))
         menu_save_refresh(m);
@@ -849,6 +880,7 @@ void menu_enter(menu *m, int root)
         m->depth = 1;
     }
     m->idle_frames = 0;
+    m->focus_dimmed = NULL;
     /* Options has no page onStart panIn. Initial and cached project entries
        still need the same reveal as its authored start_page callbacks. */
     if (!strcmp(ah_module_name(m->project), "OptionProject") && m->pending_fade_in == 0 &&
@@ -905,12 +937,35 @@ void menu_enter(menu *m, int root)
         for (int i = 0; i < ui_root_count(m->ui); i++)
             if (!strcmp(ui_root_name(m->ui, i), "GetCourseDialog"))
                 load_page_data(m, i, ctx);
+    /* gtmode.ad HomeRoot L3946..3965 loads a car only when hasRidingCar.
+       Cached native widgets must discard the previous car when that gate
+       becomes false (selling/cancelling the selected garage entry). */
+    if (!strcmp(ah_module_name(m->project), "GTmodeProject") &&
+        w->name && !strcmp(w->name, "HomeRoot")) {
+        ah_val garage, riding;
+        if (ah_get_member(m->vm, game_object(m), "garage", &garage) &&
+            ah_call_member(m->vm, garage.u.o, "hasRidingCar", 0, NULL, &riding) == 1 &&
+            !ah_num(riding)) {
+            ui_widget *car = ui_widget_child(w, "Car");
+            ui_widget *face = car ? ui_widget_child(car, "CarFace") : NULL;
+            if (face)
+                widget_set(m->vm, widget_module(m, face), "car_code", ah_nil());
+        }
+    }
+    /* P: the Jukebox's Menu and Replay folders (menu_album.inc) */
+    int jukebox = !strcmp(ah_module_name(m->project), "SlideProject") && w->name &&
+                  !strcmp(w->name, "MusicRoot");
+    if (jukebox)
+        jukebox_folders_layout(m, w);
     load_page_data(m, root, ctx);
     if (ah_call_member(m->vm, widget_module(m, w), "onInitialize", 1, &ctx, &r) < 0)
         fprintf(stderr, "menu: %s.onInitialize stopped with an error\n", w->name ? w->name : "?");
+    if (jukebox)
+        jukebox_folders_fill(m);
     pc_menu_entries(m, w);
     ah_call_member(m->vm, widget_module(m, w), "enter", 1, &ctx, &r);
     m->initializing--;
+    deliver_held_focus(m);
     /* Legacy onEnter runs after page initialization so notices created after
        setFocus are available. Modern onFocusEnter retains its existing timing. */
     if (m->focus[root]) {
@@ -932,6 +987,11 @@ void menu_advance(menu *m, double seconds)
     while (m->tick_remainder + 1e-10 >= 1.0 / 60) {
         m->tick_remainder -= 1.0 / 60;
         menu_tick(m);
+        /* Physical edges are dispatched by the host. Held directions repeat
+           on the original 60 Hz menu clock, never the OS keyboard repeat. */
+        for (int i = 0; i < 4; i++)
+            if (gt4_menu_repeat_step(&m->direction_repeat[i]) && !m->next_project[0])
+                menu_send_input(m, (menu_input)i);
     }
 }
 
@@ -973,6 +1033,8 @@ static void item_callbacks(menu *m)
 
 void menu_tick(menu *m)
 {
+    if (m)
+        controller_layout_update(m, ui_root_widget(m->ui, menu_active_root(m)));
     if (m)
         album_tick(m);
     logger_tick(m);
@@ -1030,6 +1092,13 @@ int menu_page_at(const menu *m, int i)
 {
     return m && i >= 0 && i < m->depth ? m->pages[i] : -1;
 }
+const char *menu_root_focus_name(const menu *m, int root)
+{
+    ui_widget *w = m && root >= 0 && root < ui_root_count(m->ui) ? m->focus[root] : NULL;
+    if (!w && m && root >= 0 && root < ui_root_count(m->ui))
+        return m->last_focus[root]; /* setFocus(nil) before leaving, or the page finalized */
+    return w && w->name ? w->name : "";
+}
 const char *menu_focus_name(const menu *m)
 {
     int root = menu_active_root(m);
@@ -1049,6 +1118,20 @@ static int event_call(menu *m, ui_widget *handler, ui_widget *target, const char
     return ah_call_member(m->vm, widget_module(m, handler), method, argc, args, result);
 }
 
+/* mListBox's selection change (002B29C0 +0x9CC..0xA58) calls the registered
+   focus_callback(context, current, previous): slide.ad L1388 sets one so
+   the song line follows the cursor. */
+static void list_focus_callback(menu *m, ui_widget *list, int previous)
+{
+    ah_val callback, result;
+    if (previous != list->focus_index &&
+        ah_get_member(m->vm, widget_module(m, list), "focus_callback", &callback) &&
+        callback.t != AV_NIL) {
+        ah_val args[] = {ah_objv(m->context), ah_int(list->focus_index), ah_int(previous)};
+        ah_call(m->vm, callback, 3, args, &result);
+    }
+}
+
 static int available(ui_widget *w)
 {
     for (ui_widget *p = w; p; p = p->parent)
@@ -1059,14 +1142,30 @@ static int available(ui_widget *w)
 
 /* The page's help line follows focus through its TOOLTIP|<name> text;
    onFocusEnter may replace it (tip.value) right after. */
-static void set_tooltip(menu *m, int root, const ui_widget *w)
+static const char *tooltip_text(menu *m, int root, const ui_widget *w)
 {
     char key[160];
-    const char *authored = w ? mp_string(w->src, "tooltip_key") : NULL;
+    const char *authored =
+        !w ? NULL : w->tooltip_key ? w->tooltip_key : mp_string(w->src, "tooltip_key");
     /* /projects/quick-arcade/quick-arcade.mproject Buttons.*.tooltip_key names
        /projects/quick-arcade/US/rtext.rt2's TOOLTIP|icon_text_* entries. */
     snprintf(key, sizeof key, "TOOLTIP|%s", authored ? authored : w && w->name ? w->name : "");
-    const char *text = ui_translate(m->ui, root, NULL, key);
+    return ui_translate(m->ui, root, NULL, key);
+}
+static const char *shown_tooltip(const ui_widget *w)
+{
+    if (w && !strcmp(w->type, "ToolTipFace"))
+        return w->text;
+    for (int i = 0; w && i < w->nkids; i++) {
+        const char *text = shown_tooltip(w->kids[i]);
+        if (text)
+            return text;
+    }
+    return NULL;
+}
+static void set_tooltip(menu *m, int root, const ui_widget *w)
+{
+    const char *text = tooltip_text(m, root, w);
     if (lan_blocked(m, (ui_widget *)w)) {
         /* P: the blocked LAN entries say so: their title, then "Coming soon" */
         char soon[160];
@@ -1171,21 +1270,32 @@ static void set_focus(menu *m, ui_widget *w)
         /* Refocusing (e.g. after tip.remove() in onInitialize) restores the
            widget's help line without repeating focus events. */
         /* Only a translated help line is restored; a script-made one
-           ("Hyundai  2 cars") stays. */
-        char key[160];
-        const char *authored = w ? mp_string(w->src, "tooltip_key") : NULL;
-        snprintf(key, sizeof key, "TOOLTIP|%s", authored ? authored : w && w->name ? w->name : "");
-        const char *tip = w ? ui_translate(m->ui, root, NULL, key) : NULL;
-        if (tip)
+           ("Hyundai  2 cars", or onFocusEnter's "...No. of songs:" + count
+           over the translation, slide.ad L1421) stays. */
+        const char *tip = w ? tooltip_text(m, root, w) : NULL,
+                   *shown = shown_tooltip(ui_root_widget(m->ui, root));
+        if (tip && !(shown && strlen(shown) > strlen(tip) && !strncmp(shown, tip, strlen(tip))))
             ui_set_tooltips(ui_root_widget(m->ui, root), tip);
         return;
     }
     ah_val result;
     m->focus[root] = w;
+    if (w && w->name && !m->initializing) /* the player's own choice, not a page's restore */
+        snprintf(m->last_focus[root], sizeof m->last_focus[root], "%s", w->name);
+    /* Original setFocus (00233268 -> 00235C80) only stores the widget at root+0xC8; the
+       manager's update (0022FE6C..0022FF4C) later sends FocusLeave/FocusEnter when it differs
+       from the focus last delivered. A setFocus inside onInitialize therefore reaches
+       onFocusEnter after the rest of onInitialize (PhotoTravelRoot hides Slide after
+       init_menu, and Ticket.onFocusEnter shows it again). */
+    int held = m->initializing && !m->hover_dispatch;
+    if (held && !m->focus_held) {
+        m->focus_held = 1;
+        m->focus_held_from = old;
+    }
     if (old) {
         old->option_open = 0;
         old->focused = 0;
-        if (!event_call(m, old, old, "onFocusLeave", 0, 2, &result))
+        if (!held && !event_call(m, old, old, "onFocusLeave", 0, 2, &result))
             event_call(m, old, old, "onLeave", 0, 1, &result);
     }
     if (w) {
@@ -1195,6 +1305,7 @@ static void set_focus(menu *m, ui_widget *w)
             ui_widget *list = w->parent;
             int previous = list->focus_index;
             list->focus_index = sibling_index(w);
+            list->hover_shown = 0;
             /* Original: func_002B29C0 +0x9CC..0xA58: selection changes
                dispatch the registered focus_callback (arcade.ad L4077). */
             if (previous != list->focus_index) {
@@ -1207,25 +1318,49 @@ static void set_focus(menu *m, ui_widget *w)
             }
         }
         set_tooltip(m, root, w);
-        if (!event_call(m, w, w, "onFocusEnter", 0, 2, &result) && !m->initializing)
+        if (!held && !event_call(m, w, w, "onFocusEnter", 0, 2, &result))
             event_call(m, w, w, "onEnter", 0, 1, &result);
+        if (!held && m->focus_dimmed == w)
+            m->focus_dimmed = NULL;
     }
 }
 
+/* The focus events held during a page's initialization, sent once it ends (the manager's next
+   update). Legacy onEnter stays with menu_enter's own call after initialization. */
+static void deliver_held_focus(menu *m)
+{
+    if (m->initializing || !m->focus_held)
+        return;
+    m->focus_held = 0;
+    int root = menu_active_root(m);
+    if (root < 0)
+        return;
+    ui_widget *old = m->focus_held_from, *w = m->focus[root];
+    m->focus_held_from = NULL;
+    if (old == w)
+        return;
+    ah_val result;
+    if (old && !event_call(m, old, old, "onFocusLeave", 0, 2, &result))
+        event_call(m, old, old, "onLeave", 0, 1, &result);
+    if (w)
+        event_call(m, w, w, "onFocusEnter", 0, 2, &result);
+    if (m->focus_dimmed == w)
+        m->focus_dimmed = NULL;
+}
+
 /* Candidates come from widget semantics, never from hard-coded menu labels. */
+static int navigation_can_focus(const ui_widget *w);
 static void candidates(ui_widget *w, ui_widget **items, int *n)
 {
     if (!available(w) || *n >= 512)
         return;
     if (!strcmp(w->type, "SelectBox")) {
         for (int i = 0; i < w->nkids && *n < 512; i++)
-            if (available(w->kids[i]))
+            if (available(w->kids[i]) && navigation_can_focus(w->kids[i]))
                 items[(*n)++] = w->kids[i];
         return;
     }
-    if (!strcmp(w->type, "Button") || (!strcmp(w->type, "OptionMenu") && ui_option_count(w)) ||
-        !strcmp(w->type, "SliderBar") || !strcmp(w->type, "ScaleBar") ||
-        mp_number(w->src, "can_focus", 0)) {
+    if (navigation_can_focus(w)) {
         items[(*n)++] = w;
         return;
     }
@@ -1247,7 +1382,16 @@ static int pointer_hit(menu *m, ui_widget *w, float x, float y)
     if (strcmp(w->type,"OptionMenu") && strcmp(w->type,"SliderBar") &&
         strcmp(w->type,"ScaleBar")) return 0;
     ui_widget *label = w->parent ? ui_widget_child(w->parent,"label") : NULL;
-    return label && ui_pointer_contains(m->ui,label,x,y);
+    if (label && ui_pointer_contains(m->ui,label,x,y)) return 1;
+#ifdef __ANDROID__
+    /* A thumb aims at the row, not at the painted value field or its label.
+       The authored row box is the target; the panel and its art do not move. */
+    if (!strcmp(w->type,"OptionMenu") && w->parent && !strcmp(w->parent->type,"Composite") &&
+        w->parent->h > 0 && w->parent->h <= 64.f &&
+        ui_pointer_contains(m->ui,w->parent,x,y))
+        return 1;
+#endif
+    return 0;
 }
 static void pointer_wheel(menu *m, ui_widget *hit, float x, float y, int wheel)
 {
@@ -1267,7 +1411,15 @@ static void pointer_wheel(menu *m, ui_widget *hit, float x, float y, int wheel)
     }
     /* Original: EventInfoDialog.onKeyPress instructions 27..116: move the
        authored actor by 40 units and clamp to the regulation viewport. */
-    if(bar) set_focus(m,hit);
+    if(bar) {
+        set_focus(m,hit);
+        /* P: a wheel detent adjusts the targeted float ScaleBar directly,
+           rather than navigating away because its popup is closed. */
+        if (!strcmp(hit->type,"ScaleBar") && !hit->slider_range_set && !hit->option_open) {
+            hit->photo_saved = hit->photo_value;
+            hit->option_open = 1;
+        }
+    }
     int steps=wheel>0 ? wheel : -wheel;
     if(steps>32) steps=32;
     for(int i=0;i<steps && menu_active_root(m)==root;i++)
@@ -1278,10 +1430,13 @@ static void pointer_wheel(menu *m, ui_widget *hit, float x, float y, int wheel)
 void menu_edge_pan(menu *m, int enabled, float seconds)
 {
     float x,y;
-    if(!m || !enabled || seconds<=0 || !ui_pointer_position(m->ui,&x,&y) ||
-       strcmp(m->project_label,"gtmode")) return;
+    if (!m || strcmp(m->project_label,"gtmode")) return;
     int root=menu_active_root(m);
     if(root<0 || strcmp(ui_root_name(m->ui,root),"TopRoot")) return;
+    /* Only the map owns this feedback. Other horizontal grids have just
+       supplied their own edge direction through ui_pointer_edge_scroll. */
+    ui_pointer_pan_direction(m->ui, 0, 0);
+    if(!enabled || seconds<=0 || !ui_pointer_position(m->ui,&x,&y)) return;
     ui_widget *items[512], *space=NULL;
     int n=0;
     candidates(ui_root_widget(m->ui,root),items,&n);
@@ -1301,13 +1456,17 @@ void menu_edge_pan(menu *m, int enabled, float seconds)
                      space->scroll_set?space->scroll_ty:space->y};
     float position[2]={fminf(clip->w,fmaxf(0,x-r[0])),fminf(clip->h,fmaxf(0,y-r[1]))},
           sizes[2]={clip->w,clip->h}, total[2]={space->w,space->h};
+    float direction[2] = {0, 0};
     for(int axis=0;axis<2;axis++) {
         /* P: edge zone is 10% of the viewport; full pressure pans 1.5
            viewports per second. Bounds come from the authored clip/space. */
         float edge=sizes[axis]*.1f, v=position[axis]<edge ? (edge-position[axis])/edge :
             position[axis]>sizes[axis]-edge ? (sizes[axis]-edge-position[axis])/edge : 0;
+        float previous = values[axis];
         values[axis]=fminf(0,fmaxf(fminf(0,sizes[axis]-total[axis]),values[axis]+v*sizes[axis]*1.5f*fminf(seconds,.1f)));
+        if (values[axis] != previous) direction[axis] = v > 0 ? -1.f : 1.f;
     }
+    ui_pointer_pan_direction(m->ui, direction[0], direction[1]);
     space->scroll_tx=values[0];space->scroll_ty=values[1];space->scroll_set=1;
 }
 static void pointer_set_hover(menu *m, ui_widget *hit)
@@ -1322,18 +1481,39 @@ static void pointer_set_hover(menu *m, ui_widget *hit)
        without setFocus, focus_index updates or scroll_to. */
     if(old && !event_call(m,old,old,"onFocusLeave",0,2,&result))
         event_call(m,old,old,"onLeave",0,1,&result);
+    /* P: with the mouse only the hovered item is lit (ui.c draws hover, not focus). The
+       focus keeps the prelight its own FocusEnter gave it (arcade MakerRoot Item L3601
+       bg.actor.out=1, also on return from CarRoot), so a hover elsewhere turns it off;
+       the controller lights it again (menu_send_input). */
+    int root=menu_active_root(m);
+    ui_widget *f=root>=0 ? m->focus[root] : NULL;
+    if((!old || old->root!=root) && hit && f && f!=hit && f!=m->focus_dimmed && hit->root==root) {
+        if(!event_call(m,f,f,"onFocusLeave",0,2,&result))
+            event_call(m,f,f,"onLeave",0,1,&result);
+        m->focus_dimmed=f;
+    }
+    if(old && old==f && hit!=f) m->focus_dimmed=f;
+    if(hit==f) m->focus_dimmed=NULL;
+    /* the help line first, as set_focus does: onFocusEnter may replace it
+       (MusicRoot's folders add their song count, slide.ad L1421) */
+    if(hit)
+        set_tooltip(m,menu_active_root(m),hit);
     if(hit && !event_call(m,hit,hit,"onFocusEnter",0,2,&result))
         event_call(m,hit,hit,"onEnter",0,1,&result);
     if(hit && hit->parent && (!strcmp(hit->parent->type,"SelectBox") || !strcmp(hit->parent->type,"ListBox"))) {
         ui_widget *list=hit->parent;
-        int index=sibling_index(hit), previous=list->focus_index;
+        int index=sibling_index(hit), previous=list->focus_index,
+            shown=list->hover_shown ? list->hover_shown-1 : previous;
         ah_val callback;
-        if(index!=previous) {
+        /* P: back on the focused row after previewing another, preview it again
+           (arcade CarRoot showed the last hovered car over the first one). */
+        if(index!=shown) {
             /* P: preview reads the hovered row during its authored callbacks,
                then restore selection so motion alone never scrolls the strip. */
             list->focus_index=index;
+            list->hover_shown=index!=previous ? index+1 : 0;
             if(ah_get_member(m->vm,widget_module(m,list),"focus_callback",&callback) && callback.t!=AV_NIL) {
-                ah_val args[]={ah_objv(m->context),ah_int(index),ah_int(previous)};
+                ah_val args[]={ah_objv(m->context),ah_int(index),ah_int(shown)};
                 ah_call(m->vm,callback,3,args,&result);
             }
             ah_val args[]={ah_objv(m->context),ah_int(index)};
@@ -1351,13 +1531,13 @@ static void pointer_set_hover(menu *m, ui_widget *hit)
                     list->desktop_offset = list->strip_offset;
                     list->desktop_scrolled = 1;
                 }
+                list->hover_shown = 0;
             } else
                 list->focus_index=previous;
         }
     }
     m->hover_dispatch=0;
     if(hit) {
-        set_tooltip(m,menu_active_root(m),hit);
         if (m->pointer_sound_delay<=0) {
             menu_play_effect(m,"cursor");
             m->pointer_sound_delay=.1f;
@@ -1371,11 +1551,11 @@ static void pointer_send_input(menu *m, menu_input input)
     menu_send_input(m,input);
     m->pointer_dispatch = previous;
 }
-/* P: direct manipulation maps into the authored integer range/callback. */
+/* P: direct manipulation uses the authored integer or floating range/callback. */
 static int pointer_adjust_bar(menu *m,ui_widget *bar,float x,float y)
 {
     if(!bar || (strcmp(bar->type,"SliderBar") && strcmp(bar->type,"ScaleBar")) ||
-       (!strcmp(bar->type,"ScaleBar") && !bar->slider_range_set)) return 0;
+       !isfinite(x) || !isfinite(y)) return 0;
     double range[2]={0,100};mp_numbers(bar->src,"range",range,2);
     if(bar->slider_range_set) {range[0]=bar->slider_min;range[1]=bar->slider_max;}
     int axis=(int)mp_number(bar->src,"direction",0)==1;
@@ -1390,6 +1570,23 @@ static int pointer_adjust_bar(menu *m,ui_widget *bar,float x,float y)
         extent=(axis?popup->h:popup->w)-knob;
     }
     float t=extent>0 ? ((axis?y:x)-origin)/extent : 0;
+    if (!strcmp(bar->type,"ScaleBar") && !bar->slider_range_set) {
+        float old = bar->photo_value;
+        if (!bar->option_open) {
+            bar->photo_saved = old;
+            bar->option_open = 1;
+        }
+        float value = bar->photo_min + fminf(1,fmaxf(0,t)) * (bar->photo_max-bar->photo_min);
+        if (bar->photo_step > 0)
+            value = bar->photo_min + roundf((value-bar->photo_min)/bar->photo_step)*bar->photo_step;
+        bar->photo_value = fminf(bar->photo_max,fmaxf(bar->photo_min,value));
+        if (old != bar->photo_value) {
+            ah_val ctx=ah_objv(m->context),result;
+            ah_call_member(m->vm,widget_module(m,bar),"onValueChanged",1,&ctx,&result);
+            if(m->pointer_sound_delay<=0) {menu_play_effect(m,"param");m->pointer_sound_delay=.1f;}
+        }
+        return 1;
+    }
     int old=bar->focus_index;
     assign_index(bar,(int)lround(range[0]+fminf(1,fmaxf(0,t))*(range[1]-range[0])));
     if(old!=bar->focus_index) {
@@ -1453,7 +1650,7 @@ int menu_pointer(menu *m, int enabled, float x, float y, int action, int wheel)
     pointer_set_hover(m,hit);
     if(hit && (action==1 || action==3) &&
        ((!strcmp(hit->type,"SliderBar")) ||
-        (!strcmp(hit->type,"ScaleBar") && hit->slider_range_set))) {
+        !strcmp(hit->type,"ScaleBar"))) {
         if(hit!=m->focus[root]) set_focus(m,hit);
         if(action==3) m->pointer_drag=hit;
         pointer_adjust_bar(m,hit,x,y);
@@ -1463,6 +1660,7 @@ int menu_pointer(menu *m, int enabled, float x, float y, int action, int wheel)
     if(hit && action==1 && hit->parent && !strcmp(hit->parent->type,"ListBox")) {
         ui_widget *list=hit->parent;
         list->focus_index=sibling_index(hit);
+        list->hover_shown = 0;
         ah_val args[]={ah_objv(m->context),ah_int(list->focus_index)},result;
         ah_call_member(m->vm,widget_module(m,list),"onValueChanged",2,args,&result);
         hit=list;
@@ -1554,6 +1752,21 @@ int menu_touch(menu *m, int enabled, int phase, long long id, float x, float y)
             if (m->touch_slider) {
                 m->touch_selected = NULL;
                 menu_pointer(m, 1, x, y, 1, 0);
+#ifdef __ANDROID__
+            } else if (accept) {
+                /* One tap on a row or button commits. Sliders and drags keep
+                   their continuous preview above; nothing fires twice. */
+                static int single_tap_logged;
+                if (!single_tap_logged && root >= 0 &&
+                    !strcmp(ui_root_name(m->ui, root), "ScreenRoot")) {
+                    single_tap_logged = 1;
+                    fprintf(stderr, "touch: settings tap commits (single)\n");
+                }
+                m->touch_selected = NULL;
+                menu_pointer(m, 1, x, y, 1, 0);
+            } else
+                m->touch_selected = NULL;
+#else
             } else if (accept && m->touch_selected == m->touch_target) {
                 m->touch_selected = NULL;
                 menu_pointer(m, 1, x, y, 1, 0);
@@ -1569,6 +1782,7 @@ int menu_touch(menu *m, int enabled, int phase, long long id, float x, float y)
                     if (hit->parent && !strcmp(hit->parent->type, "ListBox")) {
                         ui_widget *list = hit->parent;
                         list->focus_index = sibling_index(hit);
+                        list->hover_shown = 0;
                         ah_val args[] = {ah_objv(m->context), ah_int(list->focus_index)}, result;
                         ah_call_member(m->vm, widget_module(m, list), "onValueChanged", 2, args,
                                        &result);
@@ -1579,6 +1793,7 @@ int menu_touch(menu *m, int enabled, int phase, long long id, float x, float y)
                 }
             } else
                 m->touch_selected = NULL;
+#endif
             m->touch_target = NULL;
             menu_pointer(m, 0, 0, 0, 0, 0);
         }
@@ -1642,32 +1857,121 @@ static void navigation_region(const ui_widget *w, const char *key, float r[4])
     r[3] = y + (float)bounds[3];
 }
 
-static float navigation_score(const ui_widget *from, const ui_widget *to, menu_input input)
+static menu_nav_rect navigation_rect(const ui_widget *w, const char *key, menu_input input)
 {
-    int vertical = input == MENU_UP || input == MENU_DOWN;
-    int step = input == MENU_UP || input == MENU_LEFT ? -1 : 1;
-    double authored[4];
-    if (mp_numbers(from->src, "navigate_source", authored, 4) == 4) {
-        float s[4], t[4];
-        navigation_region(from, "navigate_source", s);
-        navigation_region(to, "navigate_target", t);
-        int a = vertical ? 1 : 0, b = 1 - a;
-        float along = ((t[a] + t[a + 2]) - (s[a] + s[a + 2])) * .5f * step;
-        if (along <= 1)
-            return 1e30f;
-        float gap = fmaxf(0, fmaxf(t[b] - s[b + 2], s[b] - t[b + 2]));
-        float forward = fmaxf(0, step > 0 ? t[a] - s[a + 2] : s[a] - t[a + 2]);
-        /* Authored regions define navigation lanes. A target outside the
-           perpendicular lane cannot receive focus, even at a map edge. */
-        if (gap > 0)
-            return 1e30f;
-        return forward + .001f * along;
+    float r[4];
+    navigation_region(w, key, r);
+    float dx = input == MENU_LEFT ? -1 : input == MENU_RIGHT ? 1 : 0;
+    float dy = input == MENU_UP ? -1 : input == MENU_DOWN ? 1 : 0;
+    return menu_nav_project((menu_nav_rect){r[0], r[1], r[2], r[3]}, dx, dy);
+}
+static int navigation_can_focus(const ui_widget *w)
+{
+    if (w->has_focus_override)
+        return w->focus_override;
+    int fallback = (w->parent && !strcmp(w->parent->type, "SelectBox")) ||
+                   !strcmp(w->type, "Button") || !strcmp(w->type, "SliderBar") ||
+                   !strcmp(w->type, "ScaleBar") ||
+                   (!strcmp(w->type, "OptionMenu") && ui_option_count(w));
+    return (int)mp_number(w->src, "can_focus", fallback);
+}
+
+/* 0026F9E0: collect a focusable widget before considering its children.
+   The nearest navigate_box of the current focus starts a priority group;
+   clipped-out widgets do not become navigation candidates. */
+static void navigation_collect(ui_widget *w, const ui_widget *owner, const menu_nav_rect *clip,
+                               int group, menu_input input, ui_widget **widgets,
+                               menu_nav_item *items, int *count, int unclipped)
+{
+    if (!available(w) || *count >= 512)
+        return;
+    float bounds[4];
+    navigation_region(w, "", bounds);
+    menu_nav_rect box = {bounds[0], bounds[1], bounds[2], bounds[3]};
+    if (navigation_can_focus(w)) {
+        menu_nav_rect source, target;
+        navigation_region(w, "navigate_source", bounds);
+        source = (menu_nav_rect){bounds[0], bounds[1], bounds[2], bounds[3]};
+        navigation_region(w, "navigate_target", bounds);
+        target = (menu_nav_rect){bounds[0], bounds[1], bounds[2], bounds[3]};
+        /* 0026F7E8 returns no clip for an empty top rectangle. */
+        int clipped = !unclipped && clip && menu_nav_positive(*clip);
+        if (clipped) {
+            source = menu_nav_intersect(source, *clip);
+            target = menu_nav_intersect(target, *clip);
+        }
+        if (!clipped || menu_nav_positive(menu_nav_intersect(box, *clip))) {
+            float dx = input == MENU_LEFT ? -1 : input == MENU_RIGHT ? 1 : 0;
+            float dy = input == MENU_UP ? -1 : input == MENU_DOWN ? 1 : 0;
+            int i = (*count)++;
+            widgets[i] = w;
+            items[i] = (menu_nav_item){(uint32_t)i + 1, group, menu_nav_project(source, dx, dy),
+                                       menu_nav_project(target, dx, dy)};
+            return;
+        }
     }
-    float x, y, nx, ny;
-    center(from, &x, &y);
-    center(to, &nx, &ny);
-    float along = (vertical ? ny - y : nx - x) * step;
-    return along > 1 ? along + 3 * fabsf(vertical ? nx - x : ny - y) : 1e30f;
+    menu_nav_rect local;
+    if (w == owner) {
+        /* 0026FF24 pushes the owner's bounds without intersecting them. */
+        local = box;
+        clip = &local;
+        group++;
+    }
+    if (mp_number(w->src, "clip", 0)) {
+        local = clip ? menu_nav_intersect(*clip, box) : box;
+        clip = &local;
+    }
+    for (int i = 0; i < w->nkids; i++)
+        navigation_collect(w->kids[i], owner, clip, group, input, widgets, items, count, unclipped);
+}
+
+static int navigation_pick(const ui_widget *root, ui_widget **items, int count, int index,
+                           menu_input input)
+{
+    const ui_widget *owner = NULL;
+    for (const ui_widget *p = items[index]; p && !owner; p = p->parent)
+        if (mp_number(p->src, "navigate_box", 0))
+            owner = p;
+    ui_widget *widgets[512];
+    menu_nav_item collected[512];
+    int total = 0, current = -1;
+    navigation_collect((ui_widget *)root, owner, NULL, 0, input, widgets, collected, &total, 0);
+    for (int i = 0; i < total; i++)
+        if (widgets[i] == items[index])
+            current = i;
+    /* P: the GT map's authored grid (navigate_source/target) lies apart from the landmarks
+       (DirtAndSnow's cell is 520 to its right), and the native map scroll (scroll_to, not
+       the traced MScrollWindow) can leave the focus's own cell outside the clip. Clipped
+       away, nothing beats it and the controller is stuck there; pick on the unclipped
+       grid instead. On the map's landmarks (a ModelFace "bg", as in scroll_to) always: the
+       clip there cuts the offset grid by where the scroll happens to be, so directions
+       died or changed mid-animation (Home had neither left nor right). */
+    const ui_widget *model = ui_widget_child(items[index], "bg");
+    if (current >= 0 && (!menu_nav_positive(collected[current].source) ||
+                         (model && model->type && !strcmp(model->type, "ModelFace")))) {
+        total = 0;
+        current = -1;
+        navigation_collect((ui_widget *)root, owner, NULL, 0, input, widgets, collected, &total,
+                           1);
+        for (int i = 0; i < total; i++)
+            if (widgets[i] == items[index])
+                current = i;
+    }
+    if (current < 0)
+        return index;
+    /* RootWindow 00233E38, defaults 00232F0C..54. */
+    menu_nav n = {(float)mp_number(root->src, "navigate_clip_angle", 0),
+                  (int)mp_number(root->src, "navigate_start_front", 0),
+                  (int)mp_number(root->src, "navigate_wraparound", 1), collected[current].id,
+                  collected[current].source};
+    int best = current;
+    for (int i = 0; i < total; i++)
+        if (i != current && menu_nav_less_shift(&n, &collected[i], &collected[best], 0))
+            best = i;
+    for (int i = 0; i < count; i++)
+        if (items[i] == widgets[best])
+            return i;
+    return index;
 }
 
 static void finalize_page(menu *m, int root)
@@ -1694,7 +1998,7 @@ static void apply_pages(menu *m)
         options_capture(m);
         gt4_save_capture(m->vm, game_object(m), 1);
         m->options_dirty = 0;
-        if (gt4_save_active() && gt4_save_auto_enabled() && !gt4_save_store())
+        if (gt4_save_active() && gt4_save_auto_enabled() && !menu_save_store(m))
             ah_logf(m->vm, "Auto Save: %s", gt4_save_error());
     }
     for (int budget = 0; m->pending_kind && budget < 16; budget++) {
@@ -1745,7 +2049,10 @@ static void apply_pages(menu *m)
         ui_transition_reveal(m->ui);
         m->pending_fade_in = 0;
     } else if (m->pending_fade_in > 0) {
-        ui_fade(m->ui, 1, 0, m->pending_fade_in);
+        /* start_sequence/doAction queues an app-owned destination. Revealing
+           here paints the old page again before its loading screen starts. */
+        if (!m->next_project[0] && !quick_loading_handoff(m->quick_command))
+            ui_fade(m->ui, 1, 0, m->pending_fade_in);
         m->pending_fade_in = 0;
     }
     m->page_transition_depth--;
@@ -1831,7 +2138,9 @@ void menu_send_key(menu *m, int keysym, int release)
    closed, everything while open; a plain one only its direction's arrows */
 static int slider_key(ui_widget *w, menu_input input)
 {
-    if ((int)mp_number(w->src, "popup", 0))
+    /* MScaleBar +0xF0 is its popup child, not MSliderBar's digit attribute. */
+    if (!strcmp(w->type,"ScaleBar") ? ui_widget_child(w,"popup") != NULL :
+        (int)mp_number(w->src, "popup", 0))
         return w->option_open || input == MENU_ACCEPT;
     if ((int)mp_number(w->src, "direction", 0) == 1)
         return input == MENU_UP || input == MENU_DOWN;
@@ -1881,7 +2190,8 @@ static int bar_input(menu *m, ui_widget *w, menu_input input)
            (002DF640) and every other key is taken; X closes it (002DF7B0),
            Circle puts the kept value back. Without popup the arrows step it
            directly (002DF540) and the rest goes to the base widget. */
-        int popup = (int)mp_number(w->src, "popup", 0) != 0;
+        int popup = !strcmp(w->type,"ScaleBar") ? ui_widget_child(w,"popup") != NULL :
+            (int)mp_number(w->src, "popup", 0) != 0;
         int vertical = (int)mp_number(w->src, "direction", 0) == 1;
         if (popup && input == MENU_ACCEPT) {
             if (!w->option_open)
@@ -1916,9 +2226,25 @@ void menu_send_input(menu *m, menu_input input)
         return;
     /* Circle/Square keep their own PS2 script keys before the default action. */
     if (!m->pointer_dispatch) {
+        float pointer_x, pointer_y;
+        int pointer_owned = ui_pointer_position(m->ui, &pointer_x, &pointer_y);
         if(m->pointer_hover) pointer_set_hover(m,NULL);
         ui_pointer(m->ui, 0, 0, 0);
         ui_pointer_scroll_clear(m->ui);
+        /* P: the controller takes over; the focus the mouse dimmed is lit again */
+        ui_widget *f = m->focus[menu_active_root(m)];
+        /* P: wheel scrolling leaves focus unchanged. Restore its viewport
+           before clipped directional navigation resumes with the controller. */
+        if (pointer_owned && f)
+            scroll_to(f, 1);
+        if (f && f == m->focus_dimmed) {
+            ah_val lit;
+            m->hover_dispatch = 1;
+            if (!event_call(m, f, f, "onFocusEnter", 0, 2, &lit))
+                event_call(m, f, f, "onEnter", 0, 1, &lit);
+            m->hover_dispatch = 0;
+        }
+        m->focus_dimmed = NULL;
     }
     menu_input physical = input;
     if (input == MENU_CIRCLE)
@@ -1977,8 +2303,11 @@ void menu_send_input(menu *m, menu_input input)
            it, stopping at its ends; left and right leave it by geometry */
         int next = w->focus_index + (input == MENU_UP ? -1 : 1);
         if (next >= 0 && next < w->nkids) {
+            int previous = w->focus_index;
             w->focus_index = next;
+            w->hover_shown = 0;
             ah_val args[2] = {ah_objv(m->context), ah_int(next)}, result;
+            list_focus_callback(m, w, previous);
             ah_call_member(m->vm, widget_module(m, w), "onValueChanged", 2, args, &result);
             ah_val sound = navigate_sound(m, root);
             nat_sound_play(m->vm, NULL, m, 1, &sound, &result);
@@ -1986,8 +2315,16 @@ void menu_send_input(menu *m, menu_input input)
     } else if (!strcmp(w->type, "ListBox") && (int)mp_number(w->src, "direction", 0) != 1 &&
                input <= MENU_RIGHT && w->nkids) {
         int step = input == MENU_UP || input == MENU_LEFT ? -1 : 1;
-        w->focus_index = (w->focus_index + step + w->nkids) % w->nkids;
+        int next = w->focus_index + step;
+        if (w->list_repeat)
+            next = (next + w->nkids) % w->nkids;
+        if (next < 0 || next >= w->nkids)
+            return; /* 002AF180: repeat defaults off; do not wrap a bounded ListBox. */
+        int previous = w->focus_index;
+        w->focus_index = next;
+        w->hover_shown = 0;
         ah_val args[2] = {ah_objv(m->context), ah_int(w->focus_index)}, result;
+        list_focus_callback(m, w, previous);
         ah_call_member(m->vm, widget_module(m, w), "onValueChanged", 2, args, &result);
         ah_val sound = navigate_sound(m, root);
         nat_sound_play(m->vm, NULL, m, 1, &sound, &result);
@@ -2009,6 +2346,7 @@ void menu_send_input(menu *m, menu_input input)
             menu_play_effect(m, "select");
             if (w->option_pending != w->focus_index) {
                 w->focus_index = w->option_pending;
+                w->hover_shown = 0;
                 ah_val args[2] = {ah_objv(m->context), ah_int(w->focus_index)}, result;
                 ah_call_member(m->vm, widget_module(m, w), "onValueChanged", 2, args, &result);
                 apply_pages(m);
@@ -2017,7 +2355,11 @@ void menu_send_input(menu *m, menu_input input)
         }
         int old = w->option_open ? w->option_pending : w->focus_index;
         for (int offset = 1; offset <= count; offset++) {
-            int next = ((old + step * offset) % count + count) % count;
+            int next = old + step * offset;
+            if (w->list_repeat)
+                next = (next % count + count) % count;
+            if (next < 0 || next >= count)
+                break;
             ui_widget *item = ui_option_item(w, next);
             if (!available(item))
                 continue;
@@ -2028,6 +2370,7 @@ void menu_send_input(menu *m, menu_input input)
                     return;
                 }
                 w->focus_index = next;
+                w->hover_shown = 0;
                 ah_val args[2] = {ah_objv(m->context), ah_int(next)}, result;
                 ah_call_member(m->vm, widget_module(m, w), "onValueChanged", 2, args, &result);
                 ah_val sound = ah_str(m->vm, "param");
@@ -2052,17 +2395,7 @@ void menu_send_input(menu *m, menu_input input)
                 (index + step < 0 || index + step >= n))
                 next = index;
             if (index >= 0 && (!w->parent || strcmp(w->parent->type, "SelectBox"))) {
-                /* Directional focus for grids; SelectBox keeps its ordered list. */
-                float best = 1e30f;
-                next = index;
-                for (int i = 0; i < n; i++)
-                    if (i != index) {
-                        float score = navigation_score(w, items[i], input);
-                        if (score < best) {
-                            best = score;
-                            next = i;
-                        }
-                    }
+                next = navigation_pick(ui_root_widget(m->ui, root), items, n, index, input);
             }
             set_focus(m, items[next]);
             if (next != index) {
@@ -2148,6 +2481,32 @@ void menu_setting_context(menu *m, menu *source)
         ah_set_member(m->vm, game_object(m), keys[i],
                       ah_str(m->vm, ah_cstr(value) ? ah_cstr(value) : ""));
     }
+}
+void menu_option_context(menu *m, menu *source)
+{
+    if (!m || !source)
+        return;
+    /* option.ad OptionRoot.onCancel L323..327 returns through
+       game.major_menu_project, or setReturnToLastMenuProject() when it is
+       empty. Cached PC VMs have separate game objects, so record the
+       opener here exactly as the shared PS2 context did. */
+    const char *keys[] = {"major_menu_project", "major_menu_page", "major_menu_widget",
+                          "last_menu_project"};
+    for (int i = 0; i < 4; i++) {
+        ah_val value = ah_nil();
+        ah_get_member(source->vm, game_object(source), keys[i], &value);
+        ah_set_member(m->vm, game_object(m), keys[i],
+                      ah_str(m->vm, ah_cstr(value) ? ah_cstr(value) : ""));
+    }
+    ah_val major = ah_nil(), last = ah_nil();
+    ah_get_member(m->vm, game_object(m), "major_menu_project", &major);
+    ah_get_member(m->vm, game_object(m), "last_menu_project", &last);
+    if (!ah_cstr(major) || !*ah_cstr(major))
+        ah_set_member(m->vm, game_object(m), "major_menu_project",
+                      ah_str(m->vm, source->project_label));
+    if (!ah_cstr(last) || !*ah_cstr(last))
+        ah_set_member(m->vm, game_object(m), "last_menu_project",
+                      ah_str(m->vm, source->project_label));
 }
 /* gtmode.ad MusicTheater -> exit_kick_project("slide"): its page
    (next_menu_arg) and the way back (major_menu_*), carried into the

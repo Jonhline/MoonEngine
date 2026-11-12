@@ -44,6 +44,9 @@
 #endif
 #include "vol.h"
 #include "video_settings.h"
+#include "save_package.h"
+#include "music_library.h"
+#include "music_folder.h"
 #ifdef __SWITCH__
 #include "platform/switch_scene.h"
 #endif
@@ -60,12 +63,14 @@
 #include "specdb.h"
 #ifndef __SWITCH__
 #include "launcher_audio.h"
+#include "launcher_mixer.h"
 #endif
 #ifndef __SWITCH__
 #include "renderer_startup.h"
 #include "platform/renderer_backend.h"
 #endif
 #include "save_ui.h"
+#include "discord_presence.h"
 #include "save.h"
 #include "replay_file.h"
 #include "career_event.h"
@@ -83,13 +88,20 @@
 #include "miniz.h"
 
 #include <SDL.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <time.h>
 
+static void app_jukebox_attach(menu *m);
+static int app_jukebox_pcm(menu *m, int allowed);
+static void app_jukebox_leave(void);
+static int app_jukebox_fixture(menu *m);
+#include "custom_modes.inc"
 #include "main_support.inc"
+static int bench_freeze;
 #include "main_race_flow.inc"
 
 /* The product was OpenGT4, then VULCAN 4, now MOON ENGINE. User data has to follow the name or the
@@ -128,6 +140,172 @@ static plat_texture *dock_icon_load(gt4_vol *vol, const char *pkg_path, const ch
    assets are read out of his own image at run time (never shipped, never in the repo), the
    names under them are drawn in the disc's own face, and the selection is the game's own
    pointer. No panel and no scrim: the icons and names sit straight on the room. */
+static music_library *app_music_library;
+static void app_music_ensure(int force);
+static void app_music_tick(void);
+static int guide_options_busy(void);
+
+/* Discord presence: one gate and one context build for every render loop. */
+static int app_presence_enabled;
+static void app_presence_log(const char *line);
+
+static const char *app_presence_car_name(menu *m, const char *label)
+{
+    if (!label || !*label)
+        return NULL;
+    if (m) {
+        const char *name = menu_car_name(m, label);
+        return name ? name : label;
+    }
+    static uint8_t *labels, *names, *strings;
+    static size_t labels_size, names_size, strings_size;
+    static int loaded;
+    if (!loaded) {
+        loaded = 1;
+        if (presentation_disc) {
+            const char *error = NULL;
+            gt4_vol *vol = gt4_vol_open(presentation_disc, &error);
+            if (vol) {
+                labels = gt4_vol_read(vol, "/specdb/GT4_US2560/GENERIC_CAR.idi", &labels_size);
+                names = gt4_vol_read(vol, "/specdb/GT4_US2560/CAR_NAME_american.dbt", &names_size);
+                strings =
+                    gt4_vol_read(vol, "/specdb/GT4_US2560/american_StrDB.sdb", &strings_size);
+                gt4_vol_close(vol);
+            }
+        }
+    }
+    uint32_t id;
+    uint8_t row[256];
+    if (labels && names && strings && gt4_specdb_label(labels, labels_size, label, &id) &&
+        gt4_specdb_row(names, names_size, id, row, sizeof row) == 16) {
+        uint32_t offset = (uint32_t)row[0] | (uint32_t)row[1] << 8 | (uint32_t)row[2] << 16 |
+                          (uint32_t)row[3] << 24;
+        const char *name = gt4_specdb_string(strings, strings_size, offset);
+        if (name && *name)
+            return name;
+    }
+    return label;
+}
+
+static void app_startup_log(const char *fmt, ...)
+{
+    char pref[1200], path[1300], line[512];
+    if (!plat_pref_dir(pref, sizeof pref))
+        return;
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof line, fmt, ap);
+    va_end(ap);
+    snprintf(path, sizeof path, "%sstartup.log", pref);
+    FILE *f = fopen(path, "rb");
+    long size = 0;
+    if (f) {
+        if (!fseek(f, 0, SEEK_END))
+            size = ftell(f);
+        fclose(f);
+    }
+    f = fopen(path, size > 64 * 1024 ? "wb" : "ab");
+    if (!f)
+        return;
+    fprintf(f, "%s\n", line);
+    fflush(f);
+    fclose(f);
+}
+static void app_presence_log(const char *line)
+{
+    char pref[1200], path[1300];
+    if (!plat_pref_dir(pref, sizeof pref))
+        return;
+    snprintf(path, sizeof path, "%spresence.log", pref);
+    FILE *f = fopen(path, "rb");
+    long size = 0;
+    if (f) {
+        if (!fseek(f, 0, SEEK_END))
+            size = ftell(f);
+        fclose(f);
+    }
+    f = fopen(path, size > 64 * 1024 ? "wb" : "ab");
+    if (!f)
+        return;
+    time_t now = time(NULL);
+    struct tm date;
+    memset(&date, 0, sizeof date);
+#ifdef _WIN32
+    int ok = !localtime_s(&date, &now);
+#else
+    int ok = localtime_r(&now, &date) != NULL;
+#endif
+    if (ok)
+        fprintf(f, "%04d-%02d-%02d %02d:%02d:%02d %s\n", date.tm_year + 1900, date.tm_mon + 1,
+                date.tm_mday, date.tm_hour, date.tm_min, date.tm_sec, line);
+    else
+        fprintf(f, "%s\n", line);
+    fflush(f);
+    fclose(f);
+}
+
+static void app_presence_poll(const char *mode, const char *course, menu *car_menu,
+                              const char *car_label, int driving, int project)
+{
+    static uint64_t next;
+    if (!app_presence_enabled)
+        return;
+    uint64_t now = plat_time_ns();
+    if (now < next)
+        return;
+    next = now + 1000000000ull;
+    const char *actual_mode = mode;
+    const char *actual_car = car_label;
+    static char project_mode[64];
+    if (!course) {
+        if (car_menu && menu_active_root(car_menu) >= 0) {
+            if (project >= 0 && project < NPROJECTS) {
+                snprintf(project_mode, sizeof project_mode, "%s", projects[project]);
+                if (project_mode[0] >= 'a' && project_mode[0] <= 'z')
+                    project_mode[0] = (char)(project_mode[0] - 'a' + 'A');
+                actual_mode = project_mode;
+            }
+        } else if (!car_menu && !guide_options_busy()) {
+            actual_mode = "Launcher";
+        }
+        if (car_menu) {
+            const char *selected = menu_selected_car(car_menu);
+            actual_car = selected && *selected ? selected : NULL;
+        }
+    }
+    gen_presence presence = {0};
+    presence.mode = actual_mode;
+    presence.course = course;
+    presence.car = app_presence_car_name(car_menu, actual_car);
+    static char last_mode[64], last_course[256], last_car[256];
+    static int have_last;
+    const char *course_text = presence.course ? presence.course : "-";
+    const char *car_text = presence.car ? presence.car : "-";
+    if (!have_last || strcmp(last_mode, actual_mode) || strcmp(last_course, course_text) ||
+        strcmp(last_car, car_text)) {
+        have_last = 1;
+        snprintf(last_mode, sizeof last_mode, "%s", actual_mode);
+        snprintf(last_course, sizeof last_course, "%s", course_text);
+        snprintf(last_car, sizeof last_car, "%s", car_text);
+        char trace[512];
+        snprintf(trace, sizeof trace,
+                 "discord presence: driving=%d mode=%s course=%s car=%s", driving, actual_mode,
+                 course_text, car_text);
+        fprintf(stderr, "%s\n", trace);
+        app_presence_log(trace);
+    }
+    discord_presence_tick(&presence);
+    static int last_linked = -1;
+    int linked = discord_presence_linked();
+    if (linked != last_linked) {
+        last_linked = linked;
+        char trace[96];
+        snprintf(trace, sizeof trace, "discord presence: link %s", linked ? "ready" : "not connected");
+        fprintf(stderr, "%s\n", trace);
+        app_presence_log(trace);
+    }
+}
+
 #define DOCK_COUNT 4
 #define DOCK_START 0
 #define DOCK_OPTIONS 1
@@ -251,9 +429,24 @@ static float dock_text_width(const gt4_font *f, const char *text)
     }
     return w;
 }
+/* Every Options label, fact and preview caption shares the panel lifetime. */
+static int studio_panel_ink_limit = -1;
+static int studio_panel_ink_audit;
 static void dock_name_pass(const studio_dock *d, const char *text, float cx, float base, float dx,
                            float dy, const uint8_t rgba[4], float size)
 {
+    uint8_t faded[4] = {rgba[0], rgba[1], rgba[2], rgba[3]};
+    if (studio_panel_ink_limit >= 0) {
+        if (!(studio_panel_ink_audit && getenv("MOONSTUDIO_PANEL_INK_NEGATIVE")) &&
+            faded[3] > studio_panel_ink_limit)
+            faded[3] = (uint8_t)studio_panel_ink_limit;
+        if (studio_panel_ink_audit && faded[3] > studio_panel_ink_limit) {
+            fprintf(stderr, "panel text outlived its opacity: %s\n", text);
+            exit(86);
+        }
+        rgba = faded;
+        if (!rgba[3]) return;
+    }
     const gt4_font *f = &d->font;
     const tex1_image *a = d->font_atlas;
     const float s = DOCK_NAME_SCALE * size * (d->scale > 0 ? d->scale : DOCK_SCALE);
@@ -301,6 +494,14 @@ static void dock_text(const studio_dock *d, const char *text, float x, float bas
     float cx = align == 1 ? x : align == 2 ? x - w / 2.f : x + w / 2.f;
     dock_name_pass(d, text, cx, base, 0.f, 0.f, col, size);
 }
+/* P: fit a complete label inside its allotted column; keep input geometry
+   on the same measured scale as the rendered value. */
+static float studio_text_fit(const studio_dock *d, const char *text, float size, float room)
+{
+    float scale = d->scale > 0 ? d->scale : DOCK_SCALE;
+    float width = dock_text_width(&d->font, text) * DOCK_NAME_SCALE * size * scale;
+    return width > room && width > 0 ? size * fmaxf(0, room) / width : size;
+}
 /* P: the launcher's room moods (Dante: "rgb colors that will reflect on the car and the
    floor") and its light/dark theme. */
 typedef struct {
@@ -313,7 +514,10 @@ static const studio_mood studio_moods[] = {
     {"Cyan", {.35f, .95f, 1}},  {"Blue", {.35f, .55f, 1}},  {"Purple", {.7f, .4f, 1}},
     {"Pink", {1, .45f, .8f}}};
 #define STUDIO_MOODS (int)(sizeof studio_moods / sizeof *studio_moods)
+static void dock_window_to_pixels(int x, int y, float *px, float *py);
 static int studio_dark; /* the theme the room and the corner text follow */
+static float studio_scene_shade; /* the Scene's fade in: a shade at the top, light text over it */
+#define STUDIO_LIGHT_INK (studio_dark || studio_scene_shade > .5f)
 static launcher_preferences *studio_prefs; /* launcher.ini (defined with the studio) */
 /* What the home screen tells the player before START (P: PC presentation). */
 typedef struct {
@@ -327,7 +531,15 @@ static void studio_info_draw(const studio_dock *d)
     const float pad = 16.f * S, line = 15.f * S;
     static const uint8_t ink_l[4] = {38, 40, 45, 235}, soft_l[4] = {96, 99, 106, 230},
                          ink_d[4] = {228, 230, 235, 240}, soft_d[4] = {150, 153, 160, 230};
-    const uint8_t *ink = studio_dark ? ink_d : ink_l, *soft = studio_dark ? soft_d : soft_l;
+    const uint8_t *ink = STUDIO_LIGHT_INK ? ink_d : ink_l, *soft = STUDIO_LIGHT_INK ? soft_d : soft_l;
+    if (studio_scene_shade > 0) { /* a picture behind: the text gets a shade to stand on */
+        static const uint8_t soft_s[4] = {205, 208, 214, 235};
+        if (studio_scene_shade > .5f)
+            soft = soft_s;
+        const uint8_t top = (uint8_t)(215 * studio_scene_shade),
+                      shade[4][4] = {{0, 0, 0, top}, {0, 0, 0, top}, {0, 0, 0, 0}, {0, 0, 0, 0}};
+        plat_draw_quad4(NULL, 0, 0, w, 165.f * S, 0, 0, 1, 1, shade);
+    }
     /* placeholder wordmark until the artist's logo exists */
     dock_text(d, "MOON ENGINE", pad, pad + 22.f * S, 1.9f, 0, ink);
     dock_text(d, "v" MOON_VERSION "   (logo placeholder)", pad + 1.f * S, pad + 36.f * S, .7f, 0,
@@ -336,23 +548,31 @@ static void studio_info_draw(const studio_dock *d)
     float y = pad + 12.f * S, right = w - pad;
     const uint8_t lamp[4] = {studio_status.disc_ok ? 40 : 205, studio_status.disc_ok ? 170 : 50,
                              studio_status.disc_ok ? 80 : 45, 255};
-    float tw = d->font_ok ? dock_text_width(&d->font, studio_status.disc) * DOCK_NAME_SCALE *
-                                .78f * S
-                          : 0;
+    float status_room = w * .55f - pad;
+    float disc_size = studio_text_fit(d, studio_status.disc, .78f, status_room - 12.f * S);
+    float tw = d->font_ok
+                   ? dock_text_width(&d->font, studio_status.disc) * DOCK_NAME_SCALE * disc_size * S
+                   : 0;
     plat_draw_quad(NULL, right - tw - 12.f * S, y - 7.f * S, 7.f * S, 7.f * S, 0, 0, 1, 1, lamp);
-    dock_text(d, studio_status.disc, right, y, .78f, 2, ink);
+    dock_text(d, studio_status.disc, right, y, disc_size, 2, ink);
     const char *rows[] = {studio_status.profile, studio_status.car, studio_status.mods};
     for (int i = 0; i < 3; i++)
         if (rows[i][0])
-            dock_text(d, rows[i], right, y + line * (i + 1), .7f, 2, soft);
+            dock_text(d, rows[i], right, y + line * (i + 1),
+                      studio_text_fit(d, rows[i], .7f, status_room), 2, soft);
 }
+#ifndef __SWITCH__
+#include "launcher_mixer.inc"
+#endif
+
 /* OPTIONS: a see-through panel inside the launcher (Dante's rule: the room stays visible
    behind it). GENERAL includes the room's theme and light colour (launcher.ini).
    VIDEO, INTERFACE and QUALITY use the same store as the game's Screen Settings,
    saved as they change and applied at START. */
-#define STUDIO_TABS 6
+#define STUDIO_TABS 8
 static const char *const studio_tab_names[STUDIO_TABS] = {"GENERAL", "VIDEO",    "INTERFACE",
-                                                          "SOUND",   "CONTROLS", "QUALITY"};
+                                                          "SOUND",   "CONTROLS", "QUALITY",
+                                                          "TWEAKS",  "ADVANCED"};
 /* The game's own sound and pad settings (the earlier launcher's pages): launcher_options,
    read once and written to the game's options file and save when the panel closes. */
 static launcher_options studio_game_options;
@@ -363,81 +583,7 @@ static const char *const studio_volume_names[7] = {"Menu Music",   "Menu Effects
                                                    "Race Music",   "Race Effects",
                                                    "Replay Music", "Replay Effects",
                                                    "Slide Show Music"};
-/* option.ad KeyconfigRoot/DS2's functions, in its order (the earlier launcher's page) */
-static const int studio_binding_actions[11] = {
-    -2,         GT4_PAD_ACCEL,     GT4_PAD_BRAKE,    GT4_PAD_REVERSE,  GT4_PAD_SIDE,   GT4_PAD_SHIFTUP,
-    GT4_PAD_SHIFTDOWN, GT4_PAD_BACKVIEW, GT4_PAD_PLAYVIEW, GT4_PAD_SPECIAL, GT4_PAD_GHOST};
-static const char *const studio_binding_names[11] = {
-    "Steering",      "Gas",       "Brake",       "Reverse", "E-brake", "Upshift (MT)",
-    "Downshift (MT)", "Rear View", "Change View", "Special", "Ghost"};
-static const char *const studio_key_names[21] = {
-    "None",          "Select / Back", "L3",           "R3",          "Start",
-    "Up",            "Right",         "Down",         "Left",        "L2 / LT",
-    "R2 / RT",       "L1 / LB",       "R1 / RB",      "Triangle / Y", "Circle / B",
-    "Cross / A",     "Square / X",    "Left Stick Up", "Left Stick Down", "Right Stick Up",
-    "Right Stick Down"};
-static const char *const studio_steer_names[4] = {"None", "Left Stick", "Right Stick",
-                                                  "Left / Right Buttons"};
-/* a function's current assignment as the earlier launcher read it */
-static int studio_binding_get(const gt4_pad_config *c, int i)
-{
-    if (!i) {
-        if (c->analog[GT4_PAD_LX] == -2)
-            return 1;
-        if (c->analog[GT4_PAD_RX] == -2)
-            return 2;
-        if (c->button[GT4_PAD_LEFT] == GT4_PAD_LSTEER && c->button[GT4_PAD_RIGHT] == GT4_PAD_RSTEER)
-            return 3;
-        return 0;
-    }
-    for (int k = 0; k < 16; k++)
-        if (c->button[k] == studio_binding_actions[i])
-            return k + 1;
-    for (int k = 2; k < 6; k++)
-        if (c->analog[k] == studio_binding_actions[i])
-            return k + 15;
-    return 0;
-}
-/* write every function back (the earlier launcher's apply); a button taken by another
-   function leaves that one unassigned, so no two share a button */
-static void studio_binding_set(gt4_pad_config *c, int i, int value)
-{
-    int sel[11];
-    for (int k = 0; k < 11; k++)
-        sel[k] = studio_binding_get(c, k);
-    sel[i] = value;
-    for (int k = 1; k < 11; k++)
-        if (k != i && i && sel[k] && sel[k] == value)
-            sel[k] = 0;
-    if (sel[0] == 3)
-        for (int k = 1; k < 11; k++)
-            if (sel[k] == GT4_PAD_LEFT + 1 || sel[k] == GT4_PAD_RIGHT + 1)
-                sel[k] = 0;
-    for (int k = 0; k < 11; k++) {
-        int action = studio_binding_actions[k];
-        for (int b = 0; b < 16; b++)
-            if (k ? c->button[b] == action
-                  : c->button[b] == GT4_PAD_LSTEER || c->button[b] == GT4_PAD_RSTEER)
-                c->button[b] = -1;
-        for (int b = 0; b < 6; b++)
-            if (c->analog[b] == action)
-                c->analog[b] = -1;
-    }
-    if (sel[0] == 1)
-        c->analog[GT4_PAD_LX] = -2;
-    if (sel[0] == 2)
-        c->analog[GT4_PAD_RX] = -2;
-    if (sel[0]) { /* the DS2 default keeps digital left/right beside the stick */
-        c->button[GT4_PAD_LEFT] = GT4_PAD_LSTEER;
-        c->button[GT4_PAD_RIGHT] = GT4_PAD_RSTEER;
-    }
-    for (int k = 1; k < 11; k++) {
-        if (sel[k] >= 1 && sel[k] <= 16)
-            c->button[sel[k] - 1] = studio_binding_actions[k];
-        if (sel[k] >= 17)
-            c->analog[sel[k] - 15] = studio_binding_actions[k];
-    }
-}
+#include "launcher_bindings.inc"
 static void studio_game_options_load(void)
 {
     if (studio_game_options_ready || !studio_video_file[0] || !studio_prefs)
@@ -459,7 +605,8 @@ static void studio_game_options_save(void)
     gt4_save_init(studio_prefs->saves); /* it shut the game's session; reopen it, with them */
     studio_game_options_dirty = 0;
 }
-/* the rows a tab lists. General: -1 theme, -2 light colour, then video ids; sound: 1000+k;
+static const char *studio_scene_name(void); /* launcher_scene.inc */
+/* the rows a tab lists. General: -1 theme, -2 light colour, -3 scene, then video ids; sound: 1000+k;
    controls: 2000 the player, 2001+i the functions */
 static int studio_tab_rows(int tab, int rows[24])
 {
@@ -467,29 +614,110 @@ static int studio_tab_rows(int tab, int rows[24])
     if (tab == 0) {
         rows[n++] = -1;
         rows[n++] = -2;
+        rows[n++] = -3;
+#ifdef _WIN32
+        if (app_video_settings && app_video_settings->current.preset_tools) {
+            rows[n++]=3000; rows[n++]=3001;
+        }
+#endif
     }
-    if (tab <= 2 || tab == 5) {
-        const char *group = tab == 5   ? "Quality"
+    if (tab == 3) {
+        for (int k = 0; k < 7; k++) rows[n++] = 1000 + k;
+#ifdef _WIN32
+        rows[n++] = -4; /* Open the actual custom-music folder. */
+#endif
+    }
+    if (tab == 7) {
+        static const char *const labels[] = {"3D Resolution", "Realistic Lighting", "Material Shading",
+                                             "Shadow Maps", "Car Shadows", "Reflection Quality",
+                                             "Anti-Aliasing", "HDR", "Sun Rays",
+                                             "Ambient Occlusion", "Night Sky"};
+        for (unsigned k = 0; k < sizeof labels / sizeof labels[0]; k++)
+            for (int i = 0; i < video_setting_count(); i++)
+                if (!strcmp(video_setting(i)->label, labels[k])) {
+                    rows[n++] = i;
+                    break;
+                }
+    }
+    if (tab == 6) {
+        /* The same ordered rows as the in-game Tweaks page, from one table.
+           Closing Sense of Speed hides its children; the rows below move up
+           because the list is built without them. */
+        int open = !app_video_settings || app_video_settings->tweaks_open;
+        int group = video_setting_tweak_group();
+        for (int i = 0; i < video_settings_tweak_count() && n < 24; i++) {
+            int id = group + i;
+            if (!open && video_setting_tweak_is_child(id))
+                continue;
+            rows[n++] = id;
+        }
+    } else if (tab <= 3 || tab >= 5) {
+        const char *group = tab == 5 ? "Quality"
                             : tab == 0 ? "General"
                             : tab == 1 ? "Video"
+                            : tab == 3 ? "Sound" /* P: the Jukebox's options, after the volumes */
                                        : "Interface";
         for (int i = 0; i < video_setting_count() && n < 24; i++)
             if (!strcmp(video_setting(i)->group, group))
                 rows[n++] = i;
-    } else if (tab == 3)
-        for (int k = 0; k < 7; k++)
-            rows[n++] = 1000 + k;
-    else
+    } else
         for (int k = 0; k < 12; k++)
             rows[n++] = 2000 + k;
     return n;
 }
+/* Debug gate: both settings pages must expose the same ordered Tweaks rows.
+   MOON_SETTINGS_PARITY=1 prints the listing and exits non-zero on a drift. */
+static int studio_tweaks_parity(void)
+{
+    if (!app_video_settings)
+        return 0;
+    video_settings base = *app_video_settings;
+    video_settings_preset_values(&base.current, 0);
+    base.current.skip_intro = 0;
+    base.current.assist_line = 0;
+    base.current.discord_presence = 0;
+    base.tweaks_open = 1;
+    int saved = app_video_settings->tweaks_open, ok = 1;
+    for (int open = 1; open >= 0; open--) {
+        app_video_settings->tweaks_open = open;
+        int ids[24], n = studio_tab_rows(6, ids), k = 0;
+        for (int i = 0; i < video_settings_tweak_count(); i++) {
+            int id = video_setting_tweak_group() + i;
+            if (!open && video_setting_tweak_is_child(id))
+                continue;
+            if (k >= n || ids[k] != id) {
+                ok = 0;
+                break;
+            }
+            const video_setting_info *in = video_setting(id);
+            int cur = video_setting_get(app_video_settings, id);
+            int def = video_setting_get(&base, id);
+            printf("parity: %s row=%d %s default=%s current=%s\n", open ? "open" : "closed", k,
+                   in->label, def >= 0 && def < in->count ? in->names[def] : "-",
+                   cur >= 0 && cur < in->count ? in->names[cur] : "-");
+            k++;
+        }
+        if (k != n)
+            ok = 0;
+    }
+    app_video_settings->tweaks_open = saved;
+    return ok;
+}
+/* P: Load and Save Preset are buttons (they open a file window), not choices */
+static int studio_row_button(int id)
+{
+    return id == -4 || id >= 3000;
+}
 static const char *studio_row_label(int id)
 {
+    if (id == -4) return "Open Music Folder";
+    if (id>=3000) return id==3000 ? "Load Preset" : "Save Preset";
     if (id == -1)
         return "Theme";
     if (id == -2)
         return "Light Colour";
+    if (id == -3)
+        return "Scene";
     if (id >= 2000)
         return id == 2000 ? "Controller" : studio_binding_names[id - 2001];
     if (id >= 1000)
@@ -498,15 +726,20 @@ static const char *studio_row_label(int id)
 }
 static const char *studio_row_help(int id)
 {
+    if (id == -4) return "Open Music Folder: Add WAV, MP3, FLAC, OGG or M4A files here, then reopen Jukebox.";
     static char line[192];
+    if (id>=3000) return app_video_settings && app_video_settings->message[0] ? app_video_settings->message : "Personal preset files: import, create, duplicate and export. Display and save paths stay local.";
     if (id == -1)
         return "Theme: The room in light or dark.";
     if (id == -2)
         return "Light Colour: The room's light; it shows on the car and the floor.";
+    if (id == -3)
+        return "Scene: What stands behind the car: the room, a Photo Travel place or a course from "
+               "the disc.";
     if (id == 2000)
         return "Controller: Whose buttons the list below sets.";
     if (id > 2000) {
-        snprintf(line, sizeof line, "%s: The button for it. A button another function had is freed.",
+        snprintf(line, sizeof line, "%s: Open the list, choose a button and confirm. Cancel keeps the current mapping.",
                  studio_binding_names[id - 2001]);
         return line;
     }
@@ -517,13 +750,24 @@ static const char *studio_row_help(int id)
     snprintf(line, sizeof line, "%s: %s", video_setting(id)->label, video_setting(id)->help);
     return line;
 }
+static int studio_field_size_warn(int id)
+{
+    if (!video_setting_is_field_size(id) || !app_video_settings)
+        return 0;
+    int index = video_setting_get(app_video_settings, id);
+    return video_settings_field_size_warning(MOON_CONDUCTOR_CARS + index);
+}
 static const char *studio_row_value(int id, int theme, int mood)
 {
-    static char text[32];
+    if (id == -4) return "Open Folder...";
+    static char text[96];
+    if (id>=3000) return id==3000 ? "Choose File..." : "Save As...";
     if (id == -1)
         return theme ? "Dark" : "Light";
     if (id == -2)
         return studio_moods[mood].name;
+    if (id == -3)
+        return studio_scene_name();
     if (id >= 1000) {
         studio_game_options_load();
         if (id == 2000)
@@ -538,23 +782,51 @@ static const char *studio_row_value(int id, int theme, int mood)
     }
     const video_setting_info *in = video_setting(id);
     int v = app_video_settings ? video_setting_get(app_video_settings, id) : 0;
-    if (in->count == 2 && v == 2 && !strcmp(in->label, "PC Preset"))
-        return "Modified";
+    if (!strcmp(in->label, "3D Resolution")) {
+        static const int pct[] = {35, 50, 65, 75, 100, 125};
+        static const int fps[] = {143, 119, 99, 88, 65, 0};
+        int k = v >= 0 && v < 6 ? v : 4;
+        if (fps[k])
+            snprintf(text, sizeof text, "%d%%  (about %d fps on GTX 1060)", pct[k], fps[k]);
+        else
+            snprintf(text, sizeof text, "%d%%", pct[k]);
+        return text;
+    }
+    if (!strcmp(in->label,"PC Preset") && app_video_settings) {
+        snprintf(text,sizeof text,"%s%s",app_video_settings->store.preset,app_video_settings->store.modified ? " (modified)" : "");
+        return text;
+    }
     return v >= 0 && v < in->count ? in->names[v] : "-";
 }
 /* one row's change, for every kind of row except the launcher's own two */
 static void studio_row_change(int id, int delta)
 {
+    if (id == -4) {
+#ifdef _WIN32
+        char folder[1100];
+        if (app_video_settings && app_music_folder(app_video_settings->store.path, folder, sizeof folder)) {
+            wchar_t wide[1100];
+            int ok = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, folder, -1, wide, 1100);
+            if (!ok || (INT_PTR)ShellExecuteW(NULL, L"open", wide, NULL, NULL, SW_SHOWNORMAL) <= 32)
+                snprintf(app_video_settings->message, sizeof app_video_settings->message, "Could not open the Music folder.");
+        } else if (app_video_settings)
+            snprintf(app_video_settings->message, sizeof app_video_settings->message, "Could not create the Music folder. Check folder permissions.");
+#endif
+        return;
+    }
+
+    if (id>=3000) {
+        if (app_video_settings) video_settings_preset_dialog(app_video_settings,id==3001,0);
+        return;
+    }
     if (id >= 2000) {
         studio_game_options_load();
         if (id == 2000) {
             studio_pad_port ^= 1;
             return;
         }
-        gt4_pad_config *c = &studio_game_options.pad[studio_pad_port];
-        int i = id - 2001, n = i ? 21 : 4;
-        studio_binding_set(c, i, (studio_binding_get(c, i) + delta + n) % n);
-        studio_game_options_dirty |= 4 << studio_pad_port;
+        studio_binding_begin(&studio_binding_picker,&studio_game_options.pad[studio_pad_port],
+                             id-2001,studio_pad_port);
     } else if (id >= 1000) {
         studio_game_options_load();
         int *v = &studio_game_options.volume[id - 1000];
@@ -566,12 +838,27 @@ static void studio_row_change(int id, int delta)
 }
 typedef struct {
     float x, y, w, h, row0, pitch, tab_y;
+    float right; /* where the values end; 0: the panel's right margin */
 } studio_panel;
-/* the tabs, side by side at their own widths */
+/* the tabs, side by side at their own widths; seven labels shrink rather than drop */
+static float studio_tab_scale(const studio_dock *d)
+{
+    const float S = d->scale > 0 ? d->scale : DOCK_SCALE;
+    float base = .9f, total = (STUDIO_TABS - 1) * 22.f * S;
+    for (int t = 0; t < STUDIO_TABS; t++)
+        total += dock_text_width(&d->font, studio_tab_names[t]) * DOCK_NAME_SCALE * base * S;
+    float avail = d->fw > 0 ? d->fw - 40.f * S : 640.f * S;
+    if (total > avail && total > 0) {
+        base *= avail / total;
+        if (base < .5f)
+            base = .5f;
+    }
+    return base;
+}
 static float studio_tab_w(const studio_dock *d, int t)
 {
     const float S = d->scale > 0 ? d->scale : DOCK_SCALE;
-    return dock_text_width(&d->font, studio_tab_names[t]) * DOCK_NAME_SCALE * .9f * S;
+    return dock_text_width(&d->font, studio_tab_names[t]) * DOCK_NAME_SCALE * studio_tab_scale(d) * S;
 }
 static float studio_tab_x(const studio_dock *d, int t)
 {
@@ -593,7 +880,43 @@ static studio_panel studio_panel_at(const studio_dock *d, int rows)
     p.pitch = 20.f * S; /* the longest tab (12 rows) fits the panel */
     if (p.row0 + p.pitch * 12 > p.y + p.h)
         p.pitch = (p.y + p.h - p.row0 - 4.f * S) / 12.f;
+    p.right = p.x + p.w - 14.f * S;
     return p;
+}
+/* P: INTERFACE and QUALITY in the first-drive guide's two columns: the rows on the left, the
+   focused option's comparison and the guide's words on the right (guide_options_draw) */
+#define STUDIO_GUIDE_COLUMN 270.f
+static int studio_tab_guided(int tab)
+{
+    (void)tab; /* P: every tab: each option has its demonstration (launcher_visuals.inc) */
+    return 1;
+}
+static studio_panel studio_options_panel(const studio_dock *d, int tab)
+{
+    int ids[24];
+    studio_panel p = studio_panel_at(d, studio_tab_rows(tab, ids));
+    if (studio_tab_guided(tab))
+        p.right =
+            p.x + fminf(STUDIO_GUIDE_COLUMN * (d->scale > 0 ? d->scale : DOCK_SCALE), p.w * .48f);
+    return p;
+}
+/* A tab longer than the panel (QUALITY) scrolls: studio_options_top is its first shown row,
+   moved only as far as keeps the selected row in view. */
+static int studio_options_top;
+static int studio_options_visible(const studio_panel *p, float S)
+{
+    return (int)((p->y + p->h - p->row0 - 4.f * S) / p->pitch);
+}
+static void studio_options_follow(int row, int n, int visible)
+{
+    if (row < studio_options_top)
+        studio_options_top = row;
+    if (row >= studio_options_top + visible)
+        studio_options_top = row - visible + 1;
+    if (studio_options_top > n - visible)
+        studio_options_top = n - visible;
+    if (studio_options_top < 0)
+        studio_options_top = 0;
 }
 /* which arrow of a row's value a framebuffer x is on: -1 the "<" half, 1 the ">" half,
    0 off the value (the name: a click there goes forward) */
@@ -601,8 +924,9 @@ static int studio_value_side(const studio_dock *d, const studio_panel *p, const 
                              float px)
 {
     const float S = d->scale > 0 ? d->scale : DOCK_SCALE;
-    float right = p->x + p->w - 14.f * S,
-          w = dock_text_width(&d->font, value) * DOCK_NAME_SCALE * .8f * S;
+    float right = p->right > 0 ? p->right : p->x + p->w - 14.f * S,
+          size = studio_text_fit(d, value, .8f, (right - p->x - 24.f * S) * .48f),
+          w = dock_text_width(&d->font, value) * DOCK_NAME_SCALE * size * S;
     if (px >= right - w - 6.f * S && px < right - w / 2.f)
         return -1;
     if (px >= right - w / 2.f && px <= right + 10.f * S)
@@ -617,8 +941,9 @@ static void studio_options_draw(const studio_dock *d, int tab, int row, int them
         return;
     const float S = d->scale > 0 ? d->scale : DOCK_SCALE;
     int ids[24], n = studio_tab_rows(tab, ids);
-    studio_panel p = studio_panel_at(d, n);
-    const uint8_t panel[4] = {12, 13, 16, (uint8_t)(175 * alpha)},
+    studio_panel p = studio_options_panel(d, tab);
+    const int guided = studio_tab_guided(tab);
+    const uint8_t panel[4] = {12, 13, 16, (uint8_t)((guided ? 205 : 175) * alpha)},
                   edge[4] = {255, 255, 255, (uint8_t)(90 * alpha)},
                   head[4] = {255, 255, 255, (uint8_t)(240 * alpha)},
                   dim[4] = {160, 163, 170, (uint8_t)(220 * alpha)},
@@ -636,38 +961,102 @@ static void studio_options_draw(const studio_dock *d, int tab, int row, int them
                            1, box);
             plat_draw_quad(NULL, tx, p.tab_y + 5.f * S, tw, fmaxf(1.f, S), 0, 0, 1, 1, line);
         }
-        dock_text(d, studio_tab_names[t], tx, p.tab_y, .9f, 0, t == tab || hot ? head : dim);
+        dock_text(d, studio_tab_names[t], tx, p.tab_y, studio_tab_scale(d), 0,
+                  t == tab || hot ? head : dim);
         if (t == tab)
             plat_draw_quad(NULL, tx, p.tab_y + 5.f * S, tw, fmaxf(1.f, S), 0, 0, 1, 1, head);
     }
     plat_draw_quad(NULL, p.x + 8.f * S, p.tab_y + 12.f * S, p.w - 16.f * S, fmaxf(1.f, .5f * S), 0,
                    0, 1, 1, hl);
-    for (int r = 0; r < n; r++) {
-        float ry = p.row0 + p.pitch * r;
+    int visible = studio_options_visible(&p, S);
+    studio_options_follow(row, n, visible);
+    /* two columns: the guide's line between them, the scroll bar on it.
+       The long Tweaks list marks its scroll on the left edge, clear of labels. */
+    int tweaks = tab == STUDIO_TABS - 1;
+    float bar = tweaks ? p.x + 2.f * S : guided ? p.right + 7.f * S : p.x + p.w - 5.f * S;
+    if (guided && n <= visible)
+        plat_draw_quad(NULL, p.right + 8.f * S, p.tab_y + 18.f * S, fmaxf(1.f, .5f * S),
+                       p.y + p.h - p.tab_y - 26.f * S, 0, 0, 1, 1, hl);
+    if (n > visible) { /* a thin scroll bar at the right edge: where the shown rows sit */
+        float top = p.row0 - p.pitch * .72f, len = p.pitch * visible;
+        const uint8_t track[4] = {255, 255, 255, (uint8_t)(24 * alpha)},
+                      thumb[4] = {255, 255, 255, (uint8_t)(120 * alpha)};
+        plat_draw_quad(NULL, bar, top, 2.f * S, len, 0, 0, 1, 1, track);
+        plat_draw_quad(NULL, bar, top + len * studio_options_top / n, 2.f * S,
+                       len * visible / n, 0, 0, 1, 1, thumb);
+    }
+    if(row>=0 && row<n && studio_binding_is_choice(ids[row]))arrow=0;
+    for (int r = studio_options_top; r < n && r < studio_options_top + visible; r++) {
+        float ry = p.row0 + p.pitch * (r - studio_options_top);
         if (r == row)
-            plat_draw_quad(NULL, p.x + 4.f * S, ry - p.pitch * .72f, p.w - 8.f * S, p.pitch * .95f, 0,
-                           0, 1, 1, hl);
-        dock_text(d, studio_row_label(ids[r]), p.x + 14.f * S, ry, .8f, 0, r == row ? head : dim);
+            plat_draw_quad(NULL, p.x + 4.f * S, ry - p.pitch * .72f,
+                           guided ? p.right - p.x : p.w - 8.f * S, p.pitch * .95f, 0, 0, 1, 1, hl);
         char v[80];
-        snprintf(v, sizeof v, "<  %s  >", studio_row_value(ids[r], theme, mood));
-        float right = p.x + p.w - 14.f * S;
+        snprintf(v, sizeof v, studio_binding_is_choice(ids[r]) ? "%s..." : "<  %s  >", studio_row_value(ids[r], theme, mood));
+        float right = p.right, left = p.x + 14.f * S;
+        float value_room = (right - left - 10.f * S) * .48f;
+        float value_size = studio_text_fit(d, v, .8f, value_room);
+        float value_width = dock_text_width(&d->font, v) * DOCK_NAME_SCALE * value_size * S;
+        int field_warn = studio_field_size_warn(ids[r]);
+        const uint8_t red[4] = {235, 54, 54, (uint8_t)(255 * alpha)};
+        const char *label = field_warn ? "Field Size - Experimental above 20 cars"
+                                       : studio_row_label(ids[r]);
+        float label_size = studio_text_fit(d, label, .8f, right - value_width - 10.f * S - left);
+        dock_text(d, label, left, ry, label_size, 0, field_warn ? red : r == row ? head : dim);
+        if (field_warn) {
+            float bx = p.x + 4.f * S, by = ry - p.pitch * .72f,
+                  bw = (guided ? p.right - p.x : p.w - 8.f * S), bh = p.pitch * .95f,
+                  t = fmaxf(1.f, S);
+            plat_draw_quad(NULL, bx, by, bw, t, 0, 0, 1, 1, red);
+            plat_draw_quad(NULL, bx, by + bh - t, bw, t, 0, 0, 1, 1, red);
+            plat_draw_quad(NULL, bx, by, t, bh, 0, 0, 1, 1, red);
+            plat_draw_quad(NULL, bx + bw - t, by, t, bh, 0, 0, 1, 1, red);
+        }
+        if (getenv("MOONSTUDIO_LAYOUT_TRACE")) {
+            static unsigned reported[STUDIO_TABS];
+            if (!(reported[tab] & (1u << r))) {
+                reported[tab] |= 1u << r;
+                printf("STUDIO_ROW %d %d label=%.3f value=%.3f left=%.3f right=%.3f raw=%.3f\n",
+                       tab, r, dock_text_width(&d->font, label) * DOCK_NAME_SCALE * label_size * S,
+                       value_width, left, right,
+                       dock_text_width(&d->font, label) * DOCK_NAME_SCALE * .8f * S);
+            }
+        }
+        if (studio_row_button(ids[r])) { /* a button: a box with its action, no arrows */
+            const char *a = studio_row_value(ids[r], theme, mood);
+            float action_size = studio_text_fit(d, a, .78f, value_room - 24.f * S);
+            float bw = dock_text_width(&d->font, a) * DOCK_NAME_SCALE * action_size * S + 24.f * S,
+                  by = ry - p.pitch * .7f, bh = p.pitch * .86f;
+            const uint8_t fill[4] = {255, 255, 255, (uint8_t)((r == row ? 46 : 18) * alpha)},
+                          gold[4] = {255, 204, 64, (uint8_t)(230 * alpha)};
+            plat_draw_quad(NULL, right - bw, by, bw, bh, 0, 0, 1, 1, fill);
+            if (r == row) {
+                float t = fmaxf(1.f, 1.2f * S);
+                plat_draw_quad(NULL, right - bw, by, bw, t, 0, 0, 1, 1, gold);
+                plat_draw_quad(NULL, right - bw, by + bh - t, bw, t, 0, 0, 1, 1, gold);
+                plat_draw_quad(NULL, right - bw, by, t, bh, 0, 0, 1, 1, gold);
+                plat_draw_quad(NULL, right - t, by, t, bh, 0, 0, 1, 1, gold);
+            }
+            dock_text(d, a, right - bw * .5f, ry, action_size, 1, r == row ? head : dim);
+            continue;
+        }
         if (r == row && arrow) {
             /* the arrow the mouse would press: a soft box and the arrow in gold */
-            float w = dock_text_width(&d->font, v) * DOCK_NAME_SCALE * .8f * S,
-                  aw = dock_text_width(&d->font, "<") * DOCK_NAME_SCALE * .8f * S,
+            float w = value_width,
+                  aw = dock_text_width(&d->font, "<") * DOCK_NAME_SCALE * value_size * S,
                   ax = arrow < 0 ? right - w : right - aw;
             const uint8_t box[4] = {255, 255, 255, (uint8_t)(46 * alpha)};
             plat_draw_quad(NULL, ax - 5.f * S, ry - p.pitch * .68f, aw + 10.f * S, p.pitch * .86f,
                            0, 0, 1, 1, box);
         }
-        dock_text(d, v, right, ry, .8f, 2, r == row ? head : dim);
+        dock_text(d, v, right, ry, value_size, 2, field_warn ? red : r == row ? head : dim);
         if (r == row && arrow) {
             const uint8_t gold[4] = {255, 204, 64, (uint8_t)(255 * alpha)};
             if (arrow < 0) {
-                float w = dock_text_width(&d->font, v) * DOCK_NAME_SCALE * .8f * S;
-                dock_text(d, "<", right - w, ry, .8f, 0, gold);
+                float w = value_width;
+                dock_text(d, "<", right - w, ry, value_size, 0, gold);
             } else
-                dock_text(d, ">", right, ry, .8f, 2, gold);
+                dock_text(d, ">", right, ry, value_size, 2, gold);
         }
         if (ids[r] == -2) { /* the colour itself */
             const studio_mood *md = &studio_moods[mood];
@@ -677,12 +1066,13 @@ static void studio_options_draw(const studio_dock *d, int tab, int row, int them
         }
     }
 }
-/* what is under a framebuffer point: a row (>= 0), a tab (-10 - t), or -1 */
+/* what is under a framebuffer point: a row (>= 0), a tab (-10 - t), the guide's column (-2),
+   or -1 */
 static int studio_options_hit(const studio_dock *d, int tab, float px, float py)
 {
     const float S = d->scale > 0 ? d->scale : DOCK_SCALE;
     int ids[24], n = studio_tab_rows(tab, ids);
-    studio_panel p = studio_panel_at(d, n);
+    studio_panel p = studio_options_panel(d, tab);
     if (px < p.x || px > p.x + p.w || py < p.y || py > p.y + p.h)
         return -1;
     if (py < p.tab_y + 10.f * S) {
@@ -692,13 +1082,17 @@ static int studio_options_hit(const studio_dock *d, int tab, float px, float py)
                 return -10 - t;
         return -1;
     }
-    for (int r = 0; r < n; r++) {
-        float ry = p.row0 + p.pitch * r;
+    int visible = studio_options_visible(&p, S);
+    if (px > p.right + 6.f * S)
+        return -2; /* the guide's column: in the panel, on no row */
+    for (int r = studio_options_top; r < n && r < studio_options_top + visible; r++) {
+        float ry = p.row0 + p.pitch * (r - studio_options_top);
         if (py >= ry - p.pitch * .72f && py < ry + p.pitch * .28f)
             return r;
     }
     return -1;
 }
+#include "launcher_binding_picker.inc"
 /* MODS: the mods installed in <prefs>/mods, each on or off, in the OPTIONS panel's look
    (P). The tick list is <prefs>/mods.ini, the very file the engine reads (mod_manifest.c);
    a change is written at once and the engine's list is read again, so START loads it. The
@@ -963,9 +1357,14 @@ static void dock_caption(const studio_dock *d, const char *text, float cx, float
     if (!d->font_ok)
         return;
     static const uint8_t sh[4] = {0, 0, 0, 110};
-    float s = d->scale > 0 ? d->scale : DOCK_SCALE;
-    dock_name_pass(d, text, cx, base, .7f * s, .7f * s, sh, .92f);
-    dock_name_pass(d, text, cx, base, 0.f, 0.f, col, .92f);
+    float s = d->scale > 0 ? d->scale : DOCK_SCALE, size = .92f;
+    /* a long help line shrinks to the strip (centred, so 2*cx is its width) instead of
+       running off both edges */
+    float wide = dock_text_width(&d->font, text) * DOCK_NAME_SCALE * size * s, room = 2.f * cx * .94f;
+    if (wide > room)
+        size *= room / wide;
+    dock_name_pass(d, text, cx, base, .7f * s, .7f * s, sh, size);
+    dock_name_pass(d, text, cx, base, 0.f, 0.f, col, size);
 }
 /* Decode the names' face from the user's own disc (/font/system.fnt is FT01; font.h) and
    turn its ink atlas into the signed distance field the glyph quad samples (glyph_sdf.h),
@@ -1278,8 +1677,112 @@ static void wiz_text_center(const char *s, float cx, float y, float sc, const ui
     wiz_text(s, cx - wiz_text_width(s, sc) / 2.f, y, sc, col);
 }
 
-static int wiz_pick_disc(char *out, size_t size) /* the platform's own open dialog */
+/* The AFK clock: a small piece of the room, not a HUD readout. Same baked
+   launcher face as the wizard, with deliberate tracking; the colon breathes
+   once a second and the whole block fades with the cinematic. */
+static float clock_text_width(const char *s, float sc, float tracking)
 {
+    float x = 0;
+    for (; *s; s++) {
+        int c = (unsigned char)*s - 32;
+        if (c < 0 || c >= 96)
+            continue;
+        x += wiz_ch[c].xadvance * sc + tracking;
+    }
+    return x > tracking ? x - tracking : x;
+}
+static void clock_text(const char *s, float x, float y, float sc, float tracking,
+                       const uint8_t col[4])
+{
+    for (; *s; s++) {
+        int c = (unsigned char)*s - 32;
+        if (c < 0 || c >= 96)
+            continue;
+        char one[2] = {(char)*s, 0};
+        wiz_text(one, x, y, sc, col);
+        x += wiz_ch[c].xadvance * sc + tracking;
+    }
+}
+static void studio_clock_draw(const studio_dock *d, float alpha, double seconds)
+{
+    if (!d || alpha <= .004f || !wiz_font_init())
+        return;
+    const float unit = d->fh > 0 ? (float)d->fh / 720.f : 1.f;
+    const float big = 1.15f * unit, date_scale = .38f * unit;
+    const float track_big = 4.4f * unit, track_small = 2.6f * unit;
+    const float x = 34.f * unit, y = 54.f * unit;
+    time_t now = time(NULL);
+    struct tm tm;
+#ifdef _WIN32
+    localtime_s(&tm, &now);
+#else
+    localtime_r(&now, &tm);
+#endif
+    char hh[4], mm[4], date[32];
+    snprintf(hh, sizeof hh, "%02d", tm.tm_hour);
+    snprintf(mm, sizeof mm, "%02d", tm.tm_min);
+    static const char *const weekday[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+    static const char *const month[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                                        "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+    int wd = tm.tm_wday >= 0 && tm.tm_wday < 7 ? tm.tm_wday : 0;
+    int mo = tm.tm_mon >= 0 && tm.tm_mon < 12 ? tm.tm_mon : 0;
+    snprintf(date, sizeof date, "%s %02d %s", weekday[wd], tm.tm_mday, month[mo]);
+
+    float time_w = clock_text_width(hh, big, track_big) + track_big +
+                   clock_text_width(":", big, track_big) + track_big +
+                   clock_text_width(mm, big, track_big);
+    float date_w = clock_text_width(date, date_scale, track_small);
+    float block_w = fmaxf(time_w, date_w);
+
+    /* A soft left-edge fade, then a shadow pass: legible on the white room. */
+    uint8_t fade[4][4] = {{0, 0, 0, (uint8_t)(118 * alpha)}, {0, 0, 0, 0},
+                          {0, 0, 0, (uint8_t)(72 * alpha)}, {0, 0, 0, 0}};
+    plat_draw_quad4(NULL, 0, 0, block_w + 72.f * unit, 160.f * unit, 0, 0, 1, 1, fade);
+    uint8_t shadow[4] = {0, 0, 0, (uint8_t)(150 * alpha)};
+    float sx = x + 2.f * unit, sy = y + 2.f * unit;
+    clock_text(hh, sx, sy, big, track_big, shadow);
+    sx += clock_text_width(hh, big, track_big) + track_big;
+    clock_text(":", sx, sy, big, track_big, shadow);
+    sx += clock_text_width(":", big, track_big) + track_big;
+    clock_text(mm, sx, sy, big, track_big, shadow);
+    clock_text(date, x + 2.f * unit, y + 66.f * unit, date_scale, track_small, shadow);
+
+    const uint8_t ink[4] = {238, 240, 244, (uint8_t)(250 * alpha)},
+                  dim[4] = {205, 208, 214, (uint8_t)(220 * alpha)},
+                  red[4] = {244, 36, 61, (uint8_t)(235 * alpha)};
+    float tx = x;
+    clock_text(hh, tx, y, big, track_big, ink);
+    tx += clock_text_width(hh, big, track_big) + track_big;
+    float pulse = .55f + .45f * (float)(.5 + .5 * cos(6.28318530718 * seconds));
+    uint8_t colon[4] = {ink[0], ink[1], ink[2], (uint8_t)(ink[3] * pulse)};
+    clock_text(":", tx, y, big, track_big, colon);
+    tx += clock_text_width(":", big, track_big) + track_big;
+    clock_text(mm, tx, y, big, track_big, ink);
+    clock_text(date, x, y + 66.f * unit, date_scale, track_small, dim);
+    plat_draw_quad(NULL, x, y + 108.f * unit, block_w * .62f, fmaxf(1.f, unit), 0, 0, 1, 1, red);
+}
+
+/* Both Windows toolchains have _putenv; only POSIX has setenv/unsetenv, and the
+   MinGW build is the one that notices. An empty value removes the variable in the
+   Windows CRT, which is what the POSIX branch does explicitly. */
+static void wiz_disc_hint(const char *value)
+{
+#ifdef _WIN32
+    char line[1100];
+    snprintf(line, sizeof line, "MOONSTUDIO_DISC_HINT=%s", value ? value : "");
+    _putenv(line);
+#else
+    if (value)
+        setenv("MOONSTUDIO_DISC_HINT", value, 1);
+    else
+        unsetenv("MOONSTUDIO_DISC_HINT");
+#endif
+}
+static int wiz_pick_disc(char *out, size_t size, const char *hint) /* the platform's own open dialog */
+{
+    /* The chooser opens in the folder of the disc already named, so the image the
+       player is replacing is on screen instead of a home directory they must hunt. */
+    wiz_disc_hint(hint && *hint ? hint : NULL);
     return plat_pick_disc(out, size);
 }
 static int wiz_valid(const char *path, char *msg, size_t n)
@@ -1505,6 +2008,214 @@ static void launcher_touch_mouse(int on)
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, on ? "1" : "0");
     fprintf(stderr, "launcher: touch-mouse synthesis %s\n", on ? "on" : "off");
 }
+static void wiz_log(const char *fmt, ...)
+{
+    char pref[1200], path[1300], line[512];
+    if (!plat_pref_dir(pref, sizeof pref))
+        return;
+    snprintf(path, sizeof path, "%swizard.log", pref);
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof line, fmt, ap);
+    va_end(ap);
+    FILE *f = fopen(path, "rb");
+    long size = 0;
+    if (f) {
+        if (!fseek(f, 0, SEEK_END))
+            size = ftell(f);
+        fclose(f);
+    }
+    f = fopen(path, size > 64 * 1024 ? "wb" : "ab");
+    if (!f)
+        return;
+    time_t now = time(NULL);
+    struct tm date;
+    memset(&date, 0, sizeof date);
+#ifdef _WIN32
+    int ok = !localtime_s(&date, &now);
+#else
+    int ok = localtime_r(&now, &date) != NULL;
+#endif
+    if (ok)
+        fprintf(f, "%04d-%02d-%02d %02d:%02d:%02d %s\n", date.tm_year + 1900, date.tm_mon + 1,
+                date.tm_mday, date.tm_hour, date.tm_min, date.tm_sec, line);
+    else
+        fprintf(f, "%s\n", line);
+    fflush(f);
+    fclose(f);
+}
+static int app_win_x, app_win_y, app_win_w = 960, app_win_h = 720;
+static int app_win_maximized, app_win_fullscreen, app_win_have_rect, app_win_dirty;
+static uint64_t app_win_changed_ns;
+
+static int app_window_int(const char *key, int fallback)
+{
+    const char *v = app_video_settings ? moon_options_get(&app_video_settings->store, key, "") : "";
+    char *end;
+    long n;
+    if (!v || !*v)
+        return fallback;
+    n = strtol(v, &end, 10);
+    return *end ? fallback : (int)n;
+}
+
+static void app_window_default_rect(int *x, int *y, int *w, int *h)
+{
+    SDL_Rect r;
+    *w = 960;
+    *h = 720;
+    if (SDL_GetDisplayUsableBounds(0, &r) == 0) {
+        *x = r.x + (r.w - *w) / 2;
+        *y = r.y + (r.h - *h) / 2;
+    } else
+        *x = *y = 0;
+}
+
+static int app_window_clamp(int *x, int *y, int *w, int *h)
+{
+    int displays = SDL_GetNumVideoDisplays(), best_area = 0;
+    SDL_Rect best = {0, 0, 0, 0}, want = {*x, *y, *w, *h};
+    if (displays < 1)
+        return 0;
+    for (int i = 0; i < displays; i++) {
+        SDL_Rect bounds, overlap;
+        if (SDL_GetDisplayUsableBounds(i, &bounds) != 0)
+            continue;
+        if (SDL_IntersectRect(&want, &bounds, &overlap)) {
+            int area = overlap.w * overlap.h;
+            if (area > best_area) {
+                best_area = area;
+                best = bounds;
+            }
+        }
+    }
+    if (best_area < 64 * 64)
+        return 0;
+    if (*w > best.w)
+        *w = best.w;
+    if (*h > best.h)
+        *h = best.h;
+    if (*x < best.x)
+        *x = best.x;
+    if (*x + *w > best.x + best.w)
+        *x = best.x + best.w - *w;
+    if (*y < best.y)
+        *y = best.y;
+    if (*y + *h > best.y + best.h)
+        *y = best.y + best.h - *h;
+    return 1;
+}
+
+static void app_window_geometry_restore(plat_video_desc *d)
+{
+    if (!d || !app_video_settings)
+        return;
+    if (!SDL_WasInit(SDL_INIT_VIDEO))
+        SDL_Init(SDL_INIT_VIDEO);
+    int w = app_window_int("window.width", 0), h = app_window_int("window.height", 0);
+    int x = app_window_int("window.x", -1000000), y = app_window_int("window.y", -1000000);
+    int maximized = app_window_int("window.maximized", 0);
+    int fullscreen = app_window_int("window.fullscreen", d->fullscreen);
+    int valid = w >= 480 && h >= 360;
+    if (!valid) {
+        app_window_default_rect(&x, &y, &w, &h);
+        app_win_have_rect = 0;
+        d->placed = 0;
+    } else {
+        if (x == -1000000 || y == -1000000) {
+            SDL_Rect r;
+            if (SDL_GetDisplayUsableBounds(0, &r) == 0) {
+                x = r.x + (r.w - w) / 2;
+                y = r.y + (r.h - h) / 2;
+            } else
+                x = y = 0;
+            d->placed = 0;
+        } else
+            d->placed = 1;
+        if (!app_window_clamp(&x, &y, &w, &h)) {
+            app_window_default_rect(&x, &y, &w, &h);
+            app_win_have_rect = 0;
+            d->placed = 0;
+        } else
+            app_win_have_rect = 1;
+    }
+    app_win_x = x;
+    app_win_y = y;
+    app_win_w = w;
+    app_win_h = h;
+    app_win_maximized = maximized ? 1 : 0;
+    app_win_fullscreen = fullscreen ? 1 : 0;
+    d->width = w;
+    d->height = h;
+    d->x = x;
+    d->y = y;
+    d->maximized = app_win_maximized;
+    d->fullscreen = app_win_fullscreen;
+    app_win_dirty = 0;
+    app_win_changed_ns = 0;
+}
+
+static void app_window_geometry_tick(int force)
+{
+    SDL_Window *win = plat_sdl_window();
+    if (!app_video_settings || !win)
+        return;
+    /* a hidden (test) window has no geometry of the player's to keep */
+    const char *hidden = getenv("MOON_WINDOW_HIDDEN");
+    if (hidden && !strcmp(hidden, "1"))
+        return;
+    Uint32 flags = SDL_GetWindowFlags(win);
+    int fullscreen = (flags & SDL_WINDOW_FULLSCREEN) != 0;
+    int maximized = (flags & SDL_WINDOW_MAXIMIZED) != 0 && !fullscreen;
+    int changed = 0;
+    if (!fullscreen && !maximized) {
+        int x = 0, y = 0, w = 0, h = 0;
+        SDL_GetWindowPosition(win, &x, &y);
+        SDL_GetWindowSize(win, &w, &h);
+        if (w > 0 && h > 0 &&
+            (!app_win_have_rect || x != app_win_x || y != app_win_y || w != app_win_w ||
+             h != app_win_h)) {
+            app_win_x = x;
+            app_win_y = y;
+            app_win_w = w;
+            app_win_h = h;
+            app_win_have_rect = 1;
+            changed = 1;
+        }
+    }
+    if (app_win_maximized != maximized) {
+        app_win_maximized = maximized;
+        changed = 1;
+    }
+    if (app_win_fullscreen != fullscreen) {
+        app_win_fullscreen = fullscreen;
+        changed = 1;
+    }
+    if (changed) {
+        app_win_dirty = 1;
+        app_win_changed_ns = plat_time_ns();
+    }
+    if (!app_win_dirty || (!force && plat_time_ns() - app_win_changed_ns < 500000000ull))
+        return;
+    char value[32];
+    int modified = app_video_settings->store.modified;
+#define APP_WIN_KEY(key, number)                                                                    \
+    do {                                                                                           \
+        snprintf(value, sizeof value, "%d", (number));                                             \
+        moon_options_set(&app_video_settings->store, key, value);                                  \
+    } while (0)
+    APP_WIN_KEY("window.x", app_win_x);
+    APP_WIN_KEY("window.y", app_win_y);
+    APP_WIN_KEY("window.width", app_win_w);
+    APP_WIN_KEY("window.height", app_win_h);
+    APP_WIN_KEY("window.maximized", app_win_maximized);
+    APP_WIN_KEY("window.fullscreen", app_win_fullscreen);
+#undef APP_WIN_KEY
+    app_video_settings->store.modified = modified;
+    moon_options_save(&app_video_settings->store);
+    app_win_dirty = 0;
+}
+
 #ifndef __SWITCH__
 /* Runs the setup on the current window: 1 = saved, 2 = saved and restarted for the new
    graphics API (the caller quits), 0 = cancelled (nothing written). */
@@ -1531,6 +2242,7 @@ static int first_run_wizard(launcher_preferences *prefs)
     video_set_fill_window(1);
     SDL_ShowCursor(SDL_ENABLE);
     SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
+    int last_fw = -1, last_fh = -1, last_tw = -1, last_th = -1, last_full = -1;
     for (;;) {
         int fw = 0, fh = 0;
         SDL_GL_GetDrawableSize(plat_sdl_window(), &fw, &fh);
@@ -1603,6 +2315,16 @@ static int first_run_wizard(launcher_preferences *prefs)
             if (ev.type != SDL_KEYDOWN)
                 continue;
             int k = ev.key.keysym.sym;
+            if (!ev.key.repeat &&
+                (k == SDLK_F11 ||
+                 ((k == SDLK_RETURN || k == SDLK_KP_ENTER) &&
+                  (ev.key.keysym.mod & KMOD_ALT)))) {
+                Uint32 flags = SDL_GetWindowFlags(plat_sdl_window());
+                SDL_SetWindowFullscreen(plat_sdl_window(), (flags & SDL_WINDOW_FULLSCREEN)
+                                                               ? 0
+                                                               : SDL_WINDOW_FULLSCREEN_DESKTOP);
+                continue;
+            }
             if (k == SDLK_ESCAPE)
                 activate = 2; /* BACK, or EXIT on the disc step */
             else if (k == SDLK_LEFT)
@@ -1659,7 +2381,7 @@ static int first_run_wizard(launcher_preferences *prefs)
             if (step == 0) {
                 if (activate == 0) {
                     char chosen[LAUNCHER_PATH];
-                    if (wiz_pick_disc(chosen, sizeof chosen)) {
+                    if (wiz_pick_disc(chosen, sizeof chosen, disc)) {
                         snprintf(disc, sizeof disc, "%s", chosen);
                         valid = launcher_validate_disc(disc, status, sizeof status);
                         if (valid) {
@@ -1695,9 +2417,39 @@ static int first_run_wizard(launcher_preferences *prefs)
         for (int i = 0; i < 4; i++)
             L.hover[i] += ((i == sel && list_sel < 0 ? 1.f : 0.f) - L.hover[i]) * .25f;
 
-        plat_video_set_view((float)fw, (float)fh);
+        {
+            int draw_fw = 0, draw_fh = 0;
+            SDL_GL_GetDrawableSize(plat_sdl_window(), &draw_fw, &draw_fh);
+            if (draw_fw > 0 && draw_fh > 0 && (draw_fw != fw || draw_fh != fh)) {
+                fw = draw_fw;
+                fh = draw_fh;
+                wiz_metrics(&L, (float)fw, (float)fh);
+                L.n = step ? 4 : 3;
+            }
+        }
         plat_video_begin_frame();
+        plat_video_set_view((float)fw, (float)fh);
         wiz_room((float)fw, (float)fh);
+        {
+            int tw = 0, th = 0, full;
+            video_target_size(&tw, &th);
+            full = (SDL_GetWindowFlags(plat_sdl_window()) & SDL_WINDOW_FULLSCREEN) != 0;
+            if (last_fw >= 0 &&
+                (fw != last_fw || fh != last_fh || tw != last_tw || th != last_th ||
+                 full != last_full))
+                wiz_log("wizard: drawable %dx%d -> %dx%d fullscreen=%d renderer=%s target=%dx%d "
+                        "font=512x512",
+                        last_fw, last_fh, fw, fh, full,
+                        moon_renderer_name(app_video_settings
+                                               ? app_video_settings->current.renderer
+                                               : MOON_RENDERER_OPENGL),
+                        tw, th);
+            last_fw = fw;
+            last_fh = fh;
+            last_tw = tw;
+            last_th = th;
+            last_full = full;
+        }
         const float S = L.S, cx = fw * .5f;
         static const uint8_t ink_l[4] = {38, 40, 45, 255}, soft_l[4] = {110, 113, 120, 255},
                              ink_d[4] = {228, 230, 235, 255}, soft_d[4] = {150, 153, 160, 255},
@@ -1821,8 +2573,11 @@ static int first_run_wizard(launcher_preferences *prefs)
         } else
             frame++;
         plat_video_end_frame();
+        app_window_geometry_tick(0);
+        app_presence_poll("Launcher", NULL, NULL, NULL, -1, -1);
         plat_sleep_ms(16);
     }
+    app_window_geometry_tick(1);
     if (!saved) {
         launcher_touch_mouse(0);
         return 0;
@@ -1949,61 +2704,25 @@ static float fade_curve(float t)
 }
 
 /* ---- the launcher's cameras (P: PC presentation, not game camera data) ----
-   Idle, the room plays the 18 authored cinematic shots of the earlier launcher: a
-   twelve-second dolly each, in the car's own frame (x, y, z eye; x, y, z aim; lens in
-   degrees), dipping through black at every cut. Any input brings the camera back, and each
-   dock slot frames the car its own way: MODS closes in, OPTIONS looks down on it, START is
-   the room's own framing, EXIT pulls back. The free rig (L) is never animated. */
-#define LCAM_SHOT_SECONDS 12.f
-#define LCAM_SHOTS 18
+   Idle, the room makes one continuous, slow orbit of the parked car: a low, close
+   lens looking up at it, no cuts and no time limit. Any input eases the camera back
+   to the dock's framing. Each dock slot frames the car its own way: MODS closes in,
+   OPTIONS looks down on it, START is the room's own framing, EXIT pulls back. The
+   free rig (L) is never animated. */
 #define LCAM_IDLE_SECONDS 20.f
-#define LCAM_DIP_SECONDS .35f
+#define LCAM_ORBIT_RADIUS 4.2f   /* metres from the car's middle */
+#define LCAM_ORBIT_PERIOD 120.f  /* seconds per revolution */
+#define LCAM_ORBIT_EYE_Y .45f    /* the lens sits low, under the car's shoulder */
+#define LCAM_ORBIT_TARGET_Y .95f /* and looks up at the body */
+#define LCAM_ORBIT_EASE 2.f      /* seconds to ease in and back out */
 #define LCAM_MID_Z 0.f /* the body's middle along its length, in the car's frame */
 static const float LCAM_HOME_EYE[3] = {-7.6f, .75f, LCAM_MID_Z}, LCAM_HOME_TARGET[3] = {0, .55f, LCAM_MID_Z};
 /* The rig file's own camera (the room's first framing, the car leaving to the right) has
    the studio's lens: camera.mot's focal 979.88 over 224 lines is 25.7 degrees. */
 #define LCAM_RIG_FOV 25.7f
 #define LCAM_HOME_FOV 32.f
-/* START chosen: the front three-quarter, the first cinematic shot's opening */
+/* START chosen: the front three-quarter, the room's first framing of the car */
 static const float LCAM_PLAY_EYE[3] = {-4.8f, 1.35f, -5.6f}, LCAM_PLAY_TARGET[3] = {.27f, .55f, -.23f};
-    static const float lcam_shots[LCAM_SHOTS][2][7] = {
-        {{-4.8f, 1.35f, -5.6f, 0, .55f, 0, 32}, {-4.1f, 1.1f, -5.0f, 0, .55f, 0, 32}},
-        {{-2.7f, .7f, -2.8f, -.72f, .4f, -1.25f, 30},
-         {-2.05f, .55f, -2.35f, -.72f, .4f, -1.25f, 30}},
-        {{-5.8f, 1.3f, -1.2f, 0, .6f, 0, 36}, {-5.5f, 1.1f, .7f, 0, .6f, 0, 36}},
-        {{4.8f, 1.45f, 5.7f, 0, .65f, .3f, 32}, {4.0f, 1.15f, 5.0f, 0, .65f, .3f, 32}},
-        {{.8f, 1.05f, 3.8f, 0, .7f, 1.6f, 30}, {-.3f, .85f, 3.4f, 0, .7f, 1.6f, 30}},
-        {{-5.2f, 1.8f, -6.0f, 0, .55f, 0, 32}, {-4.8f, 1.35f, -5.6f, 0, .55f, 0, 32}},
-        {{4.8, 1.2, -5.7, 0, 0.55, 0, 32}, {4.1, 1, -5, 0, 0.55, 0, 32}},
-        {{2.6, 0.65, -2.9, 0.72, 0.4, -1.25, 30}, {2.1, 0.55, -2.4, 0.72, 0.4, -1.25, 30}},
-        {{5.8, 1.25, 1, 0, 0.6, 0, 36}, {5.5, 1.05, -0.8, 0, 0.6, 0, 36}},
-        {{-4.8, 1.5, 5.8, 0, 0.6, 0.3, 32}, {-4.1, 1.2, 5, 0, 0.6, 0.3, 32}},
-        {{0, 1, -5, 0, 0.55, -0.5, 32}, {0.5, 0.8, -4.6, 0, 0.55, -0.5, 32}},
-        {{0, 1.3, 5.6, 0, 0.7, 1, 32}, {-0.6, 1.1, 5.2, 0, 0.7, 1, 32}},
-        {{-2.9, 4.8, -3.6, 0, 0.4, 0, 36}, {-1.5, 4.5, -3.8, 0, 0.4, 0, 36}},
-        {{2.5, 4.5, 3.5, 0, 0.6, 0.4, 36}, {1, 4.3, 3.8, 0, 0.6, 0.4, 36}},
-        {{-1.9, 0.8, -3.4, -0.65, 0.65, -1.75, 30}, {-1.5, 0.7, -3, -0.65, 0.65, -1.75, 30}},
-        {{1.8, 0.9, 3.5, 0.6, 0.7, 1.65, 30}, {1.4, 0.8, 3.1, 0.6, 0.7, 1.65, 30}},
-        {{-3, 0.75, 2.7, -0.7, 0.45, 1.2, 30}, {-2.5, 0.6, 2.3, -0.7, 0.45, 1.2, 30}},
-        {{2.6, 2.5, -2.8, 0, 1, 0, 36}, {1.8, 2.2, -2.9, 0, 1, 0, 36}}};
-
-/* One shot at `seconds` into the cycle, in the car's frame; returns the shot's index. */
-static int lcam_shot(float seconds, float eye[3], float aim[3], float *fov)
-{
-    float time = fmodf(fmaxf(0, seconds), LCAM_SHOT_SECONDS * LCAM_SHOTS);
-    int shot = (int)(time / LCAM_SHOT_SECONDS);
-    if (shot >= LCAM_SHOTS)
-        shot = LCAM_SHOTS - 1;
-    float t = (time - shot * LCAM_SHOT_SECONDS) / LCAM_SHOT_SECONDS;
-    t = t * t * (3 - 2 * t);
-    const float *a = lcam_shots[shot][0], *b = lcam_shots[shot][1];
-    for (int i = 0; i < 3; i++) {
-        eye[i] = a[i] + (b[i] - a[i]) * t;
-        aim[i] = a[3 + i] + (b[3 + i] - a[3 + i]) * t;
-    }
-    *fov = a[6] + (b[6] - a[6]) * t;
-    return shot;
-}
 /* The car's frame to the room: the showroom places the car as rot(angle) * p + offset. */
 static void lcam_place(const float car[3], float angle, const float in[3], float out[3])
 {
@@ -2012,13 +2731,20 @@ static void lcam_place(const float car[3], float angle, const float in[3], float
     out[1] = in[1] + car[1];
     out[2] = -sn * in[0] + cs * in[2] + car[2];
 }
-/* Black over the frame around a cut: out over the shot's last moment, in over the next's first. */
-static float lcam_dip(float seconds)
+/* The idle orbit: a low lens on a fixed radius, looking up at the car. `yaw` is in
+   the car's frame; rig_orbit turns the eye about the car's vertical axis and keeps
+   the pitch sane, so the camera can never fall through the floor. */
+static void lcam_orbit(float yaw, float eye[3], float aim[3], float *fov)
 {
-    float in_shot = fmodf(fmaxf(0, seconds), LCAM_SHOT_SECONDS);
-    float a = fmaxf(0, 1 - in_shot / LCAM_DIP_SECONDS),
-          b = fmaxf(0, 1 - (LCAM_SHOT_SECONDS - in_shot) / LCAM_DIP_SECONDS);
-    return fade_curve(fmaxf(a, b));
+    const float axis[3] = {0, LCAM_ORBIT_EYE_Y, LCAM_MID_Z};
+    eye[0] = 0;
+    eye[1] = LCAM_ORBIT_EYE_Y;
+    eye[2] = LCAM_ORBIT_RADIUS;
+    rig_orbit(eye, axis, -yaw, 0.f);
+    aim[0] = 0;
+    aim[1] = LCAM_ORBIT_TARGET_Y;
+    aim[2] = LCAM_MID_Z;
+    *fov = LCAM_HOME_FOV;
 }
 /* Where each dock slot puts the camera, from the room's own framing (eye, target). */
 static void lcam_slot(int slot, const float eye[3], const float target[3], const float car[3],
@@ -2133,15 +2859,53 @@ static int studio_saved_car(const char *saves, gt4_vol *vol, char code[96], int 
     ah_vm_free(vm);
     return found;
 }
+#include "music_library_ui.inc"
+#include "launcher_scene.inc"
+#include "launcher_guide.inc"
+
+/* Scope the text boundary, including captions emitted by option previews. */
+static void studio_options_paint(const studio_dock *d, int tab, int row, int theme, int mood,
+                                 float alpha, int arrow)
+{
+    int ids[24];
+    int n = studio_tab_rows(tab, ids);
+    if (row < 0 || row >= n) return;
+    studio_panel_ink_limit = (int)(255.f * fminf(1.f, fmaxf(0.f, alpha)));
+    studio_options_draw(d, tab, row, theme, mood, alpha, arrow);
+    if (studio_tab_guided(tab))
+        guide_options_draw(d, tab, ids[row], theme, mood, alpha);
+    studio_panel_ink_limit = -1;
+}
+/* Dev: exercise every real option's labels, facts and preview captions while fading. */
+static void studio_options_ink_check(const studio_dock *d, int theme, int mood)
+{
+    int total = 0;
+    studio_panel_ink_audit = 1;
+    for (int tab = 0; tab < STUDIO_TABS; tab++) {
+        int ids[24], n = studio_tab_rows(tab, ids);
+        for (int row = 0; row < n; row++) {
+            studio_options_paint(d, tab, row, theme, mood, .25f, 0);
+            studio_options_paint(d, tab, row, theme, mood, .001f, 0);
+            fprintf(stderr, "STUDIO_PANEL_INK %d %d %d\n", tab, row, ids[row]);
+            total++;
+        }
+    }
+    studio_panel_ink_audit = 0;
+    fprintf(stderr, "STUDIO_PANEL_INK_TOTAL %d\n", total);
+}
+
 static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char *shot, int color,
                       int fade_in)
 {
+    app_music_ensure(0);
     launcher_touch_mouse(1);
     float eye[3], target[3], car[3], angle;
     int locked =
         1; /* the room opens with the camera held: he frames it once, then works on the rest */
     studio_dock dock = {0};
     int dock_sel = 0, dock_dirty = 1;
+    int guide_intro = (!shot || getenv("MOONSTUDIO_GUIDE_SHOT")) && (!getenv("MOON_WINDOW_HIDDEN") || getenv("MOONSTUDIO_GUIDE_SHOT")) && app_video_settings && moon_options_int(&app_video_settings->store, "launcher.guided_intro", 1, 0, 1) && !moon_options_int(&app_video_settings->store, "launcher.guide_seen", 0, 0, 1);
+    int guide_request = guide_intro || (getenv("MOONSTUDIO_GUIDE_SHOT") && getenv("MOON_WINDOW_HIDDEN"));
     int start_fade = 0, start_launch = 0, fade_prints = 0,
         start_shot_mid = 0; /* START: fade the whole launcher to black, then the cinematic */
     /* The studio fills the window: no 4:3 bars, and a resize changes the resolution
@@ -2200,6 +2964,9 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
     showroom_set_rig(cars, eye, target, car, angle);
 
     uint64_t start = plat_time_ns();
+    /* The scene must see the selected paint on its first request, not the
+       default model while an asynchronous recolour waits for a later draw. */
+    showroom_set_selection(cars, chosen, color);
     while (showroom_prepare(cars, chosen) == 0) {
         SDL_Event ev;
         while (SDL_PollEvent(&ev))
@@ -2214,12 +2981,9 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
         }
         plat_video_begin_frame();
         plat_video_end_frame();
+        app_presence_poll("Launcher", NULL, NULL, chosen, -1, -1);
         plat_sleep_ms(10);
     }
-    /* The paint: --color INDEX picks one of the car's own colours; the name is printed so
-       the right one can be found by name rather than guessed at. */
-    if (color >= 0)
-        showroom_set_color(cars, color);
     if (!shot)
         printf("studio: the rig is yours. drag = orbit, wheel = dolly, WASD = pan,\n"
                "        Q/E = crane the camera up/down, R/F = swing around the car,\n"
@@ -2228,10 +2992,14 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                locked ? "LOCKED" : "free", locked ? "unlock" : "lock",
                rig_path[0] ? rig_path : "(no user folder)");
     const int frames = shot ? 120 : 0; /* the entrance and the light timeline settle first */
+    int shot_hold = 0;
     int dragging = 0, dirty = 0;
     uint64_t saved_at = 0;
     /* the launcher's cameras: where the camera is now, idle time, the cinematic's clock */
-    float cam_eye[3], cam_target[3], cam_fov = 0, idle = 0, cine_time = 0, dip = 0;
+    float cam_eye[3], cam_target[3], cam_fov = 0, idle = 0, cine_time = 0;
+    float dock_eye[3], dock_target[3], dock_fov = LCAM_HOME_FOV;
+    float orbit_yaw0 = 0, orbit_time = 0, orbit_mix = 0;
+    float clock_alpha = 0;
     int cinematic = 0, window_full = 0, activated = 0, pad_mode = 0, exit_fade = 0, reopen = 0;
     SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
     int pad_prev[5] = {0}; /* left, right, A, B, START of the last frame */
@@ -2260,28 +3028,56 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
     if (getenv("MOONSTUDIO_MOOD"))
         mood = abs(atoi(getenv("MOONSTUDIO_MOOD"))) % STUDIO_MOODS;
     if (getenv("MOONSTUDIO_OPTIONS")) {
+        dock_sel = DOCK_OPTIONS;
         options_open = 1;
         options_alpha = 1;
         options_tab = atoi(getenv("MOONSTUDIO_OPTIONS")) % STUDIO_TABS;
         options_rows = studio_tab_rows(options_tab, options_ids);
+        if (getenv("MOONSTUDIO_OPTIONS_ROW"))
+            options_row = abs(atoi(getenv("MOONSTUDIO_OPTIONS_ROW"))) % options_rows;
+    }
+    if(options_open && getenv("MOONSTUDIO_BINDING_PICKER")) {
+        studio_game_options_load();
+        int action=abs(atoi(getenv("MOONSTUDIO_BINDING_PICKER")))%11;
+        studio_binding_begin(&studio_binding_picker,&studio_game_options.pad[studio_pad_port],action,studio_pad_port);
+        if(getenv("MOONSTUDIO_BINDING_CHECK")) {
+            int ok=studio_binding_input_check(&dock,atoi(getenv("MOONSTUDIO_BINDING_CHECK"))==2);
+            printf("STUDIO_BINDING_INPUT %s\n",ok?"PASS":"FAIL");
+            if(!ok)exit(3);
+        }
     }
     studio_dark = theme;
     showroom_set_room_mood(cars, theme, studio_moods[mood].rgb);
+    launcher_scene_pick(cars, launcher_scene_find(getenv("MOONSTUDIO_SCENE")   ? getenv("MOONSTUDIO_SCENE")
+                                                  : studio_prefs ? studio_prefs->scene
+                                                                 : ""));
 #define STUDIO_OPTION_CHANGE(row_, delta_)                                                         \
     do {                                                                                           \
         int id_ = options_ids[(row_)];                                                             \
-        if (id_ >= 0) {                                                                            \
+        if (id_ >= 0 || id_ == -4) {                                                                            \
+            int was_group_ = id_ == video_setting_tweak_group();                                   \
             studio_row_change(id_, (delta_));                                                      \
+            if (was_group_) {                                                                       \
+                options_rows = studio_tab_rows(options_tab, options_ids);                           \
+                if (options_row >= options_rows)                                                    \
+                    options_row = options_rows > 0 ? options_rows - 1 : 0;                          \
+            }                                                                                       \
         } else {                                                                                   \
             if (id_ == -1)                                                                         \
                 theme = !theme;                                                                    \
-            else                                                                                   \
+            else if (id_ == -2)                                                                    \
                 mood = (mood + (delta_) + STUDIO_MOODS) % STUDIO_MOODS;                            \
+            else                                                                                   \
+                launcher_scene_pick(cars, launcher_scene.index + (delta_));                        \
             studio_dark = theme;                                                                   \
             showroom_set_room_mood(cars, theme, studio_moods[mood].rgb);                           \
             if (studio_prefs) {                                                                    \
                 studio_prefs->theme = theme;                                                       \
                 studio_prefs->mood = mood;                                                         \
+                snprintf(studio_prefs->scene, sizeof studio_prefs->scene, "%s",                    \
+                         launcher_scenes[launcher_scene.index].code                                \
+                             ? launcher_scenes[launcher_scene.index].code                          \
+                             : "");                                                                \
                 launcher_preferences_save(studio_prefs);                                           \
             }                                                                                      \
         }                                                                                          \
@@ -2308,23 +3104,38 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
     int mouse_moved = 0, mouse_x0 = -1, mouse_y0 = -1;
     int mouse_seen = 0;
     SDL_ShowCursor(SDL_DISABLE); /* the game's pointer stands in for the system cursor */
-    lcam_place(car, angle, LCAM_HOME_EYE, cam_eye);
-    lcam_place(car, angle, LCAM_HOME_TARGET, cam_target);
-    cam_fov = LCAM_HOME_FOV;
-    const char *cine_at = getenv("MOONSTUDIO_CINE_AT"); /* dev: open on a cinematic shot */
+    lcam_place(car, angle, LCAM_HOME_EYE, dock_eye);
+    lcam_place(car, angle, LCAM_HOME_TARGET, dock_target);
+    memcpy(cam_eye, dock_eye, sizeof cam_eye);
+    memcpy(cam_target, dock_target, sizeof cam_target);
+    cam_fov = dock_fov;
+    const char *cine_at = getenv("MOONSTUDIO_CINE_AT"); /* dev: open on the idle orbit */
     if (cine_at) {
         cinematic = 1;
         cine_time = strtof(cine_at, NULL);
+        orbit_time = cine_time;
+        orbit_mix = 1;
+        float dx = dock_eye[0] - car[0], dz = dock_eye[2] - car[2];
+        float cs = cosf(angle), sn = sinf(angle);
+        orbit_yaw0 = atan2f(cs * dx - sn * dz, sn * dx + cs * dz);
     }
     const char *slot_at = getenv("MOONSTUDIO_SLOT"); /* dev: capture a dock slot's framing */
 #ifndef __SWITCH__
     /* the earlier launcher's music and menu sounds, on their own device, front-end only */
     launcher_audio *sound = fade_in && studio_disc ? launcher_audio_open(studio_disc, 1) : NULL;
     int sound_told = 0;
+    launcher_mixer mixer;
+    moon_options mixer_fallback = {0};
+    moon_options *mixer_store = app_video_settings ? &app_video_settings->store : &mixer_fallback;
+    launcher_mixer_load(&mixer, mixer_store);
+    if (getenv("MOONSTUDIO_AUDIO")) mixer.open = 1;
+    uint64_t mixer_changed = 0;
+    int mixer_music = -1, mixer_effects = -1;
+
     /* the menu sounds sit over the music, as in the game's own menus */
     if (sound)
-        launcher_audio_volume(sound, getenv("MOONSTUDIO_MUTE") ? 0 : 78,
-                              getenv("MOONSTUDIO_MUTE") ? 0 : 128);
+        launcher_audio_volume(sound, getenv("MOONSTUDIO_MUTE") ? 0 : launcher_mixer_music(&mixer),
+                              getenv("MOONSTUDIO_MUTE") ? 0 : mixer.effects);
     fprintf(stderr, "studio: launcher audio %s (disc %s)\n", sound ? "opened" : "NOT opened",
             studio_disc ? studio_disc : "-");
 #define STUDIO_SOUND(name)                                                                         \
@@ -2341,6 +3152,7 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
     if (start_shot_prefix || start_launch_env)
         dock_sel = DOCK_START;
     for (int i = 0; frames == 0 || i < frames; i++) {
+        app_music_tick();
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_QUIT)
@@ -2388,6 +3200,31 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                                       ev.type == SDL_MOUSEMOTION ? ev.motion.y : ev.button.y,
                                       &dock.mx, &dock.my);
             }
+#ifndef __SWITCH__
+            if (!options_open && !mods_open) { /* the panels cover the audio strip */
+                float mx = dock.mx, my = dock.my;
+                if (ev.type == SDL_MOUSEBUTTONDOWN || ev.type == SDL_MOUSEBUTTONUP)
+                    dock_window_to_pixels(ev.button.x, ev.button.y, &mx, &my);
+                float scale = dock.scale > 0 ? dock.scale : DOCK_SCALE;
+                if (launcher_mixer_event(&mixer, &ev, mx / scale, my / scale)) {
+                    mixer_changed = plat_time_ns();
+                    continue;
+                }
+            }
+#endif
+            if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_F7 && !ev.key.repeat) {
+                guide_request = 1; continue;
+            }
+#ifndef __SWITCH__
+            if (ev.type == SDL_MOUSEBUTTONDOWN && ev.button.button == SDL_BUTTON_LEFT &&
+                !mixer.open && !options_open && !mods_open && /* the panels cover the link */
+                dock.mx >= 16*dock.scale && dock.mx <= 220*dock.scale &&
+                dock.my >= 90*dock.scale && dock.my <= 112*dock.scale) {
+                guide_request = 1; continue;
+            }
+#endif
+            if (options_open && studio_binding_picker.open && studio_binding_event(&dock,&ev))
+                continue;
             if (options_open && ev.type == SDL_KEYDOWN) {
                 int k = ev.key.keysym.sym;
                 if (k == SDLK_ESCAPE || k == SDLK_BACKSPACE) {
@@ -2403,9 +3240,10 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                     STUDIO_OPTION_TAB(options_tab + ((SDL_GetModState() & KMOD_SHIFT) ? -1 : 1));
                 else if (k == SDLK_q || k == SDLK_PAGEUP)
                     STUDIO_OPTION_TAB(options_tab - 1);
-                else if (k == SDLK_LEFT)
+                else if (k == SDLK_LEFT && !studio_row_button(options_ids[options_row]))
                     STUDIO_OPTION_CHANGE(options_row, -1);
-                else if (k == SDLK_RIGHT || k == SDLK_RETURN || k == SDLK_KP_ENTER)
+                else if ((k == SDLK_RIGHT && !studio_row_button(options_ids[options_row])) ||
+                         k == SDLK_RETURN || k == SDLK_KP_ENTER)
                     STUDIO_OPTION_CHANGE(options_row, 1);
                 continue;
             }
@@ -2454,6 +3292,23 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                 if (ev.type == SDL_MOUSEMOTION || r != -1)
                     continue;
             }
+            if (options_open && ev.type == SDL_MOUSEWHEEL && ev.wheel.y) { /* long tabs scroll */
+                int to = options_row + (ev.wheel.y > 0 ? -1 : 1);
+                if (to >= 0 && to < options_rows) {
+                    options_row = to;
+                    STUDIO_SOUND("cursor");
+                }
+                continue;
+            }
+            if (options_open && (ev.type == SDL_MOUSEMOTION || ev.type == SDL_MOUSEBUTTONDOWN ||
+                                 ev.type == SDL_MOUSEBUTTONUP)) { /* the comparison's divider */
+                float px, py;
+                dock_window_to_pixels(ev.type == SDL_MOUSEMOTION ? ev.motion.x : ev.button.x,
+                                      ev.type == SDL_MOUSEMOTION ? ev.motion.y : ev.button.y, &px,
+                                      &py);
+                if (guide_options_mouse(&ev, px, py))
+                    continue;
+            }
             if (options_open && (ev.type == SDL_MOUSEMOTION || ev.type == SDL_MOUSEBUTTONDOWN)) {
                 float px, py;
                 dock_window_to_pixels(ev.type == SDL_MOUSEMOTION ? ev.motion.x : ev.button.x,
@@ -2472,10 +3327,12 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                 }
                 {
                     char v[80];
-                    studio_panel pp = studio_panel_at(&dock, options_rows);
+                    studio_panel pp = studio_options_panel(&dock, options_tab);
                     snprintf(v, sizeof v, "<  %s  >",
                              r >= 0 ? studio_row_value(options_ids[r], theme, mood) : "");
-                    options_arrow = r >= 0 ? studio_value_side(&dock, &pp, v, px) : 0;
+                    options_arrow = r >= 0 && !studio_row_button(options_ids[r])
+                                        ? studio_value_side(&dock, &pp, v, px)
+                                        : 0;
                 }
                 if (ev.type == SDL_MOUSEBUTTONDOWN) {
                     if (r <= -10)
@@ -2485,7 +3342,7 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                            (the ">") forward; on the name, forward */
                         STUDIO_OPTION_CHANGE(r, options_arrow < 0 ? -1 : 1);
                     }
-                    else if (!dock_hover(&dock, &dock_sel, ev.button.x, ev.button.y)) {
+                    else if (r == -1 && !dock_hover(&dock, &dock_sel, ev.button.x, ev.button.y)) {
                         options_open = 0; /* a click on the room closes it */
                         STUDIO_SOUND("cancel");
                     }
@@ -2602,6 +3459,15 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                     int lb = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_LEFTSHOULDER),
                         rb = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
                     static int lb_prev, rb_prev;
+                    if(studio_binding_picker.open) {
+                        if(up && !up_prev)studio_binding_move(&studio_binding_picker,-1);
+                        if(down && !down_prev)studio_binding_move(&studio_binding_picker,1);
+                        if(pressed&1)studio_binding_move(&studio_binding_picker,-11);
+                        if(pressed&2)studio_binding_move(&studio_binding_picker,11);
+                        if(pressed&4)studio_binding_accept();
+                        if(pressed&8)studio_binding_picker.open=0;
+                        pressed=0;
+                    } else {
                     if (up && !up_prev)
                         options_row = (options_row + options_rows - 1) % options_rows;
                     if (down && !down_prev)
@@ -2610,19 +3476,18 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                         STUDIO_OPTION_TAB(options_tab - 1);
                     if (rb && !rb_prev)
                         STUDIO_OPTION_TAB(options_tab + 1);
-                    up_prev = up;
-                    down_prev = down;
-                    lb_prev = lb;
-                    rb_prev = rb;
-                    if (pressed & 1)
+                    int button = studio_row_button(options_ids[options_row]); /* A only */
+                    if ((pressed & 1) && !button)
                         STUDIO_OPTION_CHANGE(options_row, -1);
-                    if (pressed & 6)
+                    if (pressed & (button ? 4 : 6))
                         STUDIO_OPTION_CHANGE(options_row, 1);
                     if (pressed & 8) {
                         options_open = 0;
                         STUDIO_SOUND("cancel");
                     }
                     pressed = 0;
+                    }
+                    up_prev=up;down_prev=down;lb_prev=lb;rb_prev=rb;
                 }
                 if (mods_open) {
                     int up = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP),
@@ -2729,47 +3594,80 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
             if (!cinematic && idle >= LCAM_IDLE_SECONDS && start_fade == 0) {
                 cinematic = 1;
                 cine_time = 0;
+                orbit_time = 0;
+                /* begin where the dock's camera is pointing now: no snap into the orbit */
+                float dx = cam_eye[0] - car[0], dz = cam_eye[2] - car[2];
+                float cs = cosf(angle), sn = sinf(angle);
+                orbit_yaw0 = atan2f(cs * dx - sn * dz, sn * dx + cs * dz);
+                orbit_mix = 0;
             }
-            dip = 0;
-            if (cinematic) {
-                float e[3], a[3];
-                lcam_shot(cine_time, e, a, &cam_fov);
-                lcam_place(car, angle, e, cam_eye);
-                lcam_place(car, angle, a, cam_target);
-                dip = lcam_dip(cine_time);
+            /* ease the orbit in, and back out again when input clears `cinematic` */
+            float orbit_goal = cinematic ? 1.f : 0.f;
+            float orbit_step = dt / LCAM_ORBIT_EASE;
+            if (orbit_mix < orbit_goal)
+                orbit_mix = fminf(orbit_goal, orbit_mix + orbit_step);
+            else if (orbit_mix > orbit_goal)
+                orbit_mix = fmaxf(orbit_goal, orbit_mix - orbit_step);
+
+            /* the dock's framing, eased: a critically damped follow toward the slot. The
+               room's own framing is the front three-quarter (lens 32) on whatever car is
+               parked, so any car and any window frame alike. */
+            float home_eye[3], home_target[3];
+            lcam_place(car, angle, LCAM_HOME_EYE, home_eye);
+            lcam_place(car, angle, LCAM_HOME_TARGET, home_target);
+            lcam_slot(slot_picked ? dock_sel : -1, home_eye, home_target, car, goal_eye,
+                      goal_target);
+            goal_fov = LCAM_HOME_FOV;
+            if (slot_picked && dock_sel == DOCK_START) {
+                lcam_place(car, angle, LCAM_PLAY_EYE, goal_eye);
+                lcam_place(car, angle, LCAM_PLAY_TARGET, goal_target);
+            }
+            if (slot_picked && dock_sel == DOCK_EXIT) {
+                /* EXIT: from the profile the camera only turns aside, so the car slides
+                   out of frame to the right - no swing round the car */
+                const float aside[3] = {LCAM_HOME_TARGET[0], LCAM_HOME_TARGET[1],
+                                        LCAM_HOME_TARGET[2] - 2.6f};
+                memcpy(goal_eye, home_eye, sizeof goal_eye);
+                lcam_place(car, angle, aside, goal_target);
+            }
+            float k = 1 - expf(-dt * 3.5f);
+            for (int j = 0; j < 3; j++) {
+                dock_eye[j] += (goal_eye[j] - dock_eye[j]) * k;
+                dock_target[j] += (goal_target[j] - dock_target[j]) * k;
+            }
+            dock_fov += (goal_fov - dock_fov) * k;
+
+            if (orbit_mix > .0001f) {
+                float e[3], a[3], lens;
+                lcam_orbit(orbit_yaw0 + 6.28318530718f * orbit_time / LCAM_ORBIT_PERIOD, e, a,
+                           &lens);
+                float orbit_eye[3], orbit_aim[3];
+                lcam_place(car, angle, e, orbit_eye);
+                lcam_place(car, angle, a, orbit_aim);
+                float m = orbit_mix * orbit_mix * (3.f - 2.f * orbit_mix);
+                for (int j = 0; j < 3; j++) {
+                    cam_eye[j] = dock_eye[j] + (orbit_eye[j] - dock_eye[j]) * m;
+                    cam_target[j] = dock_target[j] + (orbit_aim[j] - dock_target[j]) * m;
+                }
+                cam_fov = dock_fov + (lens - dock_fov) * m;
+                if (cinematic)
+                    orbit_time += dt;
                 cine_time += dt;
             } else {
-                /* the dock's framing, eased: a critically damped follow toward the slot. The
-                   room's own framing is the first cinematic shot's opening (front three-quarter,
-                   lens 32) on whatever car is parked, so any car and any window frame alike. */
-                float home_eye[3], home_target[3];
-                lcam_place(car, angle, LCAM_HOME_EYE, home_eye);
-                lcam_place(car, angle, LCAM_HOME_TARGET, home_target);
-                lcam_slot(slot_picked ? dock_sel : -1, home_eye, home_target, car, goal_eye,
-                          goal_target);
-                goal_fov = LCAM_HOME_FOV;
-                if (slot_picked && dock_sel == DOCK_START) {
-                    lcam_place(car, angle, LCAM_PLAY_EYE, goal_eye);
-                    lcam_place(car, angle, LCAM_PLAY_TARGET, goal_target);
-                }
-                if (slot_picked && dock_sel == DOCK_EXIT) {
-                    /* EXIT: from the profile the camera only turns aside, so the car slides
-                       out of frame to the right - no swing round the car */
-                    const float aside[3] = {LCAM_HOME_TARGET[0], LCAM_HOME_TARGET[1],
-                                            LCAM_HOME_TARGET[2] - 2.6f};
-                    memcpy(goal_eye, home_eye, sizeof goal_eye);
-                    lcam_place(car, angle, aside, goal_target);
-                }
-                float k = 1 - expf(-dt * 3.5f);
-                for (int j = 0; j < 3; j++) {
-                    cam_eye[j] += (goal_eye[j] - cam_eye[j]) * k;
-                    cam_target[j] += (goal_target[j] - cam_target[j]) * k;
-                }
-                cam_fov += (goal_fov - cam_fov) * k;
+                memcpy(cam_eye, dock_eye, sizeof cam_eye);
+                memcpy(cam_target, dock_target, sizeof cam_target);
+                cam_fov = dock_fov;
             }
             showroom_set_rig(cars, cam_eye, cam_target, car, angle);
             showroom_set_rig_fov(cars, cam_fov);
         }
+        /* The clock lives only with the cinematic; a .4 s fade both ways, so it
+           never pops in or out between states. */
+        clock_alpha += (cinematic ? 1.f : -1.f) * (float)dt / .4f;
+        if (clock_alpha < 0)
+            clock_alpha = 0;
+        if (clock_alpha > 1)
+            clock_alpha = 1;
         if (!locked && (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_A] ||
                         keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_Q] || keys[SDL_SCANCODE_E] ||
                         keys[SDL_SCANCODE_R] || keys[SDL_SCANCODE_F])) {
@@ -2887,12 +3785,29 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                 printf("studio: start fade %.3f\n", fade_curve((float)start_fade / FADE_FRAMES));
             }
         }
+        if (options_open && studio_tab_guided(options_tab))
+            guide_options_step(cars, chosen, cur_rw, options_ids[options_row], fw, fh);
+        else if (!options_open && options_alpha < .01f)
+            guide_options_close(); /* the course is read again when the panel needs it */
+        if (options_open) /* the game's prints start the first time OPTIONS opens */
+            launcher_prints_step(options_ids[options_row]);
+        if (options_open && options_tab == 0)
+            studio_renders_step(cars, chosen, cur_rw, options_ids[options_row], theme, mood, car,
+                                angle, cam_eye, cam_target, cam_fov);
+        launcher_scene_step(cars, chosen);
         plat_video_begin_frame();
         video_begin_scene();
         /* the scene raster follows the window aspect (W = 448*window); the dock then draws in
            framebuffer pixels. Both map to the window at one uniform scale - nothing stretches. */
         plat_video_set_view((float)cur_rw, 448.f);
-        showroom_draw(cars, chosen, 1.f / 60.f);
+        if (!(options_open && guide_benchmark_enabled() &&
+              guide_benchmark_scene(cars, chosen, cur_rw, 1.f / 60.f))) {
+            if (launcher_scene_ready()) /* the car in the chosen place; the room's car keeps loading */
+                launcher_scene_draw(locked ? cam_eye : eye, locked ? cam_target : target, car, angle,
+                                    locked ? cam_fov : LCAM_RIG_FOV, cur_rw);
+            else
+                showroom_draw(cars, chosen, 1.f / 60.f);
+        }
         video_end_scene();
         if (dock_dirty) {
             dock_font_load(&dock, vol);
@@ -2900,22 +3815,38 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
         }
         dock_cursor_step(&dock, dt);
         plat_video_set_view((float)fw, (float)fh);
-        if (dip > 0) {
-            uint8_t blk[4] = {0, 0, 0, (uint8_t)(255 * dip)};
-            plat_draw_quad(NULL, 0, 0, (float)fw, (float)fh, 0, 0, 1, 1, blk);
-        }
+        if (clock_alpha > .004f)
+            studio_clock_draw(&dock, clock_alpha, cine_time);
         if (dock_sel != last_sel || activated)
             slot_picked = 1;
         if (dock_sel != DOCK_OPTIONS)
             options_open = 0;
         if (!options_open)
             studio_game_options_save(); /* sound and pads, once the panel closes */
+        /* Dev: exercise closing a real panel before the headless capture. */
+        if (shot && getenv("MOONSTUDIO_OPTIONS_CLOSE_AT") &&
+            i >= atoi(getenv("MOONSTUDIO_OPTIONS_CLOSE_AT"))) {
+            options_open = 0;
+            dock_sel = DOCK_START;
+        }
         options_alpha += ((options_open ? 1.f : 0.f) - options_alpha) * (1 - expf(-dt * 14.f));
         if (dock_sel != DOCK_MODS)
             mods_open = 0;
         mods_alpha += ((mods_open ? 1.f : 0.f) - mods_alpha) * (1 - expf(-dt * 14.f));
         last_sel = dock_sel;
 #ifndef __SWITCH__
+        int music_level = getenv("MOONSTUDIO_MUTE") ? 0 : launcher_mixer_music(&mixer);
+        int effects_level = getenv("MOONSTUDIO_MUTE") ? 0 : mixer.effects;
+        if (music_level != mixer_music || effects_level != mixer_effects) {
+            launcher_audio_volume(sound, music_level, effects_level);
+            mixer_music = music_level;
+            mixer_effects = effects_level;
+        }
+        if (mixer.dirty && mixer.dragging < 0 && plat_time_ns() - mixer_changed > UINT64_C(250000000)) {
+            if (!launcher_mixer_save(&mixer, mixer_store))
+                fprintf(stderr, "studio: audio preferences could not be saved\n");
+            mixer_changed = plat_time_ns();
+        }
         if (sound && !sound_told && launcher_audio_ready(sound)) {
             sound_told = 1;
             fprintf(stderr, "studio: launcher music ready after %d frames\n", i);
@@ -2923,19 +3854,35 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
 #endif
         dock_hover_step(&dock, dock_sel, dt);
         dock.mouse = !pad_mode;
-        studio_info_draw(&dock);
         if (pad_mode) {
             options_arrow = 0; /* the pad and the keys show no mouse arrow */
             mods_arrow = 0;
             studio_tab_hover = -1;
         }
-        studio_options_draw(&dock, options_tab, options_row, theme, mood, options_alpha,
-                            options_arrow);
-        studio_mods_draw(&dock, mods_row, mods_alpha, mods_arrow);
-        dock_caption_override = options_open ? studio_row_help(options_ids[options_row])
-                                : mods_open  ? studio_mods_help(mods_row)
-                                             : NULL;
-        dock_draw(&dock, dock_sel, dock.mouse ? mouse_seen : 1);
+        if (!cinematic) { /* the AFK cinematic shows only the room, the car and the clock */
+            studio_info_draw(&dock);
+#ifndef __SWITCH__
+            if (options_open || mods_open)
+                mixer.open = 0; /* SOUND in OPTIONS has the volumes */
+            studio_mixer_draw(&dock, &mixer, 1.f - fmaxf(options_alpha, mods_alpha));
+            if (!mixer.open && !options_open && !mods_open) {
+                const uint8_t hint[4] = {STUDIO_LIGHT_INK ? 180 : 96,STUDIO_LIGHT_INK ? 187 : 99,STUDIO_LIGHT_INK ? 190 : 106,255};
+                dock_text(&dock,"Graphics comparison / F7",16*dock.scale,105*dock.scale,.65f,0,hint);
+            }
+#endif
+            if (shot && i == 1 && getenv("MOONSTUDIO_PANEL_INK_AUDIT"))
+                studio_options_ink_check(&dock, theme, mood);
+            studio_options_paint(&dock, options_tab, options_row, theme, mood, options_alpha,
+                                 options_arrow);
+            studio_mods_draw(&dock, mods_row, mods_alpha, mods_arrow);
+            if(options_open && studio_binding_picker.open)studio_binding_draw(&dock);
+            dock_caption_override = options_open ? studio_tab_guided(options_tab)
+                                                       ? guide_options_help(options_ids[options_row])
+                                                       : studio_row_help(options_ids[options_row])
+                                    : mods_open  ? studio_mods_help(mods_row)
+                                                 : NULL;
+            dock_draw(&dock, dock_sel, dock.mouse ? mouse_seen : 1);
+        }
         /* one direction, eased: the wizard's white screen rises off the room ... */
         if (fade_in && i < FADE_FRAMES) {
             uint8_t veil[4] = {255, 255, 255,
@@ -2977,21 +3924,58 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
             screenshot(p);
             printf("studio: start fade black -> %s\n", p);
         }
+        if (shot && i == frames - 2 &&
+            (guide_options_busy() || launcher_scene_busy() ||
+             (options_open && launcher_prints_busy(options_ids[options_row])) ||
+             (options_open && options_tab == 0 && options_ids[options_row] >= -2 &&
+              options_ids[options_row] <= -1 &&
+              !studio_renders_ready(options_ids[options_row] == -1 ? 1 : theme,
+                                    options_ids[options_row] == -1 ? mood : mood + 1))) &&
+            ++shot_hold < 1500)
+            i--; /* the shot waits for the comparison (the course loads from the disc) */
         if (shot && i == frames - 1) {
             screenshot(shot);
             printf("studio: %s painted '%s'\n", chosen, showroom_caption(cars));
         }
         plat_video_end_frame();
+        app_presence_poll(guide_options_busy() ? "Settings" : "Launcher", NULL, NULL,
+                          guide_options_busy() ? NULL : chosen, -1, -1);
+
+        if (guide_request && (i >= FADE_FRAMES*2 || (getenv("MOONSTUDIO_GUIDE_SHOT") && i>=60)) && !start_fade && !exit_fade) {
+            guide_options_close(); /* one course at a time */
+            int guide_ok=studio_guide(cars,vol,chosen,cur_rw,&dock,guide_intro);
+            guide_request=0;
+            if(guide_intro && !getenv("MOON_WINDOW_HIDDEN")) {
+                int modified=app_video_settings->store.modified;
+                moon_options_set(&app_video_settings->store,"launcher.guide_seen","1");
+                app_video_settings->store.modified=modified; /* viewing help is not a preset edit */
+                moon_options_save(&app_video_settings->store);
+            }
+            guide_intro=0; idle=0; cinematic=0;
+            if(guide_ok==2) {
+                dock_sel=DOCK_OPTIONS; options_open=1; options_tab=0; options_row=0;
+                options_rows=studio_tab_rows(options_tab,options_ids);
+            }
+            if(!guide_ok) goto done;
+        }
         if (start_fade >= FADE_FRAMES) {
             if (!start_shot_prefix)
                 start_launch = 1;
             goto done;
         } /* fully black: the cinematic starts */
+        app_window_geometry_tick(0);
         plat_sleep_ms(4);
     }
     goto done;
 done:
+    app_window_geometry_tick(1);
+    guide_options_close();
+    launcher_scene_close(cars); /* the game's showroom draws its own room */
+    launcher_prints_close();
+    studio_renders_close();
 #ifndef __SWITCH__
+    if (mixer.dirty && !launcher_mixer_save(&mixer, mixer_store))
+        fprintf(stderr, "studio: audio preferences could not be saved\n");
     launcher_audio_close(sound);
 #endif
 #undef STUDIO_SOUND
@@ -3043,7 +4027,9 @@ static int preview_run(showroom *cars,const char *code,const char *shot,int colo
     while(showroom_prepare(cars,chosen)==0){
         SDL_Event ev;while(SDL_PollEvent(&ev))if(ev.type==SDL_QUIT)return 0;
         if(plat_time_ns()-start>UINT64_C(60000000000)){fprintf(stderr,"preview: assets did not arrive for %s\n",chosen);return 1;}
-        plat_video_begin_frame();plat_video_end_frame();plat_sleep_ms(10);
+        plat_video_begin_frame();plat_video_end_frame();
+        app_presence_poll("Launcher", NULL, NULL, chosen, -1, -1);
+        plat_sleep_ms(10);
     }
     if(color>=0)showroom_set_color(cars,color);
     if(picture&&*picture){ /* front three-quarter (the car faces -Z), aimed at where it stands */
@@ -3103,6 +4089,7 @@ static int preview_run(showroom *cars,const char *code,const char *shot,int colo
         showroom_draw(cars,chosen,1.f/60.f);
         video_end_scene();
         plat_video_end_frame();
+        app_presence_poll("Launcher", NULL, NULL, chosen, -1, -1);
         if(!ready){ready=1;printf("preview: ready car=%s window=%dx%d\n",chosen,fw,fh);fflush(stdout);}
         if(shot && i==frames-1){screenshot(shot);printf("preview: %s painted '%s'\n",chosen,showroom_caption(cars));}
         if(picture&&*picture){
@@ -3189,6 +4176,19 @@ int main(int argc, char **argv)
     int front_end = (prepared == 2); /* no-argument launch: the studio front-end */
     fprintf(stderr, "launcher: %s (arguments %d)\n",
             front_end ? "studio front-end" : "game", argc); /* the Android no-arg proof */
+    {
+        char args[512];
+        size_t used = 0;
+        args[0] = 0;
+        for (int i = 1; i < argc && used + 2 < sizeof args; i++) {
+            int n = snprintf(args + used, sizeof args - used, "%s%s", i > 1 ? " " : "", argv[i]);
+            if (n < 0 || (size_t)n >= sizeof args - used)
+                break;
+            used += (size_t)n;
+        }
+        app_startup_log("launcher: prepared=%d front_end=%d argc=%d args=%s", prepared, front_end,
+                        argc, args);
+    }
     const char *front_disc = startup.preferences.disc;
     const char *front_shot = getenv("MOONSTUDIO_FRONT_SHOT"); /* dev: capture the room headless */
     wiz_shot_prefix = getenv("MOONSTUDIO_SETUP_SHOT");        /* dev: capture the wizard headless */
@@ -3229,6 +4229,8 @@ int main(int argc, char **argv)
 #endif
     video_settings settings;
     video_settings_init(&settings, persistent_video, settings_config);
+    custom_modes_options = &settings.store;
+    menu_set_controller_tiles(settings.current.controller_tiles);
 #ifndef __SWITCH__
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--renderer")) {
@@ -3275,7 +4277,7 @@ int main(int argc, char **argv)
         }
     }
     print_user_inventory(save_directory);
-    gt4_save_init(save_directory[0] ? save_directory : NULL);
+    gt4_save_init_pending(save_directory[0] ? save_directory : NULL);
 #ifdef __SWITCH__
     fprintf(stderr, "Switch save: directory=%s active=%d error=%s\n", gt4_save_directory(),
             gt4_save_active(), gt4_save_error());
@@ -3286,11 +4288,34 @@ int main(int argc, char **argv)
     }
 #endif
     app_video_settings = &settings;
+    if (getenv("MOON_SETTINGS_PARITY") && !studio_tweaks_parity()) {
+        fprintf(stderr, "settings parity: the two Tweaks pages differ\n");
+        return 3;
+    }
+    int discord_enabled =
+        moon_options_int(&settings.store, "integrations.discord_presence", 0, 0, 1);
+    /* The captain's own Discord application (Developer Portal). A client id is public —
+       it is not a secret and it is what lets presence work out of the box. The toggle
+       above still ships OFF (LAW 12): nothing talks to Discord until it is switched on. */
+    discord_presence_set_log(app_presence_log);
+    discord_presence_configure(
+        discord_enabled,
+        moon_options_get(&settings.store, "integrations.discord_app_id",
+                         "1562846084085194752"));
+    char music_folder[1100];
+    if (app_music_folder(settings.store.path, music_folder, sizeof music_folder))
+        fprintf(stderr, "music: folder=%s\n", music_folder);
     int window_w = settings.current.video.width, window_h = settings.current.video.height;
     int window_full = settings.current.video.fullscreen, upscale = settings.current.video.upscale,
         video_vsync = settings.current.video.vsync;
     int race_preview = 0, race_active = 0, race_loading = 0, race_drive = 0, loading_preview = 0,
-        race_return = 0;
+        bench_frames = 0, bench_started = 0, bench_count = 0, bench_frame_index = 0;
+    double bench_throughput_seconds = 0;
+    uint64_t bench_throughput_wall = 0, bench_throughput_cpu = 0, bench_throughput_frames = 0;
+    uint64_t bench_throughput_gpu = 0, bench_throughput_submits = 0;
+    double *bench_times = NULL;
+    double bench_gpu_first = 0, bench_gpu_last = 0;
+    int race_return = 0;
     int pre_race_preview = 0, quick_options = 0, quick_options_project = -1, race_time_trial = 0;
     int logger_track = -1;     /* the Logger's Load Track waiting for labomode's best lap */
     int logger_load_asked = 0; /* its Load Ghost not yet sent: the quick menu must be on screen */
@@ -3413,6 +4438,22 @@ int main(int argc, char **argv)
             race_preview = race_drive = 1;
             continue;
         } /* the race itself, not the grid preview */
+        if (!strcmp(argv[i], "--bench-frames") && i + 1 < argc) {
+            char *end;
+            long n = strtol(argv[++i], &end, 10);
+            if (!*argv[i] || *end || n < 0 || n > 100000)
+                return 2;
+            bench_frames = (int)n;
+            continue;
+        }
+        if (!strcmp(argv[i], "--bench-throughput") && i + 1 < argc) {
+            char *end;
+            double sec = strtod(argv[++i], &end);
+            if (!*argv[i] || *end || sec <= 0 || sec > 600)
+                return 2;
+            bench_throughput_seconds = sec;
+            continue;
+        }
         if (!strcmp(argv[i], "--time-trial")) {
             race_time_trial = race_preview = race_drive = 1;
             pre_race_preview = !getenv("MOON_RACE_SNAPSHOT");
@@ -3557,6 +4598,8 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: %s <disc.iso|GT4.VOL> [project] [screen]\n", argv[0]);
         return 2;
     }
+    app_presence_enabled =
+        discord_enabled && !shot && !front_shot && !wiz_shot_prefix && !start_shot_prefix;
 
     int startup_intro =
         !race_preview &&
@@ -3569,20 +4612,35 @@ int main(int argc, char **argv)
                 proj = k;
     int show_opening =
         intro_override == 1 || menu_option_number(NULL, "opening_after_autoload", 1) != 0;
+    if (video_settings_skip_intro())
+        show_opening = 0; /* Tweaks: skip the GT splash and the opening movie */
     if (startup_intro)
         proj = show_opening ? 2 : 0;
-    int first_run = first_run_override || (startup_intro && !gt4_save_active());
+    int first_run = first_run_override || (startup_intro && !gt4_save_active() && !gt4_save_pending_slot());
     /* No save yet: the profile/import screen comes first, from the launcher too (it was
        skipped after START, so a first run never offered to make a save). */
     if (first_run) {
         proj = 7;
         startup_intro = 0;
     }
+    /* Tweaks: skip the boot chain entirely. show_opening above already moved the
+       start to arcade, but startup_intro stayed on, which still drew the boot
+       notices and then let the boot project (LoadRoot, MovieRoot, CheckRoot)
+       run. Clear it before any boot screen is opened. */
+    if (video_settings_skip_intro() && startup_intro) {
+        startup_intro = 0;
+        show_opening = 0;
+        proj = 0;
+        root = 0;
+    }
     if (settings_preview) {
         proj = 3;
         startup_intro = 0;
         first_run = 0;
     }
+    app_startup_log("startup: skip_intro=%d intro_override=%d startup_intro=%d show_opening=%d "
+                    "proj=%s argc=%d", video_settings_skip_intro(), intro_override, startup_intro,
+                    show_opening, proj >= 0 && proj < NPROJECTS ? projects[proj] : "?", argc);
 
     plat_video_desc desc = {window_w, window_h, window_full, video_vsync, upscale};
 #ifndef __SWITCH__
@@ -3595,13 +4653,17 @@ int main(int argc, char **argv)
         desc.width = 960;
         desc.height = 720; /* 4:3 */
         desc.fullscreen = 0;
+        if (getenv("MOONSTUDIO_WINDOW")) /* dev: capture another window size, WxH */
+            sscanf(getenv("MOONSTUDIO_WINDOW"), "%dx%d", &desc.width, &desc.height);
     }
+    if (front_end && !studio_car)
+        app_window_geometry_restore(&desc);
 #endif
     if (plat_video_init(&desc) != 0) {
         fprintf(stderr, "cannot open a window: %s\n", SDL_GetError());
         return 1;
     }
-    moon_debug_overlay_init(); /* F3 / volume chord; off until toggled */
+    moon_debug_overlay_init(); /* F4 / volume chord; off until toggled */
 #ifdef __SWITCH__
     video_switch_scene_resolution(settings.current.scene_resolution);
 #endif
@@ -3616,9 +4678,27 @@ int main(int argc, char **argv)
 #ifdef __ANDROID__
     video_set_scene_render_scale(settings.current.mobile.render_scale);
 #endif
+    /* Loaded values must reach the renderer even when the launcher's START
+       handover is skipped (--drive / config-file runs). */
+    video_set_speed_post(settings.current.speed_blur, settings.current.speed_blur_amount,
+                         settings.current.speed_vignette);
+    fprintf(stderr, "settings: applied at startup renderer=%s speed_post=%d:%d:%d\n",
+            moon_renderer_name(settings.current.renderer), settings.current.speed_blur,
+            settings.current.speed_vignette, settings.current.speed_blur_amount);
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
     video_scene_quality(settings.current.antialiasing, settings.current.render_scale);
+    video_set_scene_scale(settings.current.scene_scale);
     r3d_texture_smoothing(settings.current.texture_smoothing);
+    r3d_texture_filtering(settings.current.texture_filtering);
+    r3d_car_shadows(settings.current.car_shadows);
+    r3d_material_shading(settings.current.material_shading);
+    r3d_reflection_quality(settings.current.reflection_quality);
+    r3d_shadow_map_quality(settings.current.shadow_maps);
+    r3d_shadow_filter(settings.current.shadow_filter);
+    r3d_modern_lighting(settings.current.modern_lighting);
+    r3d_daylight_options(settings.current.daylight,video_settings_solar_hour(&settings.current),settings.current.solar_cycle);
+    video_hdr_options(settings.current.hdr,settings.current.sun_rays);
+    video_ambient_occlusion(settings.current.ambient_occlusion);
 #endif
     if (!video_set_upscale(upscale)) {
         settings.current.video.upscale = 0;
@@ -3664,6 +4744,15 @@ int main(int argc, char **argv)
         fprintf(stderr,
                 "career: original calendar, price or oil constants unavailable for this disc\n");
     SDL_PumpEvents();
+    if (vol && !present_startup_load(vol)) {
+        plat_dialog("Load Game",
+                    gt4_save_error()[0] ? gt4_save_error() : "The profile could not be loaded.", 0);
+        if (startup_intro) {
+            first_run = 1;
+            proj = 7;
+            startup_intro = 0;
+        }
+    }
     {
         /* The local HD cache of the menu images (docs/UI_HD.md), built by
            gt4hdui; MOON_UI_HD=0 turns it off, or names another folder. */
@@ -3728,8 +4817,10 @@ int main(int argc, char **argv)
     SDL_PumpEvents();
     if (preview_car)
         return preview_run(cars, preview_car, shot, color_preview);
-    if (studio_car)
+    if (studio_car) {
+        studio_disc = argv[1];
         return studio_run(cars, vol, studio_car, shot, color_preview, 0);
+    }
     if (front_end) {
         static char saved_car[96];
         int fcol = startup.preferences.color;
@@ -3790,8 +4881,10 @@ int main(int argc, char **argv)
                 studio_video_file[0] = 0;
         }
         int fr = studio_run(cars, vol, fcar, front_shot, fcol, 1);
-        if (fr != 2)
-            return fr; /* 2 = START: the launcher is black, run the game (its opening rises from black) */
+        if (fr != 2) {
+            music_library_install(NULL);music_library_close(app_music_library);app_music_library=NULL;
+            return fr;
+        } /* 2 = START: the launcher is black, run the game (its opening rises from black) */
         showroom_clear_rig(cars);
         showroom_use_disc_room(cars);
         /* the save's wheel and wing were the room car's: the game's cars bring their own */
@@ -3831,10 +4924,23 @@ int main(int argc, char **argv)
             }
         } /* dev: capture after the handover */
     }
+    /* The studio OPTIONS page can change the Tweaks switch after the startup
+       decision above; apply it here, before the boot project or the movie. */
+    if (video_settings_skip_intro() && startup_intro && proj == 2) {
+        startup_intro = 0;
+        show_opening = 0;
+        proj = 0;
+        root = 0;
+        app_startup_log("startup: launcher path forced arcade / TopRoot (skip_intro=1)");
+    }
     /* the race itself (the physics with the player's controls): driving 1
        while its models load, 2 racing */
     race_game *game = race_game_open(argv[1]);
     int driving = 0;
+    /* P: Graphics Swap Key - F7 in a race or replay shows Classic graphics until pressed
+       again (nothing saved); the label says which, for two seconds */
+    int race_graphics_swap = 0;
+    uint64_t race_graphics_swap_shown = 0;
     int photo_return_project = -1;
     presentation_race = game;
     /* driving: 1 the race loading (the quick menu shown), 3 loaded, 2
@@ -3961,6 +5067,8 @@ int main(int argc, char **argv)
                 mn, getenv("MOON_MENU_PUSH")); /* tests: a page entered as from a dealer */
         if (!(proj == 12 && getenv("MOON_LABO_ARG")))
             menu_enter(mn, root);
+        if (proj == 1)
+            custom_modes_attach(mn);
         if (getenv("MOON_TEST_MONEY")) {
             menu_test_money(mn, strtoll(getenv("MOON_TEST_MONEY"), NULL, 10));
             menu_save_capture(mn);
@@ -4001,6 +5109,24 @@ int main(int argc, char **argv)
                 menu_input in;
                 if (!strcmp(key, "profiles")) {
                     present_profile_picker(mn);
+                    continue;
+                }
+                if (!strncmp(key, "mouse:", 6)) {
+                    /* P: "mouse:fx:fy", the pointer moved to that fraction of the window: a
+                       real motion event, handled by the loop as the player's (launcher prints) */
+                    float fx, fy;
+                    int ww = 0, wh = 0;
+                    SDL_Window *win = plat_sdl_window();
+                    if (win && sscanf(key + 6, "%f:%f", &fx, &fy) == 2) {
+                        SDL_GetWindowSize(win, &ww, &wh);
+                        SDL_Event motion = {0};
+                        motion.type = SDL_MOUSEMOTION;
+                        motion.motion.windowID = SDL_GetWindowID(win);
+                        motion.motion.x = (int)(fx * ww);
+                        motion.motion.y = (int)(fy * wh);
+                        SDL_PushEvent(&motion);
+                        printf("input %s -> pointer %d,%d\n", key, motion.motion.x, motion.motion.y);
+                    }
                     continue;
                 }
                 if (!strcmp(key, "wait")) {
@@ -4075,6 +5201,11 @@ int main(int argc, char **argv)
             static const char *const others[] = {"_1100_standard_type11_49", "z_act_70",
                                                  "today_g_85", "midget2_d_type_98", "s500_63"};
             char msg[256];
+            int field_size = race_field_size_request();
+            int preview_others = field_size - 1;
+            if (preview_others > MOON_CONDUCTOR_CARS - 1)
+                preview_others = MOON_CONDUCTOR_CARS - 1;
+            race_game_set_field_size(race_phantoms_on() ? field_size : 0);
             race_game_set_time_trial(game, race_time_trial);
             gt4_race_desc split = {0};
             split.tire_2p = 1;
@@ -4103,7 +5234,7 @@ int main(int argc, char **argv)
 #endif
                                                  split_preview     ? 1
                                                  : race_time_trial ? 0
-                                                                   : 5,
+                                                                   : preview_others,
                                                  msg, sizeof msg)) {
                 fprintf(stderr, "race: %s\n", msg);
                 exit_code = 1;
@@ -4168,7 +5299,9 @@ int main(int argc, char **argv)
                                .race_car = race_car,
                                .shot = shot,
                                .exit_code = &exit_code};
+    app_music_ensure(0);
     while (!plat_should_quit()) {
+        app_music_tick();
         plat_key_event ev;
         if (!handle_race_retry_and_replay_return(&race_flow))
             goto done;
@@ -4278,10 +5411,13 @@ int main(int argc, char **argv)
             goto done;
         if (mn) { /* the pad's L1 and R1 for the menus: Q and E held (P: a PC key choice) */
             const Uint8 *k = SDL_GetKeyboardState(NULL);
-            menu_set_pad_held(mn, plat_sdl_menu_buttons() | (k[SDL_SCANCODE_Q] ? MENU_PAD_L1 : 0) |
+            menu_set_pad_held(mn, plat_sdl_menu_buttons() |
+                                      plat_sdl_menu_directions(settings.current.desktop) |
+                                      (k[SDL_SCANCODE_Q] ? MENU_PAD_L1 : 0) |
                                       (k[SDL_SCANCODE_E] ? MENU_PAD_R1 : 0));
         }
 #ifndef __SWITCH__
+        menu_set_controller_tiles(settings.current.controller_tiles);
         ui_main_menu_layout(menu_ui(mn),settings.current.main_menu);
         ui_pointer_smoothing(menu_ui(mn),settings.current.smooth_cursor);
         ui_pointer_feedback(menu_ui(mn),settings.current.hover_feedback);
@@ -4294,6 +5430,7 @@ int main(int argc, char **argv)
                                driving == 2 && !race_game_is_paused(game) &&
                                    !race_game_replaying(game) && theater != 2);
 #endif
+        uint64_t event_start = plat_time_ns();
         while (plat_sdl_poll(&ev)) {
 #ifdef __ANDROID__
             if (ev.lifecycle) {
@@ -4362,6 +5499,7 @@ int main(int argc, char **argv)
                 desktop_menu_event(mn, &ev);
             if (ev.key == SDLK_F10)
                 goto done;
+
             if (ev.mouse) {
                 if (driving == 2)
                     race_game_cinematic_mouse(game, ev.mouse_x, ev.mouse_y, ev.wheel);
@@ -4374,6 +5512,15 @@ int main(int argc, char **argv)
                     race_game_cinematic_toggle(game);
                     continue;
                 }
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+                if (!ev.pad && ev.key == SDLK_F7 && settings.current.graphics_swap) {
+                    race_graphics_swap ^= 1;
+                    video_settings_preview_graphics(&settings, race_graphics_swap);
+                    race_graphics_swap_shown = plat_time_ns();
+                    printf("graphics swap: %s\n", race_graphics_swap ? "classic" : "yours");
+                    continue;
+                }
+#endif
                 if (!ev.pad && race_game_cinematic(game) && ev.key != SDLK_F5 &&
                     ev.key != SDLK_F3) {
                     race_game_cinematic_key(game, ev.key);
@@ -4387,11 +5534,13 @@ int main(int argc, char **argv)
                 }
                 /* P: F5 opens Photo Drive from its live session or a replay. Rendering borrows
                    the resident race; driving=5 prevents any solver frame. */
-                if (ev.key == SDLK_F5 && race_game_photo_view(game)) {
+                if ((ev.key == SDLK_F5 || race_game_photo_select(game, ev.ps2key, ev.release)) &&
+                    race_game_photo_view(game)) {
                     if (race_game_cinematic(game))
                         race_game_cinematic_toggle(game);
                     if (!cache[14])
                         cache[14] = load(vol, 14);
+                    photo_travel_drive_collision(presentation_photo,game,race_game_photo_ground,race_game_photo_wall);
                     float camera_size[4], camera_distance;
                     if (race_game_photo_camera_data(game, camera_size, &camera_distance))
                         photo_travel_drive_setup(presentation_photo, camera_size, camera_distance);
@@ -4479,7 +5628,7 @@ int main(int argc, char **argv)
                 }
                 continue;
             }
-            if (driving == 5 && ev.key == SDLK_ESCAPE &&
+            if (driving == 5 && (ev.key == SDLK_ESCAPE || (ev.ps2key == 0xffff && !ev.release)) &&
                 !strcmp(ui_root_name(menu_ui(mn), menu_active_root(mn)), "ShootRoot")) {
                 photo_travel_drive_end(presentation_photo);
                 proj = photo_return_project;
@@ -4548,8 +5697,26 @@ int main(int argc, char **argv)
                     menu_send_input(mn, MENU_RIGHT);
                 if (ev.key == SDLK_RETURN || ev.key == SDLK_KP_ENTER)
                     menu_send_input(mn, MENU_ACCEPT);
-                if (ev.key == SDLK_ESCAPE)
-                    menu_send_input(mn, ev.pad ? MENU_CIRCLE : MENU_BACK);
+                if (ev.key == SDLK_ESCAPE) {
+                    int at_top = menu_active_root(mn) >= 0 &&
+                                 !strcmp(ui_root_name(menu_ui(mn), menu_active_root(mn)),
+                                         "TopRoot");
+                    if (proj == 0 && at_top)
+                        menu_test_activate(mn, "QuitGame");
+                    else if (proj == 1 && at_top) {
+                        int answer = present_dialog(mn, "Exit Gran Turismo Mode?",
+                                                    "Exit Gran Turismo Mode?", 1, "Yes", "No");
+                        fprintf(stderr, "gtmode: exit confirm result=%d\n", answer);
+                        if (answer == 1) {
+                            char route[] = "boot";
+                            switch_to(vol, cache, &mn, &proj, route);
+                            p = menu_ui(mn);
+                            root = menu_active_root(mn);
+                        }
+                        continue;
+                    } else
+                        menu_send_input(mn, ev.pad ? MENU_CIRCLE : MENU_BACK);
+                }
                 if (ev.pad && ev.key == SDLK_INSERT)
                     menu_send_input(mn, MENU_SQUARE);
                 /* P: F4 maps the original pad Triangle event for Home/Setting. */
@@ -4574,6 +5741,7 @@ int main(int argc, char **argv)
                     menu_enter(mn, root);
             }
         }
+        video_profile_bucket(VIDEO_BUCKET_EVENTS, plat_time_ns() - event_start);
         if (mn && menu_take_quit(mn))
             goto done;
         /* The driving options' OK (doGame -> finish, single race / time
@@ -4835,7 +6003,11 @@ int main(int argc, char **argv)
                MCarData.PickUpEnemyCars, game.setEntryCarCode) */
                 const char *others[5];
                 int other_colors[5];
-                int nothers = menu_race_entries(mn, others, other_colors, 5);
+                int field_size = race_field_size_request();
+                /* Ask for the whole field's opponents. The menu's own six entries
+                   yield at most five official opponents; the rest are phantoms. */
+                int max_others = field_size - 1;
+                int nothers = menu_race_entries(mn, others, other_colors, max_others);
                 if (split) {
                     others[0] = menu_split_car(mn, 1);
                     other_colors[0] = split_colors[1];
@@ -4941,10 +6113,12 @@ int main(int argc, char **argv)
                         } else
                             snprintf(msg, sizeof msg,
                                      "Cannot read Photo Drive rules or equipped car.");
-                    } else
+                    } else {
+                        race_game_set_field_size(race_phantoms_on() ? field_size : 0);
                         started =
                             race_game_start(game, race_course, race_car, race_color, race_other_ptr,
                                             race_other_colors, nothers, msg, sizeof msg);
+                    }
                     if (started) {
                         /* the race sequence: its quick menu first (the grid), the race on its Start */
                         loading_screen_begin();
@@ -4960,8 +6134,8 @@ int main(int argc, char **argv)
                     } else {
                         fprintf(stderr, "race: %s\n", msg);
                         present_dialog(mn, "Info",
-                                       "Nao foi possivel montar esta corrida. Veja o log.", 0, NULL,
-                                       NULL);
+                                       msg[0] ? msg : "Nao foi possivel montar esta corrida. Veja o log.",
+                                       0, NULL, NULL);
                     }
                 }
             }
@@ -5039,8 +6213,12 @@ int main(int argc, char **argv)
                     if (*next == ',')
                         next++;
                     since = t;
-                    fprintf(stderr, "activate %s: %s\n", name,
-                            menu_test_activate(mn, name) ? "ok" : "not found");
+                    if (!strcmp(name, "BACK")) {
+                        menu_send_input(mn, MENU_BACK);
+                        fprintf(stderr, "activate BACK: ok\n");
+                    } else
+                        fprintf(stderr, "activate %s: %s\n", name,
+                                menu_test_activate(mn, name) ? "ok" : "not found");
                 }
             }
         }
@@ -5330,7 +6508,10 @@ int main(int argc, char **argv)
                         p = menu_ui(mn);
                         root = menu_active_root(mn);
                     } else {
-                        snprintf(msg, sizeof msg, "The replay could not be saved.");
+                        if (!race_game_replay_refusal(game, msg, sizeof msg)) {
+                            snprintf(msg, sizeof msg, "The replay could not be saved.");
+                            fprintf(stderr, "replay: %s\n", msg);
+                        }
                         present_dialog(mn, "Save Replay", msg, 0, NULL, NULL);
                     }
                 } else if ((!strcmp(command, "COMMAND_SAVE_GHOST") ||
@@ -5478,7 +6659,13 @@ int main(int argc, char **argv)
         if (video_export_fixed_step())
             elapsed = 1.0 / 60.0;
         float notice_level = 0;
+        static int logged_notice = -2;
         if (notice < GT4_NOTICE_COUNT) {
+            if (notice != logged_notice) {
+                app_startup_log("screen: boot notice %s",
+                                notice == GT4_NOTICE_LEGAL ? "legal" : "presents");
+                logged_notice = notice;
+            }
             if (!notice_start)
                 notice_start = now;
             notice_level = gt4_boot_notice_level(notice, (now - notice_start) / 1e9);
@@ -5497,6 +6684,39 @@ int main(int argc, char **argv)
         int notice_active = notice < GT4_NOTICE_COUNT;
         if (!poll_race_loading(&race_flow, &elapsed))
             goto done;
+        custom_modes_tick(mn);
+        { /* Custom Modes: the tile's Elimination entry starts the 12-car race. */
+            custom_modes_race_request cm;
+            if (custom_modes_take_race_request(&cm)) {
+                static const char *const cm_others[11] = {
+                    "_1100_standard_type11_49", "z_act_70", "today_g_85", "midget2_d_type_98",
+                    "s500_63", "_1100_standard_type11_49", "z_act_70", "today_g_85",
+                    "midget2_d_type_98", "s500_63", "_1100_standard_type11_49"};
+                char msg[256];
+                int nothers = cm.field_size > 1 ? cm.field_size - 1 : 1;
+                if (nothers > 11)
+                    nothers = 11;
+                race_game_set_field_size(cm.field_size);
+                if (game && cm.car[0] &&
+                    race_game_start(game, cm.course, cm.car, cm.color, cm_others, NULL, nothers,
+                                    msg, sizeof msg)) {
+                    race_game_set_elimination(game, 1, cm.thunder);
+                    snprintf(race_course, sizeof race_course, "%s", cm.course);
+                    snprintf(race_car, sizeof race_car, "%s", cm.car);
+                    loading_screen_begin();
+                    driving = 1;
+                    race_start_pending = 1;
+                    race_active = 0;
+                    race_loading = 0;
+                    fprintf(stderr, "custom modes: race starting course=%s car=%s\n", cm.course,
+                            cm.car);
+                } else {
+                    fprintf(stderr, "custom modes: race start failed: %s\n", msg);
+                    present_dialog(mn, "Info", msg[0] ? msg : "Cannot start the custom race.", 0,
+                                   NULL, NULL);
+                }
+            }
+        }
         if (mn && loading_screen_revealing() && !race_active && !race_loading && driving != 2 &&
             !notice_active)
             animate_loading_destination(mn, (float)elapsed);
@@ -5531,6 +6751,10 @@ int main(int argc, char **argv)
             ui_menu_readability(menu_ui(mn),settings.current.compact_cars);
 #endif
             SWP_VOID(SWP_LOGIC, menu_advance(mn, fmin(elapsed, 1.0 / 30.0)));
+            if (proj == 7) {
+                save_ui_transfer_tools(&save_screen,settings.current.save_tools);
+                save_ui_update(&save_screen);
+            }
             char film_path[1200];
             if (proj == 12 && menu_take_photo_film(mn, film_path, sizeof film_path)) {
                 int preview = 0;
@@ -5651,6 +6875,9 @@ int main(int argc, char **argv)
         menu_audio_state.allowed = !notice_active && !race_active && driving != 2 &&
                                    !race_quick_project(proj);
         update_present_midi(mn);
+        if (app_jukebox_pcm(mn, wants_pcm)) {
+            pregrid_audio_update(pregrid_music, NULL, 0, 0);
+        } else {
         if (prepare_pcm) {
             int sequence, repeat;
             unsigned serial;
@@ -5661,15 +6888,38 @@ int main(int argc, char **argv)
         }
         pregrid_audio_pause(pregrid_music, menu_pcm_paused(mn));
         menu_pcm_state(mn, wants_pcm && pregrid_audio_playing(pregrid_music));
+        }
         /* ResultLicense/ResultArcade advance per VBlank (003DF978 +B0),
            including failure colour decay. The mission shares this clock. */
         video_set_menu_pacing(
             (!race_active && driving != 2) ||
             (race_active && (race_game_license_active(game) || race_game_mission_active(game))));
         video_set_menu_projection(!race_active && driving != 2);
+        if ((bench_frames > 0 || bench_throughput_seconds > 0) && !bench_started && driving == 2) {
+            bench_started = 1;
+            bench_freeze = 1;
+            if (bench_frames > 0)
+                bench_times = malloc((size_t)bench_frames * sizeof *bench_times);
+            video_set_bench_finish(bench_frames > 0 ? 1 : 0);
+            video_bench_reset();
+            if (bench_throughput_seconds > 0) {
+                struct timespec ts;
+                clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
+                bench_throughput_cpu = (uint64_t)ts.tv_sec * 1000000000ull + ts.tv_nsec;
+                bench_throughput_wall = plat_time_ns();
+#ifdef MOON_PC_VULKAN
+                moon_vk_render_stats vk = moon_vk_render_statistics();
+                bench_throughput_gpu = vk.gpu_ns;
+                bench_throughput_submits = vk.submissions;
+#endif
+                fprintf(stderr, "bench: start throughput seconds=%.2f\n", bench_throughput_seconds);
+            } else
+                fprintf(stderr, "bench: start frames=%d\n", bench_frames);
+        }
         presentation_pregrid = (driving == 3 || driving == 4) && race_quick_project(proj);
         if (!presentation_pregrid)
             pregrid_clock = 0;
+        uint64_t bench_frame_start = bench_started ? plat_time_ns() : 0;
         plat_video_begin_frame();
         SWP_PUSH(SWP_SCENE);
         int car_ready = 1;
@@ -5721,19 +6971,64 @@ int main(int argc, char **argv)
         }
         if (driving == 2)
             race_game_draw_hud(game, elapsed);
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+        if (race_graphics_swap && driving != 2) { /* the race is over: back to the player's */
+            race_graphics_swap = 0;
+            race_graphics_swap_shown = 0;
+            video_settings_preview_graphics(&settings, 0);
+        }
+        { /* test hook: one real F7 press after this many seconds of race */
+            static uint64_t swap_race_start;
+            static int swap_injected;
+            const char *after = getenv("MOON_TEST_GRAPHICS_SWAP_AFTER");
+            if (driving != 2)
+                swap_race_start = 0;
+            else if (after && !swap_injected) {
+                if (!swap_race_start)
+                    swap_race_start = plat_time_ns();
+                if ((plat_time_ns() - swap_race_start) / 1e9 >= atof(after)) {
+                    SDL_Event key = {0};
+                    key.type = SDL_KEYDOWN;
+                    key.key.keysym.sym = SDLK_F7;
+                    SDL_PushEvent(&key);
+                    swap_injected = 1;
+                }
+            }
+        }
+        if (driving == 2 && race_graphics_swap_shown) {
+            double age = (plat_time_ns() - race_graphics_swap_shown) / 1e9;
+            if (age < 2.0 && wiz_font_init()) {
+                float a = age < 1.5 ? 1.f : (float)((2.0 - age) / .5);
+                const char *t = race_graphics_swap ? "CLASSIC GRAPHICS" : "YOUR GRAPHICS";
+                const float sc = .36f, tw = wiz_text_width(t, sc) + wiz_text_width("   F7", .3f);
+                const uint8_t box[4] = {0, 0, 0, (uint8_t)(170 * a)},
+                              ink[4] = {255, 255, 255, (uint8_t)(255 * a)},
+                              soft[4] = {190, 193, 199, (uint8_t)(230 * a)};
+                plat_video_set_view(640, 480);
+                plat_draw_quad(NULL, 320 - tw / 2 - 14, 28, tw + 28, 34, 0, 0, 1, 1, box);
+                wiz_text(t, 320 - tw / 2, 51, sc, ink);
+                wiz_text("   F7", 320 - tw / 2 + wiz_text_width(t, sc), 51, .3f, soft);
+            } else if (age >= 2.0)
+                race_graphics_swap_shown = 0;
+        }
+#endif
 #if defined(__SWITCH__) || defined(__ANDROID__)
-        if (driving == 2 && settings.current.touch_menu && race_game_is_paused(game)) {
+        if (driving == 2 && settings.current.touch_menu && race_game_is_paused(game) &&
+            !touch_overlay_hidden(mn, NULL)) {
             plat_video_set_view(640, 480);
             ui_draw_touch_back(dialog_ui, ui_touch_active(dialog_ui),
                                settings.touch_back.tap.selected != NULL, (float)elapsed);
         }
 #endif
 #ifdef __ANDROID__
-        if (driving == 2 && !race_game_is_paused(game))
+        if (driving == 2 && !race_game_is_paused(game) && !touch_overlay_hidden(mn, NULL))
             moon_android_overlay(menu_ui(mn));
 #endif
         int drawn = 0, skipped = 0;
         movie.seen = movie.drawn = 0;
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+        video_settings_scroll_tick();
+#endif
         if (p && !race_active && driving != 2 && !notice_active) {
             ui_set_movie_renderer(p, draw_movie, &movie);
             if (driving == 5 && proj == 14)
@@ -5831,8 +7126,10 @@ int main(int argc, char **argv)
             shot_wait = 0; /* each movie transition gets a fresh loading deadline */
         /* G6.40: the frame's last drawing — the debug overlay, over launcher,
            menus and race alike. Its one hook in this loop. */
+        if (driving != 2)
+            moon_debug_overlay_set_race(-1, 0, 0);
         moon_debug_overlay_draw();
-        int shot_due = shot != NULL;
+        int shot_due = shot != NULL && !app_jukebox_fixture(mn);
         if (shot && shot_delay > 0) {
             if (!shot_started)
                 shot_started = plat_time_ns();
@@ -5871,7 +7168,87 @@ int main(int argc, char **argv)
         }
         SWP_READY(car_ready && !loading_screen_active() && !race_loading);
         SWP_POP();
+        uint64_t bench_gpu_before = bench_started ? video_bench_finish_ns() : 0;
         plat_video_end_frame();
+        if (bench_started && bench_frame_start && bench_frames > 0) {
+            bench_frame_index++;
+            double gpu_frame = (video_bench_finish_ns() - bench_gpu_before) / 1e6;
+            if (bench_frame_index > 30) {
+                if (bench_count == 0)
+                    bench_gpu_first = gpu_frame;
+                bench_gpu_last = gpu_frame;
+                bench_times[bench_count++] = (plat_time_ns() - bench_frame_start) / 1e6;
+            }
+            if (bench_count >= bench_frames) {
+                double sum = 0, min = bench_times[0], max = bench_times[0];
+                for (int bi = 0; bi < bench_count; bi++) {
+                    sum += bench_times[bi];
+                    if (bench_times[bi] < min) min = bench_times[bi];
+                    if (bench_times[bi] > max) max = bench_times[bi];
+                }
+                for (int bi = 1; bi < bench_count; bi++) {
+                    double key = bench_times[bi];
+                    int bj = bi - 1;
+                    while (bj >= 0 && bench_times[bj] > key) {
+                        bench_times[bj + 1] = bench_times[bj];
+                        bj--;
+                    }
+                    bench_times[bj + 1] = key;
+                }
+                int p10i = (bench_count - 1) * 10 / 100, p90i = (bench_count - 1) * 90 / 100;
+                double median = bench_count & 1 ? bench_times[bench_count / 2]
+                                                : .5 * (bench_times[bench_count / 2 - 1] +
+                                                        bench_times[bench_count / 2]);
+                fprintf(stderr,
+                        "bench: frames=%d p10=%.3f median=%.3f p90=%.3f min=%.3f max=%.3f "
+                        "draws=%u gpu_finish=%.3f gpu_first=%.3f gpu_last=%.3f\n",
+                        bench_count, bench_times[p10i], median, bench_times[p90i], min, max,
+                        r3d_frame_stats().draws,
+                        (double)video_bench_finish_ns() / 1e6 / bench_frame_index,
+                        bench_gpu_first, bench_gpu_last);
+                if (median > 0 && (bench_times[p90i] - bench_times[p10i]) / median > .05)
+                    fprintf(stderr, "bench: spread=%.1f%% note=clock/swapchain/caches still vary\n",
+                            100.0 * (bench_times[p90i] - bench_times[p10i]) / median);
+                goto done;
+            }
+        }
+        if (bench_throughput_seconds > 0 && bench_started) {
+            bench_throughput_frames++;
+            uint64_t wall_now = plat_time_ns();
+            double elapsed = (wall_now - bench_throughput_wall) / 1e9;
+            if (elapsed >= bench_throughput_seconds) {
+                struct timespec ts;
+                clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
+                uint64_t cpu_now = (uint64_t)ts.tv_sec * 1000000000ull + ts.tv_nsec;
+                double cpu_ms = (cpu_now - bench_throughput_cpu) / 1e6 / bench_throughput_frames;
+                double gpu_ms = 0;
+                uint64_t submits = bench_throughput_submits;
+#ifdef MOON_PC_VULKAN
+                moon_vk_render_stats vk = moon_vk_render_statistics();
+                gpu_ms = (vk.gpu_ns - bench_throughput_gpu) / 1e6;
+                submits = vk.submissions - bench_throughput_submits;
+#endif
+                fprintf(stderr,
+                        "throughput: frames=%llu seconds=%.3f fps=%.1f cpu_per_frame=%.3f "
+                        "gpu_total=%.3f submits=%llu waits=0\n",
+                        (unsigned long long)bench_throughput_frames, elapsed,
+                        bench_throughput_frames / elapsed, cpu_ms, gpu_ms,
+                        (unsigned long long)submits);
+                goto done;
+            }
+        }
+        /* Discord presence: one cheap check a second, never in the race step. */
+        if ((driving == 2 || driving == 5) && race_course[0]) {
+            const char *mode = race_game_replaying(game)      ? "Replay"
+                               : race_game_license_active(game) ? "Licence"
+                               : race_game_mission_active(game) ? "Mission"
+                               : career_race.active             ? "GT Mode"
+                               : race_time_trial                ? "Time Trial"
+                                                                : "Arcade";
+            app_presence_poll(mode, race_course, mn, race_car, driving, proj);
+        } else {
+            app_presence_poll("In the menus", NULL, mn, race_car[0] ? race_car : NULL, driving, proj);
+        }
         /* the results over: the race's replay plays by itself from its
            opening, then the quick menu (as the game goes on) */
         if (race_return && career_license.active && race_game_license_retry(game)) {
@@ -5944,18 +7321,22 @@ int main(int argc, char **argv)
                      projects[proj], p ? ui_root_name(p, root) : "?", root + 1,
                      p ? ui_root_count(p) : 0, drawn, skipped);
             printf("%s\n", title);
+            app_startup_log("menu: %s / %s", projects[proj],
+                            p ? ui_root_name(p, root) : "?");
             last_root = root;
             last_proj = proj;
         }
     }
 done:
+    discord_presence_shutdown();
     photo_travel_close(presentation_photo);
     presentation_photo = NULL;
     race_game_close(game);
     game = NULL; /* audio writes its jukebox back before the final profile save */
     if (mn) {
         menu_save_capture(mn);
-        if (gt4_save_dirty() && gt4_save_auto_enabled() && gt4_save_active() && !gt4_save_store())
+        if (gt4_save_dirty() && gt4_save_auto_enabled() && gt4_save_active() &&
+            !present_profile_access_screen(vol, 0))
             fprintf(stderr, "Auto Save: %s\n", gt4_save_error());
     }
     gt4_save_shutdown();
@@ -5995,8 +7376,10 @@ done:
         SDL_DestroyMutex(movie.lock);
     gt4_vol_close(movie.volume);
     preparing_audio = NULL;
+    app_jukebox_leave();
     pregrid_audio_close(pregrid_music);
     plat_audio_shutdown();
+    music_library_install(NULL);music_library_close(app_music_library);app_music_library=NULL;
     for (int i = 0; i < music_count; i++) {
         if (music_load[i].thread)
             SDL_WaitThread(music_load[i].thread, NULL);

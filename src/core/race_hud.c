@@ -8,6 +8,8 @@
  * GS shows them on 448 lines.
  */
 #include "race_hud.h"
+#include "race_hud_steering.h"
+#include "race_hud_name.h"
 #include "license_presentation.h"
 #include "race_split_layout.h"
 #include "race_pit_crew.h"
@@ -89,6 +91,8 @@ enum {
     IMG_REFUEL_BG,
     IMG_REFUEL_BAR,
     IMG_REFUEL_SCALE,
+    IMG_BOOST,
+    IMG_STEERING,
     IMG_COUNT
 };
 static const char *const image_names[IMG_COUNT] = {
@@ -144,6 +148,8 @@ static const char *const image_names[IMG_COUNT] = {
     "refuel_bg",
     "refuel_bar",
     "refuel_scale",
+    "boost",
+    "replay_sign_gtforce",
 };
 
 /* func_003A9640: the display's blinker: on for `duty` of each `period`
@@ -200,9 +206,14 @@ struct race_hud {
     blinker suggested_blink;   /* RaceSuggestedGearDisplay +0x18, 003A6FA8 */
     float suggested_fade;      /* its +0x38 fader, 003A7048 */
     int suggested_last;        /* last positive gear, retained during fade-out */
+    int name_watched; /* 0039CDF0 starts at watched entry zero. */
+    hud_name_fade name_fade;
+    char watched_name[128]; /* 0039F110 copies at most 127 bytes. */
     int signal_last;
+    int steering_seen, steering_valid;
+    float steering_last; /* 003A5D20: previous drawn angle */
     float penalty_shown;  /* how long the penalty message has been up */
-    float needle_last[2]; /* the round meters' last needle angles (+0x30), -1 none */
+    float needle_last[3]; /* the round meters' last needle angles (+0x30), -1 none */
     /* the race's text (rtext/raceUS.rt2, page RaceDisplay) */
     uint8_t *rt_data;
     gt4_rtext rt;
@@ -242,7 +253,7 @@ struct race_hud {
     /* the icon beside the gap (+0x2D14): its car, place and time */
     int icon_car;
     float icon_x, icon_y, icon_start;
-    void (*icon)(void *user, int car, float x, float y, float w, float h);
+    void (*icon)(void *user, int car, float x, float y, float w, float h, float opacity);
     void *icon_user;
 };
 
@@ -390,7 +401,7 @@ race_hud *race_hud_open(gt4_vol *vol)
     h->suggested_blink = (blinker){
         0, 0, 0x1.333332p-3f, 0x1.51eb84p-2f, 1.f / 0x1.47ae14p-6f, 1.f / 0x1.eb851ep-5f, 0, 1};
     h->fade = 1;
-    h->needle_last[0] = h->needle_last[1] = -1;
+    h->needle_last[0] = h->needle_last[1] = h->needle_last[2] = -1;
     {
         size_t n = 0;
         h->rt_data = gt4_vol_read(vol, "/rtext/raceUS.rt2", &n);
@@ -726,6 +737,43 @@ static const place best_at = {550, 58, 82, 15, 14, 0};  /* +0x14A8, RaceTimeDisp
 static const place last_at = {550, 110, 82, 15, 14, 0}; /* +0x1588 */
 static const place timer_at = {335, 107, 0, 0, 2, 1};   /* +0x15F8, its icon at (-8, +7) */
 
+/* A two-figure rank stays inside the rank box: the one-figure path above is
+   untouched, this only scales the wider string down to fit. */
+static float rank_digits(const hud_font *f, float x, float y, const uint8_t c[4],
+                         const char *s, float maxw)
+{
+    hud_font sized = *f;
+    float w = text_width(f, s);
+    if (w > maxw) {
+        float k = maxw / w;
+        sized.sx *= k;
+        sized.sy *= k;
+    }
+    text(&sized, x, y, 0xf, c, s);
+    return (float)f->face.height * sized.sy;
+}
+
+int race_hud_text(race_hud *h, const char *spec, float x, float y, int flags, const uint8_t color[4],
+                  const char *s)
+{
+    hud_font *f;
+    if (!h || !spec || !s)
+        return 0;
+    f = font(h, spec);
+    if (!f)
+        return 0;
+    text(f, x, y, flags, color, s);
+    return 1;
+}
+
+float race_hud_text_width(race_hud *h, const char *spec, const char *s)
+{
+    hud_font *f;
+    if (!h || !spec || !s || !(f = font(h, spec)))
+        return 0;
+    return text_width(f, s);
+}
+
 /* func_003A3B58: the box, and the rank's figure rolling to the new one
    (a fifth of the way each frame, at least 0.01) in FC_26 inside it */
 static void draw_rank(race_hud *h, int rank, const place *p)
@@ -754,12 +802,26 @@ static void draw_rank(race_hud *h, int rank, const place *p)
     y = y0 + p->h - 19 - frac * fh;
     gs_color(0x80C8C8C8u, 1, c);
     plat_set_clip(0, y0 + 8, 640, p->h - 11);
-    {
+    if (n < 10) {
         char s[2] = {(char)('0' + n), 0};
         text(f, x, y, 0xf, c, s);
         if (frac != 0) {
-            s[0] = (char)('0' + n + 1);
-            text(f, x, y + fh, 0xf, c, s);
+            if (n + 1 < 10) {
+                s[0] = (char)('0' + n + 1);
+                text(f, x, y + fh, 0xf, c, s);
+            } else {
+                char t[8];
+                snprintf(t, sizeof t, "%d", n + 1);
+                rank_digits(f, x0 + p->w * 0.5f, y + fh, c, t, p->w - 4);
+            }
+        }
+    } else {
+        char s[8];
+        snprintf(s, sizeof s, "%d", n);
+        float rh = rank_digits(f, x0 + p->w * 0.5f, y, c, s, p->w - 4);
+        if (frac != 0 && n + 1 <= 12) {
+            snprintf(s, sizeof s, "%d", n + 1);
+            rank_digits(f, x0 + p->w * 0.5f, y + rh, c, s, p->w - 4);
         }
     }
     plat_set_clip(0, 0, 0, 0);
@@ -1034,12 +1096,18 @@ static void draw_refueling(race_hud *h, float fuel, float cap)
    outline, bottom left. A: places from the user's PCSX2 print */
 static const place bspec_fuel_at = {74, 422, 86, 11, 0, 1}; /* x the savestates' +0x80 */
 static const place bspec_tire_at = {30, 436, 40, 68, 0, 1};
+/* 003A7F24 and 003A92A4: original simple/onboard tyre anchors. */
+static const place simple_tire_at = {58, 464, 40, 68, 4, 1};
+static const place onboard_tire_at = {26, 465, 40, 68, 0, 1};
 /* func_003A5FD8: tire_wear tinted 0x80877B80, the four tyres 6 x 11 at
    D_006A1520 (4, 8), (30, 8), (4, 50), (30, 50) in their colours */
 static void draw_tires(race_hud *h, const race_hud_state *s)
 {
     static const int at[4][2] = {{4, 8}, {30, 8}, {4, 50}, {30, 50}};
-    const place *p = &bspec_tire_at;
+    static const place split_tire_at = {32, 464, 40, 68, 0, 1}; /* 003A7CE4 */
+    const place *p = s->bspec ? &bspec_tire_at
+                     : s->split ? &split_tire_at
+                     : s->panel ? &onboard_tire_at : &simple_tire_at;
     float x0 = align(p->ha, (float)p->x, (float)p->w), y0 = align(p->va, (float)p->y, (float)p->h);
     uint8_t c[4];
     gs_color(0x80877B80u, 1, c);
@@ -1097,7 +1165,7 @@ static void draw_map(race_hud *h, const race_hud_state *s, float light)
                  (float)h->map_th, 0, 0, 1, 1, white);
             continue;
         }
-        for (int i = 0; i < s->cars && i < 6; i++) {
+        for (int i = 0; i < s->map_cars && i < MOON_MAX_CARS; i++) {
             int me = i == (s->split ? s->player : 0), img;
             uint32_t col;
             uint8_t c[4];
@@ -1153,7 +1221,7 @@ void race_hud_draw_tire_panel(race_hud *h, const race_hud_state *s, float x, flo
    letter (A + its grid slot), the watched one orange; the user's PCSX2
    print shows them so. A: the class's own placement and font not read */
 void race_hud_draw_map_cars(race_hud *h, const race_hud_state *s, float cx, float cy, float box,
-                            const int letter[6], int lit, float alpha)
+                            const int letter[MOON_CONDUCTOR_CARS], int lit, float alpha)
 {
     uint8_t white[4] = {255, 255, 255, 255}, ink[4] = {0xff, 0xff, 0xff, 255},
             orange[4] = {0xff, 0x99, 0x00, 255};
@@ -1172,8 +1240,8 @@ void race_hud_draw_map_cars(race_hud *h, const race_hud_state *s, float cx, floa
     if (!f)
         return;
     for (int pass = 0; pass < 2; pass++)
-        for (int i = 0; i < s->cars && i < 6; i++) {
-            char t[2] = {(char)('A' + (letter[i] >= 0 && letter[i] < 6 ? letter[i] : 0)), 0};
+        for (int i = 0; i < s->map_cars && i < MOON_MAX_CARS; i++) {
+            char t[2] = {(char)('A' + (letter[i] >= 0 && letter[i] < MOON_CONDUCTOR_CARS ? letter[i] : 0)), 0};
             float mx, my;
             if ((i == lit) != (pass == 1))
                 continue; /* the watched car's on top */
@@ -1365,7 +1433,7 @@ void race_hud_laps_behind(race_hud *h, int laps, int car)
     }
 }
 
-void race_hud_set_icon(race_hud *h, void (*icon)(void *, int, float, float, float, float),
+void race_hud_set_icon(race_hud *h, void (*icon)(void *, int, float, float, float, float, float),
                        void *user)
 {
     if (h) {
@@ -1392,8 +1460,10 @@ static void draw_lines(race_hud *h, float dt)
     }
     if (h->icon && h->icon_car >= 0) {
         float a = intro_alpha(h->clock, h->icon_start, 2.85f, .15f, .15f);
-        if (a > 0)
-            h->icon(h->icon_user, h->icon_car, h->icon_x, h->icon_y - 16, 64, 32);
+        /* 003A1568 fades RaceDisplay+BC over 0.25 s after FINISH.
+           The 3D icon must inherit that fade, as the interval text does. */
+        if (a > 0 && light > 0)
+            h->icon(h->icon_user, h->icon_car, h->icon_x, h->icon_y - 16, 64, 32, a * light);
         else if (h->clock > h->icon_start + 2.85f)
             h->icon_car = -1;
     }
@@ -1668,6 +1738,53 @@ static void draw_odometer(race_hud *h, unsigned odo, int unit)
     text(f, align(odo_at.ha, (float)odo_at.x, text_width(f, s)), (float)odo_at.y, 0, c, s);
 }
 
+/* 00407568/00407648 and 003A9008: original 54x54 onboard boost meter.
+   The dial uses its own central pivot, unlike the large speed/RPM meters.
+   003BE828 adds 90 degrees to both ends (+0x48/+0x4C), as for the large meters: the
+   needle starts at the dial's "-" below the pivot and turns 216 from there.
+   003BE5F8 draws it (to +0x4C + 2) in +0x34 = 5 steps at 1/6, but with its own model
+   (slot 0x60, 00407638: D_006A42F0) scaled 1.35 after -0.5 (+0x54 - +0x50, +0x50), by 27
+   (003BE818): from 13.5 behind the pivot (half-width 0.044, 1.6) to 22.95 ahead (0.0275,
+   1.0), the base model's colours (D_006A2900) 0xC8 red on its axis to 0x40 at its edges,
+   here in three bands a side. */
+static void draw_boost(race_hud *h, const race_hud_state *s)
+{
+    if (!s->has_boost)
+        return;
+    /* +0x964 at (320+0xAF, 452-0x15), 54x54, aligned (0, 1): it ends at 431 (003A9008) */
+    static const place boost_at = {495, 431, 54, 54, 0, 1};
+    const float top = 2.3999998569488525f, sweep = 215.99998474121094f;
+    float x = align(boost_at.ha, (float)boost_at.x, (float)boost_at.w),
+          y = align(boost_at.va, (float)boost_at.y, (float)boost_at.h), cx = x + 27, cy = y + 27;
+    uint8_t color[4];
+    gs_color(0x80000000u, 1, color);
+    image(h, IMG_BOOST, 0, 0, x, y, 54, 54, color);
+    float angle = fminf(fmaxf(90 + s->boost / top * sweep, 90), 90 + sweep + 2);
+    float from = h->needle_last[2] < 0 ? angle : h->needle_last[2];
+    h->needle_last[2] = angle;
+    const float r0 = -13.5f, r1 = 22.9499989f, w0 = 1.60380006f, w1 = 1.00237501f;
+    for (int i = 0; i < 5; i++) {
+        float a = (from + (angle - from) * ((i + 1) / 5.f)) * 3.14159265f / 180,
+              dx = cosf(a), dy = sinf(a);
+        for (int band = 0; band < 3; band++)
+            for (int side = -1; side <= 1; side += 2) {
+                float f0 = side * band / 3.f, f1 = side * (band + 1) / 3.f;
+                float q[4][2] = {
+                    {cx + dx * r0 - dy * w0 * f1, cy + dy * r0 + dx * w0 * f1},
+                    {cx + dx * r1 - dy * w1 * f1, cy + dy * r1 + dx * w1 * f1},
+                    {cx + dx * r0 - dy * w0 * f0, cy + dy * r0 + dx * w0 * f0},
+                    {cx + dx * r1 - dy * w1 * f0, cy + dy * r1 + dx * w1 * f0},
+                };
+                gs_color(0x80000000u | (uint32_t)(0xC8 + (0x40 - 0xC8) * (band + .5f) / 3), 1.f / 6,
+                         color);
+                color[3] = (uint8_t)(color[3] * light);
+                plat_draw_solid_quad(q, color);
+            }
+    }
+    gs_color(0x80FFFFFFu, 1, color);
+    image(h, IMG_BOOST, 0, 0, x, y, 54, 54, color);
+}
+
 /* func_003A8968: the pedals' arcs between the meters, pedal_bar filling
    from its bottom (58 units from 23 below the speedometer's top): the
    brake in red (0x800000F0) at 121 right of the speedometer, the throttle
@@ -1750,7 +1867,7 @@ static void draw_onboard_panel(race_hud *h, const race_hud_state *s)
     if (s->driving) {
         static const int img[3] = {IMG_SIGN_ASM, IMG_SIGN_BRAKE, IMG_SIGN_OIL};
         static const uint32_t col[3] = {0x80E3B896u, 0x800000C8u, 0x800000C8u};
-        const int st[3] = {state_of[s->aid & 3], lock_of[s->brake_lock != 0], 0};
+        const int st[3] = {state_of[s->aid & 3], lock_of[s->brake_lock != 0], s->oil_sign};
         for (int i = 0; i < 3; i++) {
             uint8_t c[4];
             gs_color2(col[i], st[i] * 0.5f, 1, c);
@@ -1760,7 +1877,7 @@ static void draw_onboard_panel(race_hud *h, const race_hud_state *s)
     }
     image(h, s->unit == 1 ? IMG_MPH : IMG_KMPH, unit_at.ha, unit_at.va, (float)unit_at.x,
           (float)unit_at.y, (float)unit_at.w, (float)unit_at.h, white);
-    {
+    if (!(s->display_hidden & RACE_DISPLAY_G_METER)) {
         const place *p = &g2_at;
         float x0 = align(p->ha, (float)p->x, (float)p->w),
               y0 = align(p->va, (float)p->y, (float)p->h), g;
@@ -1770,7 +1887,31 @@ static void draw_onboard_panel(race_hud *h, const race_hud_state *s)
         gs_color(0x80E3B896u, 1, c);
         image(h, IMG_G_POINT, 2, 2, x0 + p->w * 0.5f + p->w * 0.5f * 0.944f * g, y0 + 8, 0, 0, c);
     }
+    if (s->driving)
+        draw_tires(h, s);
     draw_onboard_bars(h, s);
+    draw_boost(h, s);
+}
+
+/* 003A5D30: replay_sign_gtforce, radius 85 at (320,450), four
+   quarter-step samples at 7/16 opacity. Layout: 003A1970 +0x104..0x17c. */
+static int draw_steering(race_hud *h, const race_hud_state *s)
+{
+    if (s->steering != 0)
+        h->steering_seen = 1;
+    if (!hud_steering_visible(s->split ? 8 : 0, h->steering_seen,
+                              s->steering_kind, ~s->display_hidden))
+        return 0;
+    float current = s->steering * -90, angles[4];
+    hud_steering_layers(current, h->steering_last, h->steering_valid, angles);
+    const hud_image *im = &h->img[IMG_STEERING];
+    uint8_t color[4] = {255, 255, 255, (uint8_t)(255 * light * .4375f)};
+    if (im->tex)
+        for (int i = 0; i < 4; i++)
+            plat_draw_rotated(im->tex, 235, 365, 170, 170, 320, 450, angles[i], color);
+    h->steering_last = current;
+    h->steering_valid = 1;
+    return 1;
 }
 
 /* func_003A78B8 */
@@ -1806,12 +1947,15 @@ static void draw_simple_panel(race_hud *h, const race_hud_state *s)
     draw_tacho(h, s->rpm, s->rev_limit);
     draw_gear(h, s->gear, 0);
     draw_lamp(h, s->shift_lamp);
+    if (s->driving)
+        draw_tires(h, s);
     draw_pedals(h, s->throttle, s->brake);
-    draw_g(h, s->side_g);
+    if (!(s->display_hidden & RACE_DISPLAY_G_METER))
+        draw_g(h, s->side_g);
     if (s->driving) {
         draw_sign(h, 0, state_of[s->aid & 3], 1);
         draw_sign(h, 1, lock_of[s->brake_lock != 0], 1);
-        draw_sign(h, 2, 0, 1);
+        draw_sign(h, 2, s->oil_sign, 1);
     }
 }
 
@@ -1905,6 +2049,39 @@ void race_hud_draw_replay(race_hud *h, const char *label, float alpha, int logo)
     }
 }
 
+/* Name at RaceDisplay +0x23DC. 0039CDF0 only queues a changed entry;
+   0039CFD8 uses five seconds, quarter-second fades, 127 bytes maximum.
+   Layout 003A1970: chase (24,328)/280 wide, onboard (320,430)/240 wide. */
+void race_hud_draw_car_name(race_hud *h, const char *name, int watched, int mode, unsigned flags,
+                            int panel, float dt)
+{
+    if (!h)
+        return;
+    hud_name_step(&h->name_fade, dt);
+    if (h->name_watched != watched) {
+        h->name_watched = watched;
+        if (mode != 0 && h->fade >= 1) {
+            snprintf(h->watched_name, sizeof h->watched_name, "%s", name ? name : "");
+            hud_name_start(&h->name_fade, 5);
+        }
+    }
+    if (!(hud_name_flags(mode, flags) & RACE_DISPLAY_CAR_NAME) || h->name_fade.value <= 0)
+        return;
+    hud_font *f = font(h, "hn_20R#1*90,90");
+    if (!f)
+        return;
+    hud_font sized = *f;
+    float width = text_width(f, h->watched_name);
+    float available = panel ? 240.f : 280.f;
+    if (width > available)
+        sized.sx *= available / width; /* 003A4BD4..003A4C04 */
+    uint8_t color[4];
+    gs_color(0x80c8c8c8u, h->name_fade.value, color);
+    plat_video_set_view(640, 480);
+    light = 1;
+    float x = align(panel ? 2 : 4, panel ? 320.f : 24.f, text_width(&sized, h->watched_name));
+    text(&sized, x, panel ? 430.f : 328.f, 0, color, h->watched_name);
+}
 /* The replay's opening (func_0039BEC8 / func_0039C028, then vtable+0x168
    func_0039C838): the course's logo (+0x11B0) and two messages, each
    0.1 s late, 6 s long, in and out in a second. +0x267C the car's name
@@ -2147,6 +2324,11 @@ void race_hud_draw(race_hud *h, const race_hud_state *s, float dt)
             fmaxf((s->intro_elapsed - fminf(fmaxf((float)s->start_seconds, 0), 2)) * 2, 0), 1);
     h->shown = light;
     for (int i = 0; i < 4; i++) {
+        /* 0039F718/0039F878: labels and numbers share their element bit. */
+        const unsigned bit[4] = {RACE_DISPLAY_POSITION, RACE_DISPLAY_LAP, RACE_DISPLAY_TIME,
+                                 RACE_DISPLAY_TIME};
+        if (s->display_hidden & bit[i])
+            continue;
         if (s->split && i < 2)
             continue;
         if (s->license &&
@@ -2159,21 +2341,24 @@ void race_hud_draw(race_hud *h, const race_hud_state *s, float dt)
         image(h, s->bspec && i == 2 ? IMG_TOTAL : labels[i], p->ha, p->va, (float)p->x, (float)p->y,
               0, 0, white);
     }
-    if (!s->license || s->license_rank)
+    if (!(s->display_hidden & RACE_DISPLAY_POSITION) && (!s->license || s->license_rank))
         draw_rank(h, s->rank, s->split ? &gt4_split_layout[SPLIT_RANK] : &rank_at);
     /* 003BCE70 +0x104..0x138 sets common flag 0x10000 for pylons. */
-    if (!s->split && (!s->license || s->license_pylon_limit <= 0))
+    if (!(s->display_hidden & RACE_DISPLAY_LAP) && !s->split &&
+        (!s->license || s->license_pylon_limit <= 0))
         draw_lap(h, s->lap, s->laps);
-    if (s->bspec) { /* +0x1438 at (550, 58): the race's time (003B00A8) */
-        char t[16];
-        format_total(s->total_time, t);
-        draw_time_text(h, &best_at, t, 0);
-    } else {
-        draw_time(h, s->split ? &gt4_split_layout[SPLIT_BEST] : &best_at, s->best_lap, 0);
-        if (!s->license)
-            draw_time(h, s->split ? &gt4_split_layout[SPLIT_LAST] : &last_at, s->last_lap, 0);
+    if (!(s->display_hidden & RACE_DISPLAY_TIME)) {
+        if (s->bspec) { /* +0x1438 at (550, 58): the race's time (003B00A8) */
+            char t[16];
+            format_total(s->total_time, t);
+            draw_time_text(h, &best_at, t, 0);
+        } else {
+            draw_time(h, s->split ? &gt4_split_layout[SPLIT_BEST] : &best_at, s->best_lap, 0);
+            if (!s->license)
+                draw_time(h, s->split ? &gt4_split_layout[SPLIT_LAST] : &last_at, s->last_lap, 0);
+        }
+        draw_time(h, s->split ? &gt4_split_layout[SPLIT_TIMER] : &timer_at, s->lap_time, 1);
     }
-    draw_time(h, s->split ? &gt4_split_layout[SPLIT_TIMER] : &timer_at, s->lap_time, 1);
     if (s->license && !s->finished) {
         gt4_license_layout layout;
         gt4_license_layout_make(&layout);
@@ -2221,17 +2406,32 @@ void race_hud_draw(race_hud *h, const race_hud_state *s, float dt)
         }
     }
     blink(&h->map_blink, dt);
-    draw_map(h, s, h->map_blink.v);
+    if (!(s->display_hidden & RACE_DISPLAY_MAP))
+        draw_map(h, s, h->map_blink.v);
     hud_y_offset = s->split ? -GT4_SPLIT_HEIGHT : 0;
-    if (s->panel == 0)
-        draw_simple_panel(h, s);
-    else
-        draw_onboard_panel(h, s);
+    /* 0039FFF8 draws the steering indicator independently of meter;
+       its presence suppresses the panel's lateral G display. */
+    race_hud_state panel_state = *s;
+    if (draw_steering(h, s))
+        panel_state.display_hidden |= RACE_DISPLAY_G_METER;
+    /* 0039FFF8 tests meter before drawing either camera's panel. */
+    if (!(s->display_hidden & RACE_DISPLAY_METER)) {
+        if (s->panel == 0)
+            draw_simple_panel(h, &panel_state);
+        else
+            draw_onboard_panel(h, &panel_state);
+    }
     update_suggested_gear(h, s, dt);
-    draw_suggested_gear(h, s);
+    if (!(s->display_hidden & (RACE_DISPLAY_METER | RACE_DISPLAY_SUGGESTED_GEAR)))
+        draw_suggested_gear(h, s);
     draw_signal(h, s, dt);
     hud_y_offset = s->split ? gt4_split_layout[SPLIT_LINES].y - 139.f : 0;
-    draw_lines(h, dt);
+    /* 0039F878 gates the interval list with time in a replay;
+       0039F718/0039FAD0 keep it independent in a race. */
+    if (!s->replay || !(s->display_hidden & RACE_DISPLAY_TIME))
+        draw_lines(h, dt);
+    else
+        h->clock += dt;
     if (s->refueling && s->fuel_cap > 0)
         draw_refueling(h, s->fuel, s->fuel_cap);
     display_light = light;

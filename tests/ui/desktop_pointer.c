@@ -4,6 +4,10 @@
 #undef main
 #undef plat_draw_rotated
 #include "desktop_input.h"
+void plat_sdl_confine_mouse(int enabled)
+{
+    (void)enabled;
+}
 SDL_GameController *plat_sdl_pad(int index) { (void)index; return NULL; }
 static float cursor_tip[2], cursor_angle, cursor_size;
 static int cursor_draws, cursor_alpha;
@@ -388,6 +392,38 @@ int main(int argc, char **argv)
     ui_pointer_smoothing(dialog,0);ui_pointer(dialog,1,180,160);
     ui_draw_root(dialog,dialog_root,NULL,NULL);
     CHECK(cursor_tip[0]==180 && cursor_tip[1]==160);
+    /* The map reuses strip cursor feedback in all eight directions, and
+       only axes that can actually scroll contribute to the arrow. */
+    menu *map = menu_open(vol, "gtmode", msg, sizeof msg);
+    CHECK(map); menu_enter(map, 0); ticks(map); paint(map);
+    int map_root = menu_active_root(map);
+    ui_project *map_ui = menu_ui(map);
+    ui_widget *map_page = ui_root_widget(map_ui, map_root);
+    ui_widget *map_clip = child(child(map_page, "ScrollWindow"), "clip");
+    ui_widget *map_space = child(map_clip, "space");
+    CHECK(map_space && map_space->w > map_clip->w && map_space->h > map_clip->h);
+    ui_pointer_smoothing(map_ui, 1);
+    static const int directions[8][2] = {{0,-1},{1,-1},{1,0},{1,1},{0,1},{-1,1},{-1,0},{-1,-1}};
+    for (int i=0;i<8;i++) {
+        map_space->scroll_set = 1;
+        map_space->scroll_tx = (map_clip->w-map_space->w)*.5f;
+        map_space->scroll_ty = (map_clip->h-map_space->h)*.5f;
+        float px = directions[i][0] < 0 ? 1 : directions[i][0] > 0 ? 639 : 320;
+        float py = directions[i][1] < 0 ? 1 : directions[i][1] > 0 ? 479 : 240;
+        ui_pointer(map_ui, 1, px, py);
+        menu_edge_pan(map, 1, .02f);
+        ui_animate(map_ui, map_root, .6f); ui_draw_root(map_ui, map_root, NULL, NULL);
+        float expected=atan2f((float)directions[i][0],(float)-directions[i][1])*180.f/3.14159265358979323846f;
+        CHECK(fabsf(remainderf(cursor_angle-expected,360.f))<.1f);
+    }
+    map_space->scroll_tx = map_space->scroll_ty = 0;
+    ui_pointer(map_ui,1,1,1); menu_edge_pan(map,1,.02f);
+    ui_animate(map_ui,map_root,.6f); ui_draw_root(map_ui,map_root,NULL,NULL);
+    CHECK(fabsf(remainderf(cursor_angle+22.5f,360.f))<.1f);
+    ui_pointer(map_ui,1,639,479); menu_edge_pan(map,0,.02f);
+    ui_animate(map_ui,map_root,.6f); ui_draw_root(map_ui,map_root,NULL,NULL);
+    CHECK(fabsf(remainderf(cursor_angle+22.5f,360.f))<.1f);
+    menu_close(map);
     ui_project_free(dialog);
     CHECK(!errors);
     menu_close(m);

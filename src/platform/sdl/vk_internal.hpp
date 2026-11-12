@@ -32,20 +32,28 @@ struct Image {
     int width = 0, height = 0, levels = 1;
     int min_filter = GL_NEAREST_MIPMAP_LINEAR, mag_filter = GL_LINEAR;
     int wrap_s = GL_REPEAT, wrap_t = GL_REPEAT;
-    int max_level = 1000;
+    int max_level = 1000, anisotropy = 1;
+    VkSampler sampler = VK_NULL_HANDLE;
+    std::array<int, 7> sampler_key = {};
 };
 struct Uniform {
     std::string name, type;
     int count = 1, offset = 0, stride = 0, components = 1, sampler = -1, unit = 0;
 };
 struct Program {
-    std::string vertex, fragment, error;
+    std::string vertex, fragment, final_vertex, final_fragment, error;
+    std::vector<unsigned> vs_words, fs_words;
     VkShaderModule vs = VK_NULL_HANDLE, fs = VK_NULL_HANDLE;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     std::vector<Uniform> uniforms;
+    std::array<unsigned, 8> sampler_uniforms{};
+    unsigned sampler_count = 0;
     std::vector<uint8_t> values;
     std::map<std::array<uint64_t, 67>, VkPipeline> pipelines;
+    std::array<uint64_t, 67> last_key{};
+    VkPipeline last_pipeline = VK_NULL_HANDLE;
     uint64_t fingerprint = 0;
+    int dump_id = -1;
     bool linked = false, vertex_id = false;
     std::array<bool, 16> inputs = {};
 };
@@ -61,7 +69,7 @@ struct VertexArray {
 };
 struct Framebuffer {
     unsigned color = 0, depth = 0;
-    bool color_texture = false;
+    bool color_texture = false, depth_texture = false;
 };
 struct State {
     unsigned texture_unit = 0, array_buffer = 0, vao = 0, program = 0, renderbuffer = 0;
@@ -104,6 +112,7 @@ struct DrawCommands {
     bool dynamic_valid = false;
 };
 struct Context {
+    ~Context();
     SDL_Window *window = nullptr;
     VkInstance instance = VK_NULL_HANDLE;
     VkPhysicalDevice physical = VK_NULL_HANDLE;
@@ -131,8 +140,10 @@ struct Context {
     size_t arena_used = 0, default_vertex_offset = SIZE_MAX;
     unsigned descriptor_count = 0, next_id = 1;
     unsigned clear_program = 0;
+    uint64_t cpu_draw_prev_ns = 0;
     moon_vk_render_stats statistics = {};
     bool recording = false, vsync = true, rebuild_swapchain = true;
+    bool sampler_anisotropy = false;
     /* Android destroys the surface when the document picker takes the
        foreground. A known-lost surface is never presented to; the surface and
        swapchain are rebuilt from the current window on the next frame. */
@@ -141,9 +152,26 @@ struct Context {
          transient_framebuffers = false;
     std::map<std::array<uint64_t, 17>, VkDescriptorSet> draw_sets;
     bool repeat_commands = false, profile_draws = false;
+    int draw_source = 0;
+    uint64_t last_batch_pipeline = 0, last_batch_set = 0;
+    /* MOON_VK_PROFILE_PASSES: GPU time per render pass/transfer, single frame in flight. */
+    VkQueryPool pass_queries = VK_NULL_HANDLE;
+    std::vector<std::string> pass_labels;
+    std::vector<unsigned> pass_draws;
+    std::map<std::string, std::pair<double, uint64_t>> pass_totals;
+    uint64_t pass_frames = 0;
+    void pass_mark(const std::string &label);
     DrawCommands emitted;
     State state;
     std::map<unsigned, std::shared_ptr<Image>> textures, renderbuffers;
+    /* Per-unit image of the last descriptor lookup; texture_version changes
+       whenever a texture name is created, deleted or given a new image. */
+    unsigned texture_version = 1, unit_version = 0;
+    std::array<unsigned, 16> unit_texture{};
+    std::array<Image *, 16> unit_image{};
+    /* Last descriptor set of this submission and its key. */
+    VkDescriptorSet last_set = VK_NULL_HANDLE;
+    std::array<uint64_t, 17> last_set_key{};
     std::map<unsigned, std::vector<uint8_t>> buffers;
     std::map<unsigned, bool> static_buffers;
     std::map<unsigned, Buffer> vertex_buffers;
@@ -152,12 +180,14 @@ struct Context {
     std::map<unsigned, Framebuffer> framebuffers;
     std::map<unsigned, Program> programs;
     std::map<unsigned, std::pair<GLenum, std::string>> shaders;
-    std::map<std::array<int, 6>, VkSampler> samplers;
+    std::map<std::array<int, 7>, VkSampler> samplers;
     std::map<std::array<int, 3>, VkRenderPass> passes;
     std::vector<VkFramebuffer> transient_targets;
-    std::map<std::array<VkImageView, 2>, VkFramebuffer> target_cache;
+    std::map<std::array<VkImageView, 3>, VkFramebuffer> target_cache;
     std::vector<std::shared_ptr<Image>> retired_images;
     VkImageView pass_color = VK_NULL_HANDLE, pass_depth = VK_NULL_HANDLE;
+    VkRenderPass last_pass = VK_NULL_HANDLE;
+    VkFramebuffer last_framebuffer = VK_NULL_HANDLE;
     bool scene_first_pass = false;
     std::shared_ptr<Image> white, screen;
     std::string error, pipeline_cache_path;
@@ -195,7 +225,7 @@ struct Context {
     void upload(Image &image, int level, int x, int y, int width, int height, GLenum format,
                 const void *pixels);
     void read(Image &image, int x, int y, int width, int height, GLenum format, void *pixels);
-    VkSampler sampler(const Image &image);
+    VkSampler sampler(Image &image);
     VkRenderPass render_pass(VkFormat color, VkFormat depth, bool first = false);
     void blit(Image &source, Image &dest, int sx0, int sy0, int sx1, int sy1, int dx0, int dy0,
               int dx1, int dy1, bool linear, bool depth = false);

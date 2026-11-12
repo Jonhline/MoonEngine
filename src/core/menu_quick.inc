@@ -138,6 +138,26 @@ const char *menu_split_car(menu *m, int port)
     label = ah_cstr(v);
     return label ? label : "";
 }
+const char *menu_riding_car(menu *m)
+{
+    ah_val garage, car, code;
+    if (!m || !ah_get_member(m->vm, game_object(m), "garage", &garage) ||
+        garage.t == AV_NIL || !ah_get_member(m->vm, ah_as_obj(garage, AO_MODULE), "riding_car", &car) ||
+        car.t == AV_NIL || !ah_get_member(m->vm, ah_as_obj(car, AO_MODULE), "car_code", &code))
+        return "";
+    return ah_cstr(code) ? ah_cstr(code) : "";
+}
+
+int menu_riding_color(menu *m)
+{
+    ah_val garage, car, color;
+    if (!m || !ah_get_member(m->vm, game_object(m), "garage", &garage) ||
+        garage.t == AV_NIL || !ah_get_member(m->vm, ah_as_obj(garage, AO_MODULE), "riding_car", &car) ||
+        car.t == AV_NIL || !ah_get_member(m->vm, ah_as_obj(car, AO_MODULE), "color_index", &color))
+        return 0;
+    return (int)ah_num(color);
+}
+
 int menu_split_owned(menu *m, int port, uint8_t body[0x4b8], int *color)
 {
     if (!m || port < 0 || port > 1 || !body || !color)
@@ -469,12 +489,80 @@ int menu_driving_manual(menu *m)
 {
     return menu_option_number(m, "automatic_gear", 1) == 0;
 }
+void menu_game_set_text(menu *m, const char *name, const char *value)
+{
+    if (m && name)
+        ah_set_member(m->vm, game_object(m), name, value ? ah_str(m->vm, value) : ah_nil());
+}
+
+void menu_game_stack_push(menu *m, const char *name)
+{
+    if (!m || !name)
+        return;
+    ah_val arg = ah_str(m->vm, name), ret = ah_nil();
+    gt4_game_menu_stack_action(m->vm, game_object(m), "menuPush", 1, &arg, &ret);
+}
+
+const char *menu_widget_member_text(menu *m, ui_widget *w, const char *name, char *out,
+                                    size_t cap)
+{
+    if (!out || !cap)
+        return NULL;
+    out[0] = 0;
+    if (!m || !w || !w->script || !name)
+        return out;
+    ah_val v = ah_nil();
+    if (ah_get_member(m->vm, (ah_obj *)w->script, name, &v) < 0)
+        return out;
+    const char *text = ah_cstr(v);
+    if (text && *text)
+        snprintf(out, cap, "%s", text);
+    else if (ah_is_num(v))
+        snprintf(out, cap, "%lld", (long long)ah_num(v));
+    return out;
+}
+
+void menu_game_stack_pop(menu *m)
+{
+    if (m) {
+        ah_val ret = ah_nil();
+        gt4_game_menu_stack_action(m->vm, game_object(m), "menuPop", 0, NULL, &ret);
+    }
+}
+
+const char *menu_game_menu_ref(menu *m)
+{
+    if (!m)
+        return NULL;
+    ah_val ret = ah_nil();
+    if (gt4_game_menu_stack_action(m->vm, game_object(m), "menuRef", 0, NULL, &ret) < 0)
+        return NULL;
+    return ah_cstr(ret);
+}
+
 double menu_game_number(menu *m, const char *name, double fallback)
 {
     ah_val v;
     if (!m || !ah_get_member(m->vm, game_object(m), name, &v) || !ah_is_num(v))
         return fallback;
     return ah_num(v);
+}
+
+int menu_game_date(menu *m, int date[3])
+{
+    ah_val calendar, today;
+    if (!m || !date ||
+        !ah_get_member(m->vm, game_object(m), "calendar", &calendar) ||
+        calendar.t == AV_NIL ||
+        !ah_get_member(m->vm, ah_as_obj(calendar, AO_MODULE), "today", &today) ||
+        today.t == AV_NIL)
+        return 0;
+    ah_obj *arr = ah_as_obj(today, AO_ARRAY);
+    if (ah_array_size(arr) < 3)
+        return 0;
+    for (int i = 0; i < 3; i++)
+        date[i] = (int)ah_num(ah_array_get(arr, i));
+    return 1;
 }
 int menu_pending_command(const menu *m)
 {
@@ -680,7 +768,7 @@ static int nat_calendar_get(ah_vm *vm, ah_obj *self, void *data, int argc, const
                       : e[2] < 5 ? ah_str(vm, home->car_event_names[e[2]])
                                  : ah_nil());
     } else if (e[0] == 6) {
-        ah_array_push(vm, event, e[1] < 4 ? ah_str(vm, parts->wheel_categories[e[1]]) : ah_nil());
+        ah_array_push(vm, event, e[1] < 5 ? ah_str(vm, home->wheel_event_names[e[1]]) : ah_nil());
         ah_array_push(vm, event, ah_int(e[2]));
     } else if (e[0] == 3 || e[0] == 4 || e[0] == 5 || e[0] == 8) {
         if (e[0] == 8)
@@ -737,16 +825,17 @@ static int nat_photo_format(ah_vm *vm, ah_obj *self, void *d, int argc, const ah
         return 0;
     }
     /* 001B0ED0 +70..84 -> 00490A40. PhotoShoot L106/L2350 uses
-       %.1t; caller passes rounded tenths. A: other conversions pending. */
-    int precision = fmt && !strcmp(fmt, "%.1t") ? 1 : fmt && !strcmp(fmt, "%.2t") ? 2 : 0;
+       %.1t; Setting.setupSlider L111 uses %.3t for gear ratios. */
+    int precision = fmt && !strcmp(fmt, "%.1t") ? 1 : fmt && !strcmp(fmt, "%.2t") ? 2 :
+                    fmt && !strcmp(fmt, "%.3t") ? 3 : 0;
     if (argc != 2 || !precision || !ah_is_num(argv[1]) || !isfinite(ah_num(argv[1])) ||
         fabs(ah_num(argv[1])) >= 9223372036854775808.)
-        return ah_error(vm, "unsupported Photo Travel format");
+        return ah_error(vm, "unsupported menu format");
     int64_t v = (int64_t)ah_num(argv[1]);
     if (v == INT64_MIN)
         return ah_error(vm, "invalid fixed decimal");
     uint64_t a = v < 0 ? (uint64_t)-v : (uint64_t)v;
-    unsigned scale = precision == 1 ? 10 : 100;
+    unsigned scale = precision == 1 ? 10 : precision == 2 ? 100 : 1000;
     snprintf(text, sizeof text, "%s%llu.%0*llu", v < 0 ? "-" : "", (unsigned long long)(a / scale),
              precision, (unsigned long long)(a % scale));
     *ret = ah_str(vm, text);
@@ -1156,9 +1245,26 @@ static int nat_car_name(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_
                         ah_val *ret)
 {
     (void)self;
-    (void)data;
     const char *code = argc ? ah_cstr(argv[0]) : NULL;
-    const char *name = code ? car_name(ah_user(vm), code) : NULL;
+    menu *m = ah_user(vm);
+    const char *name = code ? car_name(m, code) : NULL;
+    if (data) { /* 0012DFC8 ->00448280: CAR_NAME's short string, field +8. */
+        uint32_t id;
+        uint8_t row[16];
+        name = NULL;
+        if (code && gt4_specdb_label(m->car_labels, m->car_labels_size, code, &id) &&
+            gt4_specdb_row(m->car_names, m->car_names_size, id, row, sizeof row) == 16)
+            name = gt4_specdb_string(m->car_strings, m->car_strings_size, car_u32(row + 8));
+    }
     *ret = ah_str(vm, name ? name : "");
+    return 0;
+}
+
+/* Retail US 001AD528 constructs false; 001AF928 returns D_00693048 ("kg"). */
+static int nat_ui_constant(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
+                           ah_val *ret)
+{
+    (void)self; (void)argc; (void)argv;
+    *ret = data ? ah_str(vm, "kg") : ah_int(0);
     return 0;
 }

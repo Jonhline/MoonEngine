@@ -24,6 +24,10 @@
 extern ee_fn recomp_lookup(uint32_t);
 static float pos[3], global[3], uploaded[4][4][3];
 static int missing;
+static float shadow_way[3], shadow_color[4], shadow_alpha;
+static void shadow_direction(ee_ctx *e) {for(int i=0;i<3;i++) shadow_way[i]=e->fpr[12+i].f;}
+static void shadow_tint(ee_ctx *e) {for(int i=0;i<4;i++) shadow_color[i]=e->fpr[12+i].f;}
+static void shadow_gain(ee_ctx *e) {shadow_alpha=e->fpr[12].f;}
 static void nop(ee_ctx *e)
 {
     (void)e;
@@ -68,6 +72,9 @@ static void setter(ee_ctx *e)
 static ee_fn boundary(uint32_t pc)
 {
     switch (pc) {
+    case 0x4523b0: return shadow_direction;
+    case 0x4523e8: return shadow_tint;
+    case 0x452408: return shadow_gain;
     case 0x396800:
         return runway;
     case 0x5ffff0:
@@ -139,6 +146,7 @@ int main(int argc, char **argv)
     word(&e, MESH + 0x78, MESH + 0x500);
     half(&e, MESH + 0x50, 9);
     putf(&e, ENV + 0x38, 2);
+    putf(&e, ENV + 0xa78, 1.75f);
     for (int i = 0; i < 9; i++) {
         half(&e, MESH + 0x300 + i * 2, (unsigned short)i);
         word(&e, MESH + 0x100 + i * 32, (unsigned)i);
@@ -149,6 +157,7 @@ int main(int argc, char **argv)
         putf(&e, s + 0x124, 1);
         putf(&e, s + 0x128, .1f);
         putf(&e, s + 0x12c, .02f);
+        for(int c=0;c<4;c++) putf(&e,s+0x130+c*4,.03f*(i+c+1));
         for (int t = 0; t < 3; t++)
             for (int c = 0; c < 3; c++)
                 putf(&e, s + 0xe0 + t * 16 + c * 4, (i + t + c) * .07f);
@@ -204,6 +213,23 @@ int main(int argc, char **argv)
         r3d_lights out;
         CHECK(race_lights_sample(&native,0,pos,.7f,.8f,&out));
         CHECK(!memcmp(before,raw,sizeof raw));
+        CHECK(out.authored_local==(custom && !missing));
+        race_lamp_shadows shadows;
+        CHECK(race_lights_shadows(&native,0,pos,NULL,0,&shadows));
+        CHECK(shadows.count==(custom && !missing ? 4 : 0));
+        for(int l=0;l<shadows.count;l++) {
+            e.r[4].uw[0]=OBJ;e.r[5].uw[0]=l;
+            CHECK(call(&e,0x38f168));
+            if(argc>2 && !strcmp(argv[2],"--shadow-negative")) shadows.lamp[l].alpha+=.01f;
+            for(int c=0;c<3;c++) {
+                CHECK(fabsf(shadows.lamp[l].way[c]-shadow_way[c])<2e-6f);
+                CHECK(fabsf(shadows.lamp[l].rgb[c]-shadow_color[c])<2e-6f);
+            }
+            if (fabsf(shadows.lamp[l].alpha-shadow_color[3]*shadow_alpha)>=2e-6f)
+                fprintf(stderr,"shadow case=%d lamp=%d alpha=%g original=%g gain=%g\n",n,l,shadows.lamp[l].alpha,shadow_color[3],shadow_alpha);
+            CHECK(fabsf(shadows.lamp[l].alpha-shadow_color[3]*shadow_alpha)<2e-6f);
+        }
+
         /* Photo film ENVP takes precedence without overwriting the borrowed course. */
         unsigned char snapshot[0x1000];
         memcpy(snapshot, raw + 0x10000, sizeof snapshot);

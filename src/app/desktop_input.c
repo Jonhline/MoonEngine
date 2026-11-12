@@ -15,6 +15,7 @@ void desktop_input_hints(menu *m, int enabled, const plat_key_event *ev)
 int desktop_input(menu *m, int enabled, plat_key_event *ev)
 {
 #ifndef __SWITCH__
+    plat_sdl_confine_mouse(enabled);
     if (ev->mouse && ev->mouse_absolute) {
         float x = -1, y = -1;
         int inside = video_window_to_ui(ev->mouse_x, ev->mouse_y, &x, &y);
@@ -39,6 +40,7 @@ int desktop_dialog_input(ui_project *ui, int enabled, ui_widget **items, int cou
 {
     *result = 0;
 #ifndef __SWITCH__
+    plat_sdl_confine_mouse(enabled);
     if (!ev->mouse) { ui_pointer(ui, 0, 0, 0); return -1; }
     if (!ev->mouse_absolute) return -1;
     float x=-1, y=-1;

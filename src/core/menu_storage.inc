@@ -15,16 +15,16 @@ static int nat_save_auto(ah_vm *vm, ah_obj *self, void *data, int argc, const ah
     (void)argc;
     (void)argv;
     menu *m = data;
-    gt4_save_capture(vm, game_object(m), gt4_save_dirty());
-    int ok =
-        !gt4_save_dirty() || !gt4_save_auto_enabled() || !gt4_save_active() || gt4_save_store();
+    int ok = gt4_save_capture(vm, game_object(m), gt4_save_dirty());
+    if (ok && gt4_save_dirty() && gt4_save_auto_enabled() && gt4_save_active())
+        ok = menu_save_store(m);
     *ret = ah_str(vm, ok ? "NO_ERROR" : "IO_ERROR");
     return 0;
 }
 /* PC storage adapters for the authored acquisition sequence. These replace
    PS2 device I/O, never the verified garage/money/calendar game rules. */
-/* P: local profile files replace PS2 card I/O for both Arcade garages
-   and Home Trade. The original callers consume [status, game]. */
+/* P: local profile files replace PS2 card I/O. Trade alone chooses another
+   player; ordinary garage/Arcade operations use the active profile. */
 void menu_set_photo_saver(menu *m, int (*fn)(void *), void *user)
 {
     if (m) {
@@ -46,7 +46,7 @@ static int nat_pc_file(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_v
     int index = (int)ah_num(slot);
     gt4_save_info info;
     if (op && !strcmp(op, "load")) {
-        int ok = gt4_save_load_slot(index);
+        int ok = menu_save_load(ah_user(vm), index);
         if (ok)
             menu_save_refresh(ah_user(vm));
         *ret = ah_str(vm, ok ? "OK" : "FILE_NOT_FOUND");
@@ -54,7 +54,7 @@ static int nat_pc_file(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_v
     }
     if (op && !strcmp(op, "saveNew")) {
         menu *m = ah_user(vm);
-        int ok = gt4_save_capture(vm, game_object(m), 1) && gt4_save_store();
+        int ok = gt4_save_capture(vm, game_object(m), 1) && menu_save_store(m);
         *ret = ah_str(vm, ok ? "OK" : "DEVICE_ERROR");
         return 0;
     }
@@ -99,16 +99,22 @@ static int nat_pc_check_profile(ah_vm *vm, ah_obj *self, void *data, int argc, c
 {
     menu *m = data;
     ah_obj *manager = argc > 2 ? ah_as_obj(argv[2], AO_MODULE) : NULL;
-    int slot = m->profile_picker ? m->profile_picker(m) : gt4_save_active();
+    /* memorycard.ad L167..172: omitted/zero slot is the active player's
+       card; GarageRoot L6749 uses it when selecting an already owned car.
+       GTmode Home Trade L4297 explicitly requests the other card (slot 1).
+       The PC user changes the active profile in Player Profiles separately. */
+    int external = !strcmp(m->project_label, "gtmode") &&
+                   argc > 3 && to_int(argv[3]) == 1;
+    int slot = external && m->profile_picker ? m->profile_picker(m) : gt4_save_active();
     gt4_save_info info;
-    if (slot <= 0 || gt4_save_info_get(slot, &info) <= 0) {
+    if (external && (slot <= 0 || gt4_save_info_get(slot, &info) <= 0)) {
         *ret = ah_nil();
         return 0;
     }
     if (!manager) {
         manager = ah_module_new(vm, "native_profile_manager", NULL, NULL, NULL);
-        ah_val mode = ah_str(vm, "MODE_LOAD_GAME");
-        nat_pc_manager(vm, manager, m, 1, &mode, ret);
+        ah_val mode[] = {ah_str(vm, "MODE_LOAD_GAME"), ah_int(external)};
+        nat_pc_manager(vm, manager, m, 2, mode, ret);
     }
     ah_val file = ah_nil();
     ah_get_member(vm, manager, "_file", &file);
@@ -644,6 +650,7 @@ static int nat_pc_manager(ah_vm *vm, ah_obj *self, void *data, int argc, const a
     {
         const char *mode = argc ? ah_cstr(argv[0]) : NULL;
         ah_set_member(vm, self, "_mode", ah_str(vm, mode ? mode : "MODE_OPERATION"));
+        ah_set_member(vm, self, "_source_slot", argc > 1 ? argv[1] : ah_int(0));
         ah_set_member(vm, self, "_directory", ah_str(vm, gt4_save_directory()));
         ah_set_member(vm, self, "_storage_kind",
                       ah_str(vm, mode && strstr(mode, "PHOTO") ? "photos"
@@ -703,4 +710,11 @@ static int nat_pc_change_car(ah_vm *vm, ah_obj *self, void *data, int argc, cons
         return -1;
     *ret = ah_str(vm, "OK");
     return 0;
+}
+
+/* Complete player imports may add lists at the same directory path. */
+void menu_storage_library_changed(void)
+{
+    playlist_read=0;
+    photo_playlist_read=0;
 }

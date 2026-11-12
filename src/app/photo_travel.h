@@ -19,6 +19,9 @@ int photo_travel_draw(void *user, const ui_widget *widget, float x, float y, flo
                       float opacity);
 struct race_view;
 int photo_travel_drive(photo_travel *, menu *, struct race_view *);
+void photo_travel_drive_collision(photo_travel *, void *ctx,
+    int (*ground)(void *, const float[3]),
+    int (*wall)(void *, float, const float[3], const float[3], float[3], int *));
 void photo_travel_drive_setup(photo_travel *, const float size[4], float distance);
 void photo_travel_drive_camera(photo_travel *, int delta);
 void photo_travel_drive_end(photo_travel *);

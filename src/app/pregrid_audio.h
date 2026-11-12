@@ -13,6 +13,7 @@ void pregrid_audio_update_gated(pregrid_audio *, const char *group, int raw_volu
 int pregrid_audio_playing(pregrid_audio *);
 int pregrid_audio_prepared(pregrid_audio *);
 /* sound.pauseStream: silence without moving the stream */
+void pregrid_audio_context(pregrid_audio *p,int context);
 void pregrid_audio_pause(pregrid_audio *, int paused);
 void pregrid_audio_close(pregrid_audio *);
 #endif

@@ -13,9 +13,14 @@ typedef struct race_game race_game;
 
 race_game *race_game_open(const char *disc);
 void race_game_close(race_game *g);
+/* race.field_size for the next menu race (default 6, validated 1..MOON_MAX_CARS). */
+void race_game_set_field_size(int field_size);
+/* Custom Modes: arm elimination on the run after the race is built. */
+void race_game_set_elimination(race_game *g, int on, int thunder);
+int race_game_elimination(const race_game *g);
 
 /* A race on `course` with the player's car (GENERIC_CAR label, paint) and
-   the other cars (labels and paints, colors may be NULL; up to 5). The physics is set up at once; the
+   the other cars (labels and paints, colors may be NULL; up to MOON_CONDUCTOR_CARS-1). The physics is set up at once; the
    models load on a thread (race_game_poll). 0 with msg on failure. */
 int race_game_start(race_game *g, const char *course, const char *car, int color,
                     const char *const *others, const int *colors, int nothers, char *msg,
@@ -48,6 +53,9 @@ void race_game_logger_analyze_end(race_game *g, int track, int ok);
 /* the last race to a replay file (its tape lent) and a file's race back as
    the last one, for race_game_replay */
 int race_game_replay_export(const race_game *g, gt4_replay_file *r, int kind);
+/* 1 with the user-facing reason when phantoms make the replay format unable
+   to carry this race; 0 when the race is replayable. */
+int race_game_replay_refusal(const race_game *g, char *msg, size_t len);
 /* The Time Trial's ghost kept for the session (its best lap, carried into
    the next start on the same course with the same car): whether there is
    one, it as a best-lap replay (lent), and a saved one taken in its place
@@ -176,9 +184,15 @@ int race_game_quick_grid(const race_game *g, menu_quick_race *grid);
 int race_game_quick_points(const race_game *g, menu_quick_race *grid, const int32_t points[6]);
 int race_game_quick_results(const race_game *g, menu_quick_race *grid);
 int race_game_event_position(const race_game *g);
+/* The merged place order (official and phantom ids) for prize/points. */
+int race_game_classification_order(const race_game *g, uint8_t *ids, int max);
 
 struct race_view;
 struct race_view *race_game_photo_view(race_game *);
+/* Original replay Select edge; release/ordinary driving never enters PhotoPause. */
+int race_game_photo_select(race_game *, int ps2key, int release);
 void race_game_photo_pause(race_game *, int on);
+int race_game_photo_ground(void *, const float[3]);
+int race_game_photo_wall(void *, float, const float[3], const float[3], float[3], int *);
 int race_game_photo_camera_data(race_game *, float size[4], float *distance);
 #endif

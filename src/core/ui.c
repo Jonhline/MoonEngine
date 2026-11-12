@@ -1,3 +1,4 @@
+#include "ui_pack.h"
 #include "platform/switch_profile.h"
 #include "ui.h"
 
@@ -54,7 +55,8 @@ struct ui_project {
     ui_project *touch_back_source;
     float touch_back_base_y;
     float touch_back_progress, touch_back_selection;
-    int smooth_pointer, pointer_ready, mouse_feedback, pointer_edge_direction;
+    int smooth_pointer, pointer_ready, mouse_feedback;
+    float pointer_edge_direction;
     float pointer_vx, pointer_vy, pointer_spin, pointer_affordance;
     char previous_cursor_icon[64];
     float cursor_icon_blend;
@@ -310,6 +312,11 @@ const mp_node *ui_project_tree(const ui_project *p)
 {
     return p->tree;
 }
+
+gt4_vol *ui_project_vol(const ui_project *p)
+{
+    return p ? p->vol : NULL;
+}
 int ui_root_count(const ui_project *p)
 {
     return p->nroots;
@@ -392,6 +399,22 @@ gt4_mot1 *ui_load_camera(ui_project *p, int root, const char *path)
     float look[9], fov;
     return motion && gt4_mot1_camera(motion, 0, look, &fov) ? motion : NULL;
 }
+uint8_t *ui_load_asset(ui_project *p, int root, const char *path, size_t *size)
+{
+    *size = 0;
+    if (!p || !path)
+        return NULL;
+    uint8_t *data = NULL;
+    for (int k = -1; k < p->nroots && !data; k++) {
+        ui_package *pk = package(p, k < 0 ? root : k);
+        if (pk->gpb)
+            data = gpb_load(pk->gpb, pk->gpb_size, path, size);
+    }
+    for (int i = 0; i < p->nextra && !data; i++)
+        data = gpb_load(p->extra[i].gpb, p->extra[i].gpb_size, path, size);
+    return data;
+}
+
 const uint8_t *ui_load_model_bytes(ui_project *p, int root, const char *path, size_t *size)
 {
     *size = 0;
@@ -904,8 +927,9 @@ static ui_widget *build(ui_project *p, int root, const mp_node *n, float pw, flo
         w->h = ph; /* assumption: no geometry = parent's area */
     }
     w->visible = mp_number(n, "visible", 1) != 0;
+    w->list_repeat = mp_number(n, "repeat", 0) != 0;
     /* P: local storage has no selectable console slot or card-status row. */
-    if (w->name && (!strcmp(w->name, "McSlot") || !strcmp(w->name, "Memorycard")))
+    if (w->name && !strcmp(w->name, "McSlot"))
         w->visible = 0;
     /* the PC layer (docs/EDITIONS.md): labomode's options have no card
        slot to choose; the row is left out and its pane closes up */
@@ -913,6 +937,7 @@ static ui_widget *build(ui_project *p, int root, const mp_node *n, float pw, flo
         !strcmp(w->type, "Composite"))
         w->visible = 0;
     w->insensitive = mp_number(n, "insensitive", 0) != 0;
+    w->list_drag_index = -1; /* 002AEEB0 / 002B5270: inactive drag index. */
     w->opacity = (float)mp_number(n, "opacity", 1.0);
     if (!strcmp(w->type, "ModelFace")) {
         double angles[3] = {0};
@@ -975,6 +1000,36 @@ ui_widget *ui_widget_from_text(ui_project *p, int root, const char *description)
     p->native_trees = trees;
     p->native_trees[p->native_count++] = tree;
     return build(p, root, tree, 640, 480);
+}
+
+ui_widget *ui_widget_from_project(ui_project *p, int root, const char *project,
+                                  const char *root_name)
+{
+    if (!p || root < 0 || root >= p->nroots || !project || !root_name || strchr(project, '/') ||
+        strchr(project, '\\') || strstr(project, ".."))
+        return NULL;
+    char path[256], error[128];
+    snprintf(path, sizeof path, "/projects/%s/%s.mproject", project, project);
+    size_t size = 0;
+    uint8_t *data = gt4_vol_read(p->vol, path, &size);
+    if (!data)
+        return NULL;
+    mp_node *tree = mp_parse((const char *)data, size, error, sizeof error);
+    free(data);
+    const mp_node *node = tree ? mp_find_named(tree, "RootWindow", root_name) : NULL;
+    snprintf(path, sizeof path, "/projects/%s", project);
+    if (!node || !ui_load_package(p, path, root_name)) {
+        mp_free(tree);
+        return NULL;
+    }
+    mp_node **trees = realloc(p->native_trees, (p->native_count + 1) * sizeof *trees);
+    if (!trees) {
+        mp_free(tree);
+        return NULL;
+    }
+    p->native_trees = trees;
+    p->native_trees[p->native_count++] = tree;
+    return build(p, root, node, 640, 480);
 }
 
 ui_widget *ui_root_widget(ui_project *p, int i)
@@ -2409,9 +2464,6 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
             return;
         }
     }
-    /* Console card-slot status has no device counterpart in the PC UI. */
-    if (w->name && !strcmp(w->name, "Memorycard"))
-        return;
     const mp_node *n = w->src;
     if (w->parent && w->parent->parent &&
         (!strcmp(w->parent->parent->type, "ListBox") ||
@@ -2537,6 +2589,19 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
     ((ui_widget *)w)->drawn_tick = p->draw_tick;
     int root = w->resource_root;
     frame f = {parent.x + w->x, parent.y + w->y, w->w, w->h, parent.alpha * w->opacity};
+    if (!strcmp(p->name,"setting") && !w->has_geometry &&
+        (!strcmp(w->type,"ColorFace") || !strcmp(w->type,"ImageFace"))) {
+        f.w=parent.w;f.h=parent.h;
+    }
+
+    /* The retained option entry uses the owner's width, including its
+       authored background's one-unit overhang (002C8198 -> 00263368). */
+    if (!strcmp(p->name,"setting") && !strcmp(w->type,"ColorFace") && w->parent &&
+        w->name && (!strcmp(w->name,"bgf") || !strcmp(w->name,"bgi"))) {
+        double geometry[4];
+        if (mp_numbers(w->parent->src,"geometry",geometry,4)==4)
+            f.w+=parent.w-(float)geometry[2];
+    }
 
     /* P: initial client bounds, then include actual painted face extents. */
     pointer_bounds((ui_widget *)w,f,clip);
@@ -2788,8 +2853,16 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
                bar image across (ConfirmDialog's caution is already 43x40). */
             if (!strcmp(p->name, "cursor"))
                 client_size = 1;
+            /* Setting's OptionMenu backgrounds inherit its 180x24 client,
+               not the 155x24 source image (002A2608 +7C..C0). */
+            if (!strcmp(p->name,"setting"))
+                client_size = 1;
             float iw = client_size ? f.w : (float)(im ? im->w : 0);
             float ih = client_size ? f.h : (float)(im ? im->h : 0);
+            if (!strcmp(p->name,"setting") && (!w->has_geometry ||
+                (w->image_path && strstr(w->image_path,"popup_item")))) {
+                iw=parent.w;ih=parent.h;
+            }
             /* The manufacturer sidebar fills Nation's authored height,
                including the next-flag preview under the footer gradient. */
             if (!w->has_geometry && w->name && !strcmp(w->name, "bg0") && w->parent &&
@@ -3013,7 +3086,10 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
             base.y -= item->y;
             const ui_widget *previous = p->option_value;
             p->option_value = w;
+            float item_width=((ui_widget *)item)->w;
+            if (!strcmp(p->name,"setting")) ((ui_widget *)item)->w=f.w;
             draw_widget(p, item, base, inner, drawn, skipped);
+            ((ui_widget *)item)->w=item_width;
             p->option_value = previous;
         }
         set_clip(clip);
@@ -3154,13 +3230,37 @@ static void draw_widget(ui_project *p, const ui_widget *w, frame parent, clip_re
     }
     /* P: a button's full visible frame/label is clickable, not only its
        smaller authored client rectangle. Descendant bounds are clipped. */
-    if (is_container(type))
+    /* A scrolling viewport is fixed: including its translated space would
+       move the mouse edge zones with the content and strand the left edge. */
+    int scroll_clip = w->name && !strcmp(w->name,"clip") && ui_widget_child(w,"space");
+    if (is_container(type) && !scroll_clip)
         for (int i=0;i<w->nkids;i++)
             if (w->kids[i]->drawn_tick == p->draw_tick)
                 pointer_include((ui_widget *)w,w->kids[i]);
     if (f.alpha > 0 && w->focused && strcmp(type, "RootWindow") && strcmp(type, "ListBox") &&
         strcmp(type, "SelectBox") && (!w->parent || strcmp(w->parent->type, "SelectBox"))) {
         cursor_target(p, w, f.x, f.y, f.w, f.h);
+    }
+    /* A scrolling list can mark itself on the left edge: a thin track and a
+       thumb sized by the visible fraction. Nothing draws when it all fits. */
+    if (w->scroll_indicator && w->name && !strcmp(w->name, "clip")) {
+        ui_widget *space = ui_widget_child(w, "space");
+        if (space && space->h > w->h && f.h > 8) {
+            const float x = f.x + 1, top = f.y + 3, track = f.h - 6;
+            float thumb = track * w->h / space->h;
+            float travel = space->h - w->h, offset = -space->y;
+            if (thumb < 3)
+                thumb = 3;
+            if (offset < 0)
+                offset = 0;
+            if (offset > travel)
+                offset = travel;
+            float at = top + (track - thumb) * (travel > 0 ? offset / travel : 0);
+            const uint8_t track_col[4] = {255, 255, 255, (uint8_t)(26 * f.alpha)},
+                          thumb_col[4] = {255, 255, 255, (uint8_t)(130 * f.alpha)};
+            plat_draw_quad(NULL, x, top, 2, track, 0, 0, 1, 1, track_col);
+            plat_draw_quad(NULL, x, at, 2, thumb, 0, 0, 1, 1, thumb_col);
+        }
     }
     if (clips)
         set_clip(clip);
@@ -3306,6 +3406,57 @@ static void allocate_fbox(ui_project *p, ui_widget *w)
             ui_text_wrap(p, c, width);
     }
 }
+/* 002E99E0: pack_reverse belongs to each child and consumes the far edge.
+   Faces remain overlays; only visible packing children consume slots. */
+static void allocate_linear(ui_widget *w, int vertical)
+{
+    const char *main_expand = vertical ? "pack_expand_y" : "pack_expand_x";
+    const char *main_fill = vertical ? "pack_fill_y" : "pack_fill_x";
+    const char *cross_expand = vertical ? "pack_expand_x" : "pack_expand_y";
+    const char *cross_fill = vertical ? "pack_fill_x" : "pack_fill_y";
+    float front = (float)mp_number(w->src, vertical ? "pad_top" : "pad_left", 0);
+    float back = (float)mp_number(w->src, vertical ? "pad_bottom" : "pad_right", 0);
+    float cross = (float)mp_number(w->src, vertical ? "pad_left" : "pad_top", 0);
+    float cross_end = (float)mp_number(w->src, vertical ? "pad_right" : "pad_bottom", 0);
+    float gap = (float)mp_number(w->src, "spacing", 0), requested = front + back;
+    int count = 0, expanded = 0;
+    for (int i = 0; i < w->nkids; i++) {
+        ui_widget *c = w->kids[i];
+        if (!c->visible || !mp_number(c->src, "packing", 0) || is_face(c))
+            continue;
+        requested += vertical ? c->h : c->w;
+        expanded += mp_number(c->src, main_expand, 0) != 0;
+        count++;
+    }
+    if (count > 1)
+        requested += gap * (count - 1);
+    else
+        gap = 0;
+    float size = vertical ? w->h : w->w;
+    ui_pack_cursor cursor = {front,
+                             size - back,
+                             cross,
+                             (vertical ? w->w : w->h) - (cross + cross_end),
+                             expanded ? (size - requested) / expanded : 0,
+                             gap};
+    for (int i = 0; i < w->nkids; i++) {
+        ui_widget *c = w->kids[i];
+        if (!c->visible || !mp_number(c->src, "packing", 0) || is_face(c))
+            continue;
+        ui_pack_item item = {vertical ? c->h : c->w,
+                             vertical ? c->w : c->h,
+                             mp_number(c->src, main_expand, 0) != 0,
+                             mp_number(c->src, main_fill, 0) != 0,
+                             mp_number(c->src, cross_expand, 0) != 0,
+                             mp_number(c->src, cross_fill, 0) != 0,
+                             mp_number(c->src, "pack_reverse", 0) != 0};
+        ui_pack_rect r = ui_pack_next(&cursor, item);
+        c->x = vertical ? r.cross : r.main;
+        c->y = vertical ? r.main : r.cross;
+        c->w = vertical ? r.cross_size : r.main_size;
+        c->h = vertical ? r.main_size : r.cross_size;
+    }
+}
 static void layout_packed(ui_project *p, ui_widget *w)
 {
     for (int i = 0; i < w->nkids; i++)
@@ -3340,6 +3491,11 @@ static void layout_packed(ui_project *p, ui_widget *w)
                 mp_numbers(c->src, "geometry", g, 4) == 4)
                 c->h = fmaxf(0, (float)(g[3] + w->h - authored[3]));
         }
+        allocate_linear(w, 1);
+        return;
+    }
+    if (!strcmp(w->type, "HBox") && mp_number(w->src, "packing", 0)) {
+        allocate_linear(w, 0);
         return;
     }
     if (!strcmp(w->type, "MBox") && mp_number(w->src, "packing", 0)) {
@@ -3460,7 +3616,10 @@ void ui_draw_root(ui_project *p, int i, int *drawn, int *skipped)
                with each item's own state mask, texture and RGBA. */
             frame base = {x - item->x, y + j * row - item->y, option->w, row,
                           p->option_alpha * (item->insensitive ? .4f : 1)};
+            float item_width=item->w;
+            if (!strcmp(p->name,"setting")) item->w=option->w;
             draw_widget(p, item, base, popup_clip, &d, &s);
+            item->w=item_width;
         }
         plat_set_clip(0, 0, 0, 0);
         cursor_target(p, option, x, y + (selected_index - start) * row, option->w, row);
@@ -3525,7 +3684,13 @@ void ui_draw_root(ui_project *p, int i, int *drawn, int *skipped)
         }
         p->cursor_started = p->cursor_visible = 1;
     }
-    if (!p->touch_cursor_hidden && (!p->cursor_hidden || p->pointer_active) &&
+    /* 002DF738 +4c -> 002306D0(context,0): opening a popup slider
+       hides the context arrow; 002DF7B0 +6c restores it when closing.
+       Its authored pinch hand remains visible inside the adjustment. */
+    const ui_widget *adjusting = p->cursor_selected;
+    int controller_adjustment = !p->pointer_active && adjusting && adjusting->option_open &&
+        (!strcmp(adjusting->type,"SliderBar") || !strcmp(adjusting->type,"ScaleBar"));
+    if (!controller_adjustment && !p->touch_cursor_hidden && (!p->cursor_hidden || p->pointer_active) &&
         (p->cursor_visible || cursor_in_transition)) {
         ui_load_package(p, "/projects/cursor", "CursorRoot");
         char cursor_path[96];
@@ -4144,6 +4309,16 @@ static int pointer_scroll_widget(ui_project *p, ui_widget *w, float x, float y, 
         space->scroll_set=1;
         return 1;
     }
+    /* P: authored two-row grids (Driving Missions) extend the ScrollWindow
+       horizontally. A wheel must move that space too, without changing focus. */
+    if (space && space->w > clip->w && ui_pointer_contains(p, clip, x, y)) {
+        float old = space->scroll_set ? space->scroll_tx : space->x;
+        space->scroll_tx = fminf(0, fmaxf(clip->w - space->w, old + wheel * clip->w * .12f));
+        if (!space->scroll_set)
+            space->scroll_ty = space->y;
+        space->scroll_set = 1;
+        return 1;
+    }
     if(horizontal_strip(w) && w->nkids && ui_pointer_contains(p,w,x,y)) {
         float total=strip_length(w);
         if(total<=w->w) return 0;
@@ -4237,11 +4412,10 @@ static int pointer_edge_widget(ui_project *p,ui_widget *w,float x,float y,float 
     if(!w || !w->visible || w->insensitive) return 0;
     for(int i=w->nkids-1;i>=0;i--)
         if(pointer_edge_widget(p,w->kids[i],x,y,seconds)) return 1;
-    /* P: MakerRoot/HistoryRoot use clip > space rather than a horizontal
-       list. Pan the viewport continuously, leaving authored focus alone. */
-    if(!strcmp(p->name,"arcade") && w->name && !strcmp(w->name,"clip") &&
-       (!strcmp(ui_root_name(p,w->root),"MakerRoot") ||
-        !strcmp(ui_root_name(p,w->root),"HistoryRoot"))) {
+    /* P: horizontal grids also use clip > space (Driving Missions, makers).
+       The GT Mode map retains its separate Map Edge Pan setting. */
+    if(w->name && !strcmp(w->name,"clip") &&
+       !(!strcmp(p->name,"gtmode") && !strcmp(ui_root_name(p,w->root),"TopRoot"))) {
         ui_widget *space=ui_widget_child(w,"space");
         if(space && space->w>w->w && ui_pointer_contains(p,w,x,y)) {
             float width=w->w,local=x-w->pointer_rect[0],edge=width*.1f;
@@ -4280,9 +4454,25 @@ void ui_pointer_edge_scroll(ui_project *p,int root,float seconds)
     if(p && p->pointer_active && seconds>0)
         pointer_edge_widget(p,ui_root_widget(p,root),p->pointer_x,p->pointer_y,seconds);
 }
+void ui_pointer_pan_direction(ui_project *p, float dx, float dy)
+{
+    if (!p) return;
+    p->pointer_edge_direction = dx || dy ? atan2f(dx, -dy) * (2.f / 3.14159265358979323846f) : 0;
+    /* Zero means no edge feedback; a full turn also points up. */
+    if ((dx || dy) && p->pointer_edge_direction == 0) p->pointer_edge_direction = 4;
+}
 void ui_pointer_scroll_clear(ui_project *p)
 {
-    if(p) for(int i=0;i<p->nall;i++) p->all[i]->desktop_scrolled=0;
+    if(p) for(int i=0;i<p->nall;i++) {
+        ui_widget *w=p->all[i];
+        if(w->desktop_scrolled) {
+            /* Controller navigation starts at its selected row, not at the
+               mouse's unrelated offset while the strip eases back on screen. */
+            w->strip_ready=0;
+            w->strip_ticks=0;
+        }
+        w->desktop_scrolled=0;
+    }
 }
 void ui_pointer_hover(ui_project *p, const ui_widget *widget)
 {

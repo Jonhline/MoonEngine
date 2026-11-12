@@ -1,5 +1,6 @@
 /* PC launcher ownership of the existing native GTSE/SQT decoders. */
 #include "launcher_audio.h"
+#include "music_override.h"
 #include "music.h"
 #include "sound.h"
 #include "vol.h"
@@ -13,7 +14,7 @@ struct launcher_audio {
     char *disc;
     SDL_Thread *thread;
     SDL_AudioDeviceID device;
-    SDL_atomic_t ready, stop, available;
+    SDL_atomic_t ready, stop, available, suspended;
     gt4_music *music;
     /* P: the launcher shuffles the game's menu music. The worker prepares the next track
        whole while one plays; the callback swaps at the end and hands the old one back. */
@@ -154,6 +155,8 @@ void launcher_audio_render(launcher_audio *a, int16_t *out, int frames)
 {
     memset(out, 0, (size_t)frames * 4);
     if (!a || !SDL_AtomicGet(&a->ready)) return;
+    if(!SDL_AtomicGet(&a->suspended)) {
+    if(!moon_music_override_render(4,out,frames,a->music_volume*128/120,0)) {
     gt4_music_render_available(out, frames, a->music, (unsigned)SDL_AtomicGet(&a->available));
     /* P: the next track comes in over the last three seconds of this one (a crossfade);
        the current one keeps playing through its loop point while it fades. Its length is
@@ -198,6 +201,8 @@ void launcher_audio_render(launcher_audio *a, int16_t *out, int frames)
         }
     }
     for (int i = 0; i < frames * 2; i++) out[i] = (int16_t)((int)out[i] * a->music_volume / 120);
+    } /* Original music or custom music, then the same menu effects. */
+    }
     for (int k = 0; k < 8; k++) {
         voice *v = &a->voices[k];
         if (!v->active) continue;
@@ -209,6 +214,10 @@ void launcher_audio_render(launcher_audio *a, int16_t *out, int frames)
         v->position += take;
         if (v->position == e->frames) v->active = 0;
     }
+}
+void launcher_audio_suspend_music(launcher_audio *a, int suspended)
+{
+    if (a) SDL_AtomicSet(&a->suspended, !!suspended);
 }
 static void callback(void *user, Uint8 *stream, int bytes)
 {

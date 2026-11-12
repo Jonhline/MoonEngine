@@ -64,6 +64,7 @@ unsigned gl_program_count(void);
     X(PFNGLUNIFORM3FPROC, glUniform3f)                                                             \
     X(PFNGLUNIFORM2FVPROC, glUniform2fv)                                                           \
     X(PFNGLUNIFORM3FVPROC, glUniform3fv)                                                           \
+    X(PFNGLUNIFORM4FVPROC, glUniform4fv)                                                         \
     X(PFNGLUNIFORM4FPROC, glUniform4f)                                                             \
     X(PFNGLUNIFORM4IPROC, glUniform4i)                                                             \
     X(PFNGLUNIFORM4UIPROC, glUniform4ui)                                                           \
@@ -133,6 +134,10 @@ void moon_gl_state_active_texture(GLenum unit);
 #endif
 #endif
 
+/* GL 4.2 / ARB_shader_image_load_store. Optional: the desktop path may be a
+   3.3 core context, so a NULL pointer is a no-op at call sites. */
+typedef void (APIENTRY *moon_glMemoryBarrierProc)(GLbitfield);
+extern moon_glMemoryBarrierProc moon_glMemoryBarrier;
 /* Loads the entry points for the current context. 0 if any is missing. */
 int gl_load(void);
 /* Reversed depth (OpenGL 4.5 / ARB_clip_control): far 0, near 1 in a float

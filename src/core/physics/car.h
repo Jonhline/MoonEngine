@@ -503,7 +503,11 @@ void gt4_pit_tyres(uint32_t cond, const gt4_specdb_src *db);                  /*
 int gt4_tyre_byte(const gt4_specdb_src *db, uint32_t gar, uint32_t off,
                   uint32_t at); /* func_004462E0 / func_00446320 */
 void gt4_race_init(uint32_t cond, uint32_t mode, const gt4_specdb_src *db,
-                   uint32_t scratch); /* func_0034D490 */
+                   uint32_t scratch);
+/* One more car in a conductor (the phantom conductor): the same per-car setup
+   gt4_race_init uses, for an entry outside the guest table. */
+void gt4_race_init_extra_car(uint32_t cond, uint32_t race, uint32_t i, uint32_t entry,
+                             uint32_t car, const gt4_specdb_src *db, uint32_t scratch); /* func_0034D490 */
 void gt4_car_record_rows(const gt4_specdb_src *db, uint32_t gar,
                          uint32_t rec); /* func_004413C8 (no clear) */
 /* func_00354FF8: gear ratios x1000 at out for a top speed (km/h); buf: 0x18 bytes of guest memory */
@@ -582,6 +586,7 @@ void gt4_drive_settings(uint32_t cond);                            /* func_00347
    cars) for the tables rewritten (Time Trial, Arcade race); 0 for others */
 int gt4_session_start(uint32_t cond, uint32_t a1);
 int gt4_session_after_cars(uint32_t cond, const gt4_specdb_src *db);
+int gt4_position_order_cross(uint32_t cond_a, uint32_t a, uint32_t cond_b, uint32_t b);
 /* func_00361908 (buf: 0x20 bytes of guest memory) */
 void gt4_car_params(uint32_t params, uint32_t rec, int32_t mode, uint32_t kind, uint32_t race,
                     uint32_t entry, uint32_t buf);

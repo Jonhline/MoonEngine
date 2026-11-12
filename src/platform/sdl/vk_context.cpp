@@ -1,3 +1,4 @@
+#include "vk_blit_clip.h"
 #include "vk_internal.hpp"
 #include "vk_render.h"
 #include "vk_surface.h"
@@ -8,6 +9,14 @@
 
 namespace moon {
 static std::unique_ptr<Context> active;
+Context::~Context()
+{
+    /* Preview/command-line paths can return without explicit video shutdown.
+       Image deleters consult target_cache: release GPU owners while every
+       Context member is still alive, before reverse-order member destruction. */
+    if (instance)
+        close();
+}
 Context &context()
 {
     return *active;
@@ -86,6 +95,7 @@ const Buffer *Context::vertex_buffer(unsigned id)
     for (size_t start = 0; start < bytes;) {
         size_t count = std::min(bytes - start, (size_t)arena.size);
         size_t offset = reserve(count, 4);
+        statistics.update_buffer++;
         auto *destination = (uint8_t *)arena.mapped + offset;
         size_t used = std::min(count, source.size() - start);
         memcpy(destination, source.data() + start, used);
@@ -157,7 +167,7 @@ std::shared_ptr<Image> Context::image(int w, int h, VkFormat format, int levels)
     info.samples = VK_SAMPLE_COUNT_1_BIT;
     info.tiling = VK_IMAGE_TILING_OPTIMAL;
     info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                 (depth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+                 (depth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
                         : VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
     check(vkCreateImage(device, &info, nullptr, &im->handle), "vkCreateImage");
     VkMemoryRequirements requirements;
@@ -172,8 +182,9 @@ std::shared_ptr<Image> Context::image(int w, int h, VkFormat format, int levels)
     view.image = im->handle;
     view.viewType = VK_IMAGE_VIEW_TYPE_2D;
     view.format = format;
-    view.subresourceRange = {im->aspect, 0, (uint32_t)levels, 0, 1};
+    view.subresourceRange = {depth ? VK_IMAGE_ASPECT_DEPTH_BIT : im->aspect, 0, (uint32_t)levels, 0, 1};
     check(vkCreateImageView(device, &view, nullptr, &im->view), "vkCreateImageView");
+    view.subresourceRange.aspectMask=im->aspect;
     view.subresourceRange.levelCount = 1;
     check(vkCreateImageView(device, &view, nullptr, &im->attachment),
           "vkCreateImageView attachment");
@@ -196,6 +207,21 @@ void Context::begin()
         vkCmdResetQueryPool(command, queries, 0, 2);
         vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, queries, 0);
     }
+    if (pass_queries) {
+        vkCmdResetQueryPool(command, pass_queries, 0, 4096);
+        pass_labels.clear();
+        pass_draws.clear();
+        pass_mark("start");
+    }
+}
+void Context::pass_mark(const std::string &label)
+{
+    if (!pass_queries || !recording || pass_labels.size() >= 4095)
+        return;
+    vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, pass_queries,
+                        (uint32_t)pass_labels.size());
+    pass_labels.push_back(label);
+    pass_draws.push_back(0);
 }
 void Context::flush()
 {
@@ -230,6 +256,103 @@ void Context::reset_submission()
             statistics.gpu_samples++;
         }
     }
+    if (pending && pass_queries && pass_labels.size() >= 2) {
+        std::vector<uint64_t> values(pass_labels.size());
+        if (vkGetQueryPoolResults(device, pass_queries, 0, (uint32_t)values.size(),
+                                  values.size() * 8, values.data(), 8,
+                                  VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
+            uint64_t mask = timestamp_bits == 64 ? UINT64_MAX : ((1ull << timestamp_bits) - 1);
+            for (size_t i = 0; i + 1 < values.size(); i++) {
+                auto &t = pass_totals[pass_labels[i]];
+                t.first += ((values[i + 1] - values[i]) & mask) *
+                           (double)properties.limits.timestampPeriod;
+                t.second += pass_draws[i];
+                if (pass_frames == 100 && getenv("MOON_VK_PROFILE_ORDER"))
+                    fprintf(stderr, "pass order: %8.3f ms %5u draws  %s\n",
+                            ((values[i + 1] - values[i]) & mask) *
+                                (double)properties.limits.timestampPeriod / 1e6,
+                            pass_draws[i], pass_labels[i].c_str());
+            }
+            pass_frames++;
+            if (getenv("MOON_GPU_PROFILE") && pass_frames % 30 == 0) {
+                auto sum = [&](const char *name, uint64_t *draws) {
+                    auto it = pass_totals.find(name);
+                    if (it == pass_totals.end()) { if (draws) *draws = 0; return 0.0; }
+                    if (draws) *draws = it->second.second;
+                    return it->second.first / 1e6;
+                };
+                uint64_t ds = 0, dt = 0, dc = 0, du = 0;
+                double shadow = sum("shadow", &ds), track = sum("track", &dt),
+                       car = sum("car", &dc), ui = sum("ui", &du),
+                       post = sum("post", nullptr), blit = sum("blit", nullptr);
+                double total = shadow + track + car + ui + post + blit;
+                uint64_t total_draws = statistics.draw_track + statistics.draw_car +
+                                       statistics.draw_shadow + statistics.draw_ui +
+                                       statistics.draw_other;
+                fprintf(stderr,
+                        "gpu: shadow=%.3f track=%.3f car=%.3f ui=%.3f post=%.3f blit=%.3f "
+                        "total=%.3f | draws track=%llu car=%llu shadow=%llu ui=%llu other=%llu "
+                        "total=%llu cpu_draw=%.3f cpu_per_draw=%.4f\n",
+                        shadow, track, car, ui, post, blit, total,
+                        (unsigned long long)statistics.draw_track,
+                        (unsigned long long)statistics.draw_car,
+                        (unsigned long long)statistics.draw_shadow,
+                        (unsigned long long)statistics.draw_ui,
+                        (unsigned long long)statistics.draw_other,
+                        (unsigned long long)total_draws,
+                        statistics.cpu_draw_frame_ns / 1e6,
+                        total_draws ? statistics.cpu_draw_frame_ns / 1e6 / total_draws : 0.0);
+                fprintf(stderr, "gpu programs:");
+                for (int pi = 0; pi < 64; pi++)
+                    if (statistics.program_draws[pi])
+                        fprintf(stderr, " p%d=%llu[t=%llu c=%llu s=%llu u=%llu o=%llu]", pi,
+                                (unsigned long long)statistics.program_draws[pi],
+                                (unsigned long long)statistics.program_source[pi][1],
+                                (unsigned long long)statistics.program_source[pi][2],
+                                (unsigned long long)statistics.program_source[pi][3],
+                                (unsigned long long)statistics.program_source[pi][4],
+                                (unsigned long long)statistics.program_source[pi][0]);
+                fprintf(stderr, "\n");
+                memset(statistics.program_draws, 0, sizeof statistics.program_draws);
+                memset(statistics.program_source, 0, sizeof statistics.program_source);
+                statistics.draw_track = statistics.draw_car = statistics.draw_shadow =
+                    statistics.draw_ui = statistics.draw_other = 0;
+                pass_totals.clear();
+                pass_frames = 0;
+            }
+        }
+        pass_labels.clear();
+        pass_draws.clear();
+    }
+    if (profile_draws) {
+        uint64_t total_cpu = statistics.cpu_prepare_ns + statistics.cpu_descriptors_ns +
+                             statistics.cpu_pipeline_ns + statistics.cpu_commands_ns;
+        statistics.cpu_draw_frame_ns = total_cpu - cpu_draw_prev_ns;
+        cpu_draw_prev_ns = total_cpu;
+    }
+    static unsigned vk_count_frame;
+    if (getenv("MOON_VK_COUNTS") && ++vk_count_frame % 60 == 0) {
+        fprintf(stderr,
+                "vk calls: bindPipeline=%llu bindDescriptors=%llu bindVertices=%llu "
+                "setViewport=%llu setScissor=%llu pushConstants=%llu draw=%llu "
+                "barrier=%llu pipelineBarrier=%llu batches=%llu cpu_draw=%.3fms\n",
+                (unsigned long long)statistics.vk_bind_pipeline,
+                (unsigned long long)statistics.vk_bind_descriptors,
+                (unsigned long long)statistics.vk_bind_vertices,
+                (unsigned long long)statistics.vk_set_viewport,
+                (unsigned long long)statistics.vk_set_scissor,
+                (unsigned long long)statistics.vk_push_constants,
+                (unsigned long long)statistics.vk_draw,
+                (unsigned long long)statistics.vk_barrier,
+                (unsigned long long)statistics.vk_pipeline_barrier,
+                (unsigned long long)statistics.batch_draws,
+                statistics.cpu_draw_frame_ns / 1e6);
+        statistics.vk_bind_pipeline = statistics.vk_bind_descriptors = statistics.vk_bind_vertices = 0;
+        statistics.vk_set_viewport = statistics.vk_set_scissor = statistics.vk_push_constants = 0;
+        statistics.vk_draw = statistics.vk_barrier = statistics.vk_pipeline_barrier = 0;
+        statistics.batch_draws = 0;
+        last_batch_pipeline = last_batch_set = 0;
+    }
     pending = timing_written = false;
     check(vkResetFences(device, 1, &fence), "vkResetFences");
     check(vkResetCommandPool(device, pool, 0), "vkResetCommandPool");
@@ -247,6 +370,7 @@ void Context::reset_submission()
     default_vertex_offset = SIZE_MAX;
     descriptor_count = 0;
     draw_sets.clear();
+    last_set = VK_NULL_HANDLE;
     recording = false;
 }
 static VkPipelineStageFlags layout_stage(VkImageLayout layout)
@@ -298,8 +422,10 @@ void Context::barrier()
     VkMemoryBarrier memory{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     memory.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
     memory.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+    statistics.vk_pipeline_barrier++;
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                          VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &memory, 0, nullptr, 0, nullptr);
+    statistics.barriers++;
 }
 void Context::transition(Image &im, VkImageLayout layout)
 {
@@ -314,8 +440,10 @@ void Context::transition(Image &im, VkImageLayout layout)
     barrier.subresourceRange = {im.aspect, 0, (uint32_t)im.levels, 0, 1};
     barrier.srcAccessMask = layout_access(im.layout);
     barrier.dstAccessMask = layout_access(layout);
+    statistics.vk_pipeline_barrier++;
     vkCmdPipelineBarrier(command, layout_stage(im.layout), layout_stage(layout), 0, 0, nullptr, 0,
                          nullptr, 1, &barrier);
+    statistics.barriers++;
     im.layout = layout;
 }
 void Context::end_pass()
@@ -358,8 +486,9 @@ Image *Context::color(unsigned fb)
 }
 Image *Context::depth(unsigned fb)
 {
-    auto found = renderbuffers.find(framebuffers[fb].depth);
-    return found == renderbuffers.end() ? nullptr : found->second.get();
+    auto &images=framebuffers[fb].depth_texture?textures:renderbuffers;
+    auto found = images.find(framebuffers[fb].depth);
+    return found == images.end() ? nullptr : found->second.get();
 }
 void Context::upload(Image &im, int level, int x, int y, int w, int h, GLenum format,
                      const void *pixels)
@@ -368,6 +497,7 @@ void Context::upload(Image &im, int level, int x, int y, int w, int h, GLenum fo
         return;
     int channels = format == GL_RGB ? 3 : format == GL_RED ? 1 : 4;
     size_t offset = reserve((size_t)w * h * 4, 4);
+    statistics.update_buffer++;
     auto *out = (uint8_t *)arena.mapped + offset;
     size_t stride = ((size_t)w * channels + state.unpack_alignment - 1) / state.unpack_alignment *
                     state.unpack_alignment;
@@ -417,6 +547,7 @@ void Context::read(Image &im, int x, int y, int w, int h, GLenum format, void *p
     VkMemoryBarrier host{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     host.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     host.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    statistics.barriers++;
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1,
                          &host, 0, nullptr, 0, nullptr);
     flush();
@@ -441,7 +572,13 @@ void Context::read(Image &im, int x, int y, int w, int h, GLenum format, void *p
 void Context::blit(Image &src, Image &dst, int sx0, int sy0, int sx1, int sy1, int dx0, int dy0,
                    int dx1, int dy1, bool linear, bool is_depth)
 {
+    if (!moon_vk_clip_axis(sx0,sx1,src.width,dx0,dx1,dst.width) ||
+        !moon_vk_clip_axis(sy0,sy1,src.height,dy0,dy1,dst.height)) return;
     barrier();
+    if (pass_queries)
+        pass_mark("blit " + std::to_string(src.width) + "x" + std::to_string(src.height) + " f" +
+                  std::to_string(src.format) + " -> " + std::to_string(dst.width) + "x" +
+                  std::to_string(dst.height));
     VkImageBlit region{};
     VkImageAspectFlags aspect = is_depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
     region.srcSubresource = {aspect, 0, 0, 1};
@@ -471,6 +608,7 @@ bool Context::recreate_surface()
         return false;
     if (device) {
         drain();
+        statistics.queue_waits++;
         VkResult idle = vkDeviceWaitIdle(device);
         if (idle != VK_SUCCESS) {
             if (!surface_error_reported)
@@ -507,6 +645,17 @@ bool Context::recreate_surface()
     return true;
 }
 
+static const char *present_mode_name(VkPresentModeKHR mode)
+{
+    switch (mode) {
+    case VK_PRESENT_MODE_MAILBOX_KHR: return "MAILBOX";
+    case VK_PRESENT_MODE_IMMEDIATE_KHR: return "IMMEDIATE";
+    case VK_PRESENT_MODE_FIFO_RELAXED_KHR: return "FIFO_RELAXED";
+    case VK_PRESENT_MODE_FIFO_KHR: return "FIFO";
+    default: return "UNKNOWN";
+    }
+}
+
 bool Context::resize_swapchain()
 {
     if (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED)
@@ -522,6 +671,7 @@ bool Context::resize_swapchain()
     if (surface_lost && !recreate_surface())
         return false;
     drain();
+    statistics.queue_waits++;
     VkResult result = vkDeviceWaitIdle(device);
     if (result != VK_SUCCESS) {
         if (!surface_error_reported)
@@ -638,6 +788,8 @@ bool Context::resize_swapchain()
         return false;
     }
     check(result, "vkCreateSwapchainKHR");
+    fprintf(stderr, "render: swapchain present mode=%s vsync=%d\n", present_mode_name(mode),
+            vsync ? 1 : 0);
     if (swapchain)
         vkDestroySwapchainKHR(device, swapchain, nullptr);
     swapchain = replacement;
@@ -648,6 +800,7 @@ bool Context::resize_swapchain()
     swap_images.resize(count);
     check(vkGetSwapchainImagesKHR(device, swapchain, &count, swap_images.data()),
           "swapchain images");
+    fprintf(stderr, "render: swapchain images=%u min=%u\n", count, info.minImageCount);
     present_ready.resize(count, VK_NULL_HANDLE);
     VkSemaphoreCreateInfo semaphore_info{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     for (auto &semaphore : present_ready)
@@ -692,6 +845,7 @@ void Context::present()
     image_barrier.image = swap_images[index];
     image_barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     image_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    statistics.barriers++;
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                          0, 0, nullptr, 0, nullptr, 1, &image_barrier);
     transition(*source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -708,6 +862,7 @@ void Context::present()
     image_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
     image_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     image_barrier.dstAccessMask = 0;
+    statistics.barriers++;
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
                          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1,
                          &image_barrier);
@@ -722,7 +877,10 @@ void Context::present()
     submit.pCommandBuffers = &command;
     submit.signalSemaphoreCount = 1;
     submit.pSignalSemaphores = &present_ready[index];
+    uint64_t submit_start = SDL_GetPerformanceCounter();
     check(vkQueueSubmit(queue, 1, &submit, fence), "vkQueueSubmit present");
+    statistics.last_submit_ns = (SDL_GetPerformanceCounter() - submit_start) * 1000000000ull /
+                                SDL_GetPerformanceFrequency();
     statistics.submissions++;
     pending = true;
     recording = false;
@@ -732,7 +890,10 @@ void Context::present()
     info.swapchainCount = 1;
     info.pSwapchains = &swapchain;
     info.pImageIndices = &index;
+    uint64_t present_start = SDL_GetPerformanceCounter();
     result = vkQueuePresentKHR(queue, &info);
+    statistics.last_present_ns = (SDL_GetPerformanceCounter() - present_start) * 1000000000ull /
+                                 SDL_GetPerformanceFrequency();
     if (result == VK_ERROR_SURFACE_LOST_KHR) {
         /* The frame reached a surface Android already took away. Rebuild it
            now so the next frame has somewhere to go; never throw here. */
@@ -753,6 +914,7 @@ void Context::present()
 void Context::close()
 {
     if (device) {
+        statistics.queue_waits++;
         vkDeviceWaitIdle(device);
         save_pipeline_cache();
         for (auto fb : transient_targets)
@@ -783,6 +945,7 @@ void Context::close()
         if (pipeline_cache)
             vkDestroyPipelineCache(device, pipeline_cache, nullptr);
         textures.clear();
+        texture_version++;
         renderbuffers.clear();
         white.reset();
         screen.reset();
@@ -794,6 +957,8 @@ void Context::close()
         close_submission();
         swap_submission();
         close_submission();
+        if (pass_queries)
+            vkDestroyQueryPool(device, pass_queries, nullptr);
         if (descriptors)
             vkDestroyDescriptorSetLayout(device, descriptors, nullptr);
         for (auto semaphore : present_ready)
@@ -836,7 +1001,11 @@ extern "C" int moon_vk_render_open(SDL_Window *window, int vsync)
     c.uncached_descriptors = getenv("MOON_VK_UNCACHED_DESCRIPTORS") != nullptr;
     c.low_latency = getenv("MOON_VK_LOW_LATENCY") != nullptr;
     c.repeat_commands = getenv("MOON_VK_REPEAT_COMMANDS") != nullptr;
-    c.profile_draws = getenv("MOON_VK_PROFILE_DRAWS") != nullptr;
+    c.profile_draws = getenv("MOON_VK_PROFILE_DRAWS") != nullptr ||
+                      getenv("MOON_GPU_PROFILE") != nullptr ||
+                      getenv("MOON_VK_COUNTS") != nullptr;
+    if (getenv("MOON_VK_PROFILE_PASSES"))
+        c.low_latency = true;
     c.stream_geometry = getenv("MOON_VK_STREAM_GEOMETRY") != nullptr;
     c.vsync = vsync != 0;
     try {
@@ -897,6 +1066,8 @@ extern "C" int moon_vk_render_open(SDL_Window *window, int vsync)
         queue.pQueuePriorities = &priority;
         VkPhysicalDeviceFeatures features{};
         features.independentBlend = VK_TRUE;
+        features.samplerAnisotropy = available.samplerAnisotropy;
+        c.sampler_anisotropy = available.samplerAnisotropy != VK_FALSE;
         const char *swapchain = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
         VkDeviceCreateInfo device{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
         device.queueCreateInfoCount = 1;
@@ -921,6 +1092,14 @@ extern "C" int moon_vk_render_open(SDL_Window *window, int vsync)
         check(vkCreateDescriptorSetLayout(c.device, &layout, nullptr, &c.descriptors),
               "vkCreateDescriptorSetLayout");
         c.open_pipeline_cache();
+        if ((getenv("MOON_VK_PROFILE_PASSES") || getenv("MOON_GPU_PROFILE")) && c.timestamp_bits) {
+            VkQueryPoolCreateInfo query{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+            query.queryType = VK_QUERY_TYPE_TIMESTAMP;
+            query.queryCount = 4096;
+            check(vkCreateQueryPool(c.device, &query, nullptr, &c.pass_queries), "pass timestamps");
+        } else if (getenv("MOON_GPU_PROFILE")) {
+            fprintf(stderr, "gpu: timestamps unsupported on this queue; GPU profile disabled\n");
+        }
         c.open_submission();
         c.swap_submission();
         c.open_submission();

@@ -11,16 +11,17 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "course_gadget.h"
+#include "race_limits.h"
 
 typedef struct {
     char course[32]; /* a /crs name, e.g. "tsukuba" */
     int cars;        /* 1..6, the player's first */
-    uint32_t car[6]; /* GENERIC_CAR ids */
+    uint32_t car[MOON_CONDUCTOR_CARS]; /* GENERIC_CAR ids */
     /* Optional serialized owned-car body (0x4b8 bytes, class header removed).
        Consumed synchronously by open; NULL constructs the stock setup. */
-    const uint8_t *owned_car[6];
+    const uint8_t *owned_car[MOON_CONDUCTOR_CARS];
     /* Original GT4M entry records (003DDAD8), borrowed through open. */
-    const uint8_t *disc_entry[6];
+    const uint8_t *disc_entry[MOON_CONDUCTOR_CARS];
     const uint8_t *disc_settings;     /* Decoded RACE row, independent of world class. */
     const uint8_t *disc_race_options; /* GT4M +0x50, 0x60 bytes */
     int legacy_recording;             /* Playback compatibility for native GT4R version 1 only. */
@@ -30,8 +31,8 @@ typedef struct {
     int championship;        /* event world: 003EF498 mode 14 instead of 13 */
     char license_code[32];   /* original RACE label for result title (003BCB38) */
     int license;             /* 1: 003BBF90 RaceLicense; 2: 003ED298 RaceTraining */
-    uint64_t tuned_car[6];   /* optional ENEMY_CARS key (namespace 0x26) */
-    uint64_t event_paint[6]; /* RACES second qword: one-based, 0/-1 random */
+    uint64_t tuned_car[MOON_CONDUCTOR_CARS];   /* optional ENEMY_CARS key (namespace 0x26) */
+    uint64_t event_paint[MOON_CONDUCTOR_CARS]; /* RACES second qword: one-based, 0/-1 random */
     /* State after opponent selection; consumed synchronously and advanced
        by 0040AA48. Required for a prepared event grid. */
     uint32_t *event_rng;
@@ -63,7 +64,32 @@ typedef struct {
        top speed (setup +0x12A, 0 keeps the ratios) */
     int quick_tuned;
     int quick_power, quick_weight, quick_front_tire, quick_rear_tire, quick_gear;
+    /* The race's requested field size, player included. 0 keeps d.cars.
+       d.cars is the official conductor field (1..MOON_CONDUCTOR_CARS); the
+       rest of field_size are phantoms outside the conductor. */
+    int field_size;
+    /* The distinct opponents the phantoms use. Filled by the caller from a
+       pool that excludes the official field; 0 keeps the source entry. */
+    uint32_t phantom_car[MOON_MAX_PHANTOMS];
+    char phantom_label[MOON_MAX_PHANTOMS][96];
+    int phantom_color[MOON_MAX_PHANTOMS];
 } gt4_race_desc;
+
+/* One entrant in the live classification, in place order. id is stable:
+   0..cars-1 official, cars.. the phantoms. */
+typedef struct {
+    int id, official;
+    uint32_t car, cond;
+    char name[96];
+    uint32_t color;
+    int finished;
+    int eliminated;
+    uint32_t finish_time;
+    int laps;
+    float distance;
+    int live_rank;
+    int place;
+} gt4_race_entrant;
 
 typedef struct gt4_race_run gt4_race_run;
 const gt4_course_gadgets *gt4_race_run_objects(const gt4_race_run *run);
@@ -72,6 +98,49 @@ const gt4_course_gadgets *gt4_race_run_objects(const gt4_race_run *run);
    (the race records the player's commands itself; func_003F5B80) */
 #define GT4_GHOST_CAR 0x10a0
 int gt4_race_run_ghost_on(const gt4_race_run *r);
+/* the requested field and the phantom cars outside the conductor */
+int gt4_race_run_field_size(const gt4_race_run *r);
+int gt4_race_run_phantom_count(const gt4_race_run *r);
+int gt4_race_run_phantom_pose(const gt4_race_run *r, int i, float pos[3], float rot[9],
+                              float wheels[4][3]);
+uint32_t gt4_race_run_phantom_car(const gt4_race_run *r, int i);
+float gt4_race_run_phantom_speed(const gt4_race_run *r, int i);
+/* Phantom i's display name (set by race_game before the grid screen), "" if none. */
+const char *gt4_race_run_phantom_name(const gt4_race_run *r, int i);
+/* The merged live classification, in place order. 0 without phantoms. */
+int gt4_race_run_classification(const gt4_race_run *r, gt4_race_entrant *out, int max);
+/* The stable entrant ids in place order, for prize/points. 0 without phantoms. */
+int gt4_race_run_classification_order(const gt4_race_run *r, uint8_t *ids, int max);
+/* The player's 0-based place in the merged field, or -1 without phantoms. */
+int gt4_race_run_player_place(const gt4_race_run *r);
+/* Custom Modes: elimination at the lap line. 0 turns it off. */
+void gt4_race_run_set_elimination(gt4_race_run *r, int on);
+int gt4_race_run_elimination(const gt4_race_run *r);
+/* Increments for each car eliminated; the host plays thunder on a change. */
+int gt4_race_run_elimination_serial(const gt4_race_run *r);
+/* 0 disables the elimination thunder/flash/bolt, not the cut. */
+void gt4_race_run_set_elimination_thunder(gt4_race_run *r, int on);
+int gt4_race_run_elimination_thunder(const gt4_race_run *r);
+/* Live elimination panel/card state. All fields are read-only snapshots. */
+typedef struct {
+    int field_size, remaining, warning, player_last, next_out;
+    int eliminated_count, card_kind, card_place;
+    char next_name[96];
+    char last_names[3][96];
+    char card_name[96];
+    int card_remaining;
+    unsigned card_age;
+    float lap_progress;
+} gt4_elimination_hud;
+int gt4_race_run_elimination_hud(const gt4_race_run *r, gt4_elimination_hud *out);
+/* The course length used for the warning progress, 0 if unavailable. */
+float gt4_race_run_course_length(const gt4_race_run *r);
+/* The last elimination message and its age in frames; 0 when there is none. */
+int gt4_race_run_elimination_message(const gt4_race_run *r, const char **msg, unsigned *age);
+/* Names/colours for the classification and the renderer. Slot is the
+   stable id (official cars first, then phantoms). */
+void gt4_race_run_set_entrant_identity(gt4_race_run *r, int slot, const char *name,
+                                       uint32_t color);
 /* the simulation frames run so far (read only) */
 unsigned gt4_race_run_frames(const gt4_race_run *r);
 /* The ghost's best lap (the best-lap replay a Time Trial saves): the
@@ -147,6 +216,9 @@ typedef struct {
     int shift_lamp;        /* func_003F3758 */
     int finished;          /* car+0x5B6 */
     float fuel, fuel_cap;  /* car+0x5D4, +0x5D0 (func_00354E60, func_00354E58); no tank at 0 */
+    int has_boost; /* 003F3790: engine turbo parameter is nonzero */
+    float boost;   /* 003446B0: live smoothed pressure */
+    uint8_t tire_rgb[4][3]; /* 003446D8 / 003677F8: live wheel condition */
     float rev_limit;       /* the tachometer's top: params+0x1074 * 100 (func_0036CDF8) */
     int aid;               /* the aids' sign: max(car+0x6FC, +0x6FD) */
     int brake_lock;        /* the brake sign: car+0x594 above 0.25 (func_00344658) */

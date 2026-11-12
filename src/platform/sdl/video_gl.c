@@ -19,6 +19,7 @@
 #ifdef MOON_PC_VULKAN
 #include "vk_render.h"
 #endif
+#include "race_view.h"
 #include "fsr.h"
 #include "../common/frame_pacing.h"
 #if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
@@ -58,6 +59,8 @@ void video_set_scene_render_scale(int level)
 }
 #endif
 static int menu_pacing = 1, frame_presented;
+static unsigned pacing_logged_rate;
+static const char *pacing_logged_reason;
 static int menu_projection = 1;
 static void layout_view(void);
 static moon_frame_pacer frame_pacer;
@@ -70,7 +73,18 @@ uint64_t video_frame_late_count(void)
 }
 void video_performance_options(int low_latency, int fps_limit)
 {
-    frame_limit = fps_limit >= 0 && fps_limit <= 500 ? fps_limit : 0;
+    const char *source = "off";
+    if (fps_limit == 1000) {
+        SDL_DisplayMode mode;
+        int display_rate = SDL_GetCurrentDisplayMode(0, &mode) == 0 ? mode.refresh_rate : 0;
+        frame_limit = display_rate > 0 ? display_rate : 60;
+        source = "display";
+    } else {
+        frame_limit = fps_limit >= 0 && fps_limit <= 500 ? fps_limit : 0;
+        if (frame_limit > 0)
+            source = "setting";
+    }
+    fprintf(stderr, "pacing: fps_limit=%d source=%s\n", frame_limit, source);
     frame_pacer.rate = 0;
 #ifdef MOON_PC_VULKAN
     moon_vk_render_low_latency(low_latency);
@@ -93,6 +107,22 @@ static unsigned frame_2d_draws, frame_2d_quads;
 static int profile_frames, profile_draws, profile_quads;
 static uint64_t profile_start, profile_total, profile_window;
 static unsigned profile_count;
+static uint64_t profile_buckets[VIDEO_BUCKET_COUNT];
+static uint64_t profile_gap_ns, profile_last_end_ns;
+static int bench_finish;
+static uint64_t bench_finish_ns;
+static uint64_t frame_work_start, frame_work_ns;
+uint64_t video_frame_work_ns(void) { return frame_work_ns; }
+void video_set_bench_finish(int on) { bench_finish = on != 0; }
+uint64_t video_bench_finish_ns(void) { return bench_finish_ns; }
+void video_bench_reset(void) { bench_finish_ns = 0; }
+static unsigned profile_gap_frames, profile_sleep_calls;
+static uint64_t profile_sleep_ns;
+void video_profile_bucket(int bucket, uint64_t ns)
+{
+    if (profile_frames && bucket >= 0 && bucket < VIDEO_BUCKET_COUNT)
+        profile_buckets[bucket] += ns;
+}
 
 /* P: optional native-resolution filming, independent of the preview window.
    Each record is one real rendered frame; no resampling or duplicated frames.
@@ -112,6 +142,12 @@ static GLuint fbo, color_rb, depth_rb;
 static int fb_w, fb_h;
 static GLuint scene_fbo, scene_color, scene_depth, scene_tex, scene_resolve;
 static int scene_w, scene_h, scene_samples, scene_active, output_w, output_h;
+static int scene_scale_percent = 100, scene_quality_antialiasing, scene_quality_render_scale;
+static int speed_blur, speed_blur_amount, speed_vignette, speed_post_warned;
+static float speed_level;
+static GLuint speed_program, speed_fbo, speed_tex, speed_vao, speed_vbo;
+static int speed_tex_w, speed_tex_h;
+static unsigned speed_trace_frames;
 static int scene_frame_has_content;
 
 /* The GLES path finishes the frame in the default framebuffer: the 3D scene
@@ -399,24 +435,35 @@ SDL_Window *plat_video_acquire_window(const plat_video_desc *d)
             SDL_GetWindowSize(window, &w, &h);
             if (w != d->width || h != d->height)
                 SDL_SetWindowSize(window, d->width, d->height);
+            if (d->placed)
+                SDL_SetWindowPosition(window, d->x, d->y);
         }
         if (!(SDL_GetWindowFlags(window) & SDL_WINDOW_HIDDEN))
             SDL_ShowWindow(window);
         SDL_SetWindowFullscreen(window, d->fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+        if (d->maximized && !d->fullscreen)
+            SDL_MaximizeWindow(window);
         return window;
     }
-    int window_x = SDL_WINDOWPOS_CENTERED, window_y = SDL_WINDOWPOS_CENTERED;
+    int window_x = d->placed ? d->x : SDL_WINDOWPOS_CENTERED,
+        window_y = d->placed ? d->y : SDL_WINDOWPOS_CENTERED;
     const char *capture_position = getenv("MOON_WINDOW_POSITION");
     if (capture_position && sscanf(capture_position, "%d,%d", &window_x, &window_y) == 2)
         SDL_SetHint(SDL_HINT_WINDOW_NO_ACTIVATION_WHEN_SHOWN, "1");
     if (!SDL_WasInit(SDL_INIT_VIDEO) && SDL_InitSubSystem(SDL_INIT_VIDEO) != 0)
         return NULL;
     window = SDL_CreateWindow("Moon Engine", window_x, window_y, d->width, d->height, flags);
+    if (window && d->maximized && !d->fullscreen)
+        SDL_MaximizeWindow(window);
     return window;
 }
 
 int plat_video_init(const plat_video_desc *d)
 {
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+    /* Keep the desktop-fullscreen window mode across Alt+Tab. */
+    SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");
+#endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) != 0)
         return -1;
 #ifdef __ANDROID__
@@ -534,6 +581,7 @@ int plat_video_init(const plat_video_desc *d)
     u_text2d = glGetUniformLocation(program2d, "text_sharpness");
     glGenVertexArrays(1, &vao2d);
     glGenBuffers(1, &vbo2d);
+    moon_vk_gpu_mark("ui");
     glBindVertexArray(vao2d);
     glBindBuffer(GL_ARRAY_BUFFER, vbo2d);
     glBufferData(GL_ARRAY_BUFFER, sizeof batch, NULL, GL_STREAM_DRAW);
@@ -554,6 +602,7 @@ int plat_video_init(const plat_video_desc *d)
 
 void video_flush2d(void)
 {
+    uint64_t bucket_start = profile_frames ? plat_time_ns() : 0;
     if (!nbatch)
         return;
     SWP_PUSH(SWP_GL);
@@ -609,6 +658,9 @@ void video_flush2d(void)
     }
     nbatch = 0;
     SWP_POP();
+    moon_vk_gpu_mark("ui_end");
+    if (bucket_start)
+        video_profile_bucket(VIDEO_BUCKET_UI, plat_time_ns() - bucket_start);
 }
 
 void video_license_image(const plat_texture *t, float x, float y, float w, float h,
@@ -786,20 +838,35 @@ void plat_video_begin_frame(void)
        interval must not make an idle menu submit unbounded GPU work.
        Sleep before rendering, yield near the deadline, and avoid catch-up bursts. */
     unsigned rate = menu_pacing || capture_pipe ? 60u : (unsigned)frame_limit;
+    const char *pacing_reason = menu_pacing ? "menu" : capture_pipe ? "capture" : "limit";
+    if (rate != pacing_logged_rate || pacing_reason != pacing_logged_reason) {
+        pacing_logged_rate = rate;
+        pacing_logged_reason = pacing_reason;
+        fprintf(stderr, "render: pacing rate=%u reason=%s source=%s\n", rate, pacing_reason,
+                menu_pacing ? "menu_pacing" : capture_pipe ? "capture_pipe" : "frame_limit");
+    }
     uint64_t now = plat_time_ns();
+    if (profile_frames && profile_last_end_ns) {
+        profile_gap_ns += now - profile_last_end_ns;
+        profile_gap_frames++;
+    }
     uint64_t deadline = moon_frame_deadline(&frame_pacer, now, rate);
     if (now > deadline)
         frame_late_count++; /* started behind: the last frame/gap overran the rate */
     while (now < deadline) {
         uint64_t remaining = deadline - now;
+        uint64_t sleep_start = plat_time_ns();
         if (remaining > 1500000)
             SDL_Delay((Uint32)((remaining - 500000) / 1000000));
         else
             SDL_Delay(0);
+        profile_sleep_calls++;
+        profile_sleep_ns += plat_time_ns() - sleep_start;
         now = plat_time_ns();
     }
+    frame_work_start = plat_time_ns();
     if (profile_frames) {
-        profile_start = plat_time_ns();
+        profile_start = frame_work_start;
         if (!profile_window)
             profile_window = profile_start;
     }
@@ -813,6 +880,8 @@ void plat_video_begin_frame(void)
     glDisable(GL_SCISSOR_TEST);
     glViewport(0, 0, fb_w, fb_h);
     glClearColor(0, 0, 0, 1);
+    /* A prior transparent draw may leave writes disabled; glClear respects it. */
+    glDepthMask(GL_TRUE);
     glClearDepth(GL_DEPTH_FAR);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     SWP_POP();
@@ -822,6 +891,7 @@ void plat_video_end_frame(void)
 {
     video_flush2d();
     capture_framebuffer();
+    uint64_t present_start = profile_frames ? plat_time_ns() : 0;
     SWP_PUSH(SWP_GL);
     glDisable(GL_SCISSOR_TEST);
 #ifndef __ANDROID__
@@ -829,21 +899,74 @@ void plat_video_end_frame(void)
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     int preview_w, preview_h;
     graphics_size(window, &preview_w, &preview_h);
+    moon_vk_gpu_mark("blit");
     glBlitFramebuffer(0, 0, fb_w, fb_h, 0, 0, preview_w, preview_h, GL_COLOR_BUFFER_BIT,
                       GL_NEAREST);
 #endif
-    if (profile_frames) {
+    moon_vk_gpu_mark("blit_end");
+    if (present_start)
+        video_profile_bucket(VIDEO_BUCKET_PRESENT, plat_time_ns() - present_start);
+    if (bench_finish || profile_frames) {
+        uint64_t wait_start = plat_time_ns();
         glFinish();
+        uint64_t waited = plat_time_ns() - wait_start;
+        bench_finish_ns += waited;
+        if (profile_frames)
+            video_profile_bucket(VIDEO_BUCKET_PRESENT, waited);
+        if (profile_frames) {
         profile_total += plat_time_ns() - profile_start;
         profile_count++;
         if (profile_count == 30) {
+            moon_vk_render_stats vk = {0};
+#ifdef MOON_PC_VULKAN
+            if (moon_vk_render_active())
+                vk = moon_vk_render_statistics();
+#endif
             fprintf(stderr,
-                    "video profile: %.3f ms/frame, %.1f draws/frame, %.1f quads/frame, %.1f fps\n",
+                    "video profile: %.3f ms/frame, %.1f draws/frame, %.1f quads/frame, "
+                    "%.1f fps, cars=%d car_draws=%d pipeline_lookups=%llu pipeline_misses=%llu "
+                    "descriptor_builds=%llu submits=%llu barriers=%llu update_buffer=%llu "
+                    "queue_waits=%llu mem_flushes=%llu "
+                    "uploads: vert=%.1f MB uni=%.1f MB streamed_draws=%llu resident_draws=%llu "
+                    "gap=%.2f submit_ms=%.2f present_ms=%.2f sleep_calls=%.1f sleep_ms=%.2f "
+                    "events_ms=%.2f\n",
                     profile_total / 1e6 / profile_count, (double)profile_draws / profile_count,
                     (double)profile_quads / profile_count,
-                    (profile_count - 1) * 1e9 / (profile_start - profile_window));
+                    (profile_count - 1) * 1e9 / (profile_start - profile_window),
+                    race_view_car_count(), race_view_car_draws(),
+                    (unsigned long long)vk.pipeline_lookups,
+                    (unsigned long long)vk.pipeline_misses,
+                    (unsigned long long)vk.descriptor_builds,
+                    (unsigned long long)vk.submissions, (unsigned long long)vk.barriers,
+                    (unsigned long long)vk.update_buffer, (unsigned long long)vk.queue_waits,
+                    (unsigned long long)vk.mem_flushes,
+                    (double)vk.vertex_upload_bytes / 1048576.0 / 30.0,
+                    (double)vk.uniform_upload_bytes / 1048576.0 / 30.0,
+                    (unsigned long long)vk.streamed_draws,
+                    (unsigned long long)vk.resident_draws,
+                    profile_gap_frames ? profile_gap_ns / 1e6 / profile_gap_frames : 0.0,
+                    vk.last_submit_ns / 1e6, vk.last_present_ns / 1e6,
+                    (double)profile_sleep_calls / 30.0, profile_sleep_ns / 1e6 / 30.0,
+                    profile_buckets[VIDEO_BUCKET_EVENTS] / 1e6 / 30.0);
             profile_count = profile_draws = profile_quads = 0;
             profile_total = profile_window = 0;
+            fprintf(stderr,
+                    "frame buckets: track=%.1f car=%.1f (shadow=%.1f body=%.1f wheels=%.1f) "
+                    "lights=%.1f guest=%.1f ui=%.1f present=%.1f ms\n",
+                    profile_buckets[VIDEO_BUCKET_TRACK] / 1e6 / 30.0,
+                    profile_buckets[VIDEO_BUCKET_CAR] / 1e6 / 30.0,
+                    profile_buckets[VIDEO_BUCKET_SHADOW] / 1e6 / 30.0,
+                    profile_buckets[VIDEO_BUCKET_BODY] / 1e6 / 30.0,
+                    profile_buckets[VIDEO_BUCKET_WHEELS] / 1e6 / 30.0,
+                    profile_buckets[VIDEO_BUCKET_LIGHTS] / 1e6 / 30.0,
+                    profile_buckets[VIDEO_BUCKET_GUEST] / 1e6 / 30.0,
+                    profile_buckets[VIDEO_BUCKET_UI] / 1e6 / 30.0,
+                    profile_buckets[VIDEO_BUCKET_PRESENT] / 1e6 / 30.0);
+            memset(profile_buckets, 0, sizeof profile_buckets);
+            profile_gap_ns = profile_gap_frames = 0;
+            profile_sleep_calls = 0;
+            profile_sleep_ns = 0;
+        }
         }
     }
     SWP_POP();
@@ -863,6 +986,8 @@ void plat_video_end_frame(void)
     frame_presented = 1;
     glBindFramebuffer(GL_FRAMEBUFFER, frame_target());
     SWP_FRAME(fb_w, fb_h);
+    frame_work_ns = plat_time_ns() - frame_work_start;
+    profile_last_end_ns = plat_time_ns();
 }
 
 GLuint video_draw_framebuffer(void)
@@ -926,6 +1051,10 @@ unsigned char *plat_sdl_read_view(int *width, int *height)
     return out;
 }
 
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+static void daylight_post_destroy(void);
+static void edge_aa_destroy(void);
+#endif
 void plat_video_shutdown(void)
 {
     if (capture_stream)
@@ -939,6 +1068,10 @@ void plat_video_shutdown(void)
     capture_attempted = 0;
     capture_pipe = capture_gate = capture_times_path = NULL;
     capture_w = capture_h = 0;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    edge_aa_destroy();
+    daylight_post_destroy();
+#endif
     plat_audio_shutdown();
     plat_input_shutdown();
     if (license_lut)
@@ -995,6 +1128,20 @@ void video_set_fill_window(int enabled)
     layout_view();
 }
 int video_fill_window(void) { return fill_window; }
+void video_target_size(int *width, int *height)
+{
+    if (width)
+        *width = fb_w;
+    if (height)
+        *height = fb_h;
+}
+void video_scene_target_size(int *width, int *height)
+{
+    if (width)
+        *width = scene_w;
+    if (height)
+        *height = scene_h;
+}
 
 int video_set_upscale(int mode)
 {
@@ -1010,11 +1157,36 @@ int video_fsr_available(void)
 
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
 static int scene_antialiasing, scene_render_scale = 2, scene_size_limit;
+void video_set_scene_scale(int percent)
+{
+    if (percent < 25) percent = 25;
+    if (percent > 200) percent = 200;
+    scene_scale_percent = percent;
+    video_scene_quality(scene_quality_antialiasing, scene_quality_render_scale);
+}
+
 void video_scene_quality(int antialiasing, int render_scale)
 {
+    scene_quality_antialiasing = antialiasing;
+    scene_quality_render_scale = render_scale;
     scene_size_limit = 0;
-    scene_antialiasing = antialiasing >= 0 && antialiasing <= 3 ? antialiasing : 0;
+    scene_antialiasing = antialiasing >= 0 && antialiasing <= 4 ? antialiasing : 0;
     scene_render_scale = render_scale >= 0 && render_scale <= 2 ? render_scale : 2;
+}
+#endif
+#ifdef __ANDROID__
+/* The GLES branch keeps the Android 0..3 route and also honours the new
+   percent setting; 100 keeps the direct no-copy path. */
+void video_set_scene_scale(int percent)
+{
+    if (percent < 25) percent = 25;
+    if (percent > 200) percent = 200;
+    scene_scale_percent = percent;
+}
+void video_scene_quality(int antialiasing, int render_scale)
+{
+    scene_quality_antialiasing = antialiasing;
+    scene_quality_render_scale = render_scale;
 }
 #endif
 
@@ -1072,6 +1244,16 @@ static void scene_quad(GLuint tex, int dst_w, int dst_h)
 }
 #endif
 
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+#include "video_daylight_post.inc"
+#include "video_edge_aa.inc"
+#else
+void video_light_volume_view(const video_light_volume *view){(void)view;}
+void video_ambient_occlusion(int enabled){(void)enabled;}
+void video_hdr_options(int enabled,int rays){(void)enabled;(void)rays;}
+int video_hdr_active(void){return 0;}
+void video_solar_projection(float x,float y,float visible,const float color[3]){(void)x;(void)y;(void)visible;(void)color;}
+#endif
 void video_begin_scene(void)
 {
     video_flush2d();
@@ -1097,7 +1279,7 @@ void video_begin_scene(void)
         float scale = scene_antialiasing == 2   ? 1.5f
                       : scene_antialiasing == 3 ? 2.f
                                                 : scales[scene_render_scale];
-        if (scene_antialiasing >= 2 || scene_render_scale != 2) {
+        if (scene_antialiasing == 2 || scene_antialiasing == 3 || scene_render_scale != 2) {
             w = (int)(output_w * scale + .5f);
             h = (int)(output_h * scale + .5f);
             mode = 0;
@@ -1127,6 +1309,12 @@ void video_begin_scene(void)
     }
 #endif
 #endif
+    if (scene_scale_percent != 100) {
+        w = (int)(output_w * (float)scene_scale_percent / 100.f + .5f);
+        h = (int)(output_h * (float)scene_scale_percent / 100.f + .5f);
+        if (w < 1) w = 1;
+        if (h < 1) h = 1;
+    }
     scene_upscale = mode;
 #ifdef __ANDROID__
     /* A full-size scene needs no intermediate target at all: draw it where
@@ -1157,6 +1345,12 @@ void video_begin_scene(void)
     }
     android_scene_direct = 0;
 #endif
+    int hdr=0;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    hdr=daylight_post.enabled;
+    if(hdr)samples=1;
+#endif
+    GLenum color_format=hdr?0x881A:GL_RGBA8;
     if (!scene_fbo) {
         glGenFramebuffers(1, &scene_fbo);
         glGenFramebuffers(1, &scene_resolve);
@@ -1164,17 +1358,21 @@ void video_begin_scene(void)
         glGenRenderbuffers(1, &scene_depth);
         glGenTextures(1, &scene_tex);
     }
-    if (w != scene_w || h != scene_h || samples != scene_samples) {
+    if (w != scene_w || h != scene_h || samples != scene_samples
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+        || hdr!=daylight_post.allocated_hdr
+#endif
+    ) {
         glBindRenderbuffer(GL_RENDERBUFFER, scene_color);
 #if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
         /* Multisample storage with samples=1 may round up to the driver's
            minimum (four on the host fixture); request ordinary storage. */
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w, h);
+        glRenderbufferStorage(GL_RENDERBUFFER, color_format, w, h);
 #else
         if (samples == 1)
-            glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w, h);
+            glRenderbufferStorage(GL_RENDERBUFFER, color_format, w, h);
         else
-            glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_RGBA8, w, h);
+            glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, color_format, w, h);
 #endif
         glBindRenderbuffer(GL_RENDERBUFFER, scene_depth);
 #if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
@@ -1197,7 +1395,7 @@ void video_begin_scene(void)
             return;
         }
         glBindTexture(GL_TEXTURE_2D, scene_tex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, color_format, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -1205,8 +1403,12 @@ void video_begin_scene(void)
         scene_w = w;
         scene_h = h;
         scene_samples = samples;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+        daylight_post.allocated_hdr=hdr;
+#endif
         printf("scene: %dx%d -> %dx%d, MSAA %dx, %s\n", w, h, output_w, output_h, samples,
                mode ? "FSR 1" : "native");
+        fprintf(stderr, "settings: scene_scale=%d scene_target=%dx%d\n", scene_scale_percent, w, h);
 #ifdef __SWITCH__
         fprintf(stderr, "Switch scene: %dx%d -> %dx%d, samples=%d, linear upscale\n", w, h,
                 output_w, output_h, samples);
@@ -1221,6 +1423,8 @@ void video_begin_scene(void)
     glEnable(GL_MULTISAMPLE);
     glViewport(0, 0, w, h);
     glClearColor(0, 0, 0, 1);
+    /* A prior transparent draw may leave writes disabled; glClear respects it. */
+    glDepthMask(GL_TRUE);
     glClearDepth(GL_DEPTH_FAR);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     fb_w = w;
@@ -1228,6 +1432,109 @@ void video_begin_scene(void)
     layout_view();
     scene_active = 1;
 }
+
+void video_set_speed_post(int blur, int amount, int vignette)
+{
+    speed_blur = blur != 0;
+    speed_blur_amount = amount < 0 ? 0 : amount > 100 ? 100 : amount;
+    speed_vignette = vignette != 0;
+#if defined(__SWITCH__) || defined(__ANDROID__)
+    if ((speed_blur || speed_vignette) && !speed_post_warned) {
+        speed_post_warned = 1;
+        fprintf(stderr, "speed: radial blur and vignette unavailable on this platform; "
+                        "FOV, camera and audio remain\n");
+    }
+#endif
+}
+
+void video_set_speed_level(float level)
+{
+    speed_level = level < 0.f ? 0.f : level > 1.f ? 1.f : level;
+}
+
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+static const char *vs_speed_post =
+    "#version 330 core\n"
+    "layout(location=0) in vec2 pos; layout(location=1) in vec2 uv; out vec2 v_uv;\n"
+    "void main(){v_uv=uv;gl_Position=vec4(pos,0,1);}\n";
+static const char *fs_speed_post =
+    "#version 330 core\n"
+    "uniform sampler2D tex; uniform float blur; uniform float vignette;\n"
+    "in vec2 v_uv; out vec4 o;\n"
+    "void main(){vec2 uv=clamp(v_uv,0.,1.);vec4 c=texture(tex,uv);\n"
+    " if(blur>0.0001){vec2 d=uv-vec2(.5);vec3 sum=vec3(0);float wsum=0.;\n"
+    "  for(int i=0;i<6;i++){float t=float(i)/5.;float w=1.-t;sum+=texture(tex,clamp(uv-d*blur*t,0.,1.)).rgb*w;wsum+=w;}\n"
+    "  c.rgb=sum/wsum;}\n"
+    " if(vignette>0.001){float d=length(uv-.5);float v=smoothstep(.35,.80,d);c.rgb*=1.-v*.55*vignette;}\n"
+    " o=c;}\n";
+static GLuint speed_post_apply(GLuint source, int w, int h)
+{
+    if (!speed_program) {
+        speed_program = gl_program(vs_speed_post, fs_speed_post);
+        if (!speed_program) {
+            if (!speed_post_warned) {
+                speed_post_warned = 1;
+                fprintf(stderr, "speed: post shader unavailable; blur/vignette off\n");
+            }
+            speed_blur = speed_vignette = 0;
+            return 0;
+        }
+        glGenFramebuffers(1, &speed_fbo);
+        glGenTextures(1, &speed_tex);
+        glGenVertexArrays(1, &speed_vao);
+        glGenBuffers(1, &speed_vbo);
+        static const float verts[] = {-1, -1, 0, 0, 1, -1, 1, 0,
+                                      -1,  1, 0, 1, 1,  1, 1, 1};
+        glBindVertexArray(speed_vao);
+        glBindBuffer(GL_ARRAY_BUFFER, speed_vbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof verts, verts, GL_STATIC_DRAW);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                              (void *)(2 * sizeof(float)));
+        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(1);
+    }
+    if (w != speed_tex_w || h != speed_tex_h) {
+        glBindTexture(GL_TEXTURE_2D, speed_tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindFramebuffer(GL_FRAMEBUFFER, speed_fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, speed_tex, 0);
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+            speed_blur = speed_vignette = 0;
+            return 0;
+        }
+        speed_tex_w = w;
+        speed_tex_h = h;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, speed_fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, speed_tex, 0);
+    glViewport(0, 0, w, h);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    /* The scene leaves face culling on; the full-screen strip has one
+       triangle per winding, so culling would leave a diagonal half-frame. */
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_STENCIL_TEST);
+    glUseProgram(speed_program);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, source);
+    glUniform1i(glGetUniformLocation(speed_program, "tex"), 0);
+    glUniform1f(glGetUniformLocation(speed_program, "blur"),
+                speed_blur ? (float)speed_blur_amount / 100.f * .08f * speed_level : 0.f);
+    glUniform1f(glGetUniformLocation(speed_program, "vignette"),
+                speed_vignette ? speed_level : 0.f);
+    glBindVertexArray(speed_vao);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    return speed_tex;
+}
+#endif
 
 void video_end_scene(void)
 {
@@ -1271,23 +1578,66 @@ void video_end_scene(void)
 #endif
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     GLuint resolved = scene_tex;
-#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)
-    if (scene_upscale && (scene_w < output_w || scene_h < output_h)) {
-        GLuint reconstructed = fsr_resolve(scene_tex, scene_w, scene_h, output_w, output_h);
-        if (reconstructed)
-            resolved = reconstructed;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    if(daylight_post.allocated_hdr)resolved=daylight_post_resolve(scene_tex,scene_fbo,scene_w,scene_h);
+    if(scene_antialiasing==4)resolved=edge_aa_resolve(resolved,scene_w,scene_h);
+#endif
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+    if ((speed_blur || speed_vignette) && speed_level > 0.0001f) {
+        moon_vk_gpu_mark("post");
+        GLuint posted = speed_post_apply(resolved, scene_w, scene_h);
+        if (posted)
+            resolved = posted;
+        moon_vk_gpu_mark("post_end");
     }
 #endif
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, scene_resolve);
-    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, resolved, 0);
+    int source_w = scene_w, source_h = scene_h;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)
+    if (scene_upscale && (scene_w < output_w || scene_h < output_h)) {
+        GLuint reconstructed = fsr_resolve(resolved, scene_w, scene_h, output_w, output_h);
+        if (reconstructed) {
+            resolved = reconstructed;
+            source_w = output_w;
+            source_h = output_h;
+        }
+    }
+#endif
+    /* The speed pass returns its own FBO. Blit from that attachment
+       directly instead of re-attaching its colour texture to the resolve
+       FBO: the texture is never both a draw attachment and the blit source
+       on a second FBO, and the handoff has an explicit barrier. */
+    GLuint read_fbo = scene_resolve;
+    int speed_source = 0;
+#if !defined(__SWITCH__) && !defined(__ANDROID__)
+    if ((speed_blur || speed_vignette) && speed_level > 0.0001f && resolved == speed_tex) {
+        if (moon_glMemoryBarrier)
+            moon_glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT | GL_FRAMEBUFFER_BARRIER_BIT);
+        glFlush();
+        read_fbo = speed_fbo;
+        speed_source = 1;
+    }
+#endif
+    if (getenv("MOON_SPEED_TRACE") && speed_level > 0.0001f && speed_trace_frames++ % 60 == 0)
+        fprintf(stderr,
+                "speed handoff: function=video_end_scene scene=%dx%d speed_tex=%dx%d "
+                "output=%dx%d source=%s pass_ended=1 read_fbo=%s\n",
+                scene_w, scene_h, speed_tex_w, speed_tex_h, output_w, output_h,
+                speed_source ? "speed_tex" : resolved == scene_tex ? "scene_tex" : "resolved",
+                speed_source ? "speed_fbo" : "scene_resolve");
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, read_fbo);
+    if (!speed_source)
+        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, resolved, 0);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbo);
-    int source_w = resolved == scene_tex ? scene_w : output_w,
-        source_h = resolved == scene_tex ? scene_h : output_h;
     glBlitFramebuffer(0, 0, source_w, source_h, 0, 0, output_w, output_h, GL_COLOR_BUFFER_BIT,
                       GL_LINEAR);
     fb_w = output_w;
     fb_h = output_h;
     scene_active = 0;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    /* A menu without a solar scene must not reuse the previous race camera. */
+    daylight_post.solar[2] = 0;
+    daylight_post.world.valid=0;
+#endif
     scene_frame_has_content = 1;
     layout_view();
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -1359,6 +1709,36 @@ plat_texture *video_grab(plat_texture *t, float x, float y, float w, float h)
     }
     t->screen_capture = x <= 0 && x + w >= view_w;
     glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, vx, vy, vw, vh);
+    return t;
+}
+
+uint8_t *video_grab_pixels(const plat_texture *t, int *w, int *h, int *screen)
+{
+    if (!t || t->w < 1 || t->h < 1)
+        return NULL;
+    uint8_t *px = malloc((size_t)t->w * t->h * 4);
+    if (!px)
+        return NULL;
+    video_flush2d();
+    GLint read = 0;
+    GLuint f = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read);
+    glGenFramebuffers(1, &f);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, f);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, t->id, 0);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, t->w, t->h, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)read);
+    glDeleteFramebuffers(1, &f);
+    *w = t->w, *h = t->h, *screen = t->screen_capture;
+    return px;
+}
+
+plat_texture *video_grab_restore(int w, int h, const uint8_t *rgba, int screen)
+{
+    plat_texture *t = plat_texture_create(w, h, rgba);
+    if (t)
+        t->screen_capture = screen;
     return t;
 }
 

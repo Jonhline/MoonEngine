@@ -13,22 +13,42 @@ typedef struct {
     float bounds[4], camera[3], car[3], car_angle;
     float map_width, map_height, map_length;
 } gt4_photo_location;
+/* 003C8F38/60: retained polygon contact for sliding at edges/corners. */
+typedef struct {
+    int kind;
+    float point[2];
+    int hit, polygon, edge, vertex;
+    float distance, angle;
+} gt4_photo_contact;
 typedef struct {
     gt4_photo_location location;
     float eye[3], car[3], yaw, pitch, roll, car_angle;
     float view_angle, aperture, wheel_angle, lightness, brightness, contrast;
-    int white_balance, stand, ready, drive, focus_requested;
+    int white_balance, stand, ready, drive, focus_requested, can_shoot;
+    int region;
+    gt4_photo_contact contact;
     /* PhotoCamera 00374128/00374120: +C10 index / +C08 count.
        Native bank keeps independent edited cameras; renderer restrictions are A. */
     int drive_camera, drive_cameras, manual_focus, drive_ev, drive_white;
     float drive_kelvin;
     float focus_distance;
+    float drive_distance, drive_min_fov, drive_max_fov;
+    float drive_pitch_min, drive_pitch_max, drive_height_min, drive_height_max;
     int shutter; /* 0036F628: index 0..18 in CORE 00620EF0 */
     int turn_frames, image_width, image_height, save_requested;
     float image_scale, image_x, image_y;
     char operate_mode[24], color_filter[24];
 } gt4_photo_mode;
 int gt4_photo_location_read(const uint8_t *course, size_t size, gt4_photo_location *out);
+/* Original polygon parity / centroid region selection; xyz Y is reset to zero. */
+int gt4_photo_region(const gt4_photo_location *, float xyz[3], float radius);
+int gt4_photo_region_contains(const gt4_photo_location *, unsigned bundle, const float xz[2]);
+unsigned gt4_photo_replay_points(const uint8_t *rep, size_t size, float length, float distance, unsigned *offsets, unsigned capacity);
+void gt4_photo_distance_fov(float distance, float out[2]);
+int gt4_photo_car_clear(const float local[3], const float size[4], float fov, float near_clip, float distance);
+int gt4_photo_aim(const gt4_photo_location *, unsigned region, const float eye[3], float *yaw, float *fov, int *adjusted);
+void gt4_photo_contact_reset(gt4_photo_contact *, const float xz[2]);
+void gt4_photo_region_move(const gt4_photo_location *, unsigned bundle, const float delta[2], gt4_photo_contact *);
 int gt4_photo_mode_init(gt4_photo_mode *p, const gt4_course *course);
 /* 0036F5C0 / 00370DB0, read directly from CORE's aperture table. */
 float gt4_photo_aperture(const uint8_t *core, size_t size, int index);

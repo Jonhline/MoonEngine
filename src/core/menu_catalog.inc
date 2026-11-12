@@ -360,7 +360,7 @@ static int nat_pick_enemies(ah_vm *vm, ah_obj *self, void *d, int argc, const ah
     (void)self;
     menu *m = d;
     gt4_arcade *a = arcade_of(m);
-    gt4_arcade_enemy out[5];
+    gt4_arcade_enemy out[6];
     if (argc < 2) {
         *ret = ah_nil();
         return 0;
@@ -382,6 +382,22 @@ static int nat_pick_enemies(ah_vm *vm, ah_obj *self, void *d, int argc, const ah
     int count = argc > 4 ? to_int(argv[4]) : 5, dirt = argc > 5 ? ah_truthy(argv[5]) : 0;
     int got = gt4_arcade_pick_enemies(a, m->rate_cars, m->rate_ctx, player, labels, n, offset,
                                       range, count, dirt, out);
+    if (getenv("MOON_PICK_TRACE")) {
+        uint64_t pk = gt4_arcade_car_key(a, player);
+        float pr = 0;
+        if (pk != UINT64_MAX && m->rate_cars(m->rate_ctx, &pk, 1, &pr)) {
+            fprintf(stderr, "pick trace: player=%s rating=%.6f offset=%.6f range=%.6f "
+                            "count=%d got=%d\n",
+                    player ? player : "-", pr, offset, range, count, got);
+            for (int i = 0; i < got; i++) {
+                uint64_t k = gt4_arcade_car_key(a, out[i].car);
+                float r = 0;
+                if (k != UINT64_MAX && m->rate_cars(m->rate_ctx, &k, 1, &r))
+                    fprintf(stderr, "pick trace: opponent[%d]=%s rating=%.6f\n", i,
+                            out[i].car ? out[i].car : "-", r);
+            }
+        }
+    }
     ah_obj *result = ah_array_new(vm);
     for (int i = 0; i < got; i++) {
         ah_obj *e = ah_array_new(vm);

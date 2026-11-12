@@ -734,18 +734,18 @@ int gt4_career_paint_list_index(uint64_t paint, int32_t total, int current)
     return current;
 }
 
-void gt4_career_championship_points(int32_t points[6], const uint8_t order[6], unsigned count,
+void gt4_career_championship_points(int32_t points[6], const uint8_t *order, unsigned count,
                                     int finished, const int8_t awards[6])
 {
-    /* 003EEFE0 +0x20..0x64 / 003EF1E8 +0x40..0x88. */
-    unsigned rank = 0;
-    for (unsigned i = 0; i < count && i < 6; i++) {
+    /* 003EEFE0 +0x20..0x64 / 003EF1E8 +0x40..0x88. The place is the
+       award index: a phantom consumes its place and scores nothing. */
+    for (unsigned i = 0; i < count; i++) {
         unsigned driver = order[i];
-        if (driver >= 6 || (!finished && !driver))
+        if (driver >= 6 || (!finished && !driver) || i >= 6)
             continue;
         uint32_t value;
         memcpy(&value, &points[driver], 4);
-        value += (uint32_t)(int32_t)awards[rank++];
+        value += (uint32_t)(int32_t)awards[i];
         memcpy(&points[driver], &value, 4);
     }
 }

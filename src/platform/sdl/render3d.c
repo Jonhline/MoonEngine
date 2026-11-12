@@ -34,7 +34,7 @@ void r3d_texture_smoothing(int enabled)
 #define UPLOAD_TRIANGLES 2048
 
 typedef struct {
-    int first, count, texture, reflection, flat, specular, wheel_blur_texture, lamp;
+    int first, count, texture, reflection, flat, specular, wheel_blur_texture, lamp, night_lens;
     gt4_draw_state state;
     uint8_t blend_enabled;
     float lo[3], hi[3];
@@ -52,6 +52,8 @@ typedef struct {
     GLuint wheel_tex[2], wheel_fbo[2];
     float wheel_angle;
     int wheel_samples, wheel_size;
+    int filtering_applied;
+    float anisotropy_max, anisotropy_original;
 } r3d_texture;
 
 struct r3d_mesh {
@@ -66,7 +68,7 @@ struct r3d_mesh {
     int vertices;
     unsigned *texture_refs;
     int skinned;
-    int morph;
+    int morph, morph_color;
     float grasp_scale;
     float wheel_screen[2];
     int wheel_screen_valid;
@@ -75,11 +77,37 @@ struct r3d_mesh {
 static GLuint program, dest_tex, dest_fbo, env_tex;
 static int dest_w, dest_h, env_w, env_h, env_dirty, failed, vp[4];
 static const tex1_image *env_source;
+static unsigned environment_revision;
 #ifndef MOON_DEKO3D
 static GLuint gpu_environment;
 static int gpu_environment_w, gpu_environment_h;
 #endif
 static float projection_x = 1;
+/* Debug switches are read once per r3d_begin: getenv scans the environment
+   block and was called for every mesh and draw. Tests change some between
+   frames. */
+typedef struct {
+    unsigned frame;
+    signed char value;
+} r3d_env_slot;
+static unsigned r3d_env_frame = 1;
+static inline int r3d_env_flag(const char *name, r3d_env_slot *slot)
+{
+    if (slot->frame != r3d_env_frame) {
+        slot->value = getenv(name) != NULL;
+        slot->frame = r3d_env_frame;
+    }
+    return slot->value;
+}
+static inline int r3d_env_one(const char *name, r3d_env_slot *slot)
+{
+    if (slot->frame != r3d_env_frame) {
+        const char *value = getenv(name);
+        slot->value = value && *value == '1';
+        slot->frame = r3d_env_frame;
+    }
+    return slot->value;
+}
 static GLuint wheel_program, wheel_vao;
 static struct {
     GLint points, extent, source, scanmask, copy;
@@ -87,8 +115,90 @@ static struct {
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)
 /* Diagnostic choices are sampled at the view boundary, not for every mesh. */
 static struct {
-    int cache_materials, batch_opaque, spatial;
+    int cache_materials, batch_opaque, spatial, texture_filter, car_shadows, material_shading, reflection_quality, shadow_map_quality, shadow_filter, modern_lighting, daylight, solar_hour, solar_cycle;
+#if !defined(__ANDROID__)
+    r3d_shadow_map *shadow_map;
+#endif
 } pc_submission;
+void r3d_texture_filtering(int mode)
+{
+    pc_submission.texture_filter = mode >= 0 && mode <= 4 ? mode : 0;
+}
+static int night_sky_enabled;
+void r3d_night_sky(int enabled){night_sky_enabled=enabled!=0;}
+int r3d_night_sky_enabled(void){return night_sky_enabled;}
+float r3d_solar_hour(double seconds,int authored_night){
+    if(!night_sky_enabled)return r3d_daylight_hour(seconds);
+    const double rates[]={0,1./3600,1./60};
+    double start=pc_submission.solar_hour<0?(authored_night?22:12):pc_submission.solar_hour;
+    return (float)fmod(start+fmax(0,seconds)*rates[pc_submission.solar_cycle],24);
+}
+static int car_lamps_enabled, car_lamp_count;
+static r3d_car_lamp car_lamp_frame[R3D_CAR_LAMPS];
+void r3d_car_lamps(int enabled){car_lamps_enabled=enabled!=0;}
+int r3d_car_lamps_enabled(void){return car_lamps_enabled;}
+void r3d_car_lamp_frame(const r3d_car_lamp *lamps,unsigned count){
+    r3d_lamp_shadow_bind(NULL);
+    car_lamp_count=lamps?(count>R3D_CAR_LAMPS?R3D_CAR_LAMPS:count):0;
+    if(car_lamp_count)memcpy(car_lamp_frame,lamps,car_lamp_count*sizeof *lamps);
+}
+#ifdef __ANDROID__
+void r3d_lamp_shadow_bind(r3d_lamp_shadow *atlas) { (void)atlas; }
+#endif
+static void shadow_map_receiver(const r3d_view *view);
+static void lamp_shadow_receiver(int count);
+void r3d_daylight_options(int enabled, int hour, int cycle)
+{
+    pc_submission.daylight = enabled != 0;
+    pc_submission.solar_hour = hour >= -1 && hour < 24 ? hour : 12;
+    pc_submission.solar_cycle = cycle >= 0 && cycle <= 2 ? cycle : 0;
+}
+int r3d_daylight_enabled(void) { return pc_submission.daylight; }
+float r3d_daylight_hour(double seconds)
+{
+    const double rates[] = {0, 1.0/3600, 1.0/60};
+    double hour = (pc_submission.solar_hour<0?12:fmin(17,fmax(7,pc_submission.solar_hour))) + fmax(0,seconds)*rates[pc_submission.solar_cycle];
+    /* Reflect at the daylight boundaries: no discontinuous jump into night. */
+    hour = fmod(hour-7,20);
+    return (float)(7+(hour<=10?hour:20-hour));
+}
+int r3d_modern_lighting_enabled(void) { return pc_submission.modern_lighting; }
+void r3d_modern_lighting(int enabled)
+{
+    pc_submission.modern_lighting = enabled != 0;
+}
+void r3d_shadow_map_quality(int mode)
+{
+    pc_submission.shadow_map_quality = mode >= 0 && mode <= 3 ? mode : 0;
+}
+void r3d_shadow_filter(int fast)
+{
+    pc_submission.shadow_filter = fast != 0;
+}
+int r3d_shadow_map_size(void)
+{
+    return pc_submission.shadow_map_quality ? 256 << pc_submission.shadow_map_quality : 0;
+}
+void r3d_reflection_quality(int mode)
+{
+    pc_submission.reflection_quality = mode >= 0 && mode <= 2 ? mode : 0;
+}
+int r3d_reflection_size(void)
+{
+    return 128 << pc_submission.reflection_quality;
+}
+void r3d_material_shading(int enabled)
+{
+    pc_submission.material_shading = enabled != 0;
+}
+void r3d_car_shadows(int enabled)
+{
+    pc_submission.car_shadows = enabled != 0;
+}
+int r3d_car_shadows_enabled(void)
+{
+    return pc_submission.car_shadows;
+}
 static int scene_spatial = 1, scene_resident_reflections = 1;
 void r3d_scene_options(int spatial, int resident_reflections)
 {
@@ -97,10 +207,12 @@ void r3d_scene_options(int spatial, int resident_reflections)
 }
 int r3d_resident_reflections(void)
 {
-    return scene_resident_reflections && getenv("MOON_REFLECTION_CPU") == NULL;
+    static r3d_env_slot cpu;
+    return scene_resident_reflections && !r3d_env_flag("MOON_REFLECTION_CPU", &cpu);
 }
 #endif
 static r3d_stats frame_stats;
+static unsigned measure_light_frames, measure_light_draws, measure_light_sum, measure_light_max;
 static r3d_totals completed_work;
 static void accumulate_work(r3d_totals *total, const r3d_stats *view)
 {
@@ -128,12 +240,23 @@ r3d_stats r3d_frame_stats(void)
 }
 static struct {
     GLint rot, pos, cam, r, u, f, focal, jitter, clip, mode, flat, reflect, specular;
-    GLint nlights, ldir, lamb, ldif, lspe, lspec_scale, lvertex, shadow_alpha, shadow_rgb, mirror,
+    GLint nlights, local_lights, ldir, lamb, ldif, lspe, lspec_scale, lvertex, shadow_alpha, shadow_rgb, mirror,
         cscale, untex, envk;
-    GLint tex, has_tex, texsize, size, wrap, region, cc, tfx, native, nearest, mip_count, minify;
+    GLint tex, has_tex, texsize, size, wrap, region, cc, tfx, native, nearest, mip_count, minify, filtering;
+    GLint cloud_cache, cloud_volume, cloud_shadow, cloud_origin, linear_environment, environment_linear;
     GLint fade, atest, afunc, aref, pass, date, date_bit, dest, envtex, envsize, viewport, focal_px;
-    GLint skinned, palette, morph, colorop, colormul, coloradd;
+    GLint skinned, palette, morph, morph_color, colorop, colormul, coloradd, valpha;
     GLint fog, fogcol, grade_rgb, grade;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    GLint material_shading, skip_material_light, measure_no_env, measure_no_spec, measure_ggx_samples;
+    GLint night_sky, authored_night;
+    GLint car_lamp_count,car_lamp_position,car_lamp_direction,car_lamp_color;
+    GLint lamp_lens;
+    GLint lamp_shadow_mask, lamp_shadow_map, lamp_shadow_projection;
+    GLint sky_seconds;
+    GLint authored_environment;
+    GLint shadow_on, shadow_map, shadow_projection, modern_lighting, hdr, daylight, sun_direction, sun_color, sky_color, haze_color;
+#endif
 #if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     GLint switch_fast;
 #endif
@@ -148,25 +271,35 @@ static const char *vs =
     "layout(location=3) in vec3 a_rgb; layout(location=4) in vec3 a_amb; layout(location=5) in vec3 a_spec;\n"
     "layout(location=6) in vec2 a_shine_alpha;\n"
     "layout(location=7) in vec4 a_bone; layout(location=8) in vec4 a_weight;\n"
-    "layout(location=9) in vec3 a_morph_pos; layout(location=10) in vec3 a_morph_normal; layout(location=11) in vec2 a_morph_uv;\n"
-    "uniform float u_morph; uniform int u_colorop; uniform vec3 u_colormul,u_coloradd;\n"
+    "layout(location=9) in vec3 a_morph_pos; layout(location=10) in vec3 a_morph_normal; layout(location=11) in vec2 a_morph_uv;layout(location=12) in vec4 a_morph_rgba;\n"
+    "uniform float u_morph; uniform int u_morph_color; uniform int u_colorop; uniform vec3 u_colormul,u_coloradd; uniform float u_valpha;\n"
     "uniform int u_skinned; uniform mat4 u_palette[20];\n"
     "uniform mat3 u_rot; uniform vec3 u_pos, u_cam, u_r, u_u, u_f; uniform vec2 u_focal, u_jitter, u_clip;\n"
     "uniform int u_mode, u_flat, u_reflect, u_mirror, u_specular_only; uniform float u_shadow_alpha, u_cscale; uniform vec3 u_shadow_rgb; uniform vec2 u_envk;\n"
     "uniform int u_nlights; uniform vec3 u_ldir[4],u_lamb[4],u_ldif[4],u_lspe[4]; uniform float u_lspec_scale, u_lvertex;\n"
     "out float v_floor; out vec3 v_light; out vec3 v_spec; out vec2 v_envuv; out vec2 v_uv; out float v_alpha;\n"
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    "out vec3 v_material_normal; out vec3 v_material_ray; out vec3 v_material_rgb; out vec3 v_material_amb; out vec3 v_material_spec;\n"
+    "out float v_material_shine;\n"
+    "out vec3 v_shadow_world;\n"
+#endif
     /* the GS interpolates F across the screen as it does the colours */
     "uniform vec3 u_fog; noperspective out float v_fog;\n"
     "const vec3 L[3]=vec3[3](vec3(.57735,.57735,.57735),vec3(0.,.9759,-.2182),vec3(-1.,0.,0.));\n"
     "const vec3 D=vec3(1.,60./255.,216./255.), S=vec3(239./255.,108./255.,198./255.);\n"
     "void main(){\n"
-    "  vec3 p=a_pos, normal=a_normal; vec2 uv=a_uv;\n"
-    "  if(u_morph>0.){p=mix(p,a_morph_pos,u_morph);normal=mix(normal,a_morph_normal,u_morph);uv=mix(uv,a_morph_uv,u_morph);}\n"
+    "  vec3 p=a_pos, normal=a_normal, rgb=a_rgb; float alpha=a_shine_alpha.y; vec2 uv=a_uv;\n"
+    "  if(u_morph>0.){p=mix(p,a_morph_pos,u_morph);normal=mix(normal,a_morph_normal,u_morph);uv=mix(uv,a_morph_uv,u_morph);if(u_morph_color==1){rgb=mix(rgb,a_morph_rgba.rgb,u_morph);alpha=mix(alpha,a_morph_rgba.a,u_morph);}}\n"
     "  if(u_skinned==1 && dot(a_weight,vec4(1.))>0.){\n"
     "    mat4 bone=u_palette[int(a_bone.x)]*a_weight.x+u_palette[int(a_bone.y)]*a_weight.y+\n"
     "              u_palette[int(a_bone.z)]*a_weight.z+u_palette[int(a_bone.w)]*a_weight.w;\n"
     "    p=(bone*vec4(p,1.)).xyz; normal=mat3(bone)*normal; }\n"
     "  vec3 w=u_rot*p+u_pos; v_floor=w.y; if(u_mirror==1) w.y=-w.y; w-=u_cam; float x=dot(w,u_r), y=dot(w,u_u), z=dot(w,u_f);\n"
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    "  v_shadow_world=u_rot*p+u_pos;\n"
+    "  v_material_normal=u_rot*normal; if(u_mirror==1)v_material_normal.y=-v_material_normal.y;\n"
+    "  v_material_ray=w;v_material_rgb=a_rgb;v_material_amb=a_amb;v_material_spec=a_spec;v_material_shine=a_shine_alpha.x;\n"
+#endif
     /* u_clip: the z coefficients of the depth for the near/far planes (depth_coeffs) */
     "  gl_Position=vec4(x*u_focal.x, y*u_focal.y, z*u_clip.x+u_clip.y, z);\n"
     "  gl_Position.xy+=u_jitter*z;\n"
@@ -174,13 +307,13 @@ static const char *vs =
        (MINI with vf24.w), times 1/w, times 255 - max*255 (vf25.w) plus
        max*255 + 0.1 (vf26.w); FTOI4 keeps the whole part */
     "  { float fz=max(z,1e-6); v_fog=u_fog.x<0.?1.:floor(min(255.,u_fog.y+u_fog.x*min(fz,u_fog.z)/fz))/255.; }\n"
-    "  v_uv=uv; v_alpha=u_mode==2?min(a_shine_alpha.y*u_shadow_alpha,1.):a_shine_alpha.y;\n"
+    "  v_uv=uv; v_alpha=u_mode==2?min(alpha*u_shadow_alpha,1.):alpha*u_valpha;\n"
     /* the course (unlit): a kind 4 layer has no colour of its own (0049EB90
        loads no ambient/diffuse block), only the lights' specular. Which
        lights the course gives it is not read: none here, so it adds
        nothing (its vertex colour, 1.0 doubled, made the grid's Cs * Ad + Cd
        tyre marks white at Tsukuba, user's PCSX2 report) */
-    "  if(u_mode!=0){ v_light=u_mode==1?(u_specular_only==1?vec3(0.):a_rgb*u_cscale):a_rgb+u_shadow_rgb; if(u_colorop==1) v_light=v_light*u_colormul+u_coloradd; v_spec=vec3(0.); v_envuv=vec2(.5); return; }\n"
+    "  if(u_mode!=0){ v_light=u_mode==1?(u_specular_only==1?vec3(0.):rgb*u_cscale):a_rgb+u_shadow_rgb; if(u_colorop==1) v_light=v_light*u_colormul+u_coloradd; v_spec=vec3(0.); v_envuv=vec2(.5); return; }\n"
 #if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     /* P: flat non-reflective vertices do not consume their normal. */
     "  vec3 wn=vec3(0.,1.,0.); if(u_switch_fast==0 || u_flat==0 || u_reflect==1) wn=normalize(u_rot*normal);\n"
@@ -243,13 +376,23 @@ static const char *fs =
     "in float v_floor; uniform int u_mirror; in vec3 v_light; in vec3 v_spec; in vec2 v_envuv; in vec2 v_uv; in float v_alpha; out vec4 o;\n"
     "noperspective in float v_fog; uniform vec3 u_fogcol, u_grade_rgb, u_grade;\n"
     "uniform sampler2D u_tex, u_dest, u_envtex; uniform int u_has_tex, u_cc, u_tfx, u_native, u_nearest, u_mip_count, u_minify;\n"
+    "uniform float u_authored_night;\n"
     "uniform vec2 u_texsize; uniform ivec2 u_size, u_wrap, u_envsize; uniform ivec4 u_region;\n"
     "uniform int u_atest, u_afunc, u_pass, u_date, u_date_bit, u_reflect; uniform float u_aref, u_untex, u_fade; uniform vec2 u_focal_px;\n"
     "uniform vec4 u_viewport;\n"
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+#include "render3d_material_shader.inc"
+#include "render3d_shadow_shader.inc"
+#include "render3d_modern_shader.inc"
+#include "render3d_atmosphere_shader.inc"
+#include "render3d_daylight_shader.inc"
+#include "render3d_car_lamps_shader.inc"
+#endif
     "int texel(int at,int size,int mode,int mn,int mx){\n"
     "  if(mode==0) return at-size*int(floor(float(at)/float(size)));\n"
     "  if(mode==3) at=(at&mn)|mx; else if(mode==2) at=clamp(at,mn,mx);\n"
     "  return clamp(at,0,size-1); }\n"
+    "uniform int u_filtering;\n"
     "vec4 fetch(int x,int y){ return texelFetch(u_tex,ivec2(x,y),0); }\n"
     /* A: host derivatives select the footprint; GS Q/L/K selection is pending.
        Address each tap at its selected authored level, including REGION_CLAMP. */
@@ -282,6 +425,12 @@ static const char *fs =
     "    tx=texel(tx,u_size.x,u_wrap.x,u_region.x,u_region.y); ty=texel(ty,u_size.y,u_wrap.y,u_region.z,u_region.w);\n"
     /* TEX1 MMAG/MMIN 0: the texel the point falls in (in an upscaled
        texture, the middle of that texel's block) */
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    /* P: native taps retain region addressing; ordinary repeat/clamp surfaces
+       opt into hardware derivatives, authored/generated mips and anisotropy. */
+    "    if(u_filtering>0 && u_wrap.x<2 && u_wrap.y<2){ vec2 sz=vec2(u_size);\n"
+    "      t=textureGrad(u_tex,v_uv*u_texsize/sz,dx/sz,dy/sz); } else\n"
+#endif
     "    if(u_mip_count>0 && u_minify>=2 && lod>0.){ float l=clamp(lod,0.,float(u_mip_count));\n"
     "      if(u_minify==2 || u_minify==4)t=mipSample(int(floor(l+.5)));\n"
     "      else {int low=int(floor(l));t=mix(mipSample(low),mipSample(min(low+1,u_mip_count)),fract(l));} }\n"
@@ -302,15 +451,19 @@ static const char *fs =
     "    else if(u_afunc==5)p=a>=u_aref; else if(u_afunc==6)p=a>u_aref; else if(u_afunc==7)p=a!=u_aref;\n"
     "    if(u_pass==2){ if(p) discard; } else if(!p) discard; }\n"
     "  if(u_date==1){ bool set=texelFetch(u_dest,ivec2(gl_FragCoord.xy),0).a>=.999; if(set!=(u_date_bit==1)) discard; }\n"
-    "  vec3 src;\n"
+    "  vec3 light=v_light,spec=v_spec;vec2 envuv=v_envuv;\n"
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    "  materialSample(light,spec,envuv);\n"
+#endif
+    "  vec3 src;vec3 reflectedEnvironment=vec3(0.);\n"
     "  if(u_reflect==1){\n"
     "    vec3 e=vec3(0.);\n"
     "    if(u_envsize.x>0){\n"
 #if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
     "      if(u_switch_fast==1){ vec2 halftexel=.5/vec2(u_envsize);\n"
-    "        e=textureLod(u_envtex,clamp(v_envuv,halftexel,vec2(1.)-halftexel),0.).rgb; } else {\n"
+    "        e=textureLod(u_envtex,clamp(envuv,halftexel,vec2(1.)-halftexel),0.).rgb; } else {\n"
 #endif
-    "      float eu=v_envuv.x, ev=v_envuv.y;\n"
+    "      float eu=envuv.x, ev=envuv.y;\n"
     "      float ex=clamp(eu*float(u_envsize.x)-.5,0.,float(u_envsize.x-1)), ey=clamp(ev*float(u_envsize.y)-.5,0.,float(u_envsize.y-1));\n"
     "      int x0=int(ex), y0=int(ey), x1=min(x0+1,u_envsize.x-1), y1=min(y0+1,u_envsize.y-1); float fx=ex-float(x0), fy=ey-float(y0);\n"
     "      e=mix(mix(texelFetch(u_envtex,ivec2(x0,y0),0).rgb,texelFetch(u_envtex,ivec2(x1,y0),0).rgb,fx),\n"
@@ -319,9 +472,25 @@ static const char *fs =
     "      }\n"
 #endif
     "    }\n"
-    "    src=e*v_light;\n"
-    "  } else src=min(vec3(1.),t.rgb*v_light*(u_has_tex==1?1.:u_untex)+v_spec);\n"
+    "    reflectedEnvironment=e;src=e*light;\n"
+    "  } else src=min(vec3(1.),t.rgb*light*(u_has_tex==1?1.:u_untex)+spec);\n"
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    "  vec3 retainedNight=src;bool linearOutput=false;\n"
+    "  vec2 occlusion=u_shadow_on>0?shadowVisibility():vec2(1.,0.);float visibility=occlusion.x;\n"
+    "  if(u_modern_lighting==1 && u_mode==0 && u_flat==0 && u_nlights>0){src=modernShade(t.rgb,visibility,occlusion.y,src,reflectedEnvironment);linearOutput=u_hdr==1;}else if(u_daylight==0)src*=visibility;\n"
+#endif
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    "  if(u_daylight>0 && u_reflect==1)src*=1.-occlusion.y*.65;\n"
+    "  if(u_daylight>0){src=daylightShade(src,t.rgb,visibility,occlusion.y);linearOutput=u_hdr==1;}\n"
+    "  if(u_hdr==1 && !linearOutput)src=modernLinear(max(src,vec3(0.)));\n"
+#endif
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    "  if(u_daylight==1 && u_authored_night>0.)src=mix(src,u_hdr==1?(u_authored_environment==1 && u_mode==1?authoredSceneLinear(modernLinear(max(retainedNight,vec3(0.)))):modernLinear(max(retainedNight,vec3(0.)))):retainedNight,clamp(u_authored_night,0.,1.));\n"
+    "  if(u_car_lamp_count>0 && u_daylight<2 && u_mode!=2 && u_reflect==0)src=carLampShade(src,t.rgb);\n"
+    "  src=mix(u_hdr==1?modernLinear(u_fogcol):u_fogcol,src,v_fog);\n"
+#else
     "  src=mix(u_fogcol,src,v_fog);\n"
+#endif
     "  if(u_grade.z>0.){ float l=dot(src,vec3(.299,.587,.114));\n"
     "    src=mix(src,clamp(mix(vec3(l),src,u_grade.x)*u_grade_rgb+u_grade.y,0.,1.),u_grade.z); }\n"
     "  o=vec4(src,clamp(na,0.,1.)*u_fade);\n"
@@ -366,6 +535,7 @@ int r3d_available(void)
     UNI(flat, "u_flat");
     UNI(reflect, "u_reflect");
     UNI(nlights, "u_nlights");
+    UNI(local_lights, "u_local_lights");
     UNI(ldir, "u_ldir");
     UNI(lamb, "u_lamb");
     UNI(ldif, "u_ldif");
@@ -390,6 +560,37 @@ int r3d_available(void)
     UNI(native, "u_native");
     UNI(nearest, "u_nearest");
     UNI(mip_count, "u_mip_count");
+    UNI(filtering, "u_filtering");
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    UNI(material_shading, "u_material_shading");
+    UNI(skip_material_light, "u_skip_material_light");
+    UNI(measure_no_env, "u_measure_no_env");
+    UNI(measure_no_spec, "u_measure_no_spec");
+    UNI(measure_ggx_samples, "u_measure_ggx_samples");
+    UNI(hdr,"u_hdr");
+    UNI(daylight, "u_daylight");
+    UNI(authored_environment,"u_authored_environment");
+    UNI(sky_seconds, "u_sky_seconds");
+    UNI(cloud_cache,"u_cloud_cache");UNI(cloud_volume,"u_cloud_volume");
+    UNI(linear_environment,"u_linear_environment");UNI(environment_linear,"u_environment_linear");
+    UNI(cloud_shadow,"u_cloud_shadow");UNI(cloud_origin,"u_cloud_origin");
+    UNI(sun_direction, "u_sun_direction");
+    UNI(sun_color, "u_sun_color");
+    UNI(sky_color, "u_sky_color");
+    UNI(night_sky,"u_night_sky");
+    UNI(authored_night, "u_authored_night");
+    UNI(car_lamp_count,"u_car_lamp_count");UNI(car_lamp_position,"u_car_lamp_position");
+    UNI(car_lamp_direction,"u_car_lamp_direction");UNI(car_lamp_color,"u_car_lamp_color");
+    UNI(lamp_lens, "u_lamp_lens");
+    UNI(lamp_shadow_mask, "u_lamp_shadow_mask");
+    UNI(lamp_shadow_map, "u_lamp_shadow_map");
+    UNI(lamp_shadow_projection, "u_lamp_shadow_projection");
+    UNI(haze_color, "u_haze_color");
+    UNI(modern_lighting, "u_modern_lighting");
+    UNI(shadow_on, "u_shadow_on");
+    UNI(shadow_map, "u_shadow_map");
+    UNI(shadow_projection, "u_shadow_projection");
+#endif
     UNI(minify, "u_minify");
     UNI(fade, "u_fade");
     UNI(atest, "u_atest");
@@ -406,8 +607,10 @@ int r3d_available(void)
     UNI(skinned, "u_skinned");
     UNI(palette, "u_palette");
     UNI(morph, "u_morph");
+    UNI(morph_color, "u_morph_color");
     UNI(colorop, "u_colorop");
     UNI(colormul, "u_colormul");
+    UNI(valpha, "u_valpha");
     UNI(coloradd, "u_coloradd");
     UNI(fog, "u_fog");
     UNI(fogcol, "u_fogcol");
@@ -442,7 +645,8 @@ static int same_group(const r3d_group *g, const gt4_triangle *t)
     return g->source_model == t->source_model && g->texture == t->texture &&
            g->wheel_blur_texture == t->wheel_blur_texture && g->blend_enabled == t->blend_enabled &&
            g->flat == (t->kind == 0 || t->kind == 5) && g->specular == (t->kind == 4) &&
-           g->lamp == t->lamp && !memcmp(&g->state, &t->state, sizeof g->state);
+           g->lamp == t->lamp && g->night_lens == t->night_lens &&
+           !memcmp(&g->state, &t->state, sizeof g->state);
 }
 
 /* P: preserve 00455708 draw state while omitting redundant GL applications.
@@ -452,7 +656,7 @@ static int same_draw_state(const r3d_group *a, const r3d_group *b)
 {
     return a->blend_enabled == b->blend_enabled && a->reflection == b->reflection &&
            a->flat == b->flat && a->specular == b->specular && a->lamp == b->lamp &&
-           !memcmp(&a->state, &b->state, sizeof a->state);
+           a->night_lens == b->night_lens && !memcmp(&a->state, &b->state, sizeof a->state);
 }
 
 static int same_opaque_group(const r3d_group *a, const r3d_group *b)
@@ -460,7 +664,7 @@ static int same_opaque_group(const r3d_group *a, const r3d_group *b)
     return !b->blend_enabled && a->source_model == b->source_model && a->texture == b->texture &&
            a->reflection == b->reflection && a->flat == b->flat && a->specular == b->specular &&
            a->wheel_blur_texture == b->wheel_blur_texture && a->lamp == b->lamp &&
-           !memcmp(&a->state, &b->state, sizeof a->state);
+           a->night_lens == b->night_lens && !memcmp(&a->state, &b->state, sizeof a->state);
 }
 
 r3d_mesh *r3d_mesh_create_shared(const gt4_model *m, const r3d_mesh *shared)
@@ -490,6 +694,7 @@ r3d_mesh *r3d_mesh_create_shared(const gt4_model *m, const r3d_mesh *shared)
     mesh->skinned = m->skin != NULL;
     int stride = mesh->skinned ? SKIN_VFLOATS : VFLOATS;
     mesh->morph = m->morph != NULL;
+    mesh->morph_color=m->morph_color;
     mesh->grasp_scale = m->grasp_scale;
     if (mesh->morph) {
         if (mesh->skinned || !isfinite(mesh->grasp_scale) || mesh->grasp_scale <= 0 ||
@@ -497,7 +702,7 @@ r3d_mesh *r3d_mesh_create_shared(const gt4_model *m, const r3d_mesh *shared)
             free(mesh);
             return NULL;
         }
-        stride += 8;
+        stride += 12;
     }
     /* Stream into the final VBO with a bounded scratch buffer. A million
        course triangles otherwise need another 228 MB temporary CPU copy. */
@@ -566,6 +771,7 @@ r3d_mesh *r3d_mesh_create_shared(const gt4_model *m, const r3d_mesh *shared)
                 memcpy(o + 19, x->p, 12);
                 memcpy(o + 22, x->normal, 12);
                 memcpy(o + 25, x->uv, 8);
+                memcpy(o+27,x->rgb,12);o[30]=x->alpha;
             }
         }
         r3d_group *g = mesh->ngroups ? &mesh->groups[mesh->ngroups - 1] : NULL;
@@ -597,6 +803,7 @@ r3d_mesh *r3d_mesh_create_shared(const gt4_model *m, const r3d_mesh *shared)
             g->flat = t->kind == 0 || t->kind == 5;
             g->specular = t->kind == 4;
             g->lamp = t->lamp;
+            g->night_lens = t->night_lens;
             for (int k = 0; k < 3; k++) {
                 g->lo[k] = 1e30f;
                 g->hi[k] = -1e30f;
@@ -649,8 +856,8 @@ r3d_mesh *r3d_mesh_create_shared(const gt4_model *m, const r3d_mesh *shared)
         glEnableVertexAttribArray(a);
     }
     if (mesh->morph)
-        for (int a = 9, at = 19; a < 12; a++) {
-            int size = a == 11 ? 2 : 3;
+        for (int a = 9, at = 19; a < 13; a++) {
+            int size = a == 12 ? 4 : a == 11 ? 2 : 3;
             glVertexAttribPointer(a, size, GL_FLOAT, GL_FALSE, stride * sizeof(float),
                                   (void *)(size_t)(at * sizeof(float)));
             glEnableVertexAttribArray(a);
@@ -706,6 +913,18 @@ r3d_mesh *r3d_mesh_create_shared(const gt4_model *m, const r3d_mesh *shared)
             }
             glTexParameteri(GL_TEXTURE_2D, 0x813D, im->mip_count); /* GL_TEXTURE_MAX_LEVEL */
         }
+        t->filtering_applied = -1;
+        t->anisotropy_max = t->anisotropy_original = 1;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+        int can_anisotropy = 0;
+#ifdef MOON_PC_VULKAN
+        can_anisotropy = moon_vk_render_active();
+#endif
+        if (can_anisotropy || SDL_GL_ExtensionSupported("GL_EXT_texture_filter_anisotropic")) {
+            glGetFloatv(0x84FF, &t->anisotropy_max);
+            t->anisotropy_original = can_anisotropy ? 1 : fminf(t->anisotropy_max, 8);
+        }
+#endif
         t->nearest = !im->magnify && !im->minify;
         t->texture_function = im->texture_function;
         t->wrap_u = im->wrap_u;
@@ -817,15 +1036,17 @@ void r3d_begin(float x, float y, float w, float h, const tex1_image *environment
 {
     accumulate_work(&completed_work, &frame_stats);
     memset(&frame_stats, 0, sizeof frame_stats);
+    r3d_env_frame++;
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)
-    int reference = getenv("MOON_RENDER_REFERENCE") != NULL;
+    static r3d_env_slot reference_env, repeat_env, no_batch_env, flat_env;
+    int reference = r3d_env_flag("MOON_RENDER_REFERENCE", &reference_env);
     pc_submission.cache_materials = !reference;
 #ifdef MOON_PC_VULKAN
-    if (moon_vk_render_active() && getenv("MOON_VK_REPEAT_COMMANDS"))
+    if (moon_vk_render_active() && r3d_env_flag("MOON_VK_REPEAT_COMMANDS", &repeat_env))
         pc_submission.cache_materials = 0;
 #endif
-    pc_submission.batch_opaque = !reference && getenv("MOON_RENDER_NO_BATCH") == NULL;
-    pc_submission.spatial = scene_spatial && getenv("MOON_FLAT_VISIBILITY") == NULL;
+    pc_submission.batch_opaque = !reference && !r3d_env_flag("MOON_RENDER_NO_BATCH", &no_batch_env);
+    pc_submission.spatial = scene_spatial && !r3d_env_flag("MOON_FLAT_VISIBILITY", &flat_env);
 #endif
 
 #ifndef MOON_DEKO3D
@@ -849,6 +1070,7 @@ void r3d_begin(float x, float y, float w, float h, const tex1_image *environment
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     if (environment != env_source || env_dirty) {
         env_dirty = 0;
+        environment_revision++;
         if (environment && env_tex && env_w == environment->width && env_h == environment->height) {
             glBindTexture(GL_TEXTURE_2D, env_tex);
             glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, env_w, env_h, GL_RGBA, GL_UNSIGNED_BYTE,
@@ -1140,6 +1362,7 @@ int r3d_begin_target(int size)
 void r3d_gpu_environment(unsigned texture, int width, int height)
 {
     gpu_environment = texture;
+    environment_revision++;
     gpu_environment_w = width;
     gpu_environment_h = height;
 }
@@ -1210,6 +1433,12 @@ void r3d_environment_changed(void)
 
 void r3d_end(void)
 {
+    if (getenv("MOON_MEASURE_LIGHTS") && measure_light_draws) {
+        if (++measure_light_frames % 60 == 0)
+            fprintf(stderr, "render: lights max=%u avg=%.2f draws=%u\n", measure_light_max,
+                    (double)measure_light_sum / measure_light_draws, measure_light_draws);
+        measure_light_draws = measure_light_sum = measure_light_max = 0;
+    }
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
     glDisable(GL_POLYGON_OFFSET_FILL);
@@ -1438,14 +1667,81 @@ static int wheel_accumulate(r3d_texture *t, int samples, float angle)
     return 1;
 }
 
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+#include "render3d_cloud_cache.inc"
+#include "render3d_environment_cache.inc"
+#endif
+/* The window rectangle a group can cover: its box projected as the vertex
+   shader does, two pixels wider, clipped to the viewport. DATE reads the
+   copied alpha only under the group's own fragments, so copying this
+   rectangle instead of the whole viewport gives the same image. A box
+   reaching behind the eye keeps the whole viewport. MOON_DATE_FULL: old copy. */
+static void date_rect(const r3d_view *view, const r3d_group *g, int skinned, int rect[4])
+{
+    rect[0] = vp[0];
+    rect[1] = vp[1];
+    rect[2] = vp[0] + vp[2];
+    rect[3] = vp[1] + vp[3];
+    static r3d_env_slot full;
+    if (r3d_env_flag("MOON_DATE_FULL", &full))
+        return;
+    float lo[3], hi[3];
+    const float *bound_lo = g->lo, *bound_hi = g->hi;
+    if (skinned) {
+        r3d_skin_bounds(g->lo, g->hi, g->bone_mask, g->weight_lo, g->weight_hi, view->skin_palette,
+                        lo, hi);
+        bound_lo = lo;
+        bound_hi = hi;
+    }
+    float fx = view->focal / 320 * projection_x,
+          fy = (view->focal_y > 0 ? view->focal_y : view->focal) / 224;
+    float x0 = 1e30f, y0 = 1e30f, x1 = -1e30f, y1 = -1e30f;
+    for (int corner = 0; corner < 8; corner++) {
+        float p[3], w[3];
+        for (int k = 0; k < 3; k++)
+            p[k] = corner & (1 << k) ? bound_hi[k] : bound_lo[k];
+        for (int r = 0; r < 3; r++)
+            w[r] = view->rot[r * 3] * p[0] + view->rot[r * 3 + 1] * p[1] +
+                   view->rot[r * 3 + 2] * p[2] + view->pos[r];
+        if (view->mirror)
+            w[1] = -w[1];
+        for (int k = 0; k < 3; k++)
+            w[k] -= view->cam[k];
+        float x = w[0] * view->r[0] + w[1] * view->r[1] + w[2] * view->r[2],
+              y = w[0] * view->u[0] + w[1] * view->u[1] + w[2] * view->u[2],
+              z = w[0] * view->f[0] + w[1] * view->f[1] + w[2] * view->f[2];
+        if (!(z > 1e-3f) || !isfinite(x) || !isfinite(y))
+            return;
+        float sx = x * fx / z + view->jitter[0], sy = y * fy / z + view->jitter[1];
+        x0 = fminf(x0, sx);
+        x1 = fmaxf(x1, sx);
+        y0 = fminf(y0, sy);
+        y1 = fmaxf(y1, sy);
+    }
+    float px0 = vp[0] + (x0 + 1) * .5f * vp[2] - 2, px1 = vp[0] + (x1 + 1) * .5f * vp[2] + 2,
+          py0 = vp[1] + (y0 + 1) * .5f * vp[3] - 2, py1 = vp[1] + (y1 + 1) * .5f * vp[3] + 2;
+    if (px0 > rect[0])
+        rect[0] = px0 < rect[2] ? (int)floorf(px0) : rect[2];
+    if (px1 < rect[2])
+        rect[2] = px1 > rect[0] ? (int)ceilf(px1) : rect[0];
+    if (py0 > rect[1])
+        rect[1] = py0 < rect[3] ? (int)floorf(py0) : rect[3];
+    if (py1 < rect[3])
+        rect[3] = py1 > rect[1] ? (int)ceilf(py1) : rect[1];
+}
 static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *lights)
 {
     if (!mesh || !program)
         return;
     SWP_PUSH(SWP_GL);
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    int cloud_ready=cloud_cache_prepare(view);
+    int environment_ready=environment_cache_prepare(view);
+#endif
     float planes[6][4];
     r3d_frustum(view, projection_x, planes);
-    int cull = getenv("MOON_DISABLE_CULL") == NULL;
+    static r3d_env_slot no_cull;
+    int cull = !r3d_env_flag("MOON_DISABLE_CULL", &no_cull);
     float wheel_angle = view->wheel_interval;
     if (view->wheel_blur > 1) {
         /* 004522D8 +A8..+C0: exp(-20 * screen displacement). The PC
@@ -1482,21 +1778,35 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
     }
     glUseProgram(program);
 #if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
-    glUniform1i(U.switch_fast, getenv("MOON_SWITCH_SHADER_REFERENCE") == NULL);
+    static r3d_env_slot shader_reference;
+    glUniform1i(U.switch_fast, !r3d_env_flag("MOON_SWITCH_SHADER_REFERENCE", &shader_reference));
 #endif
     int skinned = mesh->skinned && view->skin_palette != NULL;
     glUniform1i(U.skinned, skinned);
+    glUniform1i(U.morph_color,mesh->morph_color);
     glUniform1f(U.morph, mesh->morph && isfinite(view->grasp)
                              ? fminf(1, fmaxf(0, view->grasp)) * mesh->grasp_scale
                              : 0);
     glUniform1i(U.colorop, view->authored_color);
     glUniform3fv(U.colormul, 1, view->color_mul);
+    glUniform1f(U.valpha, view->vertex_alpha_set ? view->vertex_alpha : 1.f);
     glUniform3fv(U.coloradd, 1, view->color_add);
     if (skinned)
         glUniformMatrix4fv(U.palette, 20, GL_FALSE, &view->skin_palette[0][0]);
     int n = lights ? lights->count : 0;
     n = n < 0 ? 0 : n > 4 ? 4 : n;
+    const char *measure_lights = getenv("MOON_MEASURE_LIGHTS");
+    if (measure_lights) {
+        int cap = atoi(measure_lights);
+        if (cap >= 0 && cap < n)
+            n = cap;
+    }
+    measure_light_draws++;
+    measure_light_sum += (unsigned)n;
+    if ((unsigned)n > measure_light_max)
+        measure_light_max = (unsigned)n;
     glUniform1i(U.nlights, n);
+    glUniform1i(U.local_lights, n ? lights->authored_local : 0);
     glUniform1f(U.lvertex, n ? lights->vertex_limit : 0);
     if (n) {
         glUniform3fv(U.ldir, n, &lights->direction[0][0]);
@@ -1519,10 +1829,46 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
     {
         float k[2];
         depth_coeffs((view->near_clip > 0 ? view->near_clip : .2f) + view->depth_bias,
-                     20000 + view->depth_bias, k);
+                     (view->far_clip > view->near_clip ? view->far_clip : 20000) + view->depth_bias, k);
         glUniform2f(U.clip, k[0], k[1]);
     }
     glUniform1i(U.mode, view->shadow ? 2 : view->unlit ? 1 : 0);
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+    glUniform1i(U.material_shading, pc_submission.material_shading && !view->shadow && !view->unlit);
+    glUniform1i(U.skip_material_light, getenv("MOON_MEASURE_SKIP_MATERIAL_LIGHT") != NULL);
+    shadow_map_receiver(view);
+    glUniform1i(U.hdr,video_hdr_active());
+    glUniform1i(U.daylight, view->daylight);
+    glUniform1i(U.authored_environment,view->authored_environment);
+    cloud_cache_bind(cloud_ready,view);
+    environment_cache_bind(environment_ready);
+    glUniform1f(U.sky_seconds, view->sky_seconds);
+    glUniform1i(U.night_sky,night_sky_enabled);
+    glUniform1f(U.authored_night, view->authored_night);
+    glUniform3fv(U.sun_direction,1,view->sun_direction);
+    glUniform3fv(U.sun_color,1,view->sun_color);
+    glUniform3fv(U.sky_color,1,view->sky_color);
+    glUniform3fv(U.haze_color,1,view->haze_color);
+    int lamp_count=car_lamps_enabled && !view->ghost && !view->shadow?car_lamp_count:0;
+    glUniform1i(U.car_lamp_count,lamp_count);
+    lamp_shadow_receiver(lamp_count);
+    float positions[R3D_CAR_LAMPS][4],directions[R3D_CAR_LAMPS][4],colors[R3D_CAR_LAMPS][4];
+    for(int i=0;i<lamp_count;i++) {
+        memcpy(positions[i],car_lamp_frame[i].position,16);memcpy(directions[i],car_lamp_frame[i].direction,16);memcpy(colors[i],car_lamp_frame[i].color,16);
+    }
+    if(lamp_count){glUniform4fv(U.car_lamp_position,lamp_count,positions[0]);glUniform4fv(U.car_lamp_direction,lamp_count,directions[0]);glUniform4fv(U.car_lamp_color,lamp_count,colors[0]);}
+
+    glUniform1i(U.modern_lighting, pc_submission.modern_lighting && view->modern_light && !view->ghost && !view->shadow);
+    glUniform1i(U.measure_no_env, getenv("MOON_MEASURE_NO_ENV") != NULL);
+    glUniform1i(U.measure_no_spec, getenv("MOON_MEASURE_NO_SPEC") != NULL);
+    {
+        const char *ggx = getenv("MOON_MEASURE_GGX_SAMPLES");
+        int samples = ggx ? atoi(ggx) : 32;
+        if (samples < 0)
+            samples = 0;
+        glUniform1i(U.measure_ggx_samples, samples);
+    }
+#endif
     glUniform1f(U.shadow_alpha, view->shadow_alpha > 0 ? view->shadow_alpha : .55f);
     glUniform3fv(U.shadow_rgb, 1, view->shadow_rgb);
     glUniform2fv(U.envk, 1, view->env_color);
@@ -1572,7 +1918,8 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
     GLuint last_texture_id = 0;
     int texture_valid = 0;
 #if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
-    int cache_textures = getenv("MOON_SWITCH_UNCACHED") == NULL;
+    static r3d_env_slot uncached;
+    int cache_textures = !r3d_env_flag("MOON_SWITCH_UNCACHED", &uncached);
     int batch_opaque = cache_textures;
 #else
     int cache_textures = pc_submission.cache_materials;
@@ -1581,8 +1928,9 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
     const r3d_group *last_draw_state = NULL;
     GLint date_read_fb = 0, date_draw_fb = 0;
     int date_framebuffer_known = 0;
-    int no_reflect = getenv("MOON_NO_REFLECT") != NULL;
-    int only_reflect = getenv("MOON_ONLY_REFLECT") != NULL;
+    static r3d_env_slot no_reflect_env, only_reflect_env;
+    int no_reflect = r3d_env_flag("MOON_NO_REFLECT", &no_reflect_env);
+    int only_reflect = r3d_env_flag("MOON_ONLY_REFLECT", &only_reflect_env);
     int spatial = 0;
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST)
     /* Authored course lists already restrict model ranges. A global spatial
@@ -1670,7 +2018,7 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
 
             int texture = view->wheel_blur == 1 && g->wheel_blur_texture ? g->wheel_blur_texture - 1
                                                                          : g->texture;
-            const r3d_texture *t =
+            r3d_texture *t =
                 texture >= 0 && texture < mesh->ntextures ? &mesh->textures[texture] : NULL;
             const r3d_texture *source_texture = t;
             r3d_texture accumulated;
@@ -1679,6 +2027,8 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
                 accumulated = *t;
                 accumulated.mip_count = 0;
                 accumulated.id = t->wheel_tex[1];
+                accumulated.filtering_applied = -1;
+                accumulated.anisotropy_original = 1;
                 accumulated.width = accumulated.height = accumulated.tex_w = accumulated.tex_h =
                     t->wheel_size;
                 accumulated.scale = 1;
@@ -1694,6 +2044,15 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
                 frame_stats.state_updates++;
             } else
                 frame_stats.state_cache_hits++;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+            /* P: blend coverage is not a material class. Authored paint decals,
+               glass and lamps retain their alpha while using the same lighting
+               as their corresponding opaque material. */
+            /* View uniforms are set once above. Material state equality already
+               includes the lens tags, so this value changes with that state. */
+            if (state_changed)
+                glUniform1i(U.lamp_lens, g->night_lens || g->lamp == 2);
+#endif
             if (state_changed) {
                 /* the draw's own fog colour (a GS colour, doubled with the course's) or the scene's */
                 if (s->fog_override)
@@ -1726,6 +2085,18 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
                 glBindTexture(GL_TEXTURE_2D, t ? t->id : 0);
             }
             if (t && texture_changed) {
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+                int filtering = pc_submission.texture_filter;
+                int ordinary_wrap = t->wrap_u < 2 && t->wrap_v < 2;
+                glUniform1i(U.filtering, ordinary_wrap ? filtering : 0);
+                if (t->filtering_applied != filtering && ordinary_wrap) {
+                    static const float levels[] = {1, 1, 4, 8, 16};
+                    float wanted = filtering ? levels[filtering] : t->anisotropy_original;
+                    if (t->anisotropy_max > 1)
+                        glTexParameterf(GL_TEXTURE_2D, 0x84FE, fminf(t->anisotropy_max, wanted));
+                    t->filtering_applied = filtering;
+                }
+#endif
                 int k = t->scale; /* addressing in the upscaled texture's texels */
                 glUniform2f(U.texsize, (float)(t->tex_w * k), (float)(t->tex_h * k));
                 glUniform2i(U.size, t->width * k, t->height * k);
@@ -1780,8 +2151,10 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
                 glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
                                        dest_tex, 0);
                 glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)draw_fb);
-                glBlitFramebuffer(vp[0], vp[1], vp[0] + vp[2], vp[1] + vp[3], vp[0], vp[1],
-                                  vp[0] + vp[2], vp[1] + vp[3], GL_COLOR_BUFFER_BIT, GL_NEAREST);
+                int rect[4];
+                date_rect(view, g, skinned, rect);
+                glBlitFramebuffer(rect[0], rect[1], rect[2], rect[3], rect[0], rect[1], rect[2],
+                                  rect[3], GL_COLOR_BUFFER_BIT, GL_NEAREST);
                 glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)read_fb);
                 glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)draw_fb);
             }
@@ -1864,6 +2237,54 @@ int r3d_mesh_update_positions(r3d_mesh *m, const float (*p)[3], unsigned count, 
     glBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)(count * VFLOATS * sizeof(float)), stream);
     return 1;
 }
+int r3d_mesh_update_colours(r3d_mesh *mesh, const gt4_model *model)
+{
+    if (!mesh || !model || mesh->skinned || mesh->morph || !mesh->ngroups ||
+        (size_t)model->count * 3 != (size_t)mesh->vertices)
+        return 0;
+    size_t bytes = (size_t)mesh->vertices * VFLOATS * sizeof(float);
+    static float *stream;
+    static size_t capacity;
+    if (bytes > capacity) {
+        void *p = realloc(stream, bytes);
+        if (!p)
+            return 0;
+        stream = p;
+        capacity = bytes;
+    }
+    for (int i = 0; i < model->count; i++) {
+        const gt4_triangle *t = &model->triangles[i];
+        float e1[3], e2[3], face[3];
+        for (int k = 0; k < 3; k++) {
+            e1[k] = t->v[1].p[k] - t->v[0].p[k];
+            e2[k] = t->v[2].p[k] - t->v[0].p[k];
+        }
+        face[0] = e1[1] * e2[2] - e1[2] * e2[1];
+        face[1] = e1[2] * e2[0] - e1[0] * e2[2];
+        face[2] = e1[0] * e2[1] - e1[1] * e2[0];
+        for (int j = 0; j < 3; j++) {
+            const gt4_vertex *x = &t->v[j];
+            float *o = stream + ((size_t)i * 3 + j) * VFLOATS;
+            const float *n = x->normal;
+            float nl = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+            if (nl < 1e-6f)
+                n = face;
+            memcpy(o, x->p, 12);
+            memcpy(o + 3, n, 12);
+            memcpy(o + 6, x->uv, 8);
+            memcpy(o + 8, x->rgb, 12);
+            memcpy(o + 11, x->ambient, 12);
+            memcpy(o + 14, x->specular, 12);
+            o[17] = x->shine;
+            o[18] = x->alpha;
+        }
+    }
+    glBindVertexArray(mesh->vao);
+    glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)bytes, stream);
+    return 1;
+}
+
 void r3d_draw_ui(r3d_mesh *mesh, const r3d_view *view, const r3d_ui_light *light)
 {
     r3d_lights one = {1};
@@ -2017,10 +2438,15 @@ int r3d_begin_target_view(int size)
 
 void r3d_end_target_add(const float rgb[3], int blur)
 {
+    r3d_end_target_add_road(rgb, blur, NULL);
+}
+
+void r3d_end_target_add_road(const float rgb[3], int blur, const r3d_view *road)
+{
     static GLuint copy, quad, other_fbo, other_tex;
     static int other_size, failed_copy;
     static struct {
-        GLint image, shift, range, tint;
+        GLint image, shift, range, tint, linear_output;
     } C;
     int size = target_size;
     GLuint picture = target_color;
@@ -2032,8 +2458,8 @@ void r3d_end_target_add(const float rgb[3], int blur)
             "#version 330 core\nout vec2 uv; void main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2); uv=p; gl_Position=vec4(p*2.-1.,0.,1.);}\n",
             /* uv: 0..1 across the drawn rectangle, v up; the GS's rows go
                down, so its "first texels" are the picture's top */
-            "#version 330 core\nin vec2 uv; out vec4 o; uniform sampler2D image; uniform vec2 shift; uniform float range; uniform vec3 tint;\n"
-            "void main(){vec2 t=vec2(uv.x*range,1.-(1.-uv.y)*range)+shift; o=vec4(texture(image,t).rgb*tint,1.);}\n");
+            "#version 330 core\nin vec2 uv; out vec4 o; uniform sampler2D image; uniform vec2 shift; uniform float range; uniform vec3 tint;uniform int linear_output;\n"
+            "void main(){vec2 t=vec2(uv.x*range,1.-(1.-uv.y)*range)+shift; vec3 c=texture(image,t).rgb*tint;if(linear_output==1){c=clamp(c,0.,1.);c=mix(c/12.92,pow((c+.055)/1.055,vec3(2.4)),step(vec3(.04045),c));}o=vec4(c,1.);}\n");
         if (!copy)
             failed_copy = 1;
         else {
@@ -2041,6 +2467,7 @@ void r3d_end_target_add(const float rgb[3], int blur)
             C.shift = glGetUniformLocation(copy, "shift");
             C.range = glGetUniformLocation(copy, "range");
             C.tint = glGetUniformLocation(copy, "tint");
+            C.linear_output = glGetUniformLocation(copy,"linear_output");
             glGenVertexArrays(1, &quad);
         }
     }
@@ -2048,6 +2475,7 @@ void r3d_end_target_add(const float rgb[3], int blur)
         glUseProgram(copy);
         glBindVertexArray(quad);
         glUniform1i(C.image, 0);
+        glUniform1i(C.linear_output,0);
         glActiveTexture(GL_TEXTURE0);
         glDisable(GL_BLEND);
         glViewport(0, 0, size, size);
@@ -2097,6 +2525,14 @@ void r3d_end_target_add(const float rgb[3], int blur)
         glUniform2f(C.shift, 0, 0);
         glUniform1f(C.range, (size - (blur - .5f)) / size);
         glUniform3f(C.tint, rgb[0], rgb[1], rgb[2]);
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+        /* Original: func_003411D0 +0x0 (retained encoded GS sheen pass).
+           P: its encoded LDR result must enter the float scene as linear light. */
+        glUniform1i(C.linear_output,video_hdr_active());
+#endif
+        /* 003411D0's destination-alpha mask covers multiple materials.
+           Preserve its authored strength: world-up is not roughness metadata. */
+        (void)road;
         glEnable(GL_BLEND);
         glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
         glBlendFuncSeparate(GL_DST_ALPHA, GL_ONE, GL_ONE, GL_ZERO);
@@ -2199,7 +2635,7 @@ void r3d_draw_sprites(const r3d_sprite_texture *t, const r3d_view *view, const f
         {
             float k[2];
             depth_coeffs((view->near_clip > 0 ? view->near_clip : .2f) + view->depth_bias,
-                         20000 + view->depth_bias, k);
+                         (view->far_clip > view->near_clip ? view->far_clip : 20000) + view->depth_bias, k);
             glUniform2f(u_clip, k[0], k[1]);
         }
     }
@@ -2298,4 +2734,13 @@ int r3d_warmup(void)
     ready = ok && picture != NULL && glGetError() == GL_NO_ERROR;
     return ready;
 }
+#endif
+
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+#include "render3d_car_shadow.inc"
+#endif
+
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
+#include "render3d_shadow_map.inc"
+#include "render3d_lamp_shadow.inc"
 #endif

@@ -1,11 +1,12 @@
+#include "race_hud_oil.h"
 /* the display's car icon (RaceDisplay +0x2D14): func_003A6678 draws the
    car's 96x64 picture (func_004997B0 2, 0x60, 0x40), CarIconMaker's first
    per car (00393B70: 00393D20 mode 0, in perspective from the front
    three-quarter), not the results' 64x32 side view (mode 1) */
-static void hud_icon(void *user, int car, float x, float y, float w, float h)
+static void hud_icon(void *user, int car, float x, float y, float w, float h, float opacity)
 {
     race_game *g = user;
-    race_view_draw_icon_front(g->view, car, x, y, w, h);
+    race_view_draw_icon_front_alpha(g->view, car, x, y, w, h, opacity);
 }
 
 static int prepare_hud(race_game *g)
@@ -112,8 +113,10 @@ static void split_hud(race_game *g, double dt)
         race_hud_state s = {0};
         if (!*h || !gt4_race_run_hud(g->run, i, &r))
             continue;
+        s.display_hidden = ~menu_race_display_flags(NULL);
         s.rank = r.rank;
         s.cars = 2;
+        s.map_cars = 2;
         s.lap = r.lap;
         s.laps = r.laps;
         s.lap_time = r.lap_time;
@@ -131,7 +134,16 @@ static void split_hud(race_game *g, double dt)
         s.shift_lamp = r.shift_lamp;
         s.fuel = r.fuel;
         s.fuel_cap = r.fuel_cap;
+        s.has_boost = r.has_boost;
+        s.boost = r.boost;
+        memcpy(s.tire_rgb, r.tire_rgb, sizeof s.tire_rgb);
         s.rev_limit = r.rev_limit;
+        {
+            uint32_t car = gt4_race_run_car(g->run, i);
+            s.oil_sign = race_hud_oil_sign_settings(GT4_F32(car + CAR_ENGINE_WEAR + 8),
+                                           GT4_F32(0x00620340u), GT4_U8(0x00620DA4u),
+                                           GT4_U8(0x00620DB0u));
+        }
         s.aid = r.aid;
         s.brake_lock = r.brake_lock;
         s.driving = r.driving;
@@ -150,7 +162,7 @@ static void split_hud(race_game *g, double dt)
         s.split = 1;
         s.player = i;
         s.panel = 0;
-        for (int j = 0; j < 2; j++)
+        for (int j = 0; j < s.cars && j < MOON_MAX_CARS; j++)
             s.map_show[j] = gt4_race_run_xy(g->run, j, &s.map_x[j], &s.map_y[j]);
         plat_video_set_view(640, 448);
         video_ui_panel(i * 224.f, 224);
@@ -220,6 +232,14 @@ void race_game_draw_hud(race_game *g, double dt)
         race_hud_set_course(g->hud, g->hud_course);
         g->hud_course[0] = 0;
     }
+    /* 0039CDF0/0039EC40: a change of watched entry queues the replay name.
+       Presentation alone reads the option word; the simulation is untouched. */
+    if (g->hud) {
+        int watched = watched_car(g);
+        race_hud_draw_car_name(g->hud, watched >= 0 && watched < 6 ? g->hud_names[watched] : "",
+                               watched, g->replaying ? (g->rmode == 0 ? 4 : g->rmode == 1 ? 3 : 2) : 0,
+                               menu_race_display_flags(NULL), g->car_cam, g->held ? 0 : (float)dt);
+    }
     if (g->replaying && g->rmode != 2) { /* Normal and Dive: no display, the logo */
         race_hud_draw_replay(g->hud, NULL, 0, 1);
         race_hud_draw_music(g->hud, g->held ? 0.f : (float)dt);
@@ -240,8 +260,10 @@ void race_game_draw_hud(race_game *g, double dt)
     if (!gt4_race_run_hud(g->run, watched_car(g), &r))
         return;
     memset(&s, 0, sizeof s);
+    s.display_hidden = ~menu_race_display_flags(NULL);
     s.rank = r.rank;
     s.cars = gt4_race_run_cars(g->run);
+    s.map_cars = gt4_race_run_field_size(g->run);
     s.lap = r.lap;
     s.laps = r.laps;
     s.lap_time = r.lap_time;
@@ -256,14 +278,28 @@ void race_game_draw_hud(race_game *g, double dt)
     s.brake = r.brake;
     s.replay = g->replaying;
     s.side_g = r.side_g;
+    { /* 0039E7CC..0039E818: presentation reads 00344680, angle multiplied by -90. */
+        uint32_t car = gt4_race_run_car(g->run, watched_car(g));
+        s.steering = GT4_F32(car + CAR_HUD_STEERING);
+        s.steering_kind = GT4_U8(car + CAR_HUD_STEERING_KIND);
+    }
     s.shift_lamp = r.shift_lamp;
     s.fuel = r.fuel;
     s.fuel_cap = r.fuel_cap;
+        s.has_boost = r.has_boost;
+    s.boost = r.boost;
+    memcpy(s.tire_rgb, r.tire_rgb, sizeof s.tire_rgb);
     { /* 0039E790..0039E7C8: meter follows service state, not camera. */
         uint32_t car = gt4_race_run_car(g->run, watched_car(g));
         s.refueling = gt4_pit_refueling(GT4_U16(car + CAR_FIELD_UNK_5BC), GT4_U16(car + CAR_5BE));
     }
     s.rev_limit = r.rev_limit;
+    {
+        uint32_t car = gt4_race_run_car(g->run, watched_car(g));
+        s.oil_sign = race_hud_oil_sign_settings(GT4_F32(car + CAR_ENGINE_WEAR + 8),
+                                       GT4_F32(0x00620340u), GT4_U8(0x00620DA4u),
+                                           GT4_U8(0x00620DB0u));
+    }
     s.aid = r.aid;
     s.brake_lock = r.brake_lock;
     s.driving = r.driving;
@@ -295,8 +331,15 @@ void race_game_draw_hud(race_game *g, double dt)
     s.speed_scale = (float)(r.speed_steps * (g->unit == 1 ? 50 : 80));
     s.tacho_scale = r.tacho_scale;
     s.odometer = r.odometer;
-    for (int i = 0; i < s.cars && i < 6; i++)
+    for (int i = 0; i < s.map_cars && i < MOON_MAX_CARS; i++)
         s.map_show[i] = gt4_race_run_xy(g->run, i, &s.map_x[i], &s.map_y[i]);
+    if (gt4_race_run_frames(g->run) % 60 == 0) {
+        int dots = 0;
+        for (int i = 0; i < s.map_cars && i < MOON_MAX_CARS; i++)
+            if (s.map_show[i] == 3 || s.map_show[i] == 2)
+                dots++;
+        fprintf(stderr, "hud map: field=%d dots=%d\n", s.map_cars, dots);
+    }
     s.unit = g->unit;
     s.signal = r.signal;
     { /* func_0035FC80 reads the car's +0x712 while it has not finished */
@@ -313,44 +356,10 @@ void race_game_draw_hud(race_game *g, double dt)
                  car = gt4_race_run_car(g->run, watched_car(g));
         s.panel = 0;
         s.bspec = 1;
+        if (watched_car(g) != 0)
+            memset(s.tire_rgb, 0, sizeof s.tire_rgb);
         s.total_time = GT4_U32(cond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3; /* func_00358440 */
-        /* 003D80A8: each tyre's colour by the car's wheel layout (00359538:
-           D_00620478 + params+0x30 * 0x54, kind 0..3) from its wheel's
-           heat (003446D8: car + wheel * 0xEC + 0x215) through 003677F8 */
-        int kind = GT4_U8(0x00620478u + GT4_U8(GT4_U32(car + CAR_PARAMS) + 0x30) * 0x54u);
-        /* 003D80A8 +0x10..0x58: black unless the race wears its tyres
-           (00367D40: cond+4 +0x68 or +0x69) and the player's car is watched */
-        int shown = (GT4_U8(cond + CONDUCTOR_FIELD_TYRE_STATE + 0x68) ||
-                     GT4_U8(cond + CONDUCTOR_FIELD_TYRE_STATE + 0x69)) &&
-                    watched_car(g) == 0;
-        for (int i = 0; i < 4; i++) {
-            if (!shown) {
-                memset(s.tire_rgb[i], 0, 3);
-                continue;
-            }
-            int k = kind == 1   ? (i < 2 ? 0 : i - 1)
-                    : kind == 2 ? (i < 3 ? i : 2)
-                    : kind == 3 ? i >> 1
-                                : i;
-            int t = (int8_t)GT4_U8(car + (uint32_t)k * 0xec + 0x215);
-            uint8_t r = 0, gg = 0, b = 0;
-            if (t >= 0x40) {
-                r = 0xfc;
-                gg = (uint8_t)((0x7f - t) * 2);
-            } else if (t >= 0x20) {
-                r = 0xfc;
-                gg = (uint8_t)((0x5f - t) * 4);
-            } else if (t >= 0) {
-                r = (uint8_t)(t * 8);
-                gg = 0xfc;
-            } else if (t >= -0x3f) {
-                b = (uint8_t)(-t * 4);
-                gg = (uint8_t)(0xfc + t * 4);
-            }
-            s.tire_rgb[i][0] = r;
-            s.tire_rgb[i][1] = gg;
-            s.tire_rgb[i][2] = b;
-        }
+
     }
     int license_failed = 0;
     if (s.license && r.finished) {
@@ -381,6 +390,80 @@ void race_game_draw_hud(race_game *g, double dt)
         plat_video_set_view(640, 448);
     } else {
         race_hud_draw(g->hud, &s, g->pause ? 0.f : (float)dt); /* held with the race */
+        {
+            gt4_elimination_hud eh;
+            if (gt4_race_run_elimination_hud(g->run, &eh)) {
+                static const uint8_t white[4] = {255, 255, 255, 255};
+                static const uint8_t red[4] = {235, 45, 45, 255};
+                static const uint8_t dark_red[4] = {105, 18, 18, 255};
+                static const uint8_t dim[4] = {170, 170, 170, 210};
+                unsigned phase = (gt4_race_run_frames(g->run) / 30) & 1;
+                char line[160];
+                uint8_t panel[4] = {0, 0, 0, 170};
+                plat_draw_quad(NULL, 430, 64, 196, 86, 0, 0, 1, 1, panel);
+                if (eh.warning) {
+                    race_hud_text(g->hud, "hm_16#1*86,88", 528, 48, 4 | 3, red,
+                                  "ELIMINATION ZONE");
+                }
+                snprintf(line, sizeof line, "REMAINING  %d/%d", eh.remaining, eh.field_size);
+                race_hud_text(g->hud, "hm_16#1*86,88", 438, 68, 4, white, line);
+                if (eh.player_last)
+                    snprintf(line, sizeof line, "YOU ARE LAST");
+                else
+                    snprintf(line, sizeof line, "NEXT OUT  %s", eh.next_name);
+                race_hud_text(g->hud, "hm_16#1*86,88", 438, 88, 4,
+                              eh.warning && phase ? dark_red : red, line);
+                for (int i = 0; i < eh.eliminated_count && i < 3; i++)
+                    race_hud_text(g->hud, "hm_16#1*78,80", 438, 108 + i * 14, 4, dim,
+                                  eh.last_names[i]);
+                if (eh.warning && eh.player_last) {
+                    float pulse = .09f * (1.f + sinf((float)gt4_race_run_frames(g->run) *
+                                                     6.2831853f / 30.f));
+                    uint8_t v[4] = {255, 0, 0, (uint8_t)(pulse * 255.f)};
+                    plat_draw_quad(NULL, 0, 0, 640, 8, 0, 0, 1, 1, v);
+                    plat_draw_quad(NULL, 0, 440, 640, 8, 0, 0, 1, 1, v);
+                    plat_draw_quad(NULL, 0, 0, 8, 448, 0, 0, 1, 1, v);
+                    plat_draw_quad(NULL, 632, 0, 8, 448, 0, 0, 1, 1, v);
+                }
+                if (gt4_race_run_elimination_thunder(g->run) && eh.card_kind &&
+                    eh.card_age < 12) {
+                    static const struct {
+                        float x, y, w, h;
+                    } bolt[] = {{318, 0, 5, 55}, {300, 50, 24, 5}, {304, 55, 5, 45},
+                                {286, 95, 24, 5}, {292, 100, 5, 40}, {276, 135, 22, 5},
+                                {282, 140, 5, 50}, {264, 185, 24, 5}, {270, 190, 5, 30}};
+                    uint8_t flash[4] = {255, 255, 255, (uint8_t)((12 - eh.card_age) * 14)};
+                    plat_draw_quad(NULL, 0, 0, 640, 240, 0, 0, 1, 1, flash);
+                    for (unsigned b = 0; b < sizeof bolt / sizeof bolt[0]; b++)
+                        plat_draw_quad(NULL, bolt[b].x, bolt[b].y, bolt[b].w, bolt[b].h, 0, 0, 1,
+                                       1, white);
+                }
+                if (eh.card_kind && eh.card_age < 150) {
+                    uint8_t card[4] = {0, 0, 0, 190};
+                    uint8_t card_tint[4] = {white[0], white[1], white[2],
+                                             (uint8_t)(255 - eh.card_age < 0 ? 0 : 255 - eh.card_age)};
+                    plat_draw_quad(NULL, 150, 128, 340, 116, 0, 0, 1, 1, card);
+                    if (eh.card_kind == 3) {
+                        snprintf(line, sizeof line, "ELIMINATED - P%d", eh.card_place);
+                        race_hud_text(g->hud, "hb_24#0*125,125", 320, 156, 4 | 3, card_tint,
+                                      line);
+                    } else if (eh.card_kind == 2) {
+                        snprintf(line, sizeof line, "WINNER - %s", eh.card_name);
+                        race_hud_text(g->hud, "hb_24#0*125,125", 320, 156, 4 | 3, card_tint,
+                                      line);
+                    } else {
+                        race_hud_text(g->hud, "hb_24#0*125,125", 320, 156, 4 | 3, card_tint,
+                                      eh.card_name);
+                        race_hud_text(g->hud, "hm_16#1*86,88", 320, 196, 4 | 3, card_tint,
+                                      "HAS BEEN ELIMINATED");
+                    }
+                    if (eh.card_kind != 3) {
+                        snprintf(line, sizeof line, "%d REMAINING", eh.card_remaining);
+                        race_hud_text(g->hud, "hm_16#1*78,80", 320, 218, 4 | 3, dim, line);
+                    }
+                }
+            }
+        }
         if (g->bspec_ui) {
             g->bspec_hud = &s;
             race_bspec_draw(g->bspec_ui);

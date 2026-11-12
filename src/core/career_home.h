@@ -5,6 +5,7 @@
 typedef struct {
     uint8_t weights[8];
     char event_names[9][24], car_event_names[5][24], course_event_names[8][24];
+    char wheel_event_names[5][24];
 } gt4_career_home_data;
 int gt4_career_home_data_load(const char *iso, gt4_career_home_data *out);
 void gt4_career_bspec_status(const gt4_career_home_data *data, const uint8_t experience[0x180],

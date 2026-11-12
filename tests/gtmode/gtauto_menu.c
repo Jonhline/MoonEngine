@@ -200,7 +200,7 @@ static int enter_named(menu *m, const char *name)
 #include "model.h"
 #include <time.h>
 static float waited, max_wait;
-static unsigned missing_sounds;
+static unsigned missing_sounds, camera_early;
 static void service_log(void *user, const char *msg)
 {
     log_script(user, msg);
@@ -219,7 +219,13 @@ static void service_wait(menu *m, float seconds, void *user)
         float dt = fminf(left, 1.f / 60);
         menu_animate(m, dt);
         ui_widget *root = ui_root_widget(m->ui, menu_active_root(m));
-        ui_car_prepare_draw(kid(root, "CarFace"));
+        ui_widget *face = kid(root, "CarFace");
+        ui_car_prepare_draw(face);
+        /* 001391D0 only loads the option camera; 00153E20 (playModelMotion)
+           starts it with the additional tracks. The wash spins before that. */
+        if (face && face->car_motion_count && !face->car_motions[0].playing &&
+            face->car_camera_time != 0)
+            camera_early++;
         left -= dt;
     }
 }
@@ -258,7 +264,7 @@ static int service_case(const char *disc, const char *code, const char *page, co
     menu_set_car_loader(m, transaction_model_loader, NULL);
     menu_set_dialog_presenter(m, purchase_dialog);
     menu_set_presenter(m, service_wait, NULL);
-    script_errors = missing_sounds = 0;
+    script_errors = missing_sounds = camera_early = 0;
     ah_set_log(vm, service_log, NULL);
     CHECK(enter_named(m,page));
     ui_widget *root = ui_root_widget(m->ui, menu_active_root(m)), *face = kid(root, "CarFace");
@@ -281,7 +287,9 @@ static int service_case(const char *disc, const char *code, const char *page, co
     CHECK(enter_named(m,page));
     root = ui_root_widget(m->ui, menu_active_root(m));
     face = kid(root, "CarFace");
-    CHECK(face);
+    CHECK(face && face->car_camera && !face->car_camera_playing);
+    if (getenv("GT4_GTAUTO_CAMERA_NEGATIVE"))
+        face->car_camera_playing = 1;
     garage = get(vm, game, "garage").u.o;
     ah_obj *car = get(vm, garage, "riding_car").u.o;
     uint8_t body[0x4b8];
@@ -326,6 +334,7 @@ static int service_case(const char *disc, const char *code, const char *page, co
         money++;
     printf("service money %lld time %.6f max %.6f\n", (long long)money, waited, max_wait);
     CHECK(money==9950 && waited>8 && (!strcmp(page,"CarWashRoot") || max_wait>2));
+    CHECK(!camera_early && face->car_camera_time > 0);
     for (int i = 0; i < face->car_motion_count; i++)
         CHECK(!face->car_motions[i].loop);
     CHECK(get(vm,widget_module(m,root),"done").u.i==1);

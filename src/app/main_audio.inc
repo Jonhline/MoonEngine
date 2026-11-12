@@ -1,3 +1,4 @@
+#include "music_override.h"
 typedef struct {
     const char *disc;
     char name[64];
@@ -14,6 +15,8 @@ typedef struct {
 static void render_menu_music(int16_t *out, int frames, void *user)
 {
     music_job *job = user;
+    int custom_gain=SDL_AtomicGet(&job->volume)*128/120;
+    if(!strcmp(job->name,"map") && moon_music_override_render(0,out,frames,custom_gain,0))return;
     if (job->playlist) {
         unsigned sequence = (unsigned)SDL_AtomicGet(&job->current_sequence);
         gt4_music *tracks[256] = {0};
@@ -158,6 +161,8 @@ static void update_present_pcm(menu *m)
     if (!m)
         return;
     update_present_midi(m);
+    if (app_jukebox_pcm(m, !loading_screen_active()))
+        return;
     if (!preparing_audio || !preparing_audio->pcm)
         return;
     int volume = 0;
@@ -175,6 +180,8 @@ static void update_present_pcm(menu *m)
     int sequence, repeat;
     unsigned serial;
     menu_pcm_parameters(m, &sequence, &repeat, &serial);
+    const char *project=mp_string(ui_project_tree(menu_ui(m)),"name");
+    pregrid_audio_context(preparing_audio->pcm,project && !strcmp(project,"slide")?3:!strcmp(group,"replay_theater")?2:!strcmp(group,"racing")?1:0);
     pregrid_audio_update_gated(preparing_audio->pcm, group, volume, (uint32_t)plat_time_ns(), sequence,
                                repeat, serial, !loading_screen_active());
     pregrid_audio_pause(preparing_audio->pcm, menu_pcm_paused(m));

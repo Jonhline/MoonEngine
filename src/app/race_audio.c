@@ -5,8 +5,11 @@
    before the callback is installed; the callback neither allocates nor
    touches the race's memory. */
 #include "race_audio.h"
+#include "video_settings.h"
+#include "music_override.h"
 #include "career_license.h"
 #include "race_sound.h"
+#include "specdb.h"
 #include "race_car_sound.h"
 #include "sound_driver.h"
 #include "spu.h"
@@ -74,6 +77,9 @@ struct race_audio {
     gt4_spu_reverb reverb[2];
     int16_t *reverb_area;
     float music_volume;
+    SDL_atomic_t wind_on, wind_speed;
+    float wind_lp, wind_bp;
+    uint32_t wind_seed;
     int bgm_option;
     /* music, as before */
     gt4_pcm_music *music;
@@ -103,6 +109,15 @@ static void completed_voices(const race_audio *a, uint8_t ended[VOICES])
 /* Hold the decoder cursor while paused; pause-menu SE continue mixing. */
 static void render_race_music(race_audio *a,int16_t *out,int frames)
 {
+    if(a->active_music==12 && moon_music_override_render(a->replay?2:1,out,frames,128,SDL_AtomicGet(&a->music_paused))) {
+        /* Keep authored replay cue timing alive without mixing a second song. */
+        if(!SDL_AtomicGet(&a->music_paused)) {
+            int16_t discarded[BLOCK*2];
+            for(int left=frames;left>0;) {int take=left>BLOCK?BLOCK:left;gt4_pcm_music_render(discarded,take,a->music);left-=take;}
+            if(gt4_pcm_music_ended(a->music))SDL_AtomicSet(&a->music_ended,1);
+        }
+        return;
+    }
     if(SDL_AtomicGet(&a->music_paused)) {
         memset(out,0,(size_t)frames*2*sizeof(*out));
         return;
@@ -155,6 +170,21 @@ static void render(int16_t *out, int frames, void *user)
            reverb unit */
         for (int i = 0; i < VOICES; i++)
             gt4_spu_voice_render(a->voice + i, dry, wet[i >= 24], n);
+        int wind_speed = SDL_AtomicGet(&a->wind_speed);
+        if (SDL_AtomicGet(&a->wind_on) && wind_speed > 0) {
+            float speed = (float)wind_speed / 100.f;
+            float gain = fminf(1.f, speed / 260.f);
+            gain = gain * gain * .22f;
+            for (int i = 0; i < n * 2; i += 2) {
+                a->wind_seed = a->wind_seed * 1664525u + 1013904223u;
+                float white = (float)((a->wind_seed >> 9) & 0xffffu) / 32768.f - 1.f;
+                a->wind_lp += (white - a->wind_lp) * .09f;
+                a->wind_bp += (a->wind_lp - a->wind_bp) * .025f;
+                int add = (int)((a->wind_lp - a->wind_bp) * gain * 32767.f);
+                dry[i] += add;
+                dry[i + 1] += add;
+            }
+        }
         for (int c = 0; c < 2; c++)
             gt4_spu_reverb_render(a->reverb + c, wet[c], dry, n);
         SDL_LockMutex(a->mutex);
@@ -182,6 +212,9 @@ int race_audio_music_title(race_audio *a, char *title, size_t title_size, char *
     int ok;
     if (!a)
         return 0;
+    if(a->active_music==12 && moon_music_override_title(a->replay?2:1,title,(int)title_size)) {
+        snprintf(artist,artist_size,"Local music");return 1;
+    }
     SDL_LockMutex(a->mutex);
     t = a->record_title;
     r = a->record_artist;
@@ -401,6 +434,8 @@ race_audio *race_audio_open_replay(const char *disc, const gt4_race_run *run,
     if (road)
         a->road = gt4_engine_bank_decode(road, road_size, 0);
     free(road);
+    size_t labels_size = 0;
+    uint8_t *labels = gt4_vol_read(a->vol, "/specdb/GT4_US2560/GENERIC_CAR.idi", &labels_size);
     for (int i = 0; i < a->cars; i++) {
         uint32_t garage = GT4_U32(entries + i * 4) + 0x20;
         uint8_t row[256];
@@ -424,15 +459,17 @@ race_audio *race_audio_open_replay(const char *disc, const gt4_race_run *run,
             variant = row[6];
         if (fetch_row(garage, 0xb0, row) && row[9])
             variant += 4;
-        a->bank[i][0] = gt4_engine_bank_open(a->vol, id, -1);
+        const char *label = gt4_specdb_label_for_id(labels, labels_size, GT4_U32(garage));
+        a->bank[i][0] = gt4_engine_bank_open_car(a->vol, label, id, -1);
         a->bank[i][1] = a->road;
-        a->bank[i][2] = gt4_engine_bank_open(a->vol, id, variant);
+        a->bank[i][2] = gt4_engine_bank_open_car(a->vol, label, id, variant);
         for (int k = 0; k < 3; k++)
             a->engine[i][k].bank = a->bank[i][k];
         printf("race audio: car %d engine=%05u variant=%d layers=%u/%u/%u\n", i, id, variant,
                a->bank[i][0] ? a->bank[i][0]->count : 0, a->road ? a->road->count : 0,
                a->bank[i][2] ? a->bank[i][2]->count : 0);
     }
+    free(labels);
     for (int k = 0; k < 10; k++)
         a->ambient[k].voice = -1;
     a->refueling.voice = -1;
@@ -650,6 +687,12 @@ static void tick(race_audio *a, const gt4_race_run *run, const float *eye, const
         static const int engine_order[3] = {0, 1, 2};
         for (int k = 0; k < 3; k++) {
             gt4_car_sound_engine *e = out.engine + engine_order[k];
+            if (k == 1 && video_settings_speed_road_roar()) {
+                float roar = 1.f + .35f * video_settings_speed_level();
+                e->left = (int16_t)fminf(32767.f, e->left * roar);
+                e->right = (int16_t)fminf(32767.f, e->right * roar);
+                e->scale = (int32_t)(e->scale * roar);
+            }
             gt4_sd_engine_tick(a->sd, &a->engine[i][k], e->rpm, e->left, e->right, e->scale,
                                e->priority, e->reverb_off, a->sine);
         }
@@ -782,6 +825,10 @@ void race_audio_update(race_audio *a, const gt4_race_run *run, const float *eye,
     memcpy(a->camera_rows, rows, sizeof a->camera_rows);
     a->camera_view = view;
     a->have_camera = 1;
+    gt4_race_hud hud;
+    float kmh = gt4_race_run_hud(run, 0, &hud) ? hud.speed * 3.6f : 0.f;
+    SDL_AtomicSet(&a->wind_on, video_settings_speed_wind());
+    SDL_AtomicSet(&a->wind_speed, (int)(kmh * 100.f));
     music_volume_update(a, run);
     if (!a->playing)
         a->playing = plat_audio_set_music(render, a) == 0;
@@ -808,8 +855,11 @@ void race_audio_step(race_audio *a, const gt4_race_run *run)
             loud += a->regs[i].voll || a->regs[i].volr;
         }
         SDL_UnlockMutex(a->mutex);
-        fprintf(stderr, "race sound: frame %d master %.3f voices on %d with volume %d, view %d\n",
-                a->frames, a->setup.master, on, loud, a->camera_view);
+        fprintf(stderr,
+                "race sound: frame %d master %.3f voices on %d with volume %d, view %d, "
+                "wind %d speed %d\n",
+                a->frames, a->setup.master, on, loud, a->camera_view,
+                SDL_AtomicGet(&a->wind_on), SDL_AtomicGet(&a->wind_speed));
     }
 }
 
@@ -880,6 +930,14 @@ void race_audio_pause(race_audio *a, int on)
 {
     if (!a) return;
     SDL_AtomicSet(&a->music_paused,on!=0);
+    /* The wind is synthesised in the callback from these atomics, and only
+       race_audio_update() refreshes them - which the pause stops calling.
+       Silence it with the engines. On resume leave it at 0: the next camera
+       update sets it from the live speed, so there is one source of truth. */
+    if (on)
+        SDL_AtomicSet(&a->wind_on, 0);
+    if (getenv("MOON_SOUND_TRACE"))
+        fprintf(stderr, "race sound: pause %d wind %d\n", on, SDL_AtomicGet(&a->wind_on));
     if (!a->sd) return;
     if (on) {
         gt4_sd_stop(a->sd, &a->refueling);

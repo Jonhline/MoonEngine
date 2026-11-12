@@ -103,6 +103,12 @@ uint8_t *gt4_vol_read(gt4_vol *v, const char *path, size_t *size)
 /* Synthetic volume: no external CORE or ISO files exist in this fixture.
    Keep the volume object out of the link so its real reader cannot consume
    the fixture's sentinel pointer. */
+uint8_t *gt4_overlay_read(const char *path, size_t *size)
+{
+    (void)path;
+    *size = 0;
+    return NULL;
+}
 const char *gt4_vol_source(const gt4_vol *v)
 {
     (void)v;
@@ -307,7 +313,10 @@ static void loading_wait(menu *m, float seconds, void *user)
 {
     (void)user;
     CHECK(loading_presented?(seconds>=28.f/60 && seconds<=58.f/60):seconds==2.f/60);
-    CHECK(ui_root_widget(m->ui,menu_active_root(m))->visible==(loading_presented==0));
+    /* 00233D18 marks pending close; visible stays set until finalization. */
+    if (getenv("GT4_PAGE_CLOSE_VISIBLE_NEGATIVE") && loading_presented)
+        ui_root_widget(m->ui,menu_active_root(m))->visible=0;
+    CHECK(ui_root_widget(m->ui,menu_active_root(m))->visible);
     int frames = (int)lroundf(seconds * 60);
     for (int frame = 0; frame < frames; frame++) {
         menu_animate(m, 1.f / 60);
@@ -1168,7 +1177,7 @@ int main(void)
     {
         char error[128];
         const char *source = "Button { navigate_source region {0 0 20 20} }";
-        const char *aligned = "Button { navigate_target region {-90 40 -70 60} }";
+        const char *aligned = "Button { navigate_source region {-90 40 -70 60} navigate_target region {-90 40 -70 60} }";
         const char *diagonal = "Button { navigate_target region {60 0 80 20} }";
         mp_node *s = mp_parse(source, strlen(source), error, sizeof error);
         mp_node *a = mp_parse(aligned, strlen(aligned), error, sizeof error);
@@ -1185,34 +1194,53 @@ int main(void)
         float rect[4];
         navigation_region(&target, "navigate_target", rect);
         CHECK(rect[0]==10 && rect[1]==40 && rect[2]==30 && rect[3]==60);
-        float score = navigation_score(&from, &target, MENU_DOWN);
-        CHECK(score<navigation_score(&from,&nearby,MENU_DOWN));
-        CHECK(navigation_score(&from,&target,MENU_UP)>=1e30f);
+        /* 0026F2B8 compares projected authored regions; the root opts out
+           of its default wrap here so the backwards request remains still. */
+        const char *root_source = "RootWindow { navigate_wraparound digit {0} }";
+        mp_node *root_node = mp_parse(root_source, strlen(root_source), error, sizeof error);
+        CHECK(root_node);
+        ui_widget root = {0}; root.src = root_node;
+        ui_widget *choices[] = {&from, &target, &nearby};
+        root.type = "RootWindow"; parent.type = "Composite";
+        root.visible = parent.visible = from.visible = target.visible = nearby.visible = 1;
+        from.type = target.type = nearby.type = "Button";
+        parent.parent = &root; parent.kids = choices; parent.nkids = 3;
+        ui_widget *containers[] = {&parent}; root.kids = containers; root.nkids = 1;
+        CHECK(navigation_pick(&root, choices, 3, 0, MENU_DOWN)==1);
+        CHECK(navigation_pick(&root, choices, 3, 0, MENU_UP)==0);
         parent.x = -203;
         parent.y = -419;
-        CHECK(fabsf(score-navigation_score(&from,&target,MENU_DOWN))<.001f);
-        CHECK(navigation_score(&from,&nearby,MENU_DOWN)>=1e30f);
-        /* Real map bounds: Netherlands UP must not jump across to City Courses. */
-        const char *net = "Button { navigate_source region {-128 16 -64 80} }";
-        const char *city = "Button { navigate_target region {-368 -16 240 48} }";
-        mp_node *net_node = mp_parse(net, strlen(net), error, sizeof error);
-        mp_node *city_node = mp_parse(city, strlen(city), error, sizeof error);
-        CHECK(net_node && city_node);
-        ui_widget net_widget = {0}, city_widget = {0};
-        net_widget.src = net_node;
-        net_widget.x = 480;
-        net_widget.y = 144;
-        city_widget.src = city_node;
-        city_widget.x = 1072;
-        city_widget.y = 80;
-        CHECK(navigation_score(&net_widget,&city_widget,MENU_UP)>=1e30f);
-        mp_free(net_node);
-        mp_free(city_node);
-        from.src = NULL; /* menus without regions keep geometric navigation */
-        CHECK(navigation_score(&from,&nearby,MENU_DOWN)<navigation_score(&from,&target,MENU_DOWN));
+        CHECK(navigation_pick(&root, choices, 3, 0, MENU_DOWN)==1);
+        from.src = target.src = nearby.src = NULL;
+        CHECK(navigation_pick(&root, choices, 3, 0, MENU_DOWN)==2);
+        mp_free(root_node);
         mp_free(s);
         mp_free(a);
         mp_free(d);
+    }
+    /* A queued app handoff owns the incoming leg. Never reveal its old page
+       in the interval before the main loop starts the loading screen. */
+    {
+        char error[256];
+        menu *p=menu_open(NULL,"fixture",error,sizeof error);
+        CHECK(p);menu_enter(p,0);
+        for (int route=0;route<2;route++) {
+            ui_fade(p->ui,1,1,0);
+            p->pending_fade_in=.25f;
+            if(route) {
+                p->quick_work=ah_module_new(p->vm,"QuickWork",NULL,NULL,NULL);
+                ah_set_member(p->vm,p->quick_work,"selectedCommand",ah_str(p->vm,"COMMAND_START"));
+                ah_val result;
+                CHECK(nat_finish(p->vm,NULL,p,0,NULL,&result)==0);
+            }
+            else snprintf(p->next_project,sizeof p->next_project,"quick-arcade");
+            apply_pages(p);
+            menu_animate(p,.5f);
+            if(getenv("MOON_LOADING_FADE_NEGATIVE"))ui_fade(p->ui,0,0,0);
+            CHECK(ui_fade_opacity(p->ui)==1 && p->pending_fade_in==0);
+            p->quick_command[0]=p->next_project[0]=0;
+        }
+        menu_close(p);
     }
     /* GT Mode's render context must share page state and retain its transition
        across GC. Timed fades cover the complete composed UI. */
@@ -1845,9 +1873,19 @@ int main(void)
     cars->focus_index = 0;
     set_focus(m, cars);
     menu_send_input(m, MENU_LEFT);
-    CHECK(cars->focus_index==2 && car_changes==1);
+    CHECK(cars->focus_index==0 && car_changes==0);
     menu_send_input(m, MENU_RIGHT);
-    CHECK(cars->focus_index==0 && car_changes==2);
+    CHECK(cars->focus_index==1 && car_changes==1);
+    menu_set_pad_held(m, 8);
+    for (int i = 0; i < 19; i++) menu_advance(m, 1.0 / 60);
+    CHECK(cars->focus_index==1 && car_changes==1);
+    menu_advance(m, 1.0 / 60);
+    CHECK(cars->focus_index==2 && car_changes==2);
+    for (int i = 0; i < 60; i++) menu_advance(m, 1.0 / 60);
+    CHECK(cars->focus_index==2 && car_changes==2);
+    menu_set_pad_held(m, 0);
+    menu_advance(m, 1.0 / 60);
+    CHECK(!m->direction_repeat[3]);
     ah_set_member(m->vm, widget_module(m, cars->kids[0]), "name", ah_str(m->vm, "new_name"));
     CHECK(!strcmp(cars->kids[0]->name,"new_name"));
     ah_code *nested = calloc(1, sizeof *nested);

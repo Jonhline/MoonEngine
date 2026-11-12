@@ -3,6 +3,9 @@
 #include "platform/platform.h"
 #include <stdint.h>
 /* P: contact capture in normalized, safe-area coordinates. No physics state. */
+/* Nothing interactive may reach into the gesture bar. One floor for every
+   Android hit box, in normalized screen coordinates. */
+#define MOON_MOBILE_SAFE_FLOOR 0.93f
 enum {
     /* Analog: STEER_LEFT is the single wide pad, STEER_RIGHT is absent.
        Digital: STEER_LEFT/STEER_RIGHT are two round buttons. */

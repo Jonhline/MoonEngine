@@ -143,6 +143,34 @@ static void benchmark(showroom *s, race_view *v, const char *car)
     fprintf(stderr, "renderer frame: %u draws, %u triangles, %u groups culled\n", stats.draws,
             stats.triangles, stats.culled_groups);
 }
+static int reflection_cycle(showroom *s, const char *car, const char *path)
+{
+    uint8_t *original = NULL;
+    int ok = 1;
+    const int modes[] = {0, 1, 2, 0};
+    for (int i = 0; i < 4; i++) {
+        r3d_reflection_quality(modes[i]);
+        plat_video_begin_frame();
+        showroom_draw(s, car, 0);
+        int width, height;
+        uint8_t *pixels = plat_sdl_read_pixels(&width, &height);
+        if (!pixels) { free(original); return 0; }
+        if (!i) original = pixels;
+        else {
+            if (i == 3) ok = !memcmp(original, pixels, (size_t)width * height * 4);
+            size_t length;
+            void *png = tdefl_write_image_to_png_file_in_memory(pixels, width, height, 4, &length);
+            char name[1024]; snprintf(name, sizeof name, "%s-quality%d.png", path, modes[i]);
+            FILE *f = png ? fopen(name, "wb") : NULL;
+            if (f) { fwrite(png, 1, length, f); fclose(f); }
+            mz_free(png); free(pixels);
+        }
+        plat_video_end_frame();
+    }
+    free(original);
+    fprintf(stderr, "studio reflection cycle: %s Original restoration\n", ok ? "PASS" : "FAIL");
+    return ok;
+}
 int main(int argc, char **argv)
 {
     if (argc < 4) {
@@ -215,6 +243,8 @@ int main(int argc, char **argv)
     if (course) {
         int color = argc > 4 ? atoi(argv[4]) : 0, r = 0;
         race_view *v = race_view_open(argv[1]);
+        if (v)
+            race_view_set_parts(v, getenv("MOON_PROBE_WHEEL"), NULL);
         if (!v || !race_view_request(v, course, argv[2], color))
             r = -1;
         while (!r) {
@@ -227,6 +257,40 @@ int main(int argc, char **argv)
             race_view_close(v);
             plat_video_shutdown();
             return 1;
+        }
+        /* Diagnostic fixture only: a low side camera exposes sill/underside seams.
+           The optional roll and wheel motion do not enter the physics solver. */
+        if (getenv("MOON_PROBE_ORBIT")) {
+            gt4_grid g = gt4_course_grid(race_view_course(v), 0);
+            float ground = g.pos[1];
+            gt4_course_height(race_view_course(v), g.pos[0], g.pos[2], ground + 2, &ground);
+            float a = g.heading + (float)atof(getenv("MOON_PROBE_ORBIT"));
+            float eye[3] = {g.pos[0] - sinf(a) * 6, ground + .65f, g.pos[2] - cosf(a) * 6};
+            float back[3] = {-sinf(a), -.025f, -cosf(a)}, right[3] = {-cosf(a), 0, sinf(a)};
+            float len = sqrtf(1 + .025f * .025f);
+            for (int k = 0; k < 3; k++)
+                back[k] /= len;
+            float rows[9] = {right[0], right[1], right[2], back[1] * right[2],
+                             back[2] * right[0] - back[0] * right[2], -back[1] * right[0],
+                             back[0], back[1], back[2]};
+            race_view_set_camera(v, eye, rows, 1.73205f, 2.25378f, .2f);
+            if (getenv("MOON_PROBE_ROLL")) {
+                float angle = (float)atof(getenv("MOON_PROBE_ROLL"));
+                float yaw = g.heading + 3.14159265f, c = cosf(yaw), sn = sinf(yaw);
+                float cr = cosf(angle), sr = sinf(angle);
+                float rot[9] = {c * cr, -c * sr, sn, sr, cr, 0, -sn * cr, sn * sr, c};
+                float pos[3] = {g.pos[0], ground + .15f, g.pos[2]};
+                race_view_set_pose(v, pos, rot);
+                float wheels[4][3] = {{0, 2, 0}, {0, 2, 0}, {0, 2, 0}, {0, 2, 0}};
+                float current[4] = {2, 2, 2, 2}, previous[4] = {0};
+                race_view_set_wheels(v, wheels);
+                race_view_set_wheel_motion(v, 0, current, previous, 1);
+            }
+        }
+        if (getenv("MOON_PROBE_DAYLIGHT")) {
+            r3d_daylight_options(1, 12, 0);
+            r3d_modern_lighting(1);
+            r3d_material_shading(1);
         }
         benchmark(NULL, v, argv[2]);
         plat_video_begin_frame();
@@ -246,6 +310,26 @@ int main(int argc, char **argv)
         race_view_close(v);
         plat_video_shutdown();
         return ok ? 0 : 1;
+    }
+    if (getenv("MOON_PROBE_MATERIAL_AUDIT")) {
+        gt4_vol *vol = gt4_vol_open(argv[1], NULL);
+        car_model_tables *tables = vol ? car_model_tables_open(vol) : NULL;
+        car_model *car = tables ? car_model_load_race_parts(vol, tables, argv[2], 0, 6, 0, NULL, NULL) : NULL;
+        FILE *out = car ? fopen(argv[3], "w") : NULL;
+        if (out) {
+            fprintf(out,"triangle,kind,texture,vertex,x,y,z,nx,ny,nz,shine,r,g,b,sr,sg,sb\n");
+            for (int i=0;i<car->body_count;i++)
+                for (int j=0;j<3;j++) {
+                    const gt4_triangle *t=car->car->triangles+i;
+                    const gt4_vertex *v=t->v+j;
+                    fprintf(out,"%d,%u,%d,%d,%g,%g,%g,%g,%g,%g,%g,%g,%g,%g,%g,%g,%g\n",
+                            i,t->kind,t->texture,j,v->p[0],v->p[1],v->p[2],v->normal[0],v->normal[1],v->normal[2],v->shine,
+                            v->rgb[0],v->rgb[1],v->rgb[2],v->specular[0],v->specular[1],v->specular[2]);
+                }
+            fclose(out);
+        }
+        car_model_free(car);car_model_tables_close(tables);gt4_vol_close(vol);
+        plat_video_shutdown();return out ? 0 : 1;
     }
     if (getenv("MOON_PROBE_TEST_WING")) {
         const char *err = NULL;
@@ -314,6 +398,8 @@ int main(int argc, char **argv)
             ok ? "PASS" : "FAIL");
         return ok ? 0 : 1;
     }
+    if (getenv("PROBE_REFLECTION_QUALITY"))
+        r3d_reflection_quality(atoi(getenv("PROBE_REFLECTION_QUALITY")));
     showroom *s = showroom_open(argv[1]);
     if (!s)
         return 1;
@@ -341,12 +427,87 @@ int main(int argc, char **argv)
     /* The number of frames spent waiting for the asynchronous load varies
        between runs; restart the rotation so captures are reproducible. */
     showroom_set_angle(s, 0);
+    if (getenv("MOON_PROBE_PART_FADE")) {
+        showroom_face f = {0};
+        f.w = 640; f.h = 448; f.pose_valid = 1; f.service_opacity = 1;
+        f.look_valid = 1; f.look[0] = 4; f.look[1] = 2; f.look[2] = 6;
+        f.look[4] = .6f; f.look[7] = 1; f.view_angle = 35;
+        f.lights.count = 1; f.lights.direction[0][1] = 1;
+        for (int k = 0; k < 3; k++) {
+            f.lights.ambient[0][k] = .6f; f.lights.diffuse[0][k] = .8f;
+        }
+        f.lights.vertex_limit = 2; f.lights.specular_scale = 1;
+        int ok = ready > 0, w = 0, h = 0;
+        for (int part = 0; part < 2; part++) {
+            /* Negative omits the native preview-page identity. */
+            f.surface = getenv("MOON_PROBE_PART_FADE_NEGATIVE") ? "CarFace" :
+                        part ? "WingShopRoot" : "WheelShopRoot";
+            for (int i = 0; i < 30; i++) {
+                plat_video_begin_frame(); showroom_draw_face(s, argv[2], .05f, &f); plat_video_end_frame();
+            }
+            plat_video_begin_frame(); showroom_draw_face(s, argv[2], 0, &f);
+            unsigned char *before = plat_sdl_read_pixels(&w, &h);
+            plat_video_end_frame();
+            if (part) {
+                showroom_set_wing(s, "p001"); showroom_set_wing(s, "p000"); showroom_set_wing(s, "p001");
+            } else {
+                showroom_set_wheel(s, "brdg001w"); showroom_set_wheel(s, "w000"); showroom_set_wheel(s, "brdg001w");
+            }
+            int loaded = 0, max_hold_error = 0;
+            for (int i = 0; i < 1500 && !loaded; i++) {
+                plat_video_begin_frame(); loaded = showroom_draw_face(s, argv[2], 0, &f);
+                int sw, sh; unsigned char *held = plat_sdl_read_pixels(&sw, &sh);
+                ok = ok && before && held && sw == w && sh == h;
+                /* Resident 8-bit filtered copies may round a channel once. */
+                if (before && held && sw == w && sh == h)
+                    for (int p = 0; p < w*h*4; p++)
+                        if (p % 4 != 3 && abs((int)before[p] - held[p]) > max_hold_error)
+                            max_hold_error = abs((int)before[p] - held[p]);
+                free(held); plat_video_end_frame(); SDL_Delay(1);
+                if (max_hold_error > 2) break;
+            }
+            fprintf(stderr, "preview hold error %d loaded %d\n", max_hold_error, loaded);
+            ok = ok && loaded > 0 && max_hold_error <= 2;
+            unsigned char *mid = NULL, *after = NULL;
+            for (int i = 0; i < 12; i++) {
+                plat_video_begin_frame(); showroom_draw_face(s, argv[2], .02f, &f);
+                int sw, sh;
+                if (i == 3) mid = plat_sdl_read_pixels(&sw, &sh);
+                if (i == 11) after = plat_sdl_read_pixels(&sw, &sh);
+                plat_video_end_frame();
+            }
+            unsigned different = 0, between = 0;
+            if (before && mid && after)
+                for (int p = 0; p < w*h*4; p++) {
+                    int a=before[p], b=mid[p], c=after[p];
+                    if (abs(a-c)>12) {
+                        different++;
+                        between += b > (a<c?a:c)+2 && b < (a>c?a:c)-2;
+                    }
+                }
+            ok = ok && different > 100 && between > 50;
+            fprintf(stderr, "%s %s preview: %u changed / %u intermediate channels\n",
+                    ok ? "PASS" : "FAIL", part ? "wing" : "wheel", different, between);
+            if (mid) {
+                char path[1024]; snprintf(path, sizeof path, "%s.%s.png", argv[3], part ? "wing" : "wheel");
+                size_t size=0; void *png=tdefl_write_image_to_png_file_in_memory(mid,w,h,4,&size);
+                FILE *out=png?fopen(path,"wb"):NULL;
+                if (out) { fwrite(png,1,size,out); fclose(out); }
+                mz_free(png);
+            }
+            free(before); free(mid); free(after);
+        }
+        showroom_close(s); plat_video_shutdown(); return ok ? 0 : 1;
+    }
     if (getenv("MOON_PROBE_SERVICE")) {
         /* main.c uses the menu's 640x480 canvas; the 640x448 canvas above
            is for standalone showroom/race probes. Do not compare a menu
            through the race canvas and attribute its stretch to the model. */
         plat_video_set_view(640, 480);
         int wash = !strcmp(getenv("MOON_PROBE_SERVICE"), "wash");
+        /* OilChangeRoot L12050..12077: 4WD enters with the start pair at
+           alignment 9 and leaves with the end pair at alignment 10. */
+        int awd = !wash && getenv("MOON_PROBE_SERVICE_4WD");
         const char *error = NULL;
         size_t bytes = 0;
         gt4_vol *vol = gt4_vol_open(argv[1], &error);
@@ -363,10 +524,16 @@ int main(int argc, char **argv)
             wash ? "image/gtmode/gtauto/carwash_motion2.mot"
                  : "image/gtmode/gtauto/oil_change_cart.mot",
             "image/gtmode/gtauto/carwash_cloth1.mot", "image/gtmode/gtauto/carwash_cloth2.mot"};
+        if (awd) {
+            qpaths[0] = "image/gtmode/gtauto/oil_change_start.mot";
+            qpaths[1] = "image/gtmode/gtauto/oil_change_cart_start.mot";
+            qpaths[2] = "image/gtmode/gtauto/oil_change_end.mot";
+            qpaths[3] = "image/gtmode/gtauto/oil_change_cart_end.mot";
+        }
         uint8_t *models[2] = {0};
         gt4_service_model bank[2] = {0};
         gt4_service_motion tracks[4] = {0};
-        int count = wash ? 4 : 2, ok = ready && package;
+        int count = wash || awd ? 4 : 2, ok = ready && package;
         for (int i = 0; i < 2; i++) {
             size_t n = 0;
             models[i] = package ? gpb_load(package, bytes, mpaths[i], &n) : NULL;
@@ -387,8 +554,10 @@ int main(int argc, char **argv)
             tracks[i] = (gt4_service_motion){q,
                                              service_time,
                                              wash ? 0 : -90,
-                                             wash ? i / 2 : i,
-                                             wash ? (i % 2 ? 1 : 7) : service_alignment,
+                                             wash ? i / 2 : i % 2,
+                                             wash  ? (i % 2 ? 1 : 7)
+                                             : awd ? (i < 2 ? 9 : 10)
+                                                   : service_alignment,
                                              0,
                                              1,
                                              0};
@@ -396,8 +565,9 @@ int main(int argc, char **argv)
         }
         /* OilChangeRoot L12062..12088: equal front/rear service alignment
            (FF or MR/RR) uses f_cam; MR/RR sets car_model.ry to 180. */
-        const char *camera_path = wash ? "image/gtmode/gtauto/car_wash_cam.mot"
-                                       : "image/gtmode/gtauto/oil_change_f_cam.mot";
+        const char *camera_path = wash  ? "image/gtmode/gtauto/car_wash_cam.mot"
+                                  : awd ? "image/gtmode/gtauto/oil_change_cam.mot"
+                                        : "image/gtmode/gtauto/oil_change_f_cam.mot";
         size_t cn = 0;
         uint8_t *cb = package ? gpb_load(package, bytes, camera_path, &cn) : NULL;
         gt4_mot1 *cam = cb ? gt4_mot1_open(cb, cn) : NULL;
@@ -420,6 +590,8 @@ int main(int argc, char **argv)
         gt4_mot1_value(cam, "lift", service_time, &face.service_lift);
         if (!wash && service_alignment == 10)
             face.car_angle = 180.f * .017453292519943295f;
+        if (getenv("MOON_PROBE_SERVICE_CAR_YAW")) /* the wash's spin (CarWashRoot L11864..11887) */
+            face.car_angle = (float)atof(getenv("MOON_PROBE_SERVICE_CAR_YAW")) * .017453292519943295f;
         gt4_career_vehicle *factory = gt4_career_vehicle_open(argv[1]);
         uint8_t unit[32], body[0x4b8];
         face.service_geometry_valid =
@@ -502,6 +674,46 @@ int main(int argc, char **argv)
         }
         service_frame(s, argv[2], &face, page, root);
         unsigned char *all = ok ? plat_sdl_read_pixels(&w, &h) : NULL;
+        if (getenv("MOON_PROBE_SERVICE_FADE")) {
+            /* Freeze geometry/camera: only the independent additional-context
+               opacity changes. With an opaque body the old adapter ignored it. */
+            unsigned char *samples[3] = {0};
+            const float opacity[3] = {0, .5f, 1};
+            face.service_opacity = 1;
+            for (int i = 0; i < 3; i++) {
+                face.service_additional_opacity = opacity[i];
+                if (i == 1 && getenv("MOON_PROBE_SERVICE_FADE_NEGATIVE"))
+                    face.service_additional_opacity = 1;
+                service_frame(s, argv[2], &face, page, root);
+                int sw, sh;
+                samples[i] = plat_sdl_read_pixels(&sw, &sh);
+                ok = ok && samples[i] && sw == w && sh == h;
+            }
+            unsigned partial = 0;
+            if (ok)
+                for (int p = 0; p < w * h * 4; p++) {
+                    int a = samples[0][p], b = samples[1][p], c = samples[2][p];
+                    if (abs(c - a) > 12 && b > (a < c ? a : c) + 2 &&
+                        b < (a > c ? a : c) - 2)
+                        partial++;
+                }
+            fprintf(stderr, "%s independent crew fade: %u intermediate channels\n",
+                    partial > 100 ? "PASS" : "FAIL", partial);
+            ok = ok && partial > 100;
+            for (int i = 0; i < 3; i++) {
+                if (samples[i]) {
+                    char path[1024];
+                    snprintf(path, sizeof path, "%s.fade%d.png", argv[3], i);
+                    size_t size = 0;
+                    void *image = tdefl_write_image_to_png_file_in_memory(samples[i], w, h, 4, &size);
+                    FILE *file = image ? fopen(path, "wb") : NULL;
+                    if (file) { fwrite(image, 1, size, file); fclose(file); }
+                    mz_free(image);
+                }
+                free(samples[i]);
+            }
+            showroom_service_channels(&face, cam, service_time);
+        }
         unsigned lift_changes = 0;
         float lift = face.service_lift;
         if (lift > 0) {
@@ -651,6 +863,9 @@ int main(int argc, char **argv)
         showroom_draw(s, argv[2], .05f);
         if (i + 1 < frames)
             plat_video_end_frame();
+    }
+    if (getenv("PROBE_REFLECTION_CYCLE") && !reflection_cycle(s, argv[2], argv[3])) {
+        showroom_close(s); plat_video_shutdown(); return 1;
     }
     benchmark(s, NULL, argv[2]);
     plat_video_begin_frame();

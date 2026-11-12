@@ -118,7 +118,7 @@ static int nat_legacy_import(ah_vm *vm, ah_obj *self, void *data, int argc, cons
     }
     free(bytes);
     ah_set_member(vm, game, flag, ah_int(1));
-    if (!gt4_save_capture(vm, game, 1) || !gt4_save_store()) {
+    if (!gt4_save_capture(vm, game, 1) || !menu_save_store(m)) {
         gt4_state_merge(vm, game, snapshot, snapshot_size);
         gt4_game_bind(vm, game);
         gt4_save_capture(vm, game, 1);

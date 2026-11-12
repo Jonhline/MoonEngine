@@ -6,6 +6,8 @@
 #include "career_setting.h"
 #include "career_parts.h"
 static unsigned controls;
+#undef CHECK
+#define CHECK(x) do { if (!(x)) { fprintf(stderr,"setting control line %d: %s\n",__LINE__,#x); return 0; } } while(0)
 static int exercise(menu *m, int root, ui_widget *w)
 {
     if (w->insensitive || !w->visible)
@@ -17,6 +19,8 @@ static int exercise(menu *m, int root, ui_widget *w)
             CHECK(host);
             ah_set_member(m->vm, host, "index", ah_int(lo));
             m->focus[root] = w;
+            if ((!strcmp(w->type,"ScaleBar") ? ui_widget_child(w,"popup") != NULL : mp_number(w->src,"popup",0)) && !w->option_open)
+                menu_send_input(m, MENU_ACCEPT);
             menu_send_input(m, MENU_LEFT);
             CHECK(w->focus_index==lo);
             menu_send_input(m, MENU_RIGHT);
@@ -33,6 +37,8 @@ static int exercise(menu *m, int root, ui_widget *w)
         CHECK(exercise(m,root,w->kids[i]));
     return 1;
 }
+#undef CHECK
+#define CHECK(x) do { if (!(x)) { fprintf(stderr,"setting catalog line %d: %s\n",__LINE__,#x); return 1; } } while(0)
 int main(int argc, char **argv)
 {
     CHECK(argc==2 && gt4_game_load_disc(argv[1]));

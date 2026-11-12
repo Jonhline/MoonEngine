@@ -10,22 +10,23 @@
 
 #include <stdint.h>
 #include "vol.h"
+#include "race_limits.h"
 
 typedef struct race_result race_result;
 
 /* the race as the board reads it, per car (the player's index `player`) */
 typedef struct {
     int cars, player;
-    int rank[6];         /* car+0x5B3, 1-based: the board's order */
-    int finished[6];     /* car+0x5B6 */
-    uint32_t time[6];    /* car+0x718: at the finish its race time (ms) */
-    int laps[6];         /* func_00343B50 */
-    const char *name[6]; /* the car's name (its entry +0x350C) */
+    int rank[MOON_MAX_CARS];         /* car+0x5B3, 1-based: the board's order */
+    int finished[MOON_MAX_CARS];     /* car+0x5B6 */
+    uint32_t time[MOON_MAX_CARS];    /* car+0x718: at the finish its race time (ms) */
+    int laps[MOON_MAX_CARS];         /* func_00343B50 */
+    const char *name[MOON_MAX_CARS]; /* the car's name (its entry +0x350C) */
     /* ResultArcade +0x50 (003DFEB0): 0 the race time above; 4 the top
        speed (car +0x6CC, 003E0490 "%.2f%s" in the option's unit, as
        RaceMachineTest sets it for its top-speed test, 003BE07C) */
     int mode;
-    float top_speed[6]; /* m/s */
+    float top_speed[MOON_MAX_CARS]; /* m/s */
     int mph;            /* D_006244D8: 1 mph, 0 km/h */
 } race_result_state;
 

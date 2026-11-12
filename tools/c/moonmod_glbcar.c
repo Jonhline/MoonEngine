@@ -226,17 +226,64 @@ static void sanitize_node_name(const char *src, char *out, size_t cap)
     }
     out[n] = 0;
 }
+typedef struct {
+    unsigned count;
+    char name[128][128];
+    uint8_t lamp[128];
+    unsigned matched[128];
+} rig_lamps;
+
 static char rig_forward[8], rig_up[8]; /* the rig's "forward -Z" / "up +Y", "" when absent */
-static void parse_rig(const char *path, char *wheel_part[4])
+static int parse_rig(const char *path, char *wheel_part[4], gt4_car_cameras *cameras, uint32_t *camera_mask, rig_lamps *lamps)
 {
     FILE *f = fopen(path, "rb");
-    if (!f) { fprintf(stderr, "--rig %s: cannot open\n", path); return; }
+    if (!f) { fprintf(stderr, "--rig %s: cannot open\n", path); return 0; }
     char line[512];
     while (fgets(line, sizeof line, f)) {
         char directive[32], corner[32];
         if (sscanf(line, "%31s %31s", directive, corner) != 2) continue;
         if (!strcmp(directive, "forward") || !strcmp(directive, "up")) {
             snprintf(!strcmp(directive, "up") ? rig_up : rig_forward, 8, "%s", corner);
+            continue;
+        }
+        if (!strcmp(directive, "camera")) {
+            int index = -1; float pos[3], turns[3], lens, spare; char extra;
+            int n = sscanf(line, "camera %d pos=%f,%f,%f turns=%f,%f,%f lens=%f spare=%f %c",
+                           &index, pos, pos + 1, pos + 2, turns, turns + 1, turns + 2,
+                           &lens, &spare, &extra);
+            int valid = n == 9 && index >= 0 && index < GT4_CAR_CAMERA_MAX &&
+                        isfinite(lens) && lens >= 0 && isfinite(spare);
+            for (int k = 0; k < 3 && valid; k++) valid = isfinite(pos[k]) && isfinite(turns[k]);
+            if (!valid || (*camera_mask & (1u << index))) {
+                fprintf(stderr, "--rig %s: invalid or duplicate camera index/pose: %s", path, line);
+                fclose(f); return 0;
+            }
+            float *row = cameras->point[index];
+            memcpy(row, pos, sizeof pos);
+            /* SDK turns are Z,X,Y; CAR4 rows store X,Y,Z (SDK parse_cameras). */
+            row[3] = turns[1]; row[4] = turns[2]; row[5] = turns[0];
+            row[6] = lens; row[7] = spare;
+            *camera_mask |= 1u << index;
+            if (cameras->count <= index) cameras->count = index + 1;
+            continue;
+        }
+        if (!strcmp(directive, "brake")) {
+            char name[128], extra;
+            if ((strcmp(corner, "released") && strcmp(corner, "pressed")) ||
+                sscanf(line, "brake %31s part=%127s %c", corner, name, &extra) != 2 ||
+                lamps->count == 128) {
+                fprintf(stderr, "--rig: invalid brake assignment: %s", line);
+                fclose(f); return 0;
+            }
+            char clean[128]; sanitize_node_name(name, clean, sizeof clean);
+            for (unsigned i = 0; i < lamps->count; i++) {
+                if (!strcmp(clean, lamps->name[i])) {
+                    fprintf(stderr, "--rig: duplicate brake mesh: %s\n", name);
+                    fclose(f); return 0;
+                }
+            }
+            strcpy(lamps->name[lamps->count], clean);
+            lamps->lamp[lamps->count++] = !strcmp(corner, "released") ? 1 : 2;
             continue;
         }
         if (strcmp(directive, "wheel")) continue;
@@ -255,6 +302,7 @@ static void parse_rig(const char *path, char *wheel_part[4])
         }
     }
     fclose(f);
+    return 1;
 }
 /* which attachment (1..4), if any, a node/mesh name was assigned in the rig */
 static int rig_attachment(char *wheel_part[4], const char *name)
@@ -263,6 +311,51 @@ static int rig_attachment(char *wheel_part[4], const char *name)
     char clean[128]; sanitize_node_name(name, clean, sizeof clean);
     for (int i = 0; i < 4; i++) if (wheel_part[i] && !strcmp(wheel_part[i], clean)) return i + 1;
     return 0;
+}
+
+/* The same proper Y rotations used for source vertices and normals below. */
+static void camera_forward(float p[3], const char *forward)
+{
+    float x = p[0], z = p[2];
+    if (!strcmp(forward, "+Z")) { p[0] = -x; p[2] = -z; }
+    else if (!strcmp(forward, "+X")) { p[0] = z; p[2] = -x; }
+    else if (!strcmp(forward, "-X")) { p[0] = -z; p[2] = x; }
+}
+
+/* Original: func_00379448; car_model.c copies CAR4 +0x80/+0x84 in metres.
+   The SDK stores negative eye coordinates and Z*X*Y Euler turns. Transform
+   the eye by the mesh's orientation, centering, floor, scale and axle shift,
+   then store its negative again. Only MDLS vertices use 4096 units/metre;
+   multiplying this table by 4096 would move the chase eye kilometres away. */
+static void transform_rig_camera(float out[8], const float in[8], const char *forward,
+                                  float scale, float cx, float ymin, float cz, float axle_shift)
+{
+    memcpy(out, in, 8 * sizeof *out);
+    camera_forward(out, forward);
+    out[0] = (out[0] + cx) * scale;
+    out[1] = (out[1] + ymin) * scale;
+    out[2] = (out[2] + cz) * scale + axle_shift;
+    if (!strcmp(forward, "-Z")) return;
+    const double rad = 3.14159265358979323846 / 180.0;
+    double x = in[3] * rad, y = in[4] * rad, z = in[5] * rad;
+    double sx = sin(x), cxx = cos(x), sy = sin(y), cy = cos(y), sz = sin(z), czz = cos(z);
+    double r[3][3] = {{czz*cy-sz*sx*sy, -sz*cxx, czz*sy+sz*sx*cy},
+                      {sz*cy+czz*sx*sy, czz*cxx, sz*sy-czz*sx*cy},
+                      {-cxx*sy, sx, cxx*cy}};
+    for (int column = 0; column < 3; column++) {
+        float v[3] = {(float)r[0][column], (float)r[1][column], (float)r[2][column]};
+        camera_forward(v, forward);
+        for (int row = 0; row < 3; row++) r[row][column] = v[row];
+    }
+    double pitch = asin(fmax(-1, fmin(1, r[2][1])));
+    out[3] = (float)(pitch / rad);
+    if (fabs(cos(pitch)) > 1e-6) {
+        out[4] = (float)(atan2(-r[2][0], r[2][2]) / rad);
+        out[5] = (float)(atan2(-r[0][1], r[1][1]) / rad);
+    } else {
+        out[4] = 0;
+        out[5] = (float)(atan2(r[1][0], r[0][0]) / rad);
+    }
 }
 
 /* --wheels-from <disc.iso> <donor label>: the same label -> model name chain
@@ -328,6 +421,7 @@ typedef struct {
     int *idx;
     int nv, ni;
     int attachment;
+    uint8_t lamp;
     int image;   /* glTF image index this part's primitive uses, or -1 */
     int alpha_mode;      /* the material's alphaMode: 0 OPAQUE, 1 MASK, 2 BLEND */
     float cutoff;        /* MASK's alphaCutoff */
@@ -335,6 +429,7 @@ typedef struct {
     int wheelish;        /* named like a tyre/rim/wheel/hub: a wheel when the rig names none */
     int double_sided;    /* the material's doubleSided: both faces drawn */
     int glass;           /* a window: drawn as GT4's own cars draw theirs, dark */
+    int unlit;           /* KHR_materials_unlit: author-selected lighting model */
     int paint;           /* bodywork paint: gets the disc cars' reflection layer */
     int drop;            /* left out of the car (interior, or a wheel the donor's replaces) */
     char name[128];
@@ -345,6 +440,7 @@ typedef struct {
 static void material_of(jv *materials, jv *prim, part *pt)
 {
     jv *mt = arr_at(materials, (int)num(obj_get(prim, "material"), -1));
+    pt->unlit = obj_get(obj_get(mt, "extensions"), "KHR_materials_unlit") != NULL;
     const char *mode = strv(obj_get(mt, "alphaMode"));
     pt->alpha_mode = mode && !strcmp(mode, "MASK") ? 1 : mode && !strcmp(mode, "BLEND") ? 2 : 0;
     pt->cutoff = (float)num(obj_get(mt, "alphaCutoff"), 0.5);
@@ -552,7 +648,7 @@ static gt4_model *load_glb_as_model(const char *path)
 
     gt4_model *m = calloc(1, sizeof *m);
     m->count = m->capacity = ni / 3;
-    m->triangles = malloc((size_t)m->count * sizeof *m->triangles);
+    m->triangles = calloc((size_t)m->count, sizeof *m->triangles);
     gt4_draw_state st = {0,0x44,0,1,1,1,6,32,0,1,1,3,0};
     for (int t = 0; t < m->count; t++) {
         gt4_triangle *tr = &m->triangles[t];
@@ -594,12 +690,14 @@ int main(int argc, char **argv)
     force_pristine_disc();
     const char *out = argv[2]; double target_len = 4.4; const char *rig_path = NULL;
     const char *wheels_disc = NULL, *wheels_label = NULL;
+    const char *camera_disc = NULL, *camera_label = NULL;
     const char *rim_path = NULL, *tire_path = NULL, *forward_arg = NULL;
     int keep_interior = 1; /* the cabin shows through the glass (--no-interior drops it) */
     for (int i = 3; i < argc; i++) {
         if (!strcmp(argv[i], "--length") && i + 1 < argc) target_len = atof(argv[++i]);
         else if (!strcmp(argv[i], "--rig") && i + 1 < argc) rig_path = argv[++i];
         else if (!strcmp(argv[i], "--wheels-from") && i + 2 < argc) { wheels_disc = argv[++i]; wheels_label = argv[++i]; }
+        else if (!strcmp(argv[i], "--cameras-from") && i + 2 < argc) { camera_disc = argv[++i]; camera_label = argv[++i]; }
         else if (!strcmp(argv[i], "--rim") && i + 1 < argc) rim_path = argv[++i];
         else if (!strcmp(argv[i], "--tire") && i + 1 < argc) tire_path = argv[++i];
         else if (!strcmp(argv[i], "--forward") && i + 1 < argc) forward_arg = argv[++i];
@@ -611,7 +709,9 @@ int main(int argc, char **argv)
         return 2;
     }
     char *wheel_part[4] = {0,0,0,0};
-    if (rig_path) parse_rig(rig_path, wheel_part);
+    gt4_car_cameras rig_cameras = {0}; uint32_t camera_mask = 0;
+    rig_lamps lamps = {0};
+    if (rig_path && !parse_rig(rig_path, wheel_part, &rig_cameras, &camera_mask, &lamps)) return 2;
 
     FILE *f = fopen(argv[1], "rb");
     if (!f) { fprintf(stderr, "cannot open %s\n", argv[1]); return 1; }
@@ -718,6 +818,13 @@ int main(int argc, char **argv)
         pt->uv = have[2] ? malloc((size_t)nv * 2 * sizeof *pt->uv) : NULL;
         pt->idx = malloc((size_t)ni * sizeof *pt->idx);
         pt->attachment = rig_attachment(wheel_part, part_name);
+        char clean_part[128]; sanitize_node_name(part_name, clean_part, sizeof clean_part);
+        for (unsigned li = 0; li < lamps.count; li++) {
+            if (!strcmp(clean_part, lamps.name[li])) {
+                pt->lamp = lamps.lamp[li];
+                lamps.matched[li]++;
+            }
+        }
         pt->wheelish = is_wheelish(part_name);
         pt->drop = interior;
         snprintf(pt->name, sizeof pt->name, "%s", part_name ? part_name : "(mesh)");
@@ -726,7 +833,7 @@ int main(int argc, char **argv)
                     (has_word(material_name, "window") || has_word(part_name, "window") ||
                      has_word(material_name, "windscreen") || has_word(part_name, "windscreen"));
         /* windows only: lenses (whatever their spelling) and gauge glass keep their colour */
-        pt->paint = !interior && pt->alpha_mode == 0 &&
+        pt->paint = !pt->unlit && !interior && pt->alpha_mode == 0 &&
                     (has_word(material_name, "paint") || has_word(material_name, "body"));
         pt->image = primitive_image_index(materials, gltf_textures, prim);
         if (pt->image < 0 && images->n == 1) pt->image = 0;   /* one image, no material graph: assume it */
@@ -828,7 +935,7 @@ int main(int argc, char **argv)
     int interior_parts = 0, replaced = 0;
     for (int pj = 0; pj < part_count; pj++) {
         if (parts[pj].drop) interior_parts++;
-        else if (wheels_disc && parts[pj].attachment) { parts[pj].drop = 1; replaced++; }
+        else if ((wheels_disc || rim_path || tire_path) && parts[pj].attachment) { parts[pj].drop = 1; replaced++; }
     }
     if (interior_parts)
         printf("%s: %d interior part(s) left out (--no-interior)\n", argv[1], interior_parts);
@@ -862,6 +969,7 @@ int main(int argc, char **argv)
        donor's tables. */
     float wheel_c[4][3], wheel_r[4], wheel_w[4];
     int wheels_known = 0;
+    float camera_axle_shift = 0;
     {
         int have = 0;
         for (int corner = 1; corner <= 4; corner++) {
@@ -885,6 +993,7 @@ int main(int argc, char **argv)
         }
         if (have == 4) {
             float mid = (wheel_c[0][2] + wheel_c[1][2] + wheel_c[2][2] + wheel_c[3][2]) * .25f;
+            camera_axle_shift = mid;
             for (int pj = 0; pj < part_count; pj++)
                 for (int i = 0; i < parts[pj].nv; i++) parts[pj].pos[i * 3 + 2] -= mid;
             for (int c = 0; c < 4; c++) wheel_c[c][2] -= mid;
@@ -1026,9 +1135,15 @@ int main(int argc, char **argv)
         }
     }
 
+    for (unsigned li = 0; li < lamps.count; li++) {
+        if (!lamps.matched[li]) {
+            fprintf(stderr, "--rig: brake mesh not found: %s\n", lamps.name[li]);
+            return 2;
+        }
+    }
     gt4_model *m = calloc(1, sizeof *m);
     m->count = m->capacity = ni_out / 3;
-    m->triangles = malloc((size_t)m->count * sizeof *m->triangles);
+    m->triangles = calloc((size_t)m->count, sizeof *m->triangles);
     gt4_draw_state st = {0,0x44,0,1,1,1,6,32,0,1,1,3,0};
     int wheel_parts = 0, out_t = 0;
     /* the opaque parts first, the see-through ones (BLEND: glass) last: the engine draws a
@@ -1082,7 +1197,7 @@ int main(int argc, char **argv)
                    the GS multiplies the two, and the source's 0.28 left the pane clear */
                 if (pt->glass) v->alpha = 1.0f;
             }
-            tr->texture = part_slot[pj]; tr->kind = 1; tr->attachment = pt->attachment; tr->state = st;
+            tr->texture = part_slot[pj]; tr->kind = pt->unlit ? 0 : 1; tr->attachment = pt->attachment; tr->lamp = pt->lamp; tr->state = st;
             tr->blend_enabled = pt->alpha_mode == 2; /* see-through: the packet turns blending on */
             if (pass == 1) { /* the reflection: the environment slot, added over the paint */
                 tr->texture = -2;
@@ -1096,7 +1211,7 @@ int main(int argc, char **argv)
         }
     }
     free(part_slot);
-    if (rig_path && !wheel_parts)
+    if (rig_path && rig_named && !wheel_parts)
         fprintf(stderr, "--rig %s: named no mesh the model actually has -- exported with no wheels tagged\n", rig_path);
     m->textures = tex_list;
     m->ntextures = tex_n;
@@ -1104,16 +1219,48 @@ int main(int argc, char **argv)
            argv[1], nv, m->count, tex_n, loaded_w, loaded_h,
            untextured ? " [some parts untextured]" : "", target_len, s);
 
-    size_t osz = 0; uint8_t *car = gt4_model_encode_car4(m, &osz);
-    if (!car) { fprintf(stderr, "writer refused the model\n"); return 1; }
+    gt4_car_cameras cameras = {0};
+    uint8_t *donor = NULL; size_t donor_sz = 0;
     if (wheels_disc) {
         const char *err = NULL;
         gt4_vol *v = gt4_vol_open(wheels_disc, &err);
-        if (!v) { fprintf(stderr, "--wheels-from %s: %s\n", wheels_disc, err ? err : "cannot open"); free(car); return 1; }
-        size_t donor_sz = 0;
-        uint8_t *donor = donor_car4(v, wheels_label, &donor_sz);
+        if (!v) { fprintf(stderr, "--wheels-from %s: %s\n", wheels_disc, err ? err : "cannot open"); return 1; }
+        donor = donor_car4(v, wheels_label, &donor_sz);
         gt4_vol_close(v);
-        if (!donor) { fprintf(stderr, "--wheels-from: cannot resolve donor \"%s\"\n", wheels_label); free(car); return 1; }
+        if (!donor) { fprintf(stderr, "--wheels-from: cannot resolve donor \"%s\"\n", wheels_label); return 1; }
+        gt4_model_read_cameras(donor, donor_sz, &cameras);
+    }
+    if (camera_disc) {
+        const char *err = NULL;
+        gt4_vol *v = gt4_vol_open(camera_disc, &err);
+        size_t size = 0;
+        uint8_t *source = v ? donor_car4(v, camera_label, &size) : NULL;
+        if (v) gt4_vol_close(v);
+        if (!source || !gt4_model_read_cameras(source, size, &cameras)) {
+            fprintf(stderr, "--cameras-from: cannot read camera donor %s\n", camera_label);
+            free(source); free(donor); return 2;
+        }
+        free(source);
+    }
+    int donor_count = cameras.count;
+    for (int i = 0; i < rig_cameras.count; i++) {
+        if (!(camera_mask & (1u << i))) {
+            if (i >= donor_count) {
+                fprintf(stderr, "--rig: camera %d is missing (no donor row to inherit)\n", i);
+                free(donor); return 2;
+            }
+            continue;
+        }
+        transform_rig_camera(cameras.point[i], rig_cameras.point[i], forward, s, cx, ymin, cz, camera_axle_shift);
+        if (cameras.count <= i) cameras.count = i + 1;
+    }
+    size_t osz = 0;
+    uint8_t *car = gt4_model_encode_car4_cameras(m, cameras.count ? &cameras : NULL, &osz);
+    if (!car) { fprintf(stderr, "writer refused the model\n"); free(donor); return 1; }
+    if (cameras.count)
+        printf("%s: cameras %d @ 0x%x (%d donor rows; rig overrides 0x%08x)\n",
+               argv[1], cameras.count, le32(car + 0x84), donor_count, camera_mask);
+    if (donor) {
         size_t car2_sz = 0;
         uint8_t *car2 = gt4_model_car4_attach_wheels(car, osz, donor, donor_sz, &car2_sz);
         free(donor);

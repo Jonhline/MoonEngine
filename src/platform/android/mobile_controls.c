@@ -37,8 +37,8 @@ static moon_mobile_rect mobile_fit(const moon_mobile_controls *s, moon_mobile_re
     if (s->options.layout)
         r.x = 1 - r.x - r.w;
     /* No hit box may reach into the gesture bar. */
-    if (r.y + r.h > .93f)
-        r.y = .93f - r.h;
+    if (r.y + r.h > MOON_MOBILE_SAFE_FLOOR)
+        r.y = MOON_MOBILE_SAFE_FLOOR - r.h;
     if (r.y < 0)
         r.y = 0;
     return r;

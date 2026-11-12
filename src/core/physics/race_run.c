@@ -14,6 +14,7 @@
 #include "license_session.h"
 #include "pcm_music.h"
 #include "car.h"
+#include "assist_line.h"
 #include "career_original.h"
 #include "course.h"
 #include "inflate.h"
@@ -46,6 +47,19 @@
 #define COURSE 0x00bcd180u
 #define COURSE_DATA 0x00ccd600u /* course+4: the runway, the lines after it */
 #define COURSE_END 0x01b00000u
+/* Phantom opponents: a second conductor and its own objects, in guest RAM
+   above the real conductor's tail (measured zero to cond+0x139130 in the
+   32 MiB race captures, docs/vulcan4/MEASURED-TAIL-SITES.md). */
+#define PHANTOM_COND 0x01d10000u
+#define PHANTOM_RACE 0x01d21000u
+#define PHANTOM_ENTRIES 0x01d22000u
+#define PHANTOM_ENTRY_BASE 0x01d23000u
+#define PHANTOM_WORLD 0x01d40000u
+#define PHANTOM_SCRATCH 0x01e30000u
+#define PHANTOM_COND_SIZE 0x10144u
+#define PHANTOM_WORLD_SIZE 0xf000u
+#define PHANTOM_ENTRY_SIZE 0x35e0u
+#define PHANTOM_RACE_SIZE 0x200u
 
 #define RACE_VT 0x00679ce8u
 #define TT_VT 0x00685890u        /* the Time Trial's session: DynamicsConductorFreeRun (003F54E0) */
@@ -70,10 +84,69 @@ struct gt4_race_run {
     gt4_specdb_src db;
     uint32_t cond;
     int cars;
+    int field_size;   /* the requested field, official cars plus phantoms */
+    int phantom_count;
+    int phantom_laps_set;
+    int phantom_bad;
+    int native_phantoms;
+    int phantom_line, phantom_line2, phantom_line_points;
+    int phantom_method, phantom_method_logged;
+    float phantom_pace_min, phantom_pace_max, phantom_pace_sum;
+    unsigned phantom_pace_samples, phantom_pace_violations;
+    int phantom_pace_logged;
+    float phantom_cap[MOON_MAX_PHANTOMS];
+    float phantom_accel_peak, phantom_accel_prev_kmh;
+    unsigned phantom_accel_peak_frame;
+    float phantom_ground_max;
+    int phantom_contact_logged[MOON_MAX_PHANTOMS];
+    int course_grid_count;
+    gt4_grid course_grid[64];
+    char course[32];
+    uint32_t phantom_cond, phantom_race, phantom_entries, phantom_world;
+    gt4_race_entrant entrants[MOON_MAX_CARS];
+    uint8_t class_order[MOON_MAX_CARS];
+    int class_n, class_frozen;
+    uint8_t finish_seen[MOON_MAX_CARS];
+    uint32_t finish_time[MOON_MAX_CARS];
+    int finish_serial[MOON_MAX_CARS];
+    int finish_next;
+    int elimination, elim_done, elim_last_lap, elim_serial;
+    int elim_field_size, elim_thunder;
+    float elim_start_dist;
+    int elim_cut_count, elim_last_count;
+    char elim_last_names[3][96];
+    int elim_card_kind, elim_card_place, elim_card_remaining;
+    char elim_card_name[96];
+    unsigned elim_card_frame;
+    int eliminated[MOON_MAX_CARS];
+    float elim_pos[MOON_MAX_CARS][3];
+    float elim_refs[MOON_MAX_CARS][16];
+    float elim_matrix[MOON_MAX_CARS][18];
+    float elim_heading[MOON_MAX_CARS];
+    float elim_dist[MOON_MAX_CARS];
+    char elim_msg[128];
+    unsigned elim_msg_frame;
+    char entrant_name[MOON_MAX_CARS][96];
+    uint32_t entrant_color[MOON_MAX_CARS];
+    uint32_t phantom_entry[MOON_MAX_PHANTOMS], phantom_car[MOON_MAX_PHANTOMS];
+    float phantom_travel0[MOON_MAX_PHANTOMS][4];
+    struct {
+        float dist, speed, heading, pos[3], lateral;
+        int lap, finished;
+        uint32_t finish_time, color;
+        char name[96];
+    } native[MOON_MAX_PHANTOMS];
+    /* The parked start pose: position, four reference points, matrix,
+       heading and course distance, restored while the officials count down. */
+    float phantom_start[MOON_MAX_PHANTOMS][3];
+    float phantom_refs[MOON_MAX_PHANTOMS][12];
+    float phantom_matrix[MOON_MAX_PHANTOMS][18];
+    float phantom_heading[MOON_MAX_PHANTOMS];
+    float phantom_dist0[MOON_MAX_PHANTOMS];
     int legacy_recording;
     unsigned frames;                /* display time since the start event, at 60 Hz */
     int aspec_points;               /* func_003C0FF8, computed after the entries start */
-    float height[6], travel0[6][4]; /* at the start: ride height, suspension travel */
+    float height[MOON_CONDUCTOR_CARS], travel0[MOON_CONDUCTOR_CARS][4]; /* at the start */
     /* The Time Trial's ghost (the world's objects at vt+0x240): the
        player's commands as the replay records them (func_003F59A0 ->
        00426C50), the lap being recorded and the best one, each the
@@ -94,8 +167,8 @@ struct gt4_race_run {
     gt4_phys_pads outer; /* the caller's controller, around the ghost's */
 };
 
-static const uint32_t entry_at[6] = {0x01bd7710u, 0x01bdacf0u, 0x01cd9190u,
-                                     0x01cdc770u, 0x01cdfd50u, 0x01ce3330u};
+static const uint32_t entry_at[MOON_CONDUCTOR_CARS] = {
+    0x01bd7710u, 0x01bdacf0u, 0x01cd9190u, 0x01cdc770u, 0x01cdfd50u, 0x01ce3330u};
 
 static void w32(uint32_t a, uint32_t v)
 {
@@ -215,6 +288,239 @@ static void make_race(int cars, int laps, int time_trial)
     w32(COND + CONDUCTOR_FIELD_CAR_COUNT, (uint32_t)cars);
 }
 
+static float native_course_length(uint32_t cond)
+{
+    uint32_t race = GT4_U32(cond), course = GT4_U32(race + 0x80), data = GT4_U32(course + 4),
+             runway = GT4_U32(data + 0xdc);
+    return GT4_F32(runway + 0x14);
+}
+
+/* The phantom field: a second conductor in free guest RAM, with its own
+   car blocks, states and per-player tail. The official conductor is copied
+   once, then its car slots are replaced by phantom cars. It is stepped by
+   the same gt4_step path; it never touches the official conductor. */
+static void make_phantoms(gt4_race_run *r, const gt4_race_desc *d)
+{
+    int p = r->phantom_count, official = d->cars;
+    if (p < 1 || p > MOON_MAX_PHANTOMS)
+        return;
+    fprintf(stderr, "race: field_size=%d official=%d phantoms=%d\n", r->field_size, official, p);
+    if (p > 0) {
+        /* Every phantom is native kinematics; the guest conductor is never
+           given a phantom car. */
+        r->native_phantoms = 1;
+        int last = official - 1;
+        uint32_t ref = COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)last * CAR_SIZE;
+        uint32_t player_ref = COND + CONDUCTOR_FIELD_CARS_U;
+        float len = native_course_length(COND);
+        float d0 = GT4_F32(ref + CAR_FIELD_COURSE_DISTANCE);
+        float player_dist = GT4_F32(player_ref + CAR_FIELD_COURSE_DISTANCE);
+        int lap0 = (int16_t)GT4_U16(ref + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
+        float min_gap = 1e9f, max_lat = 0.f, first_dist = 0.f, last_dist = 0.f;
+        float prev = player_dist;
+        for (int i = 0; i < p; i++) {
+            /* The course's own grid slots the officials do not occupy. A
+               phantom behind the player, two wide, 7 m or more apart. */
+            int slot = official + i < r->course_grid_count ? official + i : -1;
+            int col = slot >= 0 ? slot % 2 : i % 2;
+            float dist_i = player_dist - 7.f - (float)i * 7.f;
+            if (len > 1.f)
+                while (dist_i < 0.f)
+                    dist_i += len;
+            float lateral = col ? 1.8f : -1.8f;
+            r->native[i].dist = dist_i;
+            r->native[i].lap = lap0;
+            r->native[i].speed = 0;
+            r->native[i].lateral = lateral;
+            snprintf(r->native[i].name, sizeof r->native[i].name, "%s", d->phantom_label[i]);
+            r->native[i].color = (uint32_t)d->phantom_color[i];
+            r->native[i].finished = 0;
+            r->native[i].finish_time = 0;
+            if (i == 0)
+                first_dist = dist_i;
+            last_dist = dist_i;
+            float gap = prev - dist_i;
+            if (gap < 0.f)
+                gap += len;
+            if (gap < min_gap)
+                min_gap = gap;
+            if (fabsf(lateral) > max_lat)
+                max_lat = fabsf(lateral);
+            prev = dist_i;
+        }
+        fprintf(stderr,
+                "phantom grid: course=%s slots=%d player_dist=%.1f first=%.1f last=%.1f "
+                "min_gap=%.1f max_lat=%.1f\n",
+                r->course, r->course_grid_count, player_dist, first_dist, last_dist, min_gap,
+                max_lat);
+        return;
+    }
+    r->phantom_cond = PHANTOM_COND;
+    r->phantom_race = PHANTOM_RACE;
+    r->phantom_entries = PHANTOM_ENTRIES;
+    r->phantom_world = PHANTOM_WORLD;
+
+    memset(gt4_ptr(PHANTOM_COND), 0, PHANTOM_COND_SIZE);
+    memset(gt4_ptr(PHANTOM_RACE), 0, PHANTOM_RACE_SIZE);
+    memset(gt4_ptr(PHANTOM_ENTRIES), 0, 0x100);
+    memset(gt4_ptr(PHANTOM_ENTRY_BASE), 0, (size_t)p * PHANTOM_ENTRY_SIZE);
+    memset(gt4_ptr(PHANTOM_WORLD), 0, PHANTOM_WORLD_SIZE);
+    memset(gt4_ptr(PHANTOM_SCRATCH), 0, 0x1000);
+
+    memcpy(gt4_ptr(PHANTOM_COND), gt4_ptr(COND), PHANTOM_COND_SIZE);
+    w32(PHANTOM_COND, PHANTOM_RACE);
+    w32(PHANTOM_COND + CONDUCTOR_FIELD_CAR_COUNT, (uint32_t)p);
+    for (int i = 0; i < MOON_CONDUCTOR_CARS; i++)
+        w32(PHANTOM_COND + CONDUCTOR_FIELD_POSITION_ORDER + (uint32_t)i * 4, (uint32_t)i);
+    /* the phantom cars are the only live ones in this conductor */
+    memset(gt4_ptr(PHANTOM_COND + 0x98), 0, 0x6698 - 0x98);
+    memset(gt4_ptr(PHANTOM_COND + CONDUCTOR_FIELD_CARS_U), 0, 0xCA58 - 0x6698);
+    memset(gt4_ptr(PHANTOM_COND + 0xCA58), 0, 0xCBD8 - 0xCA58);
+    memset(gt4_ptr(PHANTOM_COND + 0xCC14), 0, 0xDA50 - 0xCC14);
+    memset(gt4_ptr(PHANTOM_COND + 0xF8F8), 0, 0x30);
+    memset(gt4_ptr(PHANTOM_COND + 0xCBFC), 0, 6 * 4);
+    memset(gt4_ptr(PHANTOM_COND + 0x10024), 0, 6 * 4);
+
+    memcpy(gt4_ptr(PHANTOM_RACE), gt4_ptr(RACE), PHANTOM_RACE_SIZE);
+    w32(PHANTOM_RACE + 0x60, PHANTOM_ENTRIES);
+    w32(PHANTOM_RACE + 0x84, PHANTOM_WORLD);
+    memcpy(gt4_ptr(PHANTOM_WORLD), gt4_ptr(WORLD), PHANTOM_WORLD_SIZE);
+    w32(PHANTOM_WORLD + 0x70, PHANTOM_COND);
+
+    w32(PHANTOM_ENTRIES, (uint32_t)p);
+    w32(PHANTOM_ENTRIES + 8, PHANTOM_ENTRIES + 0x24);
+    for (int i = 0; i < p; i++)
+        w32(PHANTOM_ENTRIES + 0x24 + (uint32_t)i * 4,
+            PHANTOM_ENTRY_BASE + (uint32_t)i * PHANTOM_ENTRY_SIZE);
+
+    for (int i = 0; i < p; i++) {
+        int src = official > 1 ? 1 + i % (official - 1) : 0;
+        uint32_t entry = PHANTOM_ENTRY_BASE + (uint32_t)i * PHANTOM_ENTRY_SIZE,
+                 car = PHANTOM_COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)i * CAR_SIZE;
+        memcpy(gt4_ptr(entry), gt4_ptr(entry_at[src]), PHANTOM_ENTRY_SIZE);
+        w32(entry + 0x3444, (uint32_t)(official - 1)); /* heading/start of the last grid slot */
+        w32(entry + 0x343c, AI_PROFILE);
+        w32(entry + 0x347c, 1);
+        r->phantom_entry[i] = entry;
+        r->phantom_car[i] = car;
+        if (d->phantom_car[i]) {
+            if (!gt4_garage_new(entry + 0x20, d->phantom_car[i], &r->db, GARAGE_SCRATCH))
+                r->phantom_bad = 1;
+            GT4_U8(entry + 0x38) = (uint8_t)d->phantom_color[i];
+        }
+        gt4_race_init_extra_car(PHANTOM_COND, PHANTOM_RACE, (uint32_t)i, entry, car, &r->db,
+                                PHANTOM_SCRATCH);
+        /* The shadow's grid slot is not its source entry's, so init_car can
+           start the phantom a lap down. The whole field starts on the same
+           lap; copy the official field's count before the first step. */
+        GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT) =
+            GT4_U16(COND + CONDUCTOR_FIELD_CARS_U + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
+        GT4_U8(car + CAR_VIBRATION_ON) = 0;
+        GT4_U8(car + CAR_56A) = 2;
+        GT4_U8(car + CAR_56B) = 0;
+        {
+            uint32_t obj = car + CAR_FIELD_DRIVER_MODEL;
+            GT4_U32(obj + 0xe4) = PHANTOM_COND;
+            GT4_U32(obj + 0xe8) = car;
+            GT4_U32(obj + 0xec) = PHANTOM_COND + CONDUCTOR_FIELD_LINES_U;
+        }
+        /* Continue the official grid's own formation behind its last row.
+           The six officials are three two-car rows; the two back cars give
+           the row step, and the next two rows give the distance per row.
+           The slot index is not used for the pose. */
+        {
+            int order[MOON_CONDUCTOR_CARS];
+            for (int k = 0; k < official; k++)
+                order[k] = k;
+            for (int a = 1; a < official; a++) {
+                int cur = order[a], b = a - 1;
+                float dcur = GT4_F32(COND + CONDUCTOR_FIELD_CARS_U +
+                                     (uint32_t)cur * CAR_SIZE + CAR_FIELD_COURSE_DISTANCE);
+                while (b >= 0) {
+                    float db = GT4_F32(COND + CONDUCTOR_FIELD_CARS_U +
+                                       (uint32_t)order[b] * CAR_SIZE +
+                                       CAR_FIELD_COURSE_DISTANCE);
+                    if (db <= dcur)
+                        break;
+                    order[b + 1] = order[b];
+                    b--;
+                }
+                order[b + 1] = cur;
+            }
+            uint32_t back[2] = {0, 0}, prev[2] = {0, 0};
+            back[0] = COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)order[0] * CAR_SIZE;
+            if (official >= 2)
+                back[1] = COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)order[1] * CAR_SIZE;
+            if (official >= 4) {
+                prev[0] = COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)order[2] * CAR_SIZE;
+                prev[1] = COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)order[3] * CAR_SIZE;
+            }
+            float last[2][3], step[3] = {0, 0, 0};
+            float last_dist[2] = {0, 0}, row_dist = 0;
+            for (int c = 0; c < 2; c++) {
+                for (int k = 0; k < 3; k++)
+                    last[c][k] = GT4_F32(back[c] + CAR_POSITION + (uint32_t)k * 4);
+                last_dist[c] = GT4_F32(back[c] + CAR_FIELD_COURSE_DISTANCE);
+            }
+            if (official >= 4) {
+                for (int k = 0; k < 3; k++)
+                    step[k] = ((GT4_F32(prev[0] + CAR_POSITION + (uint32_t)k * 4) - last[0][k]) +
+                               (GT4_F32(prev[1] + CAR_POSITION + (uint32_t)k * 4) - last[1][k])) *
+                              0.25f;
+                row_dist = ((GT4_F32(prev[0] + CAR_FIELD_COURSE_DISTANCE) - last_dist[0]) +
+                            (GT4_F32(prev[1] + CAR_FIELD_COURSE_DISTANCE) - last_dist[1])) *
+                           0.25f;
+            } else if (official >= 2) {
+                for (int k = 0; k < 3; k++)
+                    step[k] = last[1][k] - last[0][k];
+            }
+            int row = i / 2 + 1, col = i & 1;
+            float pos[3];
+            for (int k = 0; k < 3; k++)
+                pos[k] = last[col][k] - (float)row * step[k];
+            for (int k = 0; k < 3; k++) {
+                GT4_F32(car + CAR_POSITION + (uint32_t)k * 4) = pos[k];
+                GT4_F32(car + CAR_REF_A + (uint32_t)k * 4) = pos[k];
+                GT4_F32(car + CAR_REF_B + (uint32_t)k * 4) = pos[k];
+                GT4_F32(car + CAR_REF_A_PREV + (uint32_t)k * 4) = pos[k];
+                GT4_F32(car + CAR_REF_B_PREV + (uint32_t)k * 4) = pos[k];
+            }
+            memcpy(gt4_ptr(car + CAR_MATRIX), gt4_ptr(back[col] + CAR_MATRIX), 0x48);
+            GT4_F32(car + CAR_BLOCK_HEADING) = GT4_F32(back[col] + CAR_BLOCK_HEADING);
+            {
+                float dist = 0;
+                gt4_session(PHANTOM_COND, 0x108, car, 0, 0, 0, 0, &dist);
+                float expected = last_dist[col] - (float)row * row_dist;
+                GT4_F32(car + CAR_FIELD_COURSE_DISTANCE) =
+                    dist > 0 && fabsf(dist - expected) < 60.f ? dist : expected;
+                GT4_F32(car + CAR_FIELD_PREVIOUS_COURSE_DISTANCE) =
+                    GT4_F32(car + CAR_FIELD_COURSE_DISTANCE);
+            }
+        }
+        for (int k = 0; k < 3; k++)
+            r->phantom_start[i][k] = GT4_F32(car + CAR_POSITION + (uint32_t)k * 4);
+        for (int k = 0; k < 3; k++) {
+            r->phantom_refs[i][k] = GT4_F32(car + CAR_REF_A + (uint32_t)k * 4);
+            r->phantom_refs[i][3 + k] = GT4_F32(car + CAR_REF_B + (uint32_t)k * 4);
+            r->phantom_refs[i][6 + k] = GT4_F32(car + CAR_REF_A_PREV + (uint32_t)k * 4);
+            r->phantom_refs[i][9 + k] = GT4_F32(car + CAR_REF_B_PREV + (uint32_t)k * 4);
+        }
+        for (int k = 0; k < 18; k++)
+            r->phantom_matrix[i][k] = GT4_F32(car + CAR_MATRIX + (uint32_t)k * 4);
+        r->phantom_heading[i] = GT4_F32(car + CAR_BLOCK_HEADING);
+        r->phantom_dist0[i] = GT4_F32(car + CAR_FIELD_COURSE_DISTANCE);
+        {
+            float ground = 0;
+            for (int k = 0; k < 4; k++) {
+                uint32_t w = gt4_car_wheel(car, k);
+                ground += GT4_F32(w + WHEEL_8C);
+                r->phantom_travel0[i][k] = GT4_F32(w + WHEEL_TRAVEL);
+            }
+            (void)ground;
+        }
+    }
+}
+
 /* The Arcade's tyres: the car's parts of that compound level (its parts
    list, CARS/<car>: FRONTTIRE 0x19 and REARTIRE 0x1A) into its garage
    entry's front and rear tyre (+0x60, +0x68), as the two Arcade captures'
@@ -278,6 +584,9 @@ static int load_course(gt4_race_run *run, gt4_vol *vol, const char *name, char *
         uint32_t off = le32(adf + 4 + k * 4);
         w32(COURSE + 0x9c + k * 4, off ? ad + off : 0);
     }
+    run->course_grid_count = co.grid_count < 64 ? co.grid_count : 64;
+    for (int i = 0; i < run->course_grid_count; i++)
+        run->course_grid[i] = gt4_course_grid(&co, i);
     run->objects = gt4_course_gadgets_open_state(&co);
     free(crs);
     free(adf);
@@ -325,10 +634,20 @@ gt4_race_run *gt4_race_run_open(const char *disc, const gt4_race_desc *d, char *
         tt.event_paint[1] = d->event_paint[0];
         d = &tt;
     }
-    if (!d || d->cars < 1 || d->cars > 6 ||
+    if (!d || d->cars < 1 || d->cars > MOON_CONDUCTOR_CARS ||
         (d->split_battle && (d->cars != 2 || d->time_trial || d->event_row))) {
-        snprintf(msg, len, "a race has 1 to 6 cars");
+        snprintf(msg, len, "a race has 1 to %d official cars", MOON_CONDUCTOR_CARS);
         return NULL;
+    }
+    {
+        int field_size = d->field_size ? d->field_size : d->cars;
+        if (field_size < d->cars || field_size > MOON_MAX_CARS) {
+            snprintf(msg, len,
+                     "race.field_size=%d refused: allowed %d..%d (the prepared field has %d)",
+                     field_size, d->cars, MOON_MAX_CARS, d->cars);
+            return NULL;
+        }
+
     }
     r = calloc(1, sizeof *r);
     if (!r || !(r->ram = calloc(1, RAM_SIZE))) {
@@ -337,7 +656,19 @@ gt4_race_run *gt4_race_run_open(const char *disc, const gt4_race_desc *d, char *
         return NULL;
     }
     r->cond = COND;
+    snprintf(r->course, sizeof r->course, "%s", d->course);
+    r->phantom_line = r->phantom_line2 = -1;
     r->cars = d->cars;
+    r->field_size = d->field_size ? d->field_size : d->cars;
+    r->phantom_count = r->field_size - d->cars;
+    if (r->phantom_count > MOON_MAX_PHANTOMS) {
+        snprintf(msg, len,
+                 "race.field_size=%d refused: %d phantoms, this build has %d slots",
+                 r->field_size, r->phantom_count, MOON_MAX_PHANTOMS);
+        free(r->ram);
+        free(r);
+        return NULL;
+    }
     r->legacy_recording = d->legacy_recording;
     r->ghost_time = 0x157529ffu;
     gt4_phys_mem = r->ram;
@@ -689,7 +1020,12 @@ gt4_race_run *gt4_race_run_open(const char *disc, const gt4_race_desc *d, char *
     gt4_race_entries_begin(RACE, COND);
     gt4_course_objects_init(r->objects, COURSE);
     r->aspec_points = (int)gt4_race_aspec_points(RACE, 0, &r->db);
+    make_phantoms(r, d);
     fesetenv(&env);
+    if (r->phantom_bad) {
+        snprintf(msg, len, "phantom car setup failed");
+        goto fail;
+    }
     if (missing) {
         snprintf(msg, len, "original function 0x%08x needed", missing);
         goto fail;
@@ -700,10 +1036,15 @@ fail:
     return NULL;
 }
 
+static void native_phantom_pace_report(gt4_race_run *r);
+static void native_phantom_ground_report(gt4_race_run *r);
+
 void gt4_race_run_close(gt4_race_run *r)
 {
     if (!r)
         return;
+    native_phantom_pace_report(r);
+    native_phantom_ground_report(r);
     if (gt4_phys_specdb == &r->db)
         gt4_phys_specdb = NULL;
     if (gt4_phys_mem == r->ram)
@@ -859,6 +1200,24 @@ unsigned gt4_race_run_frames(const gt4_race_run *r)
 {
     return r ? (unsigned)r->frames : 0;
 }
+int gt4_race_run_field_size(const gt4_race_run *r)
+{
+    return r ? r->field_size : 0;
+}
+int gt4_race_run_phantom_count(const gt4_race_run *r)
+{
+    return r ? r->phantom_count : 0;
+}
+uint32_t gt4_race_run_phantom_car(const gt4_race_run *r, int i)
+{
+    return r && !r->native_phantoms && i >= 0 && i < r->phantom_count ? r->phantom_car[i] : 0;
+}
+const char *gt4_race_run_phantom_name(const gt4_race_run *r, int i)
+{
+    if (!r || i < 0 || i >= r->phantom_count || r->cars + i >= MOON_MAX_CARS)
+        return "";
+    return r->entrant_name[r->cars + i];
+}
 int gt4_race_run_ghost_on(const gt4_race_run *r)
 {
     return r && r->ghost_on;
@@ -898,6 +1257,1004 @@ int gt4_race_run_ghost_set(gt4_race_run *r, const uint8_t car[GT4_GHOST_CAR], ui
     return 1;
 }
 
+/* The live order across the official and phantom conductors: each car's
+   merged place goes to its own +0x5B3, nothing else. Runs after both steps
+   so the phantom conductor's own positions cannot overwrite it. */
+static int entrant_cmp(const gt4_race_entrant *a, const gt4_race_entrant *b)
+{
+    if (a->eliminated != b->eliminated)
+        return a->eliminated ? 1 : -1;
+    if (a->finished != b->finished)
+        return a->finished ? -1 : 1;
+    if (a->finished) {
+        if (a->finish_time != b->finish_time)
+            return a->finish_time < b->finish_time ? -1 : 1;
+        if (a->live_rank != b->live_rank)
+            return a->live_rank < b->live_rank ? -1 : 1;
+        return a->id < b->id ? -1 : a->id > b->id;
+    }
+    if (a->official && b->official) {
+        /* gt4_position_order_cross returns 1 when a is ahead; entrant_cmp
+           uses -1 for a ahead (the finished branch above). */
+        return -gt4_position_order_cross(a->cond, a->car + CAR_POSITION, b->cond,
+                                         b->car + CAR_POSITION);
+    }
+    if (a->laps != b->laps)
+        return a->laps > b->laps ? -1 : 1;
+    if (a->distance != b->distance)
+        return a->distance > b->distance ? -1 : 1;
+    return a->id < b->id ? -1 : a->id > b->id;
+}
+
+/* Sort the merged list: finished cars by their one captured finish time,
+   then running cars by track order. The same list feeds the live places,
+   the result board, prize and points. */
+static void order_classification(gt4_race_run *r, int n)
+{
+    for (int i = 0; i < n; i++) {
+        r->class_order[i] = (uint8_t)i;
+        r->entrants[i].place = 0;
+    }
+    for (int k = 1; k < n; k++) {
+        uint8_t cur = r->class_order[k];
+        int j = k - 1;
+        for (; j >= 0; j--) {
+            if (entrant_cmp(&r->entrants[r->class_order[j]], &r->entrants[cur]) <= 0)
+                break;
+            r->class_order[j + 1] = r->class_order[j];
+        }
+        r->class_order[j + 1] = cur;
+    }
+    for (int k = 0; k < n; k++) {
+        gt4_race_entrant *e = &r->entrants[r->class_order[k]];
+        e->place = k + 1;
+        if (e->official)
+            GT4_U8(e->car + CAR_FIELD_POSITION) = (uint8_t)(k + 1);
+    }
+    r->class_n = n;
+}
+
+/* Build the one merged order. Stable ids are official cars first, then the
+   phantoms. Finished cars sort by their one captured finish time, then by
+   the live rank at the line; running cars use the cross-conductor
+   comparator. Membership freezes when the player finishes; the finished
+   rows keep re-sorting by time as the remaining cars cross. */
+static void build_classification(gt4_race_run *r)
+{
+    int official, phantoms, n;
+    if (!r)
+        return;
+    if (r->class_frozen) {
+        int official = (int)GT4_U32(r->cond + CONDUCTOR_FIELD_CAR_COUNT_U);
+        int n = official + r->phantom_count;
+        /* The order is frozen at the player's finish, but cars still on
+           track must acquire their finish time for the result rows. The
+           identity is not frozen: names and colours may be set after the
+           player crossed the line, so keep every row bound to its stable
+           entrant id. */
+        for (int i = 0; i < n && i < MOON_MAX_CARS; i++) {
+            gt4_race_entrant *e = &r->entrants[i];
+            int is_official = i < official;
+            e->id = i;
+            e->official = is_official;
+            snprintf(e->name, sizeof e->name, "%s", r->entrant_name[i]);
+            e->color = r->entrant_color[i];
+            if (is_official) {
+                uint32_t car = r->cond + CONDUCTOR_FIELD_CARS_U + (uint32_t)i * CAR_SIZE;
+                e->car = car;
+                e->cond = r->cond;
+                e->laps = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
+                e->distance = GT4_F32(car + CAR_POSITION + CAR_BLOCK_COURSE_DISTANCE);
+                e->live_rank = (int8_t)GT4_U8(car + CAR_FIELD_POSITION);
+                if (GT4_U8(car + CAR_5B6) && !r->finish_seen[i]) {
+                    r->finish_seen[i] = 1;
+                    r->finish_serial[i] = ++r->finish_next;
+                    r->finish_time[i] = GT4_U32(r->cond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3u;
+                }
+                e->finished = r->finish_seen[i];
+                e->finish_time = r->finish_time[i];
+            } else if (r->native_phantoms) {
+                int j = i - official;
+                e->car = 0;
+                e->cond = 0;
+                e->laps = r->native[j].lap;
+                e->distance = r->native[j].dist;
+                e->live_rank = 0;
+                e->finished = r->native[j].finished;
+                e->finish_time = r->native[j].finish_time;
+            } else {
+                uint32_t car = r->phantom_car[i - official];
+                e->car = car;
+                e->cond = GT4_U32(car + CAR_SESSION);
+                e->laps = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
+                e->distance = GT4_F32(car + CAR_POSITION + CAR_BLOCK_COURSE_DISTANCE);
+                e->live_rank = (int8_t)GT4_U8(car + CAR_FIELD_POSITION);
+                if (GT4_U8(car + CAR_5B6) && !r->finish_seen[i]) {
+                    r->finish_seen[i] = 1;
+                    r->finish_serial[i] = ++r->finish_next;
+                    r->finish_time[i] = GT4_U32(r->cond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3u;
+                }
+                e->finished = r->finish_seen[i];
+                e->finish_time = r->finish_time[i];
+            }
+            e->eliminated = r->eliminated[i];
+        }
+        order_classification(r, n);
+        return;
+    }
+    official = (int)GT4_U32(r->cond + CONDUCTOR_FIELD_CAR_COUNT_U);
+    phantoms = r->phantom_count;
+    n = official + phantoms;
+    if (official > MOON_CONDUCTOR_CARS || n > MOON_MAX_CARS)
+        return;
+    for (int i = 0; i < n; i++) {
+        gt4_race_entrant *e = &r->entrants[i];
+        int is_official = i < official;
+        e->id = i;
+        e->official = is_official;
+        snprintf(e->name, sizeof e->name, "%s", r->entrant_name[i]);
+        e->color = r->entrant_color[i];
+        if (is_official) {
+            uint32_t car = r->cond + CONDUCTOR_FIELD_CARS_U + (uint32_t)i * CAR_SIZE;
+            int fin = GT4_U8(car + CAR_5B6) != 0;
+            e->car = car;
+            e->cond = r->cond;
+            if (fin && !r->finish_seen[i]) {
+                r->finish_seen[i] = 1;
+                r->finish_serial[i] = ++r->finish_next;
+                r->finish_time[i] = GT4_U32(r->cond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3u;
+            }
+            e->finished = r->finish_seen[i];
+            e->finish_time = r->finish_time[i];
+            e->laps = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
+            e->distance = GT4_F32(car + CAR_POSITION + CAR_BLOCK_COURSE_DISTANCE);
+            e->live_rank = (int8_t)GT4_U8(car + CAR_FIELD_POSITION);
+        } else if (r->native_phantoms) {
+            int j = i - official;
+            e->car = 0;
+            e->cond = 0;
+            e->finished = r->native[j].finished;
+            e->finish_time = r->native[j].finish_time;
+            e->laps = r->native[j].lap;
+            e->distance = r->native[j].dist;
+            e->live_rank = 0;
+        } else {
+            uint32_t car = r->phantom_car[i - official];
+            int fin = GT4_U8(car + CAR_5B6) != 0;
+            e->car = car;
+            e->cond = GT4_U32(car + CAR_SESSION);
+            if (fin && !r->finish_seen[i]) {
+                r->finish_seen[i] = 1;
+                r->finish_serial[i] = ++r->finish_next;
+                r->finish_time[i] = GT4_U32(r->cond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3u;
+            }
+            e->finished = r->finish_seen[i];
+            e->finish_time = r->finish_time[i];
+            e->laps = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
+            e->distance = GT4_F32(car + CAR_POSITION + CAR_BLOCK_COURSE_DISTANCE);
+            e->live_rank = (int8_t)GT4_U8(car + CAR_FIELD_POSITION);
+        }
+        e->eliminated = r->eliminated[i];
+    }
+    order_classification(r, n);
+    if (r->entrants[0].finished)
+        r->class_frozen = 1;
+}
+
+int gt4_race_run_classification(const gt4_race_run *r, gt4_race_entrant *out, int max)
+{
+    if (!r || !r->phantom_count || !out || max <= 0)
+        return 0;
+    build_classification((gt4_race_run *)r);
+    int n = r->class_n < max ? r->class_n : max;
+    for (int k = 0; k < n; k++)
+        out[k] = r->entrants[r->class_order[k]];
+    return n;
+}
+
+int gt4_race_run_classification_order(const gt4_race_run *r, uint8_t *ids, int max)
+{
+    if (!r || !r->phantom_count || !ids || max <= 0)
+        return 0;
+    build_classification((gt4_race_run *)r);
+    int n = r->class_n < max ? r->class_n : max;
+    for (int k = 0; k < n; k++)
+        ids[k] = (uint8_t)r->entrants[r->class_order[k]].id;
+    return n;
+}
+
+void gt4_race_run_set_elimination(gt4_race_run *r, int on)
+{
+    if (!r)
+        return;
+    r->elimination = on ? 1 : 0;
+    r->elim_done = 0;
+    r->elim_last_lap = -1;
+    r->elim_serial = 0;
+    r->elim_msg[0] = 0;
+    r->elim_msg_frame = 0;
+    r->elim_field_size = r->field_size > 0 ? r->field_size : r->cars + r->phantom_count;
+    r->elim_start_dist = 0;
+    r->elim_thunder = 1;
+    r->elim_cut_count = 0;
+    r->elim_last_count = 0;
+    memset(r->elim_last_names, 0, sizeof r->elim_last_names);
+    r->elim_card_kind = r->elim_card_place = r->elim_card_remaining = 0;
+    r->elim_card_name[0] = 0;
+    r->elim_card_frame = 0;
+    memset(r->eliminated, 0, sizeof r->eliminated);
+    if (on) {
+        /* no lap limit: the lap line is only the elimination checkpoint */
+        w32(RACE, 0);
+        if (r->phantom_count)
+            w32(r->phantom_race, 0);
+        {
+            build_classification(r);
+            for (int k = 0; k < r->class_n; k++) {
+                int id = r->class_order[k];
+                if (!r->entrants[id].eliminated && !r->entrants[id].finished) {
+                    r->elim_start_dist = r->entrants[id].distance;
+                    break;
+                }
+            }
+        }
+        fprintf(stderr, "custom modes: elimination armed, laps=0 start_dist=%.2f\n",
+                r->elim_start_dist);
+    }
+}
+
+int gt4_race_run_elimination(const gt4_race_run *r)
+{
+    return r && r->elimination;
+}
+
+int gt4_race_run_elimination_serial(const gt4_race_run *r)
+{
+    return r && r->elimination ? r->elim_serial : 0;
+}
+
+void gt4_race_run_set_elimination_thunder(gt4_race_run *r, int on)
+{
+    if (r)
+        r->elim_thunder = on ? 1 : 0;
+}
+
+int gt4_race_run_elimination_thunder(const gt4_race_run *r)
+{
+    return r && r->elimination ? r->elim_thunder : 0;
+}
+
+float gt4_race_run_course_length(const gt4_race_run *r)
+{
+    return r ? native_course_length(r->cond) : 0.f;
+}
+
+static void elim_copy_upper(char *dst, size_t cap, const char *src)
+{
+    if (!dst || !cap)
+        return;
+    if (!src || !*src)
+        src = "UNKNOWN DRIVER";
+    size_t n = 0;
+    for (; src[n] && n + 1 < cap; n++) {
+        unsigned char c = (unsigned char)src[n];
+        dst[n] = c >= 'a' && c <= 'z' ? (char)(c - 'a' + 'A') : (char)c;
+    }
+    dst[n] = 0;
+}
+
+int gt4_race_run_elimination_hud(const gt4_race_run *r, gt4_elimination_hud *out)
+{
+    if (!r || !r->elimination || !out)
+        return 0;
+    memset(out, 0, sizeof *out);
+    build_classification((gt4_race_run *)r);
+    int running = 0, last = -1, leader = -1;
+    for (int k = 0; k < r->class_n; k++) {
+        int id = r->class_order[k];
+        gt4_race_entrant *e = &r->entrants[id];
+        if (e->eliminated || e->finished)
+            continue;
+        if (leader < 0)
+            leader = id;
+        last = id;
+        running++;
+    }
+    out->field_size = r->elim_field_size > 0 ? r->elim_field_size : r->cars + r->phantom_count;
+    out->remaining = running;
+    out->next_out = last;
+    elim_copy_upper(out->next_name, sizeof out->next_name,
+                    last >= 0 ? r->entrant_name[last] : "");
+    out->player_last = last == 0;
+    float len = native_course_length(r->cond);
+    if (leader >= 0 && len > 1.f) {
+        float d = r->entrants[leader].distance;
+        if (d < 0)
+            d = 0;
+        d -= r->elim_start_dist;
+        if (d < 0)
+            d += len;
+        if (d >= len)
+            d -= len;
+        out->lap_progress = d / len;
+        if (out->lap_progress < 0)
+            out->lap_progress = 0;
+        if (out->lap_progress > 1)
+            out->lap_progress = 1;
+    }
+    out->warning = !r->elim_done && out->lap_progress >= .80f;
+    out->eliminated_count = r->elim_last_count;
+    for (int i = 0; i < r->elim_last_count && i < 3; i++)
+        elim_copy_upper(out->last_names[i], sizeof out->last_names[i], r->elim_last_names[i]);
+    out->card_kind = r->elim_card_kind;
+    out->card_place = r->elim_card_place;
+    out->card_remaining = r->elim_card_remaining;
+    elim_copy_upper(out->card_name, sizeof out->card_name, r->elim_card_name);
+    out->card_age = r->frames >= r->elim_card_frame ? r->frames - r->elim_card_frame : 0;
+    return 1;
+}
+
+int gt4_race_run_elimination_message(const gt4_race_run *r, const char **msg, unsigned *age)
+{
+    if (!r || !r->elimination || !r->elim_msg[0] || r->frames < r->elim_msg_frame)
+        return 0;
+    unsigned a = r->frames - r->elim_msg_frame;
+    if (getenv("MOON_CUSTOM_ELIM_MSG_HOLD"))
+        a = 0;
+    else if (a >= 120)
+        return 0;
+    if (msg)
+        *msg = r->elim_msg;
+    if (age)
+        *age = a;
+    return 1;
+}
+
+static uint32_t elim_car(const gt4_race_run *r, int id)
+{
+    if (id < 0 || id >= MOON_MAX_CARS || r->native_phantoms)
+        return 0;
+    if (id < r->cars)
+        return r->cond + CONDUCTOR_FIELD_CARS_U + (uint32_t)id * CAR_SIZE;
+    id -= r->cars;
+    return id >= 0 && id < r->phantom_count ? r->phantom_car[id] : 0;
+}
+
+static void elim_mark_finished(gt4_race_run *r, int id)
+{
+    if (!r || id < 0)
+        return;
+    if (r->native_phantoms && id >= r->cars) {
+        int j = id - r->cars;
+        if (j >= 0 && j < r->phantom_count) {
+            r->native[j].finished = 1;
+            r->native[j].speed = 0;
+            r->native[j].finish_time = GT4_U32(r->cond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3u;
+        }
+        return;
+    }
+    uint32_t car = elim_car(r, id);
+    if (car)
+        GT4_U8(car + CAR_5B6) = 1;
+}
+
+static void elim_stop(gt4_race_run *r, int id)
+{
+    if (r->native_phantoms && id >= r->cars) {
+        int j = id - r->cars;
+        if (j >= 0 && j < r->phantom_count) {
+            r->native[j].finished = 1;
+            r->native[j].speed = 0;
+            r->native[j].finish_time = GT4_U32(r->cond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3u;
+            fprintf(stderr, "custom modes: stop id=%d native phantom finished\n", id);
+        }
+        return;
+    }
+    uint32_t car = elim_car(r, id);
+    if (!car || id < 0 || id >= MOON_MAX_CARS)
+        return;
+    for (int k = 0; k < 3; k++) {
+        r->elim_pos[id][k] = GT4_F32(car + CAR_POSITION + (uint32_t)k * 4);
+        GT4_F32(car + CAR_VELOCITY + (uint32_t)k * 4) = 0;
+    }
+    for (int k = 0; k < 4; k++) {
+        r->elim_refs[id][k] = GT4_F32(car + CAR_REF_A + (uint32_t)k * 4);
+        r->elim_refs[id][4 + k] = GT4_F32(car + CAR_REF_B + (uint32_t)k * 4);
+        r->elim_refs[id][8 + k] = GT4_F32(car + CAR_REF_A_PREV + (uint32_t)k * 4);
+        r->elim_refs[id][12 + k] = GT4_F32(car + CAR_REF_B_PREV + (uint32_t)k * 4);
+    }
+    for (int k = 0; k < 18; k++)
+        r->elim_matrix[id][k] = GT4_F32(car + CAR_MATRIX + (uint32_t)k * 4);
+    r->elim_heading[id] = GT4_F32(car + CAR_BLOCK_HEADING);
+    r->elim_dist[id] = GT4_F32(car + CAR_FIELD_COURSE_DISTANCE);
+    GT4_F32(car + CAR_SPEED) = 0;
+    GT4_F32(car + CAR_LAT_SPEED) = 0;
+    GT4_F32(car + CAR_ABS_SPEED) = 0;
+    GT4_U8(car + CAR_VIBRATION_ON) = 1;
+    GT4_U8(car + CAR_5B6) = 1;
+    fprintf(stderr,
+            "custom modes: stop id=%d pos=%.2f,%.2f,%.2f speed=%.2f vel=%.2f,%.2f,%.2f passable=%d finish=%d\n",
+            id, r->elim_pos[id][0], r->elim_pos[id][1], r->elim_pos[id][2],
+            GT4_F32(car + CAR_SPEED), GT4_F32(car + CAR_VELOCITY),
+            GT4_F32(car + CAR_VELOCITY + 4), GT4_F32(car + CAR_VELOCITY + 8),
+            GT4_U8(car + CAR_VIBRATION_ON), GT4_U8(car + CAR_5B6));
+}
+
+static void elim_hold(gt4_race_run *r)
+{
+    if (!r || !r->elimination)
+        return;
+    for (int id = 0; id < r->cars + r->phantom_count && id < MOON_MAX_CARS; id++) {
+        uint32_t car;
+        if (!r->eliminated[id] || !(car = elim_car(r, id)))
+            continue;
+        for (int k = 0; k < 3; k++) {
+            GT4_F32(car + CAR_POSITION + (uint32_t)k * 4) = r->elim_pos[id][k];
+            GT4_F32(car + CAR_REF_A + (uint32_t)k * 4) = r->elim_refs[id][k];
+            GT4_F32(car + CAR_REF_B + (uint32_t)k * 4) = r->elim_refs[id][4 + k];
+            GT4_F32(car + CAR_REF_A_PREV + (uint32_t)k * 4) = r->elim_refs[id][8 + k];
+            GT4_F32(car + CAR_REF_B_PREV + (uint32_t)k * 4) = r->elim_refs[id][12 + k];
+            GT4_F32(car + CAR_VELOCITY + (uint32_t)k * 4) = 0;
+        }
+        for (int k = 0; k < 18; k++)
+            GT4_F32(car + CAR_MATRIX + (uint32_t)k * 4) = r->elim_matrix[id][k];
+        GT4_F32(car + CAR_BLOCK_HEADING) = r->elim_heading[id];
+        GT4_F32(car + CAR_FIELD_COURSE_DISTANCE) = r->elim_dist[id];
+        GT4_F32(car + CAR_SPEED) = 0;
+        GT4_F32(car + CAR_LAT_SPEED) = 0;
+        GT4_F32(car + CAR_ABS_SPEED) = 0;
+        GT4_U8(car + CAR_VIBRATION_ON) = 1;
+    }
+}
+
+static void elim_end(gt4_race_run *r, int winner)
+{
+    if (!r || r->elim_done)
+        return;
+    r->elim_done = 1;
+    if (winner >= 0) {
+        elim_mark_finished(r, winner);
+        if (winner != 0)
+            snprintf(r->elim_msg, sizeof r->elim_msg, "Winner: %s",
+                     r->entrant_name[winner][0] ? r->entrant_name[winner] : "UNKNOWN DRIVER");
+        r->elim_card_kind = 2;
+        elim_copy_upper(r->elim_card_name, sizeof r->elim_card_name,
+                        r->entrant_name[winner][0] ? r->entrant_name[winner] : "");
+        r->elim_card_remaining = 1;
+        r->elim_card_frame = r->frames;
+    }
+    if (r->eliminated[0]) {
+        for (int id = 0; id < r->cars + r->phantom_count && id < MOON_MAX_CARS; id++)
+            elim_mark_finished(r, id);
+        for (int j = 0; j < r->phantom_count; j++) {
+            r->native[j].finished = 1;
+            r->native[j].speed = 0;
+        }
+        r->elim_card_kind = 3;
+        r->elim_card_remaining = r->elim_field_size - r->elim_cut_count;
+        r->elim_card_place = r->elim_card_remaining + 1;
+        r->elim_card_name[0] = 0;
+        r->elim_card_frame = r->frames;
+    }
+    r->elim_msg_frame = r->frames;
+    fprintf(stderr, "custom modes: winner id=%d %s\n", winner,
+            winner >= 0 && r->entrant_name[winner][0] ? r->entrant_name[winner] : "UNKNOWN DRIVER");
+    native_phantom_pace_report(r);
+    native_phantom_ground_report(r);
+    fprintf(stderr, "custom modes: race over, winner=%d player_eliminated=%d\n", winner,
+            r->eliminated[0]);
+}
+
+static void elim_step(gt4_race_run *r)
+{
+    int n, running = 0, leader_lap = -1, last = -1;
+    if (!r || !r->elimination || r->elim_done)
+        return;
+    if (gt4_race_run_countdown(r, 0) > 0)
+        return;
+    n = r->class_n;
+    for (int k = 0; k < n; k++) {
+        int id = r->class_order[k];
+        gt4_race_entrant *e = &r->entrants[id];
+        if (e->eliminated || e->finished)
+            continue;
+        running++;
+        if (leader_lap < 0)
+            leader_lap = e->laps;
+        last = id;
+    }
+    if (running <= 1) {
+        elim_end(r, last);
+        return;
+    }
+    if (r->elim_last_lap < 0) {
+        r->elim_last_lap = leader_lap;
+        fprintf(stderr, "custom modes: elim armed at lap=%d (first lap not counted)\n",
+                leader_lap);
+        return;
+    }
+    if (leader_lap < r->elim_last_lap + 2)
+        return;
+    r->elim_last_lap = leader_lap;
+    if (last < 0)
+        return;
+    /* tests: keep the stationary player in so the field can run to one. */
+    if (last == 0 && getenv("MOON_CUSTOM_KEEP_PLAYER")) {
+        for (int k = n - 1; k >= 0; k--) {
+            int id = r->class_order[k];
+            if (id && !r->eliminated[id] && !r->entrants[id].finished) {
+                last = id;
+                break;
+            }
+        }
+    }
+    r->eliminated[last] = 1;
+    r->elim_serial++;
+    r->elim_cut_count++;
+    elim_stop(r, last);
+    for (int k = 2; k > 0; k--)
+        snprintf(r->elim_last_names[k], sizeof r->elim_last_names[k], "%s",
+                 r->elim_last_names[k - 1]);
+    snprintf(r->elim_last_names[0], sizeof r->elim_last_names[0], "%s",
+             r->entrant_name[last][0] ? r->entrant_name[last] : "UNKNOWN DRIVER");
+    if (r->elim_last_count < 3)
+        r->elim_last_count++;
+    r->elim_card_kind = 1;
+    elim_copy_upper(r->elim_card_name, sizeof r->elim_card_name,
+                    r->entrant_name[last][0] ? r->entrant_name[last] : "");
+    r->elim_card_remaining = running - 1;
+    r->elim_card_frame = r->frames;
+    running--;
+    snprintf(r->elim_msg, sizeof r->elim_msg, "%s eliminated, %d left",
+             r->entrant_name[last][0] ? r->entrant_name[last] : "car", running);
+    r->elim_msg_frame = r->frames;
+    fprintf(stderr, "custom modes: lap %d eliminated id=%d %s, %d running\n", leader_lap, last,
+            r->entrant_name[last], running);
+    if (last == 0) {
+        int winner = -1;
+        for (int k = n - 1; k >= 0; k--) {
+            int id = r->class_order[k];
+            if (!r->eliminated[id] && !r->entrants[id].finished) {
+                winner = id;
+                break;
+            }
+        }
+        snprintf(r->elim_msg, sizeof r->elim_msg, "Eliminated. Winner: %s",
+                 winner >= 0 && r->entrant_name[winner][0] ? r->entrant_name[winner] : "car");
+        r->elim_msg_frame = r->frames;
+        elim_end(r, winner);
+    } else if (running <= 1) {
+        int winner = -1;
+        for (int k = 0; k < n; k++) {
+            int id = r->class_order[k];
+            if (!r->eliminated[id] && !r->entrants[id].finished) {
+                winner = id;
+                break;
+            }
+        }
+        snprintf(r->elim_msg, sizeof r->elim_msg, "Winner: %s",
+                 winner >= 0 && r->entrant_name[winner][0] ? r->entrant_name[winner] : "car");
+        r->elim_msg_frame = r->frames;
+        elim_end(r, winner);
+    }
+}
+
+int gt4_race_run_player_place(const gt4_race_run *r)
+{
+    if (!r || !r->phantom_count)
+        return -1;
+    build_classification((gt4_race_run *)r);
+    for (int k = 0; k < r->class_n; k++)
+        if (r->entrants[r->class_order[k]].id == 0)
+            return k;
+    return -1;
+}
+
+void gt4_race_run_set_entrant_identity(gt4_race_run *r, int slot, const char *name, uint32_t color)
+{
+    if (!r || slot < 0 || slot >= MOON_MAX_CARS)
+        return;
+    snprintf(r->entrant_name[slot], sizeof r->entrant_name[slot], "%s", name ? name : "");
+    r->entrant_color[slot] = color;
+}
+
+/* The native minimum for the cross-conductor pair: the guest's car-to-car
+   collision is conductor-scoped (walls.c hulls are indexed inside one
+   conductor), so test each official x phantom pair in track space, move
+   them apart and exchange the closing velocity with the game's own
+   restitution (0x00846630, measured 0.5). */
+static void contact_body_speed(uint32_t car, float vx, float vy)
+{
+    float fx = GT4_F32(car + CAR_MATRIX), fy = GT4_F32(car + CAR_MATRIX + 4);
+    float rx = GT4_F32(car + CAR_MATRIX + 0xc), ry = GT4_F32(car + CAR_MATRIX + 0x10);
+    GT4_F32(car + CAR_SPEED) = vx * fx + vy * fy;
+    GT4_F32(car + CAR_LAT_SPEED) = vx * rx + vy * ry;
+    GT4_F32(car + CAR_ABS_SPEED) = sqrtf(vx * vx + vy * vy);
+}
+
+static void phantom_contacts(gt4_race_run *r)
+{
+    if (!r || !r->phantom_count || r->native_phantoms)
+        return;
+    float e = GT4_F32(0x00846630u);
+    if (!(e >= 0.f && e <= 1.f))
+        e = 0.5f;
+    for (int i = 0; i < r->cars; i++) {
+        uint32_t co = r->cond + CONDUCTOR_FIELD_CARS_U + (uint32_t)i * CAR_SIZE;
+        if (GT4_U8(co + CAR_5B6))
+            continue;
+        for (int j = 0; j < r->phantom_count; j++) {
+            uint32_t cp = r->phantom_car[j];
+            if (GT4_U8(cp + CAR_5B6))
+                continue;
+            float dx = GT4_F32(cp + CAR_POSITION) - GT4_F32(co + CAR_POSITION);
+            float dy = GT4_F32(cp + CAR_POSITION + 4) - GT4_F32(co + CAR_POSITION + 4);
+            float dz = GT4_F32(cp + CAR_POSITION + 8) - GT4_F32(co + CAR_POSITION + 8);
+            if (fabsf(dz) > 2.f)
+                continue;
+            float d = sqrtf(dx * dx + dy * dy);
+            if (d >= 4.f || d < 0.05f)
+                continue;
+            float nx = dx / d, ny = dy / d, pen = 4.f - d;
+            float ob[3], pb[3];
+            for (int k = 0; k < 3; k++) {
+                ob[k] = GT4_F32(co + CAR_POSITION + (uint32_t)k * 4);
+                pb[k] = GT4_F32(cp + CAR_POSITION + (uint32_t)k * 4);
+            }
+            for (int k = 0; k < 3; k++) {
+                float n = k == 0 ? nx : k == 1 ? ny : 0.f, half = n * pen * 0.5f;
+                GT4_F32(co + CAR_POSITION + (uint32_t)k * 4) = ob[k] - half;
+                GT4_F32(cp + CAR_POSITION + (uint32_t)k * 4) = pb[k] + half;
+                GT4_F32(co + CAR_REF_A + (uint32_t)k * 4) -= half;
+                GT4_F32(co + CAR_REF_B + (uint32_t)k * 4) -= half;
+                GT4_F32(co + CAR_REF_A_PREV + (uint32_t)k * 4) -= half;
+                GT4_F32(co + CAR_REF_B_PREV + (uint32_t)k * 4) -= half;
+                GT4_F32(cp + CAR_REF_A + (uint32_t)k * 4) += half;
+                GT4_F32(cp + CAR_REF_B + (uint32_t)k * 4) += half;
+                GT4_F32(cp + CAR_REF_A_PREV + (uint32_t)k * 4) += half;
+                GT4_F32(cp + CAR_REF_B_PREV + (uint32_t)k * 4) += half;
+            }
+            float vox = GT4_F32(co + CAR_VELOCITY), voy = GT4_F32(co + CAR_VELOCITY + 4);
+            float vpx = GT4_F32(cp + CAR_VELOCITY), vpy = GT4_F32(cp + CAR_VELOCITY + 4);
+            float vrel = (vpx - vox) * nx + (vpy - voy) * ny, impulse = 0;
+            if (vrel < 0) {
+                float mo = GT4_F32(GT4_U32(co + CAR_PARAMS) + 0x48);
+                float mp = GT4_F32(GT4_U32(cp + CAR_PARAMS) + 0x48);
+                if (!(mo > 0))
+                    mo = 1;
+                if (!(mp > 0))
+                    mp = 1;
+                impulse = -(1.f + e) * vrel / (1.f / mo + 1.f / mp);
+                vox -= impulse / mo * nx;
+                voy -= impulse / mo * ny;
+                vpx += impulse / mp * nx;
+                vpy += impulse / mp * ny;
+                GT4_F32(co + CAR_VELOCITY) = vox;
+                GT4_F32(co + CAR_VELOCITY + 4) = voy;
+                GT4_F32(cp + CAR_VELOCITY) = vpx;
+                GT4_F32(cp + CAR_VELOCITY + 4) = vpy;
+                contact_body_speed(co, vox, voy);
+                contact_body_speed(cp, vpx, vpy);
+            }
+            float dist = 0;
+            gt4_session(COND, 0x108, co, 0, 0, 0, 0, &dist);
+            GT4_F32(co + CAR_FIELD_COURSE_DISTANCE) = dist;
+            gt4_session(PHANTOM_COND, 0x108, cp, 0, 0, 0, 0, &dist);
+            GT4_F32(cp + CAR_FIELD_COURSE_DISTANCE) = dist;
+            if (getenv("MOON_PHANTOM_CONTACT_TRACE"))
+                fprintf(stderr,
+                        "phantom contact: official=%d phantom=%d before=(%.3f,%.3f,%.3f)/"
+                        "(%.3f,%.3f,%.3f) after=(%.3f,%.3f,%.3f)/(%.3f,%.3f,%.3f) "
+                        "vrel=%.3f impulse=%.3f e=%.3f\n",
+                        i, j, ob[0], ob[1], ob[2], pb[0], pb[1], pb[2],
+                        GT4_F32(co + CAR_POSITION), GT4_F32(co + CAR_POSITION + 4),
+                        GT4_F32(co + CAR_POSITION + 8), GT4_F32(cp + CAR_POSITION),
+                        GT4_F32(cp + CAR_POSITION + 4), GT4_F32(cp + CAR_POSITION + 8), vrel,
+                        impulse, e);
+        }
+    }
+}
+
+static int native_pick_line(gt4_race_run *r)
+{
+    uint32_t lines = r->cond + CONDUCTOR_FIELD_LINES_U;
+    int table = gt4_ai_line_table_count(lines);
+    if (table < 1) {
+        fprintf(stderr, "phantom line: course=%s table=0 none usable\n", r->course);
+        return -1;
+    }
+    enum { CAP = 20000 };
+    gt4_ai_line_point *pts = calloc(CAP, sizeof *pts);
+    if (!pts)
+        return -1;
+    for (int i = table - 1; i >= 0; i--) {
+        int active = -1;
+        int points = gt4_ai_line_export(lines, i, pts, CAP, &active);
+        if (points > 0) {
+            r->phantom_line = active;
+            r->phantom_line_points = points;
+            r->phantom_line2 = -1;
+            for (int k = table - 1; k >= 0; k--) {
+                float q[3];
+                if (k != active &&
+                    gt4_line_course_point(r->cond + CONDUCTOR_FIELD_LINES_U, k, 0.f, q)) {
+                    r->phantom_line2 = k;
+                    break;
+                }
+            }
+            fprintf(stderr, "phantom line: course=%s table=%d used=%d points=%d\n", r->course,
+                    table, active, points);
+            free(pts);
+            return active;
+        }
+    }
+    free(pts);
+    fprintf(stderr, "phantom line: course=%s table=%d none usable\n", r->course, table);
+    return -1;
+}
+
+static int phantom_official_pose(gt4_race_run *r, int i, float out[3], float *heading)
+{
+    int official = r->cars;
+    uint32_t car = 0;
+    if (official > 0)
+        car = r->cond + CONDUCTOR_FIELD_CARS_U + (uint32_t)(i % official) * CAR_SIZE;
+    else if (gt4_race_run_car(r, 0))
+        car = r->cond + CONDUCTOR_FIELD_CARS_U;
+    if (!car)
+        return 0;
+    out[0] = GT4_F32(car + CAR_POSITION);
+    out[1] = GT4_F32(car + CAR_POSITION + 8);
+    out[2] = -GT4_F32(car + CAR_POSITION + 4);
+    if (heading)
+        *heading = GT4_F32(car + CAR_BLOCK_HEADING);
+    return 1;
+}
+
+static void phantom_log_method(gt4_race_run *r, int method)
+{
+    if (r->phantom_method_logged && r->phantom_method == method)
+        return;
+    static const char *names[] = {"line", "lines", "grid", "player"};
+    fprintf(stderr, "phantom place: course=%s method=%s\n", r->course, names[method]);
+    r->phantom_method = method;
+    r->phantom_method_logged = 1;
+}
+
+/* The line's own corner cap: the heading change between the tangent at
+   dist and the tangent 15 m later gives the radius, v = sqrt(a*r). */
+static float native_phantom_corner_cap(const gt4_race_run *r, int line, float dist)
+{
+    if (!r || line < 0)
+        return 1e9f;
+    float a[3], b[3], c[3];
+    uint32_t lines = r->cond + CONDUCTOR_FIELD_LINES_U;
+    if (!gt4_line_course_point(lines, line, dist, a) ||
+        !gt4_line_course_point(lines, line, dist + 7.5f, b) ||
+        !gt4_line_course_point(lines, line, dist + 15.f, c))
+        return 1e9f;
+    float h0 = atan2f(b[0] - a[0], b[1] - a[1]);
+    float h1 = atan2f(c[0] - b[0], c[1] - b[1]);
+    float dh = fabsf(remainderf(h1 - h0, 6.2831853f));
+    if (dh < 1e-4f)
+        return 1e9f;
+    float radius = 7.5f / dh;
+    return sqrtf(14.f * radius);
+}
+
+static void native_phantom_pace_report(gt4_race_run *r)
+{
+    if (!r || r->phantom_pace_logged || !r->phantom_pace_samples)
+        return;
+    r->phantom_pace_logged = 1;
+    fprintf(stderr,
+            "phantom pace: course=%s min=%.1f avg=%.1f max=%.1f violations=%u\n",
+            r->course, r->phantom_pace_min, r->phantom_pace_sum / r->phantom_pace_samples,
+            r->phantom_pace_max, r->phantom_pace_violations);
+}
+
+static void native_phantom_ground_report(gt4_race_run *r)
+{
+    if (r && r->native_phantoms && r->phantom_count)
+        fprintf(stderr, "phantom ground: max_dy=%.3f\n", r->phantom_ground_max);
+}
+
+static void native_phantoms_step(gt4_race_run *r)
+{
+    if (!r || !r->native_phantoms || !r->phantom_count)
+        return;
+    if (r->phantom_line < 0 && !getenv("MOON_PHANTOM_NO_LINE"))
+        native_pick_line(r);
+    int go = gt4_race_run_countdown(r, 0) <= 0;
+    float len = native_course_length(r->cond);
+    int laps = (int)gt4_session(r->cond, 0x128, 0, 0, 0, 0, 0, NULL);
+    if (!(len > 1.f))
+        return;
+    const float dt = 1.f / 60.f;
+    const char *speed_env = getenv("MOON_PHANTOM_SPEED");
+    float base_speed = speed_env ? (float)atof(speed_env) : 45.f;
+    if (!(base_speed > 0.f))
+        base_speed = 45.f;
+    for (int i = 0; i < r->phantom_count; i++) {
+        if (r->native[i].finished)
+            continue;
+        float target = base_speed + (float)(i % 9) * 1.5f;
+        if (!getenv("MOON_PHANTOM_NO_LINE") && r->phantom_line >= 0)
+            r->phantom_cap[i] =
+                native_phantom_corner_cap(r, r->phantom_line, r->native[i].dist);
+        else
+            r->phantom_cap[i] = 1e9f;
+        if (r->phantom_cap[i] < target)
+            target = r->phantom_cap[i];
+        int blocked = 0;
+        for (int j = 0; j < r->phantom_count; j++) {
+            if (j == i || r->native[j].finished)
+                continue;
+            float gap = r->native[j].dist - r->native[i].dist;
+            if (gap > 0 && gap < 12.f) {
+                blocked = 1;
+                break;
+            }
+        }
+        if (blocked)
+            target *= 0.65f;
+        if (target < 4.f)
+            target = 4.f;
+        if (go) {
+            float speed = r->native[i].speed;
+            float accel = 7.5f * (1.f - fminf(1.f, speed / fmaxf(target, 1.f)));
+            if (accel < 1.f)
+                accel = 1.f;
+            speed += accel * dt;
+            if (speed > target)
+                speed = target;
+            if (speed > r->phantom_cap[i])
+                speed = r->phantom_cap[i];
+            r->native[i].speed = speed;
+            r->native[i].dist += r->native[i].speed * dt;
+            if (r->native[i].dist >= len) {
+                r->native[i].dist -= len;
+                r->native[i].lap++;
+                if (laps > 0 && r->native[i].lap > laps) {
+                    r->native[i].finished = 1;
+                    r->native[i].finish_time =
+                        GT4_U32(r->cond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3u;
+                    r->native[i].speed = 0;
+                }
+            }
+        } else
+            r->native[i].speed = 0;
+        float p0[3], p1[3], p0p[3], p1p[3];
+        int method = -1;
+        int line = r->phantom_line;
+        if (!getenv("MOON_PHANTOM_NO_LINE") && line >= 0 &&
+            gt4_line_course_point(r->cond + CONDUCTOR_FIELD_LINES_U, line, r->native[i].dist,
+                                  p0p)) {
+            method = 0;
+        } else if (!getenv("MOON_PHANTOM_NO_LINE") && r->phantom_line2 >= 0 &&
+                   gt4_line_course_point(r->cond + CONDUCTOR_FIELD_LINES_U, r->phantom_line2,
+                                         r->native[i].dist, p0p)) {
+            line = r->phantom_line2;
+            method = 1;
+        } else {
+            float h = 0;
+            if (phantom_official_pose(r, i, p0, &h)) {
+                method = 2;
+                r->native[i].heading = h;
+                r->native[i].pos[0] = p0[0] + (float)(i % 3 - 1);
+                r->native[i].pos[1] = p0[1];
+                r->native[i].pos[2] = p0[2];
+                phantom_log_method(r, method);
+                continue;
+            }
+            if (gt4_race_run_car(r, 0)) {
+                uint32_t pc = r->cond + CONDUCTOR_FIELD_CARS_U;
+                r->native[i].pos[0] = GT4_F32(pc + CAR_POSITION);
+                r->native[i].pos[1] = GT4_F32(pc + CAR_POSITION + 8);
+                r->native[i].pos[2] = -GT4_F32(pc + CAR_POSITION + 4) - 2.f;
+                r->native[i].heading = GT4_F32(pc + CAR_BLOCK_HEADING);
+                phantom_log_method(r, 3);
+            }
+            continue;
+        }
+        phantom_log_method(r, method);
+        p0[0] = p0p[0];
+        p0[1] = p0p[2];
+        p0[2] = -p0p[1];
+        if (!gt4_line_course_point(r->cond + CONDUCTOR_FIELD_LINES_U, line,
+                                   r->native[i].dist + 3.f, p1p))
+            memcpy(p1p, p0p, sizeof p1p);
+        p1[0] = p1p[0];
+        p1[1] = p1p[2];
+        p1[2] = -p1p[1];
+        float dx = p1[0] - p0[0], dz = p1[2] - p0[2], n = sqrtf(dx * dx + dz * dz);
+        if (n > 1e-4f) {
+            dx /= n;
+            dz /= n;
+        } else {
+            dx = 0;
+            dz = -1;
+        }
+        r->native[i].heading = atan2f(dx, -dz);
+        r->native[i].pos[0] = p0[0] - dz * r->native[i].lateral;
+        r->native[i].pos[1] = p0[1];
+        r->native[i].pos[2] = p0[2] + dx * r->native[i].lateral;
+        uint32_t ground_car = gt4_race_run_car(r, 0);
+        if (ground_car) {
+            float ground_y = GT4_F32(ground_car + CAR_POSITION + 4);
+            float dy = fabsf(r->native[i].pos[1] - ground_y);
+            if (dy > r->phantom_ground_max)
+                r->phantom_ground_max = dy;
+            r->native[i].pos[1] = ground_y;
+        }
+        uint32_t player_car = gt4_race_run_car(r, 0);
+        float px = 0, pz = 0;
+        if (player_car && gt4_race_run_xy(r, 0, &px, &pz)) {
+            float dxp = r->native[i].pos[0] - px;
+            float dzp = r->native[i].pos[2] - pz;
+            float d = sqrtf(dxp * dxp + dzp * dzp);
+            if (d < 2.5f) {
+                r->native[i].dist -= 1.f;
+                r->native[i].speed *= .35f;
+                GT4_F32(player_car + CAR_ABS_SPEED) *= .65f;
+                GT4_F32(player_car + CAR_FIELD_COURSE_DISTANCE) -= .5f;
+                if (!r->phantom_contact_logged[i]) {
+                    r->phantom_contact_logged[i] = 1;
+                    fprintf(stderr, "phantom contact: i=%d\n", i);
+                }
+            } else
+                r->phantom_contact_logged[i] = 0;
+        }
+        for (int j = i + 1; j < r->phantom_count; j++) {
+            float ddx = r->native[i].pos[0] - r->native[j].pos[0];
+            float ddz = r->native[i].pos[2] - r->native[j].pos[2];
+            if (ddx * ddx + ddz * ddz < 2.2f * 2.2f) {
+                r->native[j].dist -= .8f;
+                r->native[j].speed *= .5f;
+                if (!r->phantom_contact_logged[j]) {
+                    r->phantom_contact_logged[j] = 1;
+                    fprintf(stderr, "phantom contact: i=%d\n", j);
+                }
+            }
+        }
+    }
+    if (go && r->phantom_count && r->frames % 60 == 0) {
+        for (int i = 0; i < r->phantom_count; i++) {
+            float kmh = r->native[i].speed * 3.6f;
+            if (r->native[i].speed > r->phantom_cap[i] * 1.02f)
+                r->phantom_pace_violations++;
+            if (!r->phantom_pace_samples || kmh < r->phantom_pace_min)
+                r->phantom_pace_min = kmh;
+            if (kmh > r->phantom_pace_max)
+                r->phantom_pace_max = kmh;
+            r->phantom_pace_sum += kmh;
+            r->phantom_pace_samples++;
+        }
+    }
+    if (go && r->phantom_count && r->frames <= 300 && r->frames % 30 == 0) {
+        float kmh = r->native[0].speed * 3.6f;
+        if (r->frames >= 30) {
+            float acc = (kmh - r->phantom_accel_prev_kmh) / .5f / 3.6f;
+            if (acc > r->phantom_accel_peak) {
+                r->phantom_accel_peak = acc;
+                r->phantom_accel_peak_frame = r->frames;
+            }
+        }
+        r->phantom_accel_prev_kmh = kmh;
+        fprintf(stderr, "phantom accel: t=%.1f kmh=%.1f\n", r->frames / 60.f, kmh);
+        if (r->frames == 300)
+            fprintf(stderr, "phantom accel peak=%.1f m/s2 at t=%.1f\n",
+                    r->phantom_accel_peak, r->phantom_accel_peak_frame / 60.f);
+    }
+    if (go && r->phantom_count && r->frames % 120 == 0) {
+        float kmh = r->native[0].speed * 3.6f;
+        fprintf(stderr, "phantom trace: frame=%u car=0 kmh=%.1f cap=%.1f\n", r->frames, kmh,
+                r->phantom_cap[0] * 3.6f);
+    }
+    if (go && r->frames == 3600)
+        native_phantom_pace_report(r);
+}
+
 int gt4_race_run_frame(gt4_race_run *r)
 {
 #ifndef MOON_LEGACY_RECORDING
@@ -916,6 +2273,7 @@ int gt4_race_run_frame(gt4_race_run *r)
     if (gt4_music_fade_step(&GT4_F32(session + 0xd4), dt))
         gt4_race_queue_push(session + 0xf4, 1, 0, 0);
     gt4_race_queue_age(RACE + 0xf4); /* func_00389758 -> 003B75D8: last frame's events age */
+    int official_release = gt4_race_run_countdown(r, 0) <= 0;
     gt4_race_before_step(RACE);
     if (r->cars == 2 && GT4_U32(r->cond + CONDUCTOR_FIELD_SESSION_VTABLE) == TT_VT) {
         /* the Time Trial: the ghost's controller around the caller's */
@@ -932,6 +2290,57 @@ int gt4_race_run_frame(gt4_race_run *r)
         gt4_phys_pad = r->outer;
     } else
         gt4_step(r->cond, 0, STEP_BUF);
+    if (r->phantom_count) {
+        if (r->native_phantoms) {
+            native_phantoms_step(r);
+        } else {
+            if (!r->phantom_laps_set) {
+                uint16_t lap = GT4_U16(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_POSITION +
+                                       CAR_BLOCK_LAP_COUNT);
+                if (lap) {
+                    for (int i = 0; i < r->phantom_count; i++)
+                        GT4_U16(r->phantom_car[i] + CAR_POSITION + CAR_BLOCK_LAP_COUNT) = lap;
+                    r->phantom_laps_set = 1;
+                }
+            }
+            gt4_step(r->phantom_cond, 0, STEP_BUF);
+            if (!official_release) {
+                for (int i = 0; i < r->phantom_count; i++) {
+                    uint32_t car = r->phantom_car[i];
+                    for (int k = 0; k < 3; k++) {
+                        GT4_F32(car + CAR_POSITION + (uint32_t)k * 4) = r->phantom_start[i][k];
+                        GT4_F32(car + CAR_REF_A + (uint32_t)k * 4) = r->phantom_refs[i][k];
+                        GT4_F32(car + CAR_REF_B + (uint32_t)k * 4) = r->phantom_refs[i][3 + k];
+                        GT4_F32(car + CAR_REF_A_PREV + (uint32_t)k * 4) =
+                            r->phantom_refs[i][6 + k];
+                        GT4_F32(car + CAR_REF_B_PREV + (uint32_t)k * 4) =
+                            r->phantom_refs[i][9 + k];
+                        GT4_F32(car + CAR_VELOCITY + (uint32_t)k * 4) = 0;
+                    }
+                    for (int k = 0; k < 18; k++)
+                        GT4_F32(car + CAR_MATRIX + (uint32_t)k * 4) = r->phantom_matrix[i][k];
+                    GT4_F32(car + CAR_BLOCK_HEADING) = r->phantom_heading[i];
+                    GT4_F32(car + CAR_SPEED) = 0;
+                    GT4_F32(car + CAR_LAT_SPEED) = 0;
+                    GT4_F32(car + CAR_ABS_SPEED) = 0;
+                    GT4_F32(car + CAR_FIELD_COURSE_DISTANCE) = r->phantom_dist0[i];
+                }
+                w32(PHANTOM_COND + CONDUCTOR_FIELD_RACE_CLOCK_U,
+                    GT4_U32(COND + CONDUCTOR_FIELD_RACE_CLOCK_U));
+                w32(PHANTOM_COND + CONDUCTOR_FIELD_RUNNING_CLOCK_U,
+                    GT4_U32(COND + CONDUCTOR_FIELD_RUNNING_CLOCK_U));
+            }
+            phantom_contacts(r);
+        }
+        build_classification(r);
+        elim_step(r);
+        elim_hold(r);
+    }
+    if (r->elimination && !r->phantom_count) {
+        build_classification(r);
+        elim_step(r);
+        elim_hold(r);
+    }
     gt4_race_after_step(RACE);
     /* 0033C538: prop manager runs after 00389990 world simulation. */
     gt4_course_objects_step(r->objects, r->cond, dt);
@@ -952,7 +2361,8 @@ static void to_render(const float v[3], float out[3])
 int gt4_race_run_course_point(const gt4_race_run *r, float d, float out[3])
 {
     float p[3];
-    if (!r || !gt4_line_course_point(r->cond + CONDUCTOR_FIELD_LINES_U, 6, d, p))
+    int line = r && r->native_phantoms && r->phantom_line >= 0 ? r->phantom_line : 6;
+    if (!r || !gt4_line_course_point(r->cond + CONDUCTOR_FIELD_LINES_U, line, d, p))
         return 0;
     to_render(p, out);
     return 1;
@@ -985,9 +2395,9 @@ float gt4_race_run_course_distance(const gt4_race_run *r, const float p[3])
     return r ? gt4_course_distance_p(GT4_U32(r->cond + CONDUCTOR_FIELD_COURSE_U), p, &id) : 0;
 }
 
-int gt4_race_run_pose(const gt4_race_run *r, int i, float pos[3], float rot[9], float wheels[4][3])
+static int pose_car(uint32_t car, const float travel0[4], float pos[3], float rot[9],
+                       float wheels[4][3])
 {
-    uint32_t car = gt4_race_run_car(r, i);
     float p[3], a[3], up[3], fwd[3], u[3], c0[3], c2[3];
     if (!car)
         return 0;
@@ -1034,10 +2444,37 @@ int gt4_race_run_pose(const gt4_race_run *r, int i, float pos[3], float rot[9], 
             slot = (local[2] > 0 ? 2 : 0) + (local[0] > 0 ? 0 : 1);
             wheels[slot][0] = GT4_F32(w + WHEEL_STEER);
             wheels[slot][1] = -GT4_F32(w + WHEEL_ROTATION);
-            wheels[slot][2] = r->travel0[i][k] - GT4_F32(w + WHEEL_TRAVEL);
+            wheels[slot][2] = travel0[k] - GT4_F32(w + WHEEL_TRAVEL);
         }
     }
-    return 1;
+    return 1;}
+int gt4_race_run_pose(const gt4_race_run *r, int i, float pos[3], float rot[9], float wheels[4][3])
+{
+    if (!r || i < 0 || i >= r->cars)
+        return 0;
+    return pose_car(gt4_race_run_car(r, i), r->travel0[i], pos, rot, wheels);
+}
+float gt4_race_run_phantom_speed(const gt4_race_run *r, int i)
+{
+    if (!r || i < 0 || i >= r->phantom_count || !r->native_phantoms)
+        return 0;
+    return r->native[i].speed;
+}
+
+int gt4_race_run_phantom_pose(const gt4_race_run *r, int i, float pos[3], float rot[9],
+                              float wheels[4][3])
+{
+    if (!r || i < 0 || i >= r->phantom_count)
+        return 0;
+    if (r->native_phantoms) {
+        memcpy(pos, r->native[i].pos, sizeof r->native[i].pos);
+        float c = cosf(r->native[i].heading), s = sinf(r->native[i].heading);
+        float m[9] = {c, 0, -s, 0, 1, 0, s, 0, c};
+        memcpy(rot, m, sizeof m);
+        memset(wheels, 0, 4 * 3 * sizeof(float));
+        return 1;
+    }
+    return pose_car(r->phantom_car[i], r->phantom_travel0[i], pos, rot, wheels);
 }
 
 uint32_t gt4_race_run_conductor(const gt4_race_run *r)
@@ -1143,6 +2580,9 @@ int gt4_race_run_hud(const gt4_race_run *r, int i, gt4_race_hud *out)
         out->tacho_scale = (float)(GT4_U8(params + 0x1075) * 1000);
     }
     out->odometer = GT4_U32(car + CAR_ENGINE_WEAR);
+    /* 0039D218 -> 003F3790 enables the onboard boost display. */
+    out->has_boost = GT4_F32(GT4_U32(car + CAR_PARAMS) + PARAMS_ENGINE + ENGINE_TURBO) != 0;
+    out->boost = GT4_F32(car + CAR_FIELD_BOOST_SMOOTH);
     out->fuel = GT4_F32(car + CAR_EXTRA_MASS);
     out->fuel_cap = GT4_F32(car + CAR_FUEL_TANK);
     out->rev_limit = (float)(GT4_U8(GT4_U32(car + CAR_PARAMS) + 0x1074) * 100);
@@ -1152,6 +2592,43 @@ int gt4_race_run_hud(const gt4_race_run *r, int i, gt4_race_hud *out)
     { /* func_003451D8: not held (+0x441), and a player's kind (0, 1) or 4 */
         int8_t kind = (int8_t)GT4_U8(car + CAR_POSITION + 0x466);
         out->driving = !GT4_U8(car + CAR_POSITION + 0x441) && (kind == 0 || kind == 4 || kind == 1);
+    }
+    /* 003D80A8: each tyre's colour by the car's wheel layout (00359538:
+       D_00620478 + params+0x30 * 0x54, kind 0..3) from its wheel's
+       condition (003446D8: car + wheel * 0xEC + 0x215) through 003677F8 */
+    int kind = GT4_U8(0x00620478u + GT4_U8(GT4_U32(car + CAR_PARAMS) + 0x30) * 0x54u);
+    /* 003D80A8 +0x10..0x58: black unless the race wears its tyres
+       (00367D40: cond+4 +0x68 or +0x69) and the player's car is watched */
+    int shown = (GT4_U8(r->cond + CONDUCTOR_FIELD_TYRE_STATE + 0x68) ||
+                 GT4_U8(r->cond + CONDUCTOR_FIELD_TYRE_STATE + 0x69)) &&
+                (i == 0 || out->driving);
+    for (int wheel = 0; wheel < 4; wheel++) {
+        if (!shown) {
+            memset(out->tire_rgb[wheel], 0, 3);
+            continue;
+        }
+        int k = kind == 1   ? (wheel < 2 ? 0 : wheel - 1)
+                : kind == 2 ? (wheel < 3 ? wheel : 2)
+                : kind == 3 ? wheel >> 1
+                            : wheel;
+        int t = (int8_t)GT4_U8(car + (uint32_t)k * 0xec + 0x215);
+        uint8_t r = 0, gg = 0, b = 0;
+        if (t >= 0x40) {
+            r = 0xfc;
+            gg = (uint8_t)((0x7f - t) * 2);
+        } else if (t >= 0x20) {
+            r = 0xfc;
+            gg = (uint8_t)((0x5f - t) * 4);
+        } else if (t >= 0) {
+            r = (uint8_t)(t * 8);
+            gg = 0xfc;
+        } else if (t >= -0x3f) {
+            b = (uint8_t)(-t * 4);
+            gg = (uint8_t)(0xfc + t * 4);
+        }
+        out->tire_rgb[wheel][0] = r;
+        out->tire_rgb[wheel][1] = gg;
+        out->tire_rgb[wheel][2] = b;
     }
     return 1;
 }
@@ -1274,6 +2751,14 @@ int gt4_race_run_shadow(const gt4_race_run *r, int i, float pos[3], float rot[9]
 
 int gt4_race_run_xy(const gt4_race_run *r, int i, float *x, float *y)
 {
+    if (r && i >= r->cars) {
+        int j = i - r->cars;
+        if (!r->native_phantoms || j < 0 || j >= r->phantom_count)
+            return 0;
+        *x = r->native[j].pos[0];
+        *y = r->native[j].pos[2];
+        return r->native[j].finished ? 2 : 3;
+    }
     uint32_t car = gt4_race_run_car(r, i);
     if (!car)
         return 0;

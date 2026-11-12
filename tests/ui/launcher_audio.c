@@ -34,6 +34,7 @@ int main(int argc, char **argv)
             }
         }
         CHECK(expected && frames);
+        launcher_audio_suspend_music(a,1);
         launcher_audio_volume(a,0,128); launcher_audio_play(a,effects[k]);
         int16_t *actual=calloc(frames,4); CHECK(actual);
         launcher_audio_render(a,actual,(int)frames);
@@ -57,7 +58,10 @@ int main(int argc, char **argv)
     for(int i=0;i<8;i++) CHECK(gt4_music_prepare_step(m,NULL,NULL));
     int16_t expected[8192],actual[8192];
     gt4_music_render_available(expected,4096,m,4096);
-    launcher_audio_volume(a,120,0); launcher_audio_render(a,actual,4096);
+    launcher_audio_volume(a,120,0);
+    launcher_audio_suspend_music(a,1); launcher_audio_render(a,actual,4096);
+    for(int i=0;i<8192;i++) CHECK(!actual[i]);
+    launcher_audio_suspend_music(a,0); launcher_audio_render(a,actual,4096);
     CHECK(!memcmp(actual,expected,sizeof actual));
     int audible=0;
     for(int block=0;block<80 && !audible;block++) {

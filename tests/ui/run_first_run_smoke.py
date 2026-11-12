@@ -24,12 +24,30 @@ with tempfile.TemporaryDirectory(dir=out) as temporary:
         return log,saves
     log,saves=run("welcome");assert "save / LoadRoot" in log
     assert not list(saves.glob("slot*.ogt4"))
-    log,saves=run("cancel","accept,back");assert "save/LoadRoot focus=Begin" in log
+    log,saves=run("cancel","accept,back");assert "save/LoadRoot focus=Yes" in log
     assert not list(saves.glob("slot*.ogt4"))
-    log,saves=run("guest","right,down,accept");assert "boot/MovieRoot" in log
+    log,saves=run("guest","left,accept,"*3+"accept");assert "boot/MovieRoot" in log
     assert not list(saves.glob("slot*.ogt4"))
-    log,saves=run("profiles","down,accept");assert "focus=SaveCard1" in log
-    log,saves=run("create","accept,accept,"+"right,"*10+"down,accept")
+    log,saves=run("profiles","left,accept,"*2+"accept");assert "focus=SaveCard1" in log
+    log,saves=run("profiles-back","left,accept,"*2+"accept,back")
+    assert "save/LoadRoot focus=Yes" in log
+    log,saves=run("all-no","left,accept,"*4)
+    assert "save/LoadRoot focus=Yes" in log and not list(saves.glob("slot*.ogt4"))
+    run("import-question","left,accept")
+    run("profiles-question","left,accept,"*2)
+    run("guest-question","left,accept,"*3)
+    create_keys="accept,accept,"+"right,"*10+"down,accept"
+    for name,extra in [("autosave-notice",""),("autosave-icon",",accept"),
+                       ("autosave-warning",",accept,accept")]:
+        log,saves=run(name,create_keys+extra)
+        assert "save/LoadRoot focus=OK" in log and (saves/"slot01.ogt4").exists(),log
+    for name,extra in [("transfer-question",",accept,accept,accept"),
+                       ("transfer-credits",",accept,accept,accept,accept"),
+                       ("transfer-licenses",",accept,accept,accept,accept,accept"),
+                       ("transfer-status",",accept,accept,accept,accept,accept,accept")]:
+        log,_=run(name,create_keys+extra)
+        assert "save/LoadRoot" in log,log
+    log,saves=run("create",create_keys+",accept,accept,accept,left,accept")
     assert "boot/MovieRoot" in log and (saves/"slot01.ogt4").exists(),log
     # Serialized username: string tag + little-endian length + capitalized Q.
     assert b"username\x04\x01\x00\x00\x00Q" in (saves/"slot01.ogt4").read_bytes()

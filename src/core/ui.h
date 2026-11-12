@@ -29,6 +29,7 @@ struct ui_widget {
     const mp_node *src; /* description in the .mproject */
     const char *type;   /* "ImageFace", "Composite", ... */
     const char *name;
+    const char *tooltip_key; /* P: replaces src's tooltip_key (a widget cloned from another) */
     ui_widget *parent;
     ui_widget **kids;
     int nkids, kcap;
@@ -37,6 +38,7 @@ struct ui_widget {
     float x, y, w, h;  /* relative to the parent */
     int has_geometry;
     int visible;
+    int focus_override, has_focus_override; /* authored can_focus, changed by script */
     int insensitive;
     int caret; /* InputTextFace: the insertion point (bytes into text) */
     int focused;
@@ -75,10 +77,14 @@ struct ui_widget {
     double strip_ticks;
     float scroll_tx, scroll_ty; /* scrolled "space": eased target position */
     int scroll_set;
+    int scroll_indicator; /* a "clip" that draws the thin left-edge scroll marker */
     /* MScaleBar 00239018/20: float value, clamped by script min/max. */
     float photo_value, photo_min, photo_max, photo_step, photo_current, photo_repeat;
     float photo_saved; /* ScaleBar value kept while its popup is open (00238BE0), back on Cancel */
+    int list_drag_index; /* original ListBox+12C: -1 outside drag mode. */
     int focus_index; /* SelectBox */
+    int hover_shown; /* P: index + 1 a mouse preview left showing over focus_index */
+    int list_repeat; /* authored ListBox/OptionMenu repeat property */
     int slider_range_set, slider_min, slider_max, slider_display_set;
     double slider_display_min, slider_display_max;
     float (*graph_points)[2], graph_line_width;
@@ -125,6 +131,7 @@ struct ui_widget {
 ui_project *ui_project_load(gt4_vol *vol, const char *name, char *err, size_t err_len);
 void ui_project_free(ui_project *p);
 const mp_node *ui_project_tree(const ui_project *p);
+gt4_vol *ui_project_vol(const ui_project *p);
 
 int ui_root_count(const ui_project *p);
 const char *ui_root_name(const ui_project *p, int i);
@@ -143,6 +150,9 @@ void ui_prepare_root_states(ui_project *p, int root, void (*progress)(void *), v
 /* Deep copy of a widget (detached, same screen); owned by the project. */
 /* Parse a native widget description; project owns its source and runtime. */
 ui_widget *ui_widget_from_text(ui_project *p, int resource_root, const char *description);
+/* Load an authored root into this project's ownership and resource cache. */
+ui_widget *ui_widget_from_project(ui_project *p, int resource_root, const char *project,
+                                  const char *root_name);
 ui_widget *ui_widget_copy(ui_project *p, const ui_widget *w);
 void ui_widget_append(ui_widget *parent, ui_widget *child);
 void ui_widget_detach(ui_widget *w);
@@ -163,6 +173,9 @@ ui_widget *ui_option_item(const ui_widget *w, int index);
 struct gt4_mot1 *ui_load_camera(ui_project *p, int root, const char *path);
 struct gt4_mot1 *ui_load_motion(ui_project *p, int root, const char *path);
 const uint8_t *ui_load_model_bytes(ui_project *p, int root, const char *path, size_t *size);
+/* Any packaged asset's bytes (root's package, the others, then loaded extras);
+   the caller frees them. */
+uint8_t *ui_load_asset(ui_project *p, int root, const char *path, size_t *size);
 int ui_load_package(ui_project *p, const char *directory, const char *name);
 void ui_adjust_size(ui_project *p, ui_widget *w);
 void ui_text_adjust_scale(ui_project *p, ui_widget *w);
@@ -180,6 +193,7 @@ int ui_pointer_position(const ui_project *p, float *x, float *y);
 void ui_main_menu_layout(ui_project *p, int expanded); /* P: optional main menu overview. */
 void ui_input_hints(ui_project *p, int device); /* 0 original, 1 keyboard/mouse */
 int ui_pointer_scroll(ui_project *p, int root, float x, float y, int wheel);
+void ui_pointer_pan_direction(ui_project *p, float dx, float dy);
 void ui_pointer_edge_scroll(ui_project *p, int root, float seconds);
 void ui_pointer_scroll_clear(ui_project *p);
 int ui_touch_drag(ui_project *p, int root, float x, float y, float dx, float dy);

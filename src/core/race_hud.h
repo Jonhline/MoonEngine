@@ -10,14 +10,19 @@
 #define MOON_RACE_HUD_H
 
 #include <stdint.h>
+#include "race_limits.h"
 #include "vol.h"
+#include "race_display.h"
 
 typedef struct race_hud race_hud;
 
 /* What the display shows of the watched car (the RaceDisplay's update,
    func_0039DBB8, func_0039ECD0). Times in ms, 0x157529FF none. */
 typedef struct {
-    int rank, cars;
+    /* Inverted option word at the presentation boundary; zero keeps every
+       existing element visible for callers that do not supply options. */
+    uint32_t display_hidden;
+    int rank, cars, map_cars;
     int split, player; /* horizontal Battle2P mode 8; watched entry 0/1 */
     int lap, laps;
     uint32_t lap_time, best_lap, last_lap;
@@ -26,14 +31,19 @@ typedef struct {
     int gear;
     int suggested_gear, suggested_gear_flash;
     float throttle, brake, side_g;
+    float steering; /* 00344680: displayed controller steering, not road-wheel angle */
+    int steering_kind; /* 00344680: 0 none, 1 digital, 2 pad, 3 wheel */
     int shift_lamp;
     float fuel, fuel_cap;     /* no tank at 0 */
     int refueling;            /* 0039E790..0039E7C8: 0035BEB0 == 1 */
+    int has_boost;
+    float boost;
     float rev_limit;          /* the tachometer's top */
+    int oil_sign; /* 0039E308: 0 off, 2 lit, from the watched car's wear. */
     int aid, brake_lock;      /* the signs' sources */
     int driving;              /* the player drives: the signs and fuel shown */
-    float map_x[6], map_y[6]; /* each car on the course (the render frame's x, z) */
-    int map_show[6];          /* how it shows on the map: 3, 2 faded, else not */
+    float map_x[MOON_MAX_CARS], map_y[MOON_MAX_CARS]; /* each car on the course (the render frame's x, z) */
+    int map_show[MOON_MAX_CARS];          /* how it shows on the map: 3, 2 faded, else not */
     int start_frames;         /* frames to the start: START when it reaches 0 */
     int count_frames;         /* func_0034C1C8: watched car's countdown */
     int rolling;              /* the rolling start uses a different display sequence */
@@ -70,6 +80,11 @@ void race_hud_close(race_hud *h);
 /* One frame of the display over the race view (dt seconds). Leaves the
    2D view at 640x448. */
 void race_hud_draw(race_hud *h, const race_hud_state *s, float dt);
+/* Native text with one of the display's faces (for the extended result
+   board). flags: 0 left/baseline, 2 right, 3 centred; 4 top, 0xC middle. */
+int race_hud_text(race_hud *h, const char *spec, float x, float y, int flags, const uint8_t color[4],
+                  const char *s);
+float race_hud_text_width(race_hud *h, const char *spec, const char *s);
 /* the start (race event 4 of the watched car, func_0039E9B0): START */
 void race_hud_start(race_hud *h);
 /* message 0x13: a top speed in the option's unit (Power & Speed, 003A12A0) */
@@ -90,7 +105,7 @@ void race_hud_draw_sectors(const uint32_t *colors, int n, int current, float x, 
                            float hh, float alpha);
 /* B-Spec's monitor map: the course about (cx, cy), each car's letter, `lit` orange */
 void race_hud_draw_map_cars(race_hud *h, const race_hud_state *s, float cx, float cy, float box,
-                            const int letter[6], int lit, float alpha);
+                            const int letter[MOON_CONDUCTOR_CARS], int lit, float alpha);
 /* the replay's pause: "Press SELECT to resume" on the darkened bottom */
 void race_hud_draw_simple_pause(race_hud *h);
 /* the playing track (each frame); its title is shown once per track:
@@ -101,6 +116,9 @@ void race_hud_draw_music(race_hud *h, float dt);
 /* the replay's plate (rtext key `label`, faded by alpha; NULL none) and,
    with logo, the GT4 logo of the modes without the race's display */
 void race_hud_draw_replay(race_hud *h, const char *label, float alpha, int logo);
+/* Original watched-car caption; mode 0 race, 2 instruments, 3 Dive, 4 Normal. */
+void race_hud_draw_car_name(race_hud *h, const char *name, int watched, int mode,
+                            unsigned flags, int panel, float dt);
 /* the replay's opening: the course's logo, the car's name and its power,
    tyres and mode, `elapsed` seconds into the replay */
 typedef struct {
@@ -123,7 +141,7 @@ void race_hud_gap(race_hud *h, int32_t ms, int field, int car);
 /* laps behind (func_003A0E40): the player's, or the second's when leading (negative) */
 void race_hud_laps_behind(race_hud *h, int laps, int car);
 void race_hud_set_icon(race_hud *h,
-                       void (*icon)(void *user, int car, float x, float y, float w, float h),
+                       void (*icon)(void *user, int car, float x, float y, float w, float h, float opacity),
                        void *user);
 
 #endif

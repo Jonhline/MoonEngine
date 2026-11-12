@@ -18,6 +18,14 @@ static saved_option saved_options[] = {
     {"race_display_config"},
     {"race_display_map"},
     {"race_display_steering"},
+    {"race_display_meter"},
+    {"race_display_time"},
+    {"race_display_lap"},
+    {"race_display_position"},
+    {"race_display_car_name"},
+    {"race_display_suggested_gear"},
+    {"race_display_g_meter"},
+
     {"can_watch_ending"},
     {"sound_type"},
     {"enableAC3"},
@@ -203,6 +211,20 @@ static void options_restore(menu *m)
     ah_val option;
     if (!ah_get_member(m->vm, game_object(m), "option", &option))
         return;
+    /* Native preferences predating element persistence contain only config.
+       Preserve their Simple choice using option.ad L2124..2128. */
+    int old_simple = 0;
+    for (unsigned i = 0; i < sizeof saved_options / sizeof *saved_options; i++)
+        if (!strcmp(saved_options[i].name, "race_display_config") && saved_options[i].valid)
+            old_simple = saved_options[i].number[0] != 0;
+    if (old_simple) {
+        const char *derived[] = {"race_display_lap", "race_display_car_name",
+                                 "race_display_suggested_gear", "race_display_g_meter"};
+        for (unsigned i = 0; i < sizeof derived / sizeof *derived; i++)
+            for (unsigned j = 0; j < sizeof saved_options / sizeof *saved_options; j++)
+                if (!strcmp(saved_options[j].name, derived[i]) && !saved_options[j].valid)
+                    ah_set_member(m->vm, ah_as_obj(option, AO_MODULE), derived[i], ah_int(0));
+    }
     for (unsigned i = 0; i < sizeof saved_options / sizeof saved_options[0]; i++) {
         saved_option *v = &saved_options[i];
         if (!v->valid)
@@ -251,6 +273,37 @@ double menu_option_number(menu *m, const char *name, double fallback)
         return fallback;
     return ah_num(value);
 }
+uint32_t menu_race_display_flags(menu *m)
+{
+    static const struct {
+        const char *name;
+        uint32_t bit;
+    } fields[] = {{"replay_display_enable", RACE_DISPLAY_REPLAY},
+                  {"race_display_map", RACE_DISPLAY_MAP},
+                  {"race_display_steering", RACE_DISPLAY_STEERING},
+                  {"race_display_meter", RACE_DISPLAY_METER},
+                  {"race_display_time", RACE_DISPLAY_TIME},
+                  {"race_display_lap", RACE_DISPLAY_LAP},
+                  {"race_display_position", RACE_DISPLAY_POSITION},
+                  {"race_display_car_name", RACE_DISPLAY_CAR_NAME},
+                  {"race_display_suggested_gear", RACE_DISPLAY_SUGGESTED_GEAR},
+                  {"race_display_g_meter", RACE_DISPLAY_G_METER},
+                  {"race_display_config", RACE_DISPLAY_CONFIG}};
+    /* Older native preferences stored DisplayType but not its derived flags.
+       option.ad L2121..2128 defines the missing Simple values. */
+    uint32_t fallback = RACE_DISPLAY_DEFAULT;
+    if (menu_option_number(m, "race_display_config", 0)) {
+        fallback &= ~(RACE_DISPLAY_LAP | RACE_DISPLAY_CAR_NAME | RACE_DISPLAY_SUGGESTED_GEAR |
+                      RACE_DISPLAY_G_METER);
+        fallback |= RACE_DISPLAY_CONFIG;
+    }
+    uint32_t flags = 0;
+    for (unsigned i = 0; i < sizeof fields / sizeof *fields; i++)
+        if (menu_option_number(m, fields[i].name, (fallback & fields[i].bit) != 0))
+            flags |= fields[i].bit;
+    return flags;
+}
+
 void menu_pad_configuration(menu *m, int port, gt4_pad_config *out)
 {
     ah_val option;

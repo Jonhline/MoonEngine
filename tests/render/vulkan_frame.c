@@ -283,6 +283,8 @@ int main(int argc, char **argv)
     plat_texture_destroy(capture);
     plat_texture_destroy(image);
     glDeleteProgram(program);
-    plat_video_shutdown();
+    /* Exercise static-context teardown used by command-line preview exits. */
+    if (!getenv("MOON_TEST_IMPLICIT_VK_CLOSE"))
+        plat_video_shutdown();
     return 0;
 }

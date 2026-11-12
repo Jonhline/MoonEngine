@@ -56,6 +56,7 @@ static void moon_gl_load_missing(const char *name, int *ok)
     fprintf(stderr, "OpenGL: missing %s\n", name);
     *ok = 0;
 }
+moon_glMemoryBarrierProc moon_glMemoryBarrier;
 
 int gl_load(void)
 {
@@ -82,6 +83,7 @@ int gl_load(void)
         }
     }
 #endif
+    moon_glMemoryBarrier = (moon_glMemoryBarrierProc)graphics_proc("glMemoryBarrier");
     return ok;
 #endif
 }
