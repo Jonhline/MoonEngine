@@ -287,6 +287,20 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
 #endif
 #ifdef __ANDROID__
     moon_mobile_options_load(&s->store, &s->current.mobile, &s->current.touch_menu);
+    {
+        const char *raw = moon_options_get(&s->store, "graphics.scene_scale", NULL);
+        if (raw) {
+            char *end = NULL;
+            long pct = strtol(raw, &end, 10);
+            if (end && *end == '%')
+                end++;
+            s->current.scene_scale = (!*raw || (end && *end) || pct < 25 || pct > 200) ? 100 : (int)pct;
+        } else if (moon_options_get(&s->store, "graphics.android_render_scale", NULL)) {
+            static const int alias[] = {100, 75, 50, 35};
+            int level = s->current.mobile.render_scale;
+            s->current.scene_scale = alias[level >= 0 && level <= 3 ? level : 0];
+        }
+    }
     s->current.renderer = 0;
     s->current.desktop = s->current.edge_pan = 0;
     s->current.video.fullscreen = 1;

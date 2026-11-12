@@ -4677,6 +4677,7 @@ int main(int argc, char **argv)
     video_ui_quality(settings.current.filter, settings.current.text / 100.f);
 #ifdef __ANDROID__
     video_set_scene_render_scale(settings.current.mobile.render_scale);
+    video_set_scene_scale(settings.current.scene_scale);
 #endif
     /* Loaded values must reach the renderer even when the launcher's START
        handover is skipped (--drive / config-file runs). */

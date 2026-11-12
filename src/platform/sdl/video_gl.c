@@ -47,15 +47,17 @@ static void graphics_size(SDL_Window *win, int *width, int *height)
     SDL_GL_GetDrawableSize(win, width, height);
 }
 static int vsync, upscale, scene_upscale;
+static int scene_scale_percent = 100;
 #ifdef __ANDROID__
-/* Android render-scale: 0 full output, 1 = 75%, 2 = 50%, 3 = 35%. */
-static int android_scene_scale;
+/* Legacy Android render-scale alias: 0/1/2/3 -> 100/75/50/35 percent.
+   graphics.scene_scale is the source of truth; this only feeds the old key. */
 /* Full-size scenes render into the default framebuffer when it has depth. */
 static int android_scene_direct_ok = 1;
 static int android_scene_direct;
 void video_set_scene_render_scale(int level)
 {
-    android_scene_scale = level >= 0 && level <= 3 ? level : 0;
+    static const int percent[] = {100, 75, 50, 35};
+    scene_scale_percent = percent[level >= 0 && level <= 3 ? level : 0];
 }
 #endif
 static int menu_pacing = 1, frame_presented;
@@ -142,7 +144,7 @@ static GLuint fbo, color_rb, depth_rb;
 static int fb_w, fb_h;
 static GLuint scene_fbo, scene_color, scene_depth, scene_tex, scene_resolve;
 static int scene_w, scene_h, scene_samples, scene_active, output_w, output_h;
-static int scene_scale_percent = 100, scene_quality_antialiasing, scene_quality_render_scale;
+static int scene_quality_antialiasing, scene_quality_render_scale;
 static int speed_blur, speed_blur_amount, speed_vignette, speed_post_warned;
 static float speed_level;
 static GLuint speed_program, speed_fbo, speed_tex, speed_vao, speed_vbo;
@@ -1194,17 +1196,15 @@ void video_scene_quality(int antialiasing, int render_scale)
 static void log_scene_route(int direct)
 {
     static int last_direct = -1, last_scale = -1;
-    if (direct == last_direct && android_scene_scale == last_scale)
+    if (direct == last_direct && scene_scale_percent == last_scale)
         return;
     last_direct = direct;
-    last_scale = android_scene_scale;
+    last_scale = scene_scale_percent;
     if (direct) {
         fprintf(stderr, "video: scene direct (no blit)\n");
         return;
     }
-    static const int percent[] = {100, 75, 50, 35};
-    int level = android_scene_scale >= 0 && android_scene_scale <= 3 ? android_scene_scale : 0;
-    fprintf(stderr, "video: scene upscaled via quad %d%%\n", percent[level]);
+    fprintf(stderr, "video: scene upscaled via quad %d%%\n", scene_scale_percent);
 }
 
 /* Tile-friendly upscale: sample the reduced colour target into the default
@@ -1294,20 +1294,6 @@ void video_begin_scene(void)
         samples = 1;
     }
 #endif
-#ifdef __ANDROID__
-    /* Android render-scale (P): shrink only the 3D scene target; the existing
-       linear blit in video_end_scene scales it back to the output size and the
-       UI is drawn at native size afterwards. Level 0 keeps the scene full. */
-    if (android_scene_scale > 0) {
-        static const float android_scales[] = {1.f, .75f, .5f, .35f};
-        w = (int)(output_w * android_scales[android_scene_scale] + .5f);
-        h = (int)(output_h * android_scales[android_scene_scale] + .5f);
-        if (w < 1)
-            w = 1;
-        if (h < 1)
-            h = 1;
-    }
-#endif
 #endif
     if (scene_scale_percent != 100) {
         w = (int)(output_w * (float)scene_scale_percent / 100.f + .5f);
@@ -1320,7 +1306,7 @@ void video_begin_scene(void)
     /* A full-size scene needs no intermediate target at all: draw it where
        the UI will be drawn and present that. When the default framebuffer has
        no usable depth the offscreen target still feeds the quad below. */
-    if (android_scene_scale == 0 && scene_upscale == 0 && android_scene_direct_ok) {
+    if (scene_scale_percent == 100 && scene_upscale == 0 && android_scene_direct_ok) {
         android_scene_direct = 1;
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 #ifdef MOON_PC_VULKAN
@@ -1338,6 +1324,12 @@ void video_begin_scene(void)
         scene_w = output_w;
         scene_h = output_h;
         scene_upscale = 0;
+        static int logged_scale = -1;
+        if (logged_scale != scene_scale_percent) {
+            logged_scale = scene_scale_percent;
+            fprintf(stderr, "settings: scene_scale=%d scene_target=%dx%d\n",
+                    scene_scale_percent, scene_w, scene_h);
+        }
         layout_view();
         scene_active = 1;
         log_scene_route(1);
