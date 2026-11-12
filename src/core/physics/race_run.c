@@ -95,6 +95,9 @@ struct gt4_race_run {
     unsigned phantom_pace_samples, phantom_pace_violations;
     int phantom_pace_logged;
     float phantom_cap[MOON_MAX_PHANTOMS];
+    float phantom_accel_peak, phantom_accel_prev_kmh;
+    unsigned phantom_accel_peak_frame;
+    int phantom_contact_logged[MOON_MAX_PHANTOMS];
     int course_grid_count;
     gt4_grid course_grid[64];
     char course[32];
@@ -2088,9 +2091,16 @@ static void native_phantoms_step(gt4_race_run *r)
         if (target < 4.f)
             target = 4.f;
         if (go) {
-            r->native[i].speed += (target - r->native[i].speed) * 0.05f;
-            if (r->native[i].speed > r->phantom_cap[i])
-                r->native[i].speed = r->phantom_cap[i];
+            float speed = r->native[i].speed;
+            float accel = 7.5f * (1.f - fminf(1.f, speed / fmaxf(target, 1.f)));
+            if (accel < 1.f)
+                accel = 1.f;
+            speed += accel * dt;
+            if (speed > target)
+                speed = target;
+            if (speed > r->phantom_cap[i])
+                speed = r->phantom_cap[i];
+            r->native[i].speed = speed;
             r->native[i].dist += r->native[i].speed * dt;
             if (r->native[i].dist >= len) {
                 r->native[i].dist -= len;
@@ -2159,6 +2169,36 @@ static void native_phantoms_step(gt4_race_run *r)
         r->native[i].pos[0] = p0[0] - dz * r->native[i].lateral;
         r->native[i].pos[1] = p0[1];
         r->native[i].pos[2] = p0[2] + dx * r->native[i].lateral;
+        uint32_t player_car = gt4_race_run_car(r, 0);
+        float px = 0, pz = 0;
+        if (player_car && gt4_race_run_xy(r, 0, &px, &pz)) {
+            float dxp = r->native[i].pos[0] - px;
+            float dzp = r->native[i].pos[2] - pz;
+            float d = sqrtf(dxp * dxp + dzp * dzp);
+            if (d < 2.5f) {
+                r->native[i].dist -= 1.f;
+                r->native[i].speed *= .35f;
+                GT4_F32(player_car + CAR_ABS_SPEED) *= .65f;
+                GT4_F32(player_car + CAR_FIELD_COURSE_DISTANCE) -= .5f;
+                if (!r->phantom_contact_logged[i]) {
+                    r->phantom_contact_logged[i] = 1;
+                    fprintf(stderr, "phantom contact: i=%d\n", i);
+                }
+            } else
+                r->phantom_contact_logged[i] = 0;
+        }
+        for (int j = i + 1; j < r->phantom_count; j++) {
+            float ddx = r->native[i].pos[0] - r->native[j].pos[0];
+            float ddz = r->native[i].pos[2] - r->native[j].pos[2];
+            if (ddx * ddx + ddz * ddz < 2.2f * 2.2f) {
+                r->native[j].dist -= .8f;
+                r->native[j].speed *= .5f;
+                if (!r->phantom_contact_logged[j]) {
+                    r->phantom_contact_logged[j] = 1;
+                    fprintf(stderr, "phantom contact: i=%d\n", j);
+                }
+            }
+        }
     }
     if (go && r->phantom_count && r->frames % 60 == 0) {
         for (int i = 0; i < r->phantom_count; i++) {
@@ -2172,6 +2212,21 @@ static void native_phantoms_step(gt4_race_run *r)
             r->phantom_pace_sum += kmh;
             r->phantom_pace_samples++;
         }
+    }
+    if (go && r->phantom_count && r->frames <= 300 && r->frames % 30 == 0) {
+        float kmh = r->native[0].speed * 3.6f;
+        if (r->frames >= 30) {
+            float acc = (kmh - r->phantom_accel_prev_kmh) / .5f / 3.6f;
+            if (acc > r->phantom_accel_peak) {
+                r->phantom_accel_peak = acc;
+                r->phantom_accel_peak_frame = r->frames;
+            }
+        }
+        r->phantom_accel_prev_kmh = kmh;
+        fprintf(stderr, "phantom accel: t=%.1f kmh=%.1f\n", r->frames / 60.f, kmh);
+        if (r->frames == 300)
+            fprintf(stderr, "phantom accel peak=%.1f m/s2 at t=%.1f\n",
+                    r->phantom_accel_peak, r->phantom_accel_peak_frame / 60.f);
     }
     if (go && r->phantom_count && r->frames % 120 == 0) {
         float kmh = r->native[0].speed * 3.6f;
