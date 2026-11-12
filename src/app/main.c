@@ -5646,10 +5646,23 @@ int main(int argc, char **argv)
                 if (ev.key == SDLK_RETURN || ev.key == SDLK_KP_ENTER)
                     menu_send_input(mn, MENU_ACCEPT);
                 if (ev.key == SDLK_ESCAPE) {
-                    if (proj == 0 && menu_active_root(mn) >= 0 &&
-                        !strcmp(ui_root_name(menu_ui(mn), menu_active_root(mn)), "TopRoot"))
+                    int at_top = menu_active_root(mn) >= 0 &&
+                                 !strcmp(ui_root_name(menu_ui(mn), menu_active_root(mn)),
+                                         "TopRoot");
+                    if (proj == 0 && at_top)
                         menu_test_activate(mn, "QuitGame");
-                    else
+                    else if (proj == 1 && at_top) {
+                        int answer = present_dialog(mn, "Exit Gran Turismo Mode?",
+                                                    "Exit Gran Turismo Mode?", 1, "Yes", "No");
+                        fprintf(stderr, "gtmode: exit confirm result=%d\n", answer);
+                        if (answer == 1) {
+                            char route[] = "boot";
+                            switch_to(vol, cache, &mn, &proj, route);
+                            p = menu_ui(mn);
+                            root = menu_active_root(mn);
+                        }
+                        continue;
+                    } else
                         menu_send_input(mn, ev.pad ? MENU_CIRCLE : MENU_BACK);
                 }
                 if (ev.pad && ev.key == SDLK_INSERT)
