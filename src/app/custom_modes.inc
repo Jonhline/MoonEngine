@@ -415,6 +415,8 @@ static int custom_modes_picker_activate(ah_vm *vm, ah_obj *self, void *data, int
     const char *category = index < custom_modes_picker_count
                                ? custom_modes_picker_categories[index]
                                : menu_game_menu_ref(m);
+    fprintf(stderr, "custom modes: picker effect=select\n");
+    menu_play_effect(m, "select");
     custom_modes_course_select = 0;
     menu_game_stack_pop(m);
     custom_modes_request_pending = 1;
