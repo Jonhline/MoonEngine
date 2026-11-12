@@ -231,7 +231,8 @@ static int custom_modes_open(ah_vm *vm, ah_obj *self, void *data, int argc,
             menu_music_name(m) ? menu_music_name(m) : "");
     custom_modes_pending = 1;
     ui_fade(menu_ui(m), 0, 1, .25f);
-    menu_play_effect(m, "ok");
+    fprintf(stderr, "custom modes: tile effect=select\n");
+    menu_play_effect(m, "select");
     *ret = ah_int(2);
     return 0;
 }
