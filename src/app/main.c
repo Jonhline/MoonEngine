@@ -569,10 +569,10 @@ static void studio_info_draw(const studio_dock *d)
    behind it). GENERAL includes the room's theme and light colour (launcher.ini).
    VIDEO, INTERFACE and QUALITY use the same store as the game's Screen Settings,
    saved as they change and applied at START. */
-#define STUDIO_TABS 7
+#define STUDIO_TABS 8
 static const char *const studio_tab_names[STUDIO_TABS] = {"GENERAL", "VIDEO",    "INTERFACE",
                                                           "SOUND",   "CONTROLS", "QUALITY",
-                                                          "TWEAKS"};
+                                                          "TWEAKS",  "ADVANCED"};
 /* The game's own sound and pad settings (the earlier launcher's pages): launcher_options,
    read once and written to the game's options file and save when the panel closes. */
 static launcher_options studio_game_options;
@@ -626,6 +626,18 @@ static int studio_tab_rows(int tab, int rows[24])
 #ifdef _WIN32
         rows[n++] = -4; /* Open the actual custom-music folder. */
 #endif
+    }
+    if (tab == 7) {
+        static const char *const labels[] = {"3D Resolution", "Realistic Lighting", "Material Shading",
+                                             "Shadow Maps", "Car Shadows", "Reflection Quality",
+                                             "Anti-Aliasing", "HDR", "Sun Rays",
+                                             "Ambient Occlusion", "Night Sky"};
+        for (unsigned k = 0; k < sizeof labels / sizeof labels[0]; k++)
+            for (int i = 0; i < video_setting_count(); i++)
+                if (!strcmp(video_setting(i)->label, labels[k])) {
+                    rows[n++] = i;
+                    break;
+                }
     }
     if (tab == 6) {
         /* The same ordered rows as the in-game Tweaks page, from one table.
@@ -770,6 +782,16 @@ static const char *studio_row_value(int id, int theme, int mood)
     }
     const video_setting_info *in = video_setting(id);
     int v = app_video_settings ? video_setting_get(app_video_settings, id) : 0;
+    if (!strcmp(in->label, "3D Resolution")) {
+        static const int pct[] = {50, 65, 75, 100, 125};
+        static const int fps[] = {119, 99, 88, 65, 0};
+        int k = v >= 0 && v < 5 ? v : 3;
+        if (fps[k])
+            snprintf(text, sizeof text, "%d%%  (about %d fps on GTX 1060)", pct[k], fps[k]);
+        else
+            snprintf(text, sizeof text, "%d%%", pct[k]);
+        return text;
+    }
     if (!strcmp(in->label,"PC Preset") && app_video_settings) {
         snprintf(text,sizeof text,"%s%s",app_video_settings->store.preset,app_video_settings->store.modified ? " (modified)" : "");
         return text;
