@@ -814,7 +814,8 @@ void plat_video_end_frame(void)
                     "video profile: %.3f ms/frame, %.1f draws/frame, %.1f quads/frame, "
                     "%.1f fps, cars=%d car_draws=%d pipeline_lookups=%llu pipeline_misses=%llu "
                     "descriptor_builds=%llu submits=%llu barriers=%llu update_buffer=%llu "
-                    "queue_waits=%llu mem_flushes=%llu\n",
+                    "queue_waits=%llu mem_flushes=%llu "
+                    "uploads: vert=%.1f MB uni=%.1f MB streamed_draws=%llu resident_draws=%llu\n",
                     profile_total / 1e6 / profile_count, (double)profile_draws / profile_count,
                     (double)profile_quads / profile_count,
                     (profile_count - 1) * 1e9 / (profile_start - profile_window),
@@ -824,7 +825,11 @@ void plat_video_end_frame(void)
                     (unsigned long long)vk.descriptor_builds,
                     (unsigned long long)vk.submissions, (unsigned long long)vk.barriers,
                     (unsigned long long)vk.update_buffer, (unsigned long long)vk.queue_waits,
-                    (unsigned long long)vk.mem_flushes);
+                    (unsigned long long)vk.mem_flushes,
+                    (double)vk.vertex_upload_bytes / 1048576.0 / 30.0,
+                    (double)vk.uniform_upload_bytes / 1048576.0 / 30.0,
+                    (unsigned long long)vk.streamed_draws,
+                    (unsigned long long)vk.resident_draws);
             profile_count = profile_draws = profile_quads = 0;
             profile_total = profile_window = 0;
             fprintf(stderr,

@@ -586,9 +586,20 @@ void Context::draw(GLenum topology, int first, int count)
     /* Resident bindings can retain their base offsets across material groups.
        Streaming buffers still contain only this draw's selected subrange. */
     bool base_vertices = !repeat_commands && !p.vertex_id;
+    bool streamed = false, resident_draw = false;
     for (int i = 0; i < 16; i++)
-        if (p.inputs[i] && vao.attributes[i].enabled && !resident[i])
-            base_vertices = false;
+        if (p.inputs[i] && vao.attributes[i].enabled) {
+            if (resident[i])
+                resident_draw = true;
+            else {
+                streamed = true;
+                base_vertices = false;
+            }
+        }
+    if (streamed)
+        statistics.streamed_draws++;
+    else if (resident_draw)
+        statistics.resident_draws++;
     size_t bytes = p.values.size() + 512;
     std::array<size_t, 16> strides{};
     std::array<int, 16> shared;
@@ -613,6 +624,7 @@ void Context::draw(GLenum topology, int first, int count)
     size_t offset = reserve(
         bytes, std::max((size_t)16, (size_t)properties.limits.minUniformBufferOffsetAlignment));
     statistics.update_buffer++;
+    statistics.uniform_upload_bytes += p.values.size();
     memcpy((uint8_t *)arena.mapped + offset, p.values.data(), p.values.size());
     size_t vertex_offset = offset + aligned((int)p.values.size(), 16);
     std::array<VkDeviceSize, 16> offsets{};
