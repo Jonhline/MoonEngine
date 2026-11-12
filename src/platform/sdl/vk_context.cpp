@@ -568,6 +568,17 @@ bool Context::recreate_surface()
     return true;
 }
 
+static const char *present_mode_name(VkPresentModeKHR mode)
+{
+    switch (mode) {
+    case VK_PRESENT_MODE_MAILBOX_KHR: return "MAILBOX";
+    case VK_PRESENT_MODE_IMMEDIATE_KHR: return "IMMEDIATE";
+    case VK_PRESENT_MODE_FIFO_RELAXED_KHR: return "FIFO_RELAXED";
+    case VK_PRESENT_MODE_FIFO_KHR: return "FIFO";
+    default: return "UNKNOWN";
+    }
+}
+
 bool Context::resize_swapchain()
 {
     if (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED)
@@ -700,6 +711,8 @@ bool Context::resize_swapchain()
         return false;
     }
     check(result, "vkCreateSwapchainKHR");
+    fprintf(stderr, "render: swapchain present mode=%s vsync=%d\n", present_mode_name(mode),
+            vsync ? 1 : 0);
     if (swapchain)
         vkDestroySwapchainKHR(device, swapchain, nullptr);
     swapchain = replacement;

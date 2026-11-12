@@ -56,6 +56,8 @@ void video_set_scene_render_scale(int level)
 }
 #endif
 static int menu_pacing = 1, frame_presented;
+static unsigned pacing_logged_rate;
+static const char *pacing_logged_reason;
 static int menu_projection = 1;
 static void layout_view(void);
 static moon_frame_pacer frame_pacer;
@@ -753,6 +755,13 @@ void plat_video_begin_frame(void)
        interval must not make an idle menu submit unbounded GPU work.
        Sleep before rendering, yield near the deadline, and avoid catch-up bursts. */
     unsigned rate = menu_pacing || capture_pipe ? 60u : (unsigned)frame_limit;
+    const char *pacing_reason = menu_pacing ? "menu" : capture_pipe ? "capture" : "limit";
+    if (rate != pacing_logged_rate || pacing_reason != pacing_logged_reason) {
+        pacing_logged_rate = rate;
+        pacing_logged_reason = pacing_reason;
+        fprintf(stderr, "render: pacing rate=%u reason=%s source=%s\n", rate, pacing_reason,
+                menu_pacing ? "menu_pacing" : capture_pipe ? "capture_pipe" : "frame_limit");
+    }
     uint64_t now = plat_time_ns();
     uint64_t deadline = moon_frame_deadline(&frame_pacer, now, rate);
     if (now > deadline)
