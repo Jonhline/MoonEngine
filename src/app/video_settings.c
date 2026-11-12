@@ -230,6 +230,7 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     }
     s->current.discord_presence =
         moon_options_int(&s->store, "integrations.discord_presence", 0, 0, 1);
+    s->current.preview_mode = !strcmp(moon_options_get(&s->store,"interface.preview_mode","before_after"),"benchmark");
     s->current.preset_tools = moon_options_int(&s->store,"interface.preset_tools",enhanced,0,1);
     s->current.save_tools = moon_options_int(&s->store,"interface.save_transfer_tools",enhanced,0,1);
 #if !defined(__ANDROID__)
@@ -350,6 +351,7 @@ static void save(video_settings *s)
         moon_options_set(&s->store, quality_keys[i], value);
     }
 #endif
+    moon_options_set(&s->store,"interface.preview_mode",v->preview_mode ? "benchmark" : "before_after");
     moon_options_set(&s->store,"interface.preset_tools",v->preset_tools ? "1" : "0");
     moon_options_set(&s->store,"interface.save_transfer_tools",v->save_tools ? "1" : "0");
     {
@@ -443,6 +445,7 @@ enum {
     VS_ASSIST_LINE,
     VS_PHANTOM_OPPONENTS,
     VS_FIELD_SIZE,
+    VS_PREVIEW_MODE,
     VS_COUNT
 };
 /* PC Preset values: the built-in presets, then Modified (read only, never set) */
@@ -453,6 +456,7 @@ static const char *const vs_preset[] = {"Classic", "Enhanced", "Performance", "M
 #else
 #define VS_MENU_MODIFIED 3
 #endif
+static const char *const vs_preview_mode[] = {"Before & After", "Benchmark"};
 static const char *const vs_fps[] = {"Unlimited", "60 FPS",  "90 FPS", "120 FPS",
                                      "144 FPS",   "165 FPS", "240 FPS"};
 static const int vs_fps_values[] = {0, 60, 90, 120, 144, 165, 240};
@@ -730,6 +734,7 @@ int video_setting_get(const video_settings *s, int i)
     case VS_SPEED_VIGNETTE: return v->speed_vignette;
     case VS_SKIP_INTRO: return v->skip_intro;
     case VS_ASSIST_LINE: return v->assist_line;
+    case VS_PREVIEW_MODE: return v->preview_mode != 0;
     case VS_PHANTOM_OPPONENTS: return v->phantom_opponents != 0;
     case VS_FIELD_SIZE: {
         int n = v->field_size - MOON_CONDUCTOR_CARS;
@@ -2042,7 +2047,7 @@ void video_settings_attach(video_settings *s, menu *m)
 #ifdef __ANDROID__
     const int rows = 18;
 #else
-    const int rows = 42;
+    const int rows = 43;
 #endif
 #endif
 #ifndef __SWITCH__
@@ -2098,7 +2103,7 @@ void video_settings_attach(video_settings *s, menu *m)
                            "RenderScale",
                            "TextureSmoothing", "TextureFiltering", "CarShadows", "MaterialShading", "ReflectionQuality", "ShadowMaps", "Lighting", "Daylight", "SolarTime", "DaylightCycle", "HDR", "SunRays", "PresetFiles", "SaveTransfer", "AmbientOcclusion",
                            "CustomMusic", "JukeboxFolders", "LibraryGroups", "GraphicsSwapKey",
-                           "ControllerTiles", "CarLamps", "NightSky", "ShadowFilter"};
+                           "ControllerTiles", "CarLamps", "NightSky", "ShadowFilter", "PreviewMode"};
     const char *titles[] = {
         "Aspect Ratio",      "Window Mode",   "Resolution",    "UI Filter",
         "Text Clarity",      "VSync",         "Upscaling",     "Desktop Input",
@@ -2106,7 +2111,7 @@ void video_settings_attach(video_settings *s, menu *m)
         "GPU Reflections",   "Main Menu",     "Smooth Cursor", "Hover Feedback",
         "Compact Car Strip", "Anti-Aliasing", "3D Resolution", "Texture Smoothing", "Texture Filtering", "Car Shadows", "Material Shading", "Reflection Quality", "Shadow Maps", "Realistic Lighting", "Realistic Skybox", "Solar Time", "Sun / Moon Cycle", "HDR", "Sun Rays", "Preset Files", "Save Transfer", "Ambient Occlusion",
         "Custom Music", "Jukebox Folders", "Library Groups", "Graphics Swap Key",
-        "Controller Tiles", "Realistic Car Lamps", "Night Sky", "Shadow Filter"};
+        "Controller Tiles", "Realistic Car Lamps", "Night Sky", "Shadow Filter", "Preview Mode"};
     ui_widget *sample = ui_widget_copy(ui, row);
     for (int i = pane->nkids - 1; i >= 0; i--) {
         ui_widget *w = pane->kids[i];
@@ -2148,8 +2153,8 @@ void video_settings_attach(video_settings *s, menu *m)
     const char *controller_tiles[] = {"Original", "By Player"};
     const char *const *lists[] = {
         ratios, modes,  resolutions, filters, clarity, toggle, upscalers, toggle, presets,  toggle,
-        toggle, toggle, toggle,      toggle,  toggle,  toggle, toggle,    vs_aa,  vs_scale, toggle, vs_texture_filtering, vs_car_shadows, vs_material_shading, vs_reflection_quality, vs_shadow_maps, vs_modern_lighting,vs_off_on,vs_hours,vs_cycle,vs_off_on,vs_rays,toggle,toggle,toggle,toggle,toggle,toggle,toggle,controller_tiles,toggle,toggle,vs_shadow_filter};
-    int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, VS_MENU_MODIFIED + 1, 2, 2, 2, 2, 2, 2, 2, 2, 5, 3, 2, 5, 2, 2, 3, 4, 2, 2, 25, 3, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
+        toggle, toggle, toggle,      toggle,  toggle,  toggle, toggle,    vs_aa,  vs_scale, toggle, vs_texture_filtering, vs_car_shadows, vs_material_shading, vs_reflection_quality, vs_shadow_maps, vs_modern_lighting,vs_off_on,vs_hours,vs_cycle,vs_off_on,vs_rays,toggle,toggle,toggle,toggle,toggle,toggle,toggle,controller_tiles,toggle,toggle,vs_shadow_filter,vs_preview_mode};
+    int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, VS_MENU_MODIFIED + 1, 2, 2, 2, 2, 2, 2, 2, 2, 5, 3, 2, 5, 2, 2, 3, 4, 2, 2, 25, 3, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 #ifdef __SWITCH__
     const char *scene_sizes[]={"Classic","Balanced","Performance"};
     names[7]="SceneResolution"; titles[7]="3D Resolution"; titles[8]="Preset";
@@ -2183,7 +2188,7 @@ void video_settings_attach(video_settings *s, menu *m)
 #endif
     for (int i = 0; i < rows; i++) {
         /* row 41 of the list is Shadow Filter, kept after the Tweaks rows 41..55 */
-        const int at = i < 41 ? i : 56;
+        const int at = i < 41 ? i : i == 41 ? 56 : 57;
         ui_widget *w = ui_widget_copy(ui, sample);
         w->name = names[i];
 #ifndef __SWITCH__

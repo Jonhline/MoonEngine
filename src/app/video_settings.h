@@ -26,6 +26,7 @@ typedef struct {
     int phantom_opponents; /* opt-in: the stock six plus phantoms */
     int field_size;        /* total field when phantoms are on (conductor..MOON_MAX_CARS) */
     int discord_presence;
+    int preview_mode; /* 0 before/after, 1 benchmark */
 #ifdef __ANDROID__
     int touch_menu;
     moon_mobile_options mobile;
