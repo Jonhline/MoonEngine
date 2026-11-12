@@ -53,6 +53,7 @@ struct Program {
     std::array<uint64_t, 67> last_key{};
     VkPipeline last_pipeline = VK_NULL_HANDLE;
     uint64_t fingerprint = 0;
+    int dump_id = -1;
     bool linked = false, vertex_id = false;
     std::array<bool, 16> inputs = {};
 };

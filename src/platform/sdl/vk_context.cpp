@@ -302,6 +302,19 @@ void Context::reset_submission()
                         (unsigned long long)total_draws,
                         statistics.cpu_draw_frame_ns / 1e6,
                         total_draws ? statistics.cpu_draw_frame_ns / 1e6 / total_draws : 0.0);
+                fprintf(stderr, "gpu programs:");
+                for (int pi = 0; pi < 64; pi++)
+                    if (statistics.program_draws[pi])
+                        fprintf(stderr, " p%d=%llu[t=%llu c=%llu s=%llu u=%llu o=%llu]", pi,
+                                (unsigned long long)statistics.program_draws[pi],
+                                (unsigned long long)statistics.program_source[pi][1],
+                                (unsigned long long)statistics.program_source[pi][2],
+                                (unsigned long long)statistics.program_source[pi][3],
+                                (unsigned long long)statistics.program_source[pi][4],
+                                (unsigned long long)statistics.program_source[pi][0]);
+                fprintf(stderr, "\n");
+                memset(statistics.program_draws, 0, sizeof statistics.program_draws);
+                memset(statistics.program_source, 0, sizeof statistics.program_source);
                 statistics.draw_track = statistics.draw_car = statistics.draw_shadow =
                     statistics.draw_ui = statistics.draw_other = 0;
                 pass_totals.clear();

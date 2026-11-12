@@ -78,6 +78,8 @@ static std::string interface_locations(Program &p, std::string source, bool vert
 bool compile(Program &p)
 {
     p.fingerprint = shader_fingerprint(p);
+    static unsigned compile_program_id;
+    p.dump_id = (int)compile_program_id++;
     p.vertex_id = p.vertex.find("gl_VertexID") != std::string::npos;
     /* Both stages share one explicitly laid-out block. Uniform setters and
        shaders therefore use the same offsets, including vec3/matrix arrays. */
@@ -182,11 +184,10 @@ bool compile(Program &p)
               "vkCreatePipelineLayout");
         p.linked = true;
         if (const char *dump_dir = getenv("MOON_DUMP_SHADERS")) {
-            static unsigned dump_program;
             std::error_code ec;
             std::filesystem::create_directories(dump_dir, ec);
             char stem[64];
-            snprintf(stem, sizeof stem, "program-%u", dump_program++);
+            snprintf(stem, sizeof stem, "program-%d", p.dump_id);
             std::filesystem::path base = std::filesystem::u8path(dump_dir) / stem;
             std::ofstream(base.string() + ".glsl", std::ios::binary)
                 << "// vertex\n" << p.final_vertex << "\n// fragment\n" << p.final_fragment;
@@ -195,7 +196,7 @@ bool compile(Program &p)
             std::ofstream(base.string() + "-fs.spv", std::ios::binary)
                 .write((const char *)p.fs_words.data(), (std::streamsize)p.fs_words.size() * 4);
             fprintf(stderr, "shader dump: program=%u vert_words=%zu frag_words=%zu\n",
-                    dump_program - 1, p.vs_words.size(), p.fs_words.size());
+                    p.dump_id, p.vs_words.size(), p.fs_words.size());
         }
         context().warm_pipeline_recipes(p);
         return true;
@@ -590,6 +591,14 @@ void Context::draw(GLenum topology, int first, int count)
     case 3: statistics.draw_shadow++; break;
     case 4: statistics.draw_ui++; break;
     default: statistics.draw_other++; break;
+    }
+    {
+        auto &pp = programs[state.program];
+        if (pp.dump_id >= 0 && pp.dump_id < 64) {
+            statistics.program_draws[pp.dump_id]++;
+            statistics.program_source[pp.dump_id][draw_source >= 0 && draw_source < 5
+                                                     ? draw_source : 0]++;
+        }
     }
     uint64_t prepare_start = profile_draws ? SDL_GetPerformanceCounter() : 0;
     auto &p = programs[state.program];
