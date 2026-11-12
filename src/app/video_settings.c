@@ -239,10 +239,12 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
         moon_options_int(&s->store, "graphics.texture_smoothing", 0, 0, 1);
     s->current.texture_filtering = moon_options_int(&s->store, "graphics.texture_filtering", enhanced ? 3 : 0, 0, 4);
     s->current.car_shadows = moon_options_int(&s->store, "graphics.car_shadows", enhanced, 0, 1);
-    s->current.material_shading = moon_options_int(&s->store, "graphics.material_shading", enhanced, 0, 1);
+    s->current.material_shading = moon_options_int(
+        &s->store, "graphics.material_shading", strcmp(s->store.preset, "Performance") ? enhanced : 0, 0, 1);
     s->current.reflection_quality = moon_options_int(&s->store, "graphics.reflection_quality", enhanced, 0, 2);
     s->current.shadow_maps = moon_options_int(&s->store, "graphics.shadow_maps", enhanced * 2, 0, 3);
-    s->current.modern_lighting = moon_options_int(&s->store, "graphics.modern_lighting", enhanced, 0, 1);
+    s->current.modern_lighting = moon_options_int(
+        &s->store, "graphics.modern_lighting", strcmp(s->store.preset, "Performance") ? enhanced : 0, 0, 1);
     s->current.daylight=moon_options_int(&s->store,"graphics.daylight",enhanced,0,1);
     s->current.night_sky=moon_options_int(&s->store,"graphics.night_sky",enhanced,0,1);
     s->current.car_lamps=moon_options_int(&s->store,"graphics.car_lamps",strcmp(s->store.preset,"Classic")!=0,0,1);
@@ -595,10 +597,10 @@ void video_settings_preset_values(pc_video_options *v, int preset)
     v->texture_smoothing = enhanced;
     v->texture_filtering = enhanced ? 3 : 0;
     v->car_shadows = enhanced;
-    v->material_shading = enhanced;
+    v->material_shading = enhanced && preset != 2;
     v->reflection_quality = enhanced;
     v->shadow_maps = enhanced * 2;
-    v->modern_lighting = enhanced;
+    v->modern_lighting = enhanced && preset != 2;
     v->daylight=enhanced;v->solar_hour=enhanced?24:5;v->solar_cycle=enhanced;v->hdr=enhanced;v->sun_rays=0;v->ambient_occlusion=enhanced;
     v->shadow_filter=preset==2; /* Performance: about 4 ms less GPU at 1080p on a GTX 1650 */
     v->filter = enhanced ? 0 : 2;
@@ -865,6 +867,8 @@ void video_setting_set(video_settings *s, int i, int value)
            preset's values; host size, mode and the API are kept */
         s->personal_preset[0]=0;
         video_settings_preset_values(v, value);
+        fprintf(stderr, "settings: preset=%s modern_lighting=%d material_shading=%d\n",
+                vs_preset[value], v->modern_lighting, v->material_shading);
         s->draft = s->current;
         s->preset_draft = value;
         save(s);
