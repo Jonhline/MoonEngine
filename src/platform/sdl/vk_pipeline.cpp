@@ -4,6 +4,8 @@
 #include <SPIRV/GlslangToSpv.h>
 #include <regex>
 #include <sstream>
+#include <fstream>
+#include <filesystem>
 
 namespace moon {
 static int aligned(int value, int alignment)
@@ -133,6 +135,8 @@ bool compile(Program &p)
         std::string prefix = "#version 450 core\n" + block + textures;
         vertex = prefix + vertex;
         fragment = prefix + fragment;
+        p.final_vertex = vertex;
+        p.final_fragment = fragment;
         static const bool initialized = glslang::InitializeProcess();
         if (!initialized)
             throw std::runtime_error("glslang initialization failed");
@@ -159,6 +163,10 @@ bool compile(Program &p)
             glslang::SpvOptions options;
             options.disableOptimizer = true;
             glslang::GlslangToSpv(*program.getIntermediate(stage), words, &options);
+            if (stage == EShLangVertex)
+                p.vs_words = words;
+            else
+                p.fs_words = words;
             VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
             info.codeSize = words.size() * 4;
             info.pCode = words.data();
@@ -173,6 +181,22 @@ bool compile(Program &p)
         check(vkCreatePipelineLayout(context().device, &layout, nullptr, &p.layout),
               "vkCreatePipelineLayout");
         p.linked = true;
+        if (const char *dump_dir = getenv("MOON_DUMP_SHADERS")) {
+            static unsigned dump_program;
+            std::error_code ec;
+            std::filesystem::create_directories(dump_dir, ec);
+            char stem[64];
+            snprintf(stem, sizeof stem, "program-%u", dump_program++);
+            std::filesystem::path base = std::filesystem::u8path(dump_dir) / stem;
+            std::ofstream(base.string() + ".glsl", std::ios::binary)
+                << "// vertex\n" << p.final_vertex << "\n// fragment\n" << p.final_fragment;
+            std::ofstream(base.string() + "-vs.spv", std::ios::binary)
+                .write((const char *)p.vs_words.data(), (std::streamsize)p.vs_words.size() * 4);
+            std::ofstream(base.string() + "-fs.spv", std::ios::binary)
+                .write((const char *)p.fs_words.data(), (std::streamsize)p.fs_words.size() * 4);
+            fprintf(stderr, "shader dump: program=%u vert_words=%zu frag_words=%zu\n",
+                    dump_program - 1, p.vs_words.size(), p.fs_words.size());
+        }
         context().warm_pipeline_recipes(p);
         return true;
     } catch (const std::exception &e) {

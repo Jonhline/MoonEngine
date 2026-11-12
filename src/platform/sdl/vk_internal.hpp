@@ -41,7 +41,8 @@ struct Uniform {
     int count = 1, offset = 0, stride = 0, components = 1, sampler = -1, unit = 0;
 };
 struct Program {
-    std::string vertex, fragment, error;
+    std::string vertex, fragment, final_vertex, final_fragment, error;
+    std::vector<unsigned> vs_words, fs_words;
     VkShaderModule vs = VK_NULL_HANDLE, fs = VK_NULL_HANDLE;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     std::vector<Uniform> uniforms;
