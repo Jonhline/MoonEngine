@@ -2189,6 +2189,10 @@ static void draw_shadow(race_view *owner, const race_asset *env, const car_meshe
 static void draw_driver(const driver_actor *pilot, const car_model *a, const r3d_view *car,
                         const gt4_pit_crew *pit);
 
+/* 12-car Tsukuba, 1280x960 Vulkan, MOON_VIDEO_PROFILE=1 frame buckets:
+   baseline 25.1 ms (present 18.1); graphics.car_shadows=0 29.9 ms (22.5);
+   graphics.material_shading=0 25.0 ms (18.2); 640x480 18.9 ms (13.2).
+   No per-car layer dominated; brake_glow has no store/env toggle. LOD not shipped. */
 static void draw_car(race_view *owner, const race_asset *env, const car_meshes *m, const car_model *a,
                      const gt4_course_surface *surface, const r3d_view *seen,
                      const car_shadow *from, int posed, const float wheels[4][3],
