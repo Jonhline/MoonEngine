@@ -4152,6 +4152,35 @@ static void print_user_inventory(const char *saves)
             pref, pref, pref, pref, saves && *saves ? saves : "-", pref, pref, pref, log, mirror);
 }
 
+/* Bench wall/process time without requiring clock_gettime on MinGW. */
+static double bench_wall_seconds(void)
+{
+    static uint64_t freq;
+    if (!freq)
+        freq = SDL_GetPerformanceFrequency();
+    return freq ? (double)SDL_GetPerformanceCounter() / (double)freq : 0;
+}
+
+static double bench_cpu_seconds(void)
+{
+#ifdef _WIN32
+    FILETIME created, exited, kernel, user;
+    if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user))
+        return 0;
+    ULARGE_INTEGER k, u;
+    k.LowPart = kernel.dwLowDateTime;
+    k.HighPart = kernel.dwHighDateTime;
+    u.LowPart = user.dwLowDateTime;
+    u.HighPart = user.dwHighDateTime;
+    return (double)(k.QuadPart + u.QuadPart) * 1e-7;
+#else
+    struct timespec ts;
+    if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts) != 0)
+        return 0;
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+#endif
+}
+
 int main(int argc, char **argv)
 {
 #ifdef __ANDROID__
@@ -4311,7 +4340,8 @@ int main(int argc, char **argv)
     int race_preview = 0, race_active = 0, race_loading = 0, race_drive = 0, loading_preview = 0,
         bench_frames = 0, bench_started = 0, bench_count = 0, bench_frame_index = 0;
     double bench_throughput_seconds = 0;
-    uint64_t bench_throughput_wall = 0, bench_throughput_cpu = 0, bench_throughput_frames = 0;
+    double bench_throughput_wall = 0, bench_throughput_cpu = 0;
+    uint64_t bench_throughput_frames = 0;
     uint64_t bench_throughput_gpu = 0, bench_throughput_submits = 0;
     double *bench_times = NULL;
     double bench_gpu_first = 0, bench_gpu_last = 0;
@@ -6903,10 +6933,8 @@ int main(int argc, char **argv)
             video_set_bench_finish(bench_frames > 0 ? 1 : 0);
             video_bench_reset();
             if (bench_throughput_seconds > 0) {
-                struct timespec ts;
-                clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
-                bench_throughput_cpu = (uint64_t)ts.tv_sec * 1000000000ull + ts.tv_nsec;
-                bench_throughput_wall = plat_time_ns();
+                bench_throughput_cpu = bench_cpu_seconds();
+                bench_throughput_wall = bench_wall_seconds();
 #ifdef MOON_PC_VULKAN
                 moon_vk_render_stats vk = moon_vk_render_statistics();
                 bench_throughput_gpu = vk.gpu_ns;
@@ -7214,13 +7242,11 @@ int main(int argc, char **argv)
         }
         if (bench_throughput_seconds > 0 && bench_started) {
             bench_throughput_frames++;
-            uint64_t wall_now = plat_time_ns();
-            double elapsed = (wall_now - bench_throughput_wall) / 1e9;
+            double wall_now = bench_wall_seconds();
+            double elapsed = wall_now - bench_throughput_wall;
             if (elapsed >= bench_throughput_seconds) {
-                struct timespec ts;
-                clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
-                uint64_t cpu_now = (uint64_t)ts.tv_sec * 1000000000ull + ts.tv_nsec;
-                double cpu_ms = (cpu_now - bench_throughput_cpu) / 1e6 / bench_throughput_frames;
+                double cpu_now = bench_cpu_seconds();
+                double cpu_ms = (cpu_now - bench_throughput_cpu) * 1000.0 / bench_throughput_frames;
                 double gpu_ms = 0;
                 uint64_t submits = bench_throughput_submits;
 #ifdef MOON_PC_VULKAN
