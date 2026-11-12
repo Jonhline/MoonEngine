@@ -245,7 +245,7 @@ static struct {
     GLint skinned, palette, morph, morph_color, colorop, colormul, coloradd, valpha;
     GLint fog, fogcol, grade_rgb, grade;
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
-    GLint material_shading, skip_material_light, measure_no_env, measure_no_spec;
+    GLint material_shading, skip_material_light, measure_no_env, measure_no_spec, measure_ggx_samples;
     GLint night_sky, authored_night;
     GLint car_lamp_count,car_lamp_position,car_lamp_direction,car_lamp_color;
     GLint lamp_lens;
@@ -563,6 +563,7 @@ int r3d_available(void)
     UNI(skip_material_light, "u_skip_material_light");
     UNI(measure_no_env, "u_measure_no_env");
     UNI(measure_no_spec, "u_measure_no_spec");
+    UNI(measure_ggx_samples, "u_measure_ggx_samples");
     UNI(hdr,"u_hdr");
     UNI(daylight, "u_daylight");
     UNI(authored_environment,"u_authored_environment");
@@ -1857,6 +1858,13 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
     glUniform1i(U.modern_lighting, pc_submission.modern_lighting && view->modern_light && !view->ghost && !view->shadow);
     glUniform1i(U.measure_no_env, getenv("MOON_MEASURE_NO_ENV") != NULL);
     glUniform1i(U.measure_no_spec, getenv("MOON_MEASURE_NO_SPEC") != NULL);
+    {
+        const char *ggx = getenv("MOON_MEASURE_GGX_SAMPLES");
+        int samples = ggx ? atoi(ggx) : 32;
+        if (samples < 0)
+            samples = 0;
+        glUniform1i(U.measure_ggx_samples, samples);
+    }
 #endif
     glUniform1f(U.shadow_alpha, view->shadow_alpha > 0 ? view->shadow_alpha : .55f);
     glUniform3fv(U.shadow_rgb, 1, view->shadow_rgb);
