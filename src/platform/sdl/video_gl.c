@@ -91,6 +91,9 @@ static int profile_frames, profile_draws, profile_quads;
 static uint64_t profile_start, profile_total, profile_window;
 static unsigned profile_count;
 static uint64_t profile_buckets[VIDEO_BUCKET_COUNT];
+static uint64_t profile_gap_ns, profile_last_end_ns;
+static unsigned profile_gap_frames, profile_sleep_calls;
+static uint64_t profile_sleep_ns;
 void video_profile_bucket(int bucket, uint64_t ns)
 {
     if (profile_frames && bucket >= 0 && bucket < VIDEO_BUCKET_COUNT)
@@ -763,15 +766,22 @@ void plat_video_begin_frame(void)
                 menu_pacing ? "menu_pacing" : capture_pipe ? "capture_pipe" : "frame_limit");
     }
     uint64_t now = plat_time_ns();
+    if (profile_frames && profile_last_end_ns) {
+        profile_gap_ns += now - profile_last_end_ns;
+        profile_gap_frames++;
+    }
     uint64_t deadline = moon_frame_deadline(&frame_pacer, now, rate);
     if (now > deadline)
         frame_late_count++; /* started behind: the last frame/gap overran the rate */
     while (now < deadline) {
         uint64_t remaining = deadline - now;
+        uint64_t sleep_start = plat_time_ns();
         if (remaining > 1500000)
             SDL_Delay((Uint32)((remaining - 500000) / 1000000));
         else
             SDL_Delay(0);
+        profile_sleep_calls++;
+        profile_sleep_ns += plat_time_ns() - sleep_start;
         now = plat_time_ns();
     }
     if (profile_frames) {
@@ -824,7 +834,9 @@ void plat_video_end_frame(void)
                     "%.1f fps, cars=%d car_draws=%d pipeline_lookups=%llu pipeline_misses=%llu "
                     "descriptor_builds=%llu submits=%llu barriers=%llu update_buffer=%llu "
                     "queue_waits=%llu mem_flushes=%llu "
-                    "uploads: vert=%.1f MB uni=%.1f MB streamed_draws=%llu resident_draws=%llu\n",
+                    "uploads: vert=%.1f MB uni=%.1f MB streamed_draws=%llu resident_draws=%llu "
+                    "gap=%.2f submit_ms=%.2f present_ms=%.2f sleep_calls=%.1f sleep_ms=%.2f "
+                    "events_ms=%.2f\n",
                     profile_total / 1e6 / profile_count, (double)profile_draws / profile_count,
                     (double)profile_quads / profile_count,
                     (profile_count - 1) * 1e9 / (profile_start - profile_window),
@@ -838,7 +850,11 @@ void plat_video_end_frame(void)
                     (double)vk.vertex_upload_bytes / 1048576.0 / 30.0,
                     (double)vk.uniform_upload_bytes / 1048576.0 / 30.0,
                     (unsigned long long)vk.streamed_draws,
-                    (unsigned long long)vk.resident_draws);
+                    (unsigned long long)vk.resident_draws,
+                    profile_gap_frames ? profile_gap_ns / 1e6 / profile_gap_frames : 0.0,
+                    vk.last_submit_ns / 1e6, vk.last_present_ns / 1e6,
+                    (double)profile_sleep_calls / 30.0, profile_sleep_ns / 1e6 / 30.0,
+                    profile_buckets[VIDEO_BUCKET_EVENTS] / 1e6 / 30.0);
             profile_count = profile_draws = profile_quads = 0;
             profile_total = profile_window = 0;
             fprintf(stderr,
@@ -854,6 +870,9 @@ void plat_video_end_frame(void)
                     profile_buckets[VIDEO_BUCKET_UI] / 1e6 / 30.0,
                     profile_buckets[VIDEO_BUCKET_PRESENT] / 1e6 / 30.0);
             memset(profile_buckets, 0, sizeof profile_buckets);
+            profile_gap_ns = profile_gap_frames = 0;
+            profile_sleep_calls = 0;
+            profile_sleep_ns = 0;
         }
     }
     SWP_POP();
@@ -873,6 +892,7 @@ void plat_video_end_frame(void)
     frame_presented = 1;
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     SWP_FRAME(fb_w, fb_h);
+    profile_last_end_ns = plat_time_ns();
 }
 
 GLuint video_draw_framebuffer(void)

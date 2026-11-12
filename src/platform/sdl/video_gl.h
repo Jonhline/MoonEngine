@@ -27,6 +27,7 @@ enum {
     VIDEO_BUCKET_GUEST,
     VIDEO_BUCKET_UI,
     VIDEO_BUCKET_PRESENT,
+    VIDEO_BUCKET_EVENTS,
     VIDEO_BUCKET_COUNT
 };
 void video_profile_bucket(int bucket, uint64_t ns);

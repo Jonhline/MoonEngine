@@ -723,6 +723,7 @@ bool Context::resize_swapchain()
     swap_images.resize(count);
     check(vkGetSwapchainImagesKHR(device, swapchain, &count, swap_images.data()),
           "swapchain images");
+    fprintf(stderr, "render: swapchain images=%u min=%u\n", count, info.minImageCount);
     present_ready.resize(count, VK_NULL_HANDLE);
     VkSemaphoreCreateInfo semaphore_info{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     for (auto &semaphore : present_ready)
@@ -799,7 +800,10 @@ void Context::present()
     submit.pCommandBuffers = &command;
     submit.signalSemaphoreCount = 1;
     submit.pSignalSemaphores = &present_ready[index];
+    uint64_t submit_start = SDL_GetPerformanceCounter();
     check(vkQueueSubmit(queue, 1, &submit, fence), "vkQueueSubmit present");
+    statistics.last_submit_ns = (SDL_GetPerformanceCounter() - submit_start) * 1000000000ull /
+                                SDL_GetPerformanceFrequency();
     statistics.submissions++;
     pending = true;
     recording = false;
@@ -809,7 +813,10 @@ void Context::present()
     info.swapchainCount = 1;
     info.pSwapchains = &swapchain;
     info.pImageIndices = &index;
+    uint64_t present_start = SDL_GetPerformanceCounter();
     result = vkQueuePresentKHR(queue, &info);
+    statistics.last_present_ns = (SDL_GetPerformanceCounter() - present_start) * 1000000000ull /
+                                 SDL_GetPerformanceFrequency();
     if (result == VK_ERROR_SURFACE_LOST_KHR) {
         /* The frame reached a surface Android already took away. Rebuild it
            now so the next frame has somewhere to go; never throw here. */

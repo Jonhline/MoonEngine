@@ -5379,6 +5379,7 @@ int main(int argc, char **argv)
                                driving == 2 && !race_game_is_paused(game) &&
                                    !race_game_replaying(game) && theater != 2);
 #endif
+        uint64_t event_start = plat_time_ns();
         while (plat_sdl_poll(&ev)) {
 #ifdef __ANDROID__
             if (ev.lifecycle) {
@@ -5689,6 +5690,7 @@ int main(int argc, char **argv)
                     menu_enter(mn, root);
             }
         }
+        video_profile_bucket(VIDEO_BUCKET_EVENTS, plat_time_ns() - event_start);
         if (mn && menu_take_quit(mn))
             goto done;
         /* The driving options' OK (doGame -> finish, single race / time
