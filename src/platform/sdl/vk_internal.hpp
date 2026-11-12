@@ -153,6 +153,7 @@ struct Context {
     std::map<std::array<uint64_t, 17>, VkDescriptorSet> draw_sets;
     bool repeat_commands = false, profile_draws = false;
     int draw_source = 0;
+    uint64_t last_batch_pipeline = 0, last_batch_set = 0;
     /* MOON_VK_PROFILE_PASSES: GPU time per render pass/transfer, single frame in flight. */
     VkQueryPool pass_queries = VK_NULL_HANDLE;
     std::vector<std::string> pass_labels;

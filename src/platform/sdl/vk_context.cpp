@@ -330,6 +330,29 @@ void Context::reset_submission()
         statistics.cpu_draw_frame_ns = total_cpu - cpu_draw_prev_ns;
         cpu_draw_prev_ns = total_cpu;
     }
+    static unsigned vk_count_frame;
+    if (getenv("MOON_VK_COUNTS") && ++vk_count_frame % 60 == 0) {
+        fprintf(stderr,
+                "vk calls: bindPipeline=%llu bindDescriptors=%llu bindVertices=%llu "
+                "setViewport=%llu setScissor=%llu pushConstants=%llu draw=%llu "
+                "barrier=%llu pipelineBarrier=%llu batches=%llu cpu_draw=%.3fms\n",
+                (unsigned long long)statistics.vk_bind_pipeline,
+                (unsigned long long)statistics.vk_bind_descriptors,
+                (unsigned long long)statistics.vk_bind_vertices,
+                (unsigned long long)statistics.vk_set_viewport,
+                (unsigned long long)statistics.vk_set_scissor,
+                (unsigned long long)statistics.vk_push_constants,
+                (unsigned long long)statistics.vk_draw,
+                (unsigned long long)statistics.vk_barrier,
+                (unsigned long long)statistics.vk_pipeline_barrier,
+                (unsigned long long)statistics.batch_draws,
+                statistics.cpu_draw_frame_ns / 1e6);
+        statistics.vk_bind_pipeline = statistics.vk_bind_descriptors = statistics.vk_bind_vertices = 0;
+        statistics.vk_set_viewport = statistics.vk_set_scissor = statistics.vk_push_constants = 0;
+        statistics.vk_draw = statistics.vk_barrier = statistics.vk_pipeline_barrier = 0;
+        statistics.batch_draws = 0;
+        last_batch_pipeline = last_batch_set = 0;
+    }
     pending = timing_written = false;
     check(vkResetFences(device, 1, &fence), "vkResetFences");
     check(vkResetCommandPool(device, pool, 0), "vkResetCommandPool");
@@ -399,6 +422,7 @@ void Context::barrier()
     VkMemoryBarrier memory{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     memory.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
     memory.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+    statistics.vk_pipeline_barrier++;
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                          VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &memory, 0, nullptr, 0, nullptr);
     statistics.barriers++;
@@ -416,6 +440,7 @@ void Context::transition(Image &im, VkImageLayout layout)
     barrier.subresourceRange = {im.aspect, 0, (uint32_t)im.levels, 0, 1};
     barrier.srcAccessMask = layout_access(im.layout);
     barrier.dstAccessMask = layout_access(layout);
+    statistics.vk_pipeline_barrier++;
     vkCmdPipelineBarrier(command, layout_stage(im.layout), layout_stage(layout), 0, 0, nullptr, 0,
                          nullptr, 1, &barrier);
     statistics.barriers++;
@@ -977,7 +1002,8 @@ extern "C" int moon_vk_render_open(SDL_Window *window, int vsync)
     c.low_latency = getenv("MOON_VK_LOW_LATENCY") != nullptr;
     c.repeat_commands = getenv("MOON_VK_REPEAT_COMMANDS") != nullptr;
     c.profile_draws = getenv("MOON_VK_PROFILE_DRAWS") != nullptr ||
-                      getenv("MOON_GPU_PROFILE") != nullptr;
+                      getenv("MOON_GPU_PROFILE") != nullptr ||
+                      getenv("MOON_VK_COUNTS") != nullptr;
     if (getenv("MOON_VK_PROFILE_PASSES"))
         c.low_latency = true;
     c.stream_geometry = getenv("MOON_VK_STREAM_GEOMETRY") != nullptr;

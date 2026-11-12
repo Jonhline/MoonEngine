@@ -38,6 +38,9 @@ typedef struct {
     uint64_t last_submit_ns, last_present_ns;
     uint64_t draw_track, draw_car, draw_shadow, draw_ui, draw_other;
     uint64_t cpu_draw_frame_ns;
+    uint64_t vk_bind_pipeline, vk_bind_descriptors, vk_bind_vertices, vk_set_viewport,
+             vk_set_scissor, vk_draw, vk_barrier, vk_pipeline_barrier, vk_push_constants;
+    uint64_t batch_draws;
     uint64_t program_draws[64];
     uint64_t program_source[64][5];
 } moon_vk_render_stats;

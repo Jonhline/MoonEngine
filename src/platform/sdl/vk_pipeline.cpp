@@ -762,12 +762,19 @@ void Context::draw(GLenum topology, int first, int count)
     uint32_t dynamic_offset = (uint32_t)offset;
     vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, p.layout, 0, 1, &set, 1,
                             &dynamic_offset);
+    statistics.vk_bind_descriptors++;
     unsigned binding_count = 0;
     for (unsigned i = 0; i < 16; i++)
         if (p.inputs[i])
             binding_count = i + 1;
     bind_draw_state(selected_pipeline, viewport, clip, binding_count, vertex_handles, offsets);
     vkCmdDraw(command, count, 1, base_vertices ? first : 0, 0);
+    statistics.vk_draw++;
+    if ((uint64_t)selected_pipeline != last_batch_pipeline || (uint64_t)set != last_batch_set) {
+        statistics.batch_draws++;
+        last_batch_pipeline = (uint64_t)selected_pipeline;
+        last_batch_set = (uint64_t)set;
+    }
     if (!pass_draws.empty())
         pass_draws.back()++;
     if (profile_draws) {
