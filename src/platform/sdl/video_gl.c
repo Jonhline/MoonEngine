@@ -70,7 +70,18 @@ uint64_t video_frame_late_count(void)
 }
 void video_performance_options(int low_latency, int fps_limit)
 {
-    frame_limit = fps_limit >= 0 && fps_limit <= 500 ? fps_limit : 0;
+    const char *source = "off";
+    if (fps_limit == 1000) {
+        SDL_DisplayMode mode;
+        int display_rate = SDL_GetCurrentDisplayMode(0, &mode) == 0 ? mode.refresh_rate : 0;
+        frame_limit = display_rate > 0 ? display_rate : 60;
+        source = "display";
+    } else {
+        frame_limit = fps_limit >= 0 && fps_limit <= 500 ? fps_limit : 0;
+        if (frame_limit > 0)
+            source = "setting";
+    }
+    fprintf(stderr, "pacing: fps_limit=%d source=%s\n", frame_limit, source);
     frame_pacer.rate = 0;
 #ifdef MOON_PC_VULKAN
     moon_vk_render_low_latency(low_latency);

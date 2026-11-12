@@ -317,7 +317,7 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
                 s->current.video.vsync = value;
             if (!strcmp(key, "low_latency") && value >= 0 && value <= 1)
                 s->current.low_latency = value;
-            if (!strcmp(key, "fps_limit") && value >= 0 && value <= 500)
+            if (!strcmp(key, "fps_limit") && value >= 0 && value <= 1000)
                 s->current.fps_limit = value;
             if (!strcmp(key, "upscaling") && value >= 0 && value <= 4)
                 s->current.video.upscale = value;
@@ -474,9 +474,9 @@ static const char *const vs_preset[] = {"Classic", "Enhanced", "Performance", "T
 #define VS_MENU_MODIFIED 4
 #endif
 static const char *const vs_preview_mode[] = {"Before & After", "Benchmark"};
-static const char *const vs_fps[] = {"Unlimited", "60 FPS",  "90 FPS", "120 FPS",
-                                     "144 FPS",   "165 FPS", "240 FPS"};
-static const int vs_fps_values[] = {0, 60, 90, 120, 144, 165, 240};
+static const char *const vs_fps[] = {"Off", "30 FPS", "60 FPS", "72 FPS", "120 FPS",
+                                     "144 FPS", "165 FPS", "240 FPS", "Match Display"};
+static const int vs_fps_values[] = {0, 30, 60, 72, 120, 144, 165, 240, 1000};
 static const char *const vs_off_on[] = {"Off", "On"};
 static const char *const vs_api[] = {"OpenGL", "Vulkan"};
 static const char *const vs_mode[] = {"Windowed", "Full Screen"};
@@ -786,7 +786,7 @@ int video_setting_get(const video_settings *s, int i)
         return s->store.modified || preset < 0 ? 3 : preset;
     }
     case VS_FPS:
-        for (int k = 0; k < 7; k++)
+        for (int k = 0; k < 9; k++)
             if (vs_fps_values[k] == v->fps_limit)
                 return k;
         return 0;
@@ -2187,7 +2187,7 @@ void video_settings_attach(video_settings *s, menu *m)
     const char *const *lists[] = {
         ratios, modes,  resolutions, filters, clarity, toggle, upscalers, toggle, presets,  toggle,
         toggle, toggle, toggle,      toggle,  toggle,  toggle, toggle,    vs_aa,  vs_scale, toggle, vs_texture_filtering, vs_car_shadows, vs_material_shading, vs_reflection_quality, vs_shadow_maps, vs_modern_lighting,vs_off_on,vs_hours,vs_cycle,vs_off_on,vs_rays,toggle,toggle,toggle,toggle,toggle,toggle,toggle,controller_tiles,toggle,toggle,vs_shadow_filter,vs_preview_mode};
-    int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, VS_MENU_MODIFIED + 1, 2, 2, 2, 2, 2, 2, 2, 2, 5, 6, 2, 5, 2, 2, 3, 4, 2, 2, 25, 3, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
+    int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, VS_MENU_MODIFIED + 1, 9, 2, 2, 2, 2, 2, 2, 2, 5, 6, 2, 5, 2, 2, 3, 4, 2, 2, 25, 3, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 #ifdef __SWITCH__
     const char *scene_sizes[]={"Classic","Balanced","Performance"};
     names[7]="SceneResolution"; titles[7]="3D Resolution"; titles[8]="Preset";
