@@ -244,7 +244,7 @@ static struct {
     GLint skinned, palette, morph, morph_color, colorop, colormul, coloradd, valpha;
     GLint fog, fogcol, grade_rgb, grade;
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
-    GLint material_shading;
+    GLint material_shading, skip_material_light, measure_no_env;
     GLint night_sky, authored_night;
     GLint car_lamp_count,car_lamp_position,car_lamp_direction,car_lamp_color;
     GLint lamp_lens;
@@ -559,6 +559,8 @@ int r3d_available(void)
     UNI(filtering, "u_filtering");
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
     UNI(material_shading, "u_material_shading");
+    UNI(skip_material_light, "u_skip_material_light");
+    UNI(measure_no_env, "u_measure_no_env");
     UNI(hdr,"u_hdr");
     UNI(daylight, "u_daylight");
     UNI(authored_environment,"u_authored_environment");
@@ -1781,6 +1783,12 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
         glUniformMatrix4fv(U.palette, 20, GL_FALSE, &view->skin_palette[0][0]);
     int n = lights ? lights->count : 0;
     n = n < 0 ? 0 : n > 4 ? 4 : n;
+    const char *measure_lights = getenv("MOON_MEASURE_LIGHTS");
+    if (measure_lights) {
+        int cap = atoi(measure_lights);
+        if (cap >= 0 && cap < n)
+            n = cap;
+    }
     glUniform1i(U.nlights, n);
     glUniform1i(U.local_lights, n ? lights->authored_local : 0);
     glUniform1f(U.lvertex, n ? lights->vertex_limit : 0);
@@ -1811,6 +1819,7 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
     glUniform1i(U.mode, view->shadow ? 2 : view->unlit ? 1 : 0);
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
     glUniform1i(U.material_shading, pc_submission.material_shading && !view->shadow && !view->unlit);
+    glUniform1i(U.skip_material_light, getenv("MOON_MEASURE_SKIP_MATERIAL_LIGHT") != NULL);
     shadow_map_receiver(view);
     glUniform1i(U.hdr,video_hdr_active());
     glUniform1i(U.daylight, view->daylight);
@@ -1834,6 +1843,7 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
     if(lamp_count){glUniform4fv(U.car_lamp_position,lamp_count,positions[0]);glUniform4fv(U.car_lamp_direction,lamp_count,directions[0]);glUniform4fv(U.car_lamp_color,lamp_count,colors[0]);}
 
     glUniform1i(U.modern_lighting, pc_submission.modern_lighting && view->modern_light && !view->ghost && !view->shadow);
+    glUniform1i(U.measure_no_env, getenv("MOON_MEASURE_NO_ENV") != NULL);
 #endif
     glUniform1f(U.shadow_alpha, view->shadow_alpha > 0 ? view->shadow_alpha : .55f);
     glUniform3fv(U.shadow_rgb, 1, view->shadow_rgb);

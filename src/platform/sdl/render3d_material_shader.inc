@@ -2,7 +2,7 @@
    vertex-lit results. No inferred material classes, roughness or replacement lights.
    Original: func_0049EB90 +0x84..0x94 isolates specular-only colours.
    Original: func_0049E918 +0x100..0x150 chooses the race specular exponent. */
-"uniform int u_material_shading, u_flat, u_specular_only, u_nlights;\n"
+"uniform int u_material_shading, u_flat, u_specular_only, u_nlights, u_skip_material_light;\n"
     "uniform vec3 u_ldir[4],u_lamb[4],u_ldif[4],u_lspe[4];\n"
     "uniform float u_lspec_scale,u_lvertex; uniform vec2 u_envk;\n"
     "uniform vec3 u_r,u_u,u_f;\n"
@@ -10,6 +10,7 @@
     "in float v_material_shine;\n"
     "void materialSample(inout vec3 light,inout vec3 spec,inout vec2 envuv){\n"
     "  if(u_material_shading==0) return;\n"
+    "  if(u_skip_material_light==1 && u_reflect!=1) return;\n"
     "  vec3 n=v_material_normal/max(length(v_material_normal),1e-8);\n"
     "  vec3 ray=v_material_ray/max(length(v_material_ray),1e-8);\n"
     "  if(u_reflect==1){\n"

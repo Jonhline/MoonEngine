@@ -9,7 +9,7 @@
    This is a single-scattering approximation, not measured course radiometry.
    Display compression: Narkowicz, ACES Filmic Tone Mapping Curve (2016),
    an SDR fit, not a full ACES colour-management pipeline or HDR framebuffer. */
-"uniform int u_modern_lighting,u_mode,u_hdr,u_local_lights;\n"
+"uniform int u_modern_lighting,u_mode,u_hdr,u_local_lights,u_measure_no_env;\n"
 "vec3 modernLinear(vec3 c){return mix(c/12.92,pow(max((c+.055)/1.055,vec3(0.)),vec3(2.4)),step(vec3(.04045),c));}\n"
 /* P: authored course radiance is already display-referred. Lift it into
    the scene's radiance domain before the single final filmic compression. */
@@ -46,7 +46,7 @@
    base-material specular (often zero on paint). Its smooth lobe must reflect
    direct solar irradiance as well as the environment. Same GGX/Smith/Schlick
    response and solar calibration as the base lobe; visibility applies once. */
-"   vec3 reflected=environmentGGX(n,v,.1);\n"
+"   vec3 reflected=u_measure_no_env==1?vec3(0.):environmentGGX(n,v,.1);\n"
 "   if(u_local_lights==0){vec3 l=u_sun_direction;float nl=max(dot(n,l),0.);vec3 h=(l+v)/max(length(l+v),1e-6);float nh=max(dot(n,h),0.),vh=max(dot(v,h),0.);float a2=.0001;float d=a2/(3.14159265*pow(nh*nh*(a2-1.)+1.,2.));float smith=.5/max(nl*sqrt(nv*nv*(1.-a2)+a2)+nv*sqrt(nl*nl*(1.-a2)+a2),1e-6);float f=.04+.96*pow(1.-vh,5.);reflected+=daylightDirect()*(d*smith*f*nl*3.14159265)*visibility*cloudSunVisibility(v_shadow_world);}\n"
 "   reflected*=clamp(v_material_rgb,0.,1.)*clamp(u_envk.x,0.,1.);return u_hdr==1?reflected:modernDisplay(reflected); }\n"
 " bool solar=u_daylight>0 && u_local_lights==0;vec3 result=vec3(0.);\n"
