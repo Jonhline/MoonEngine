@@ -92,6 +92,11 @@ static uint64_t profile_start, profile_total, profile_window;
 static unsigned profile_count;
 static uint64_t profile_buckets[VIDEO_BUCKET_COUNT];
 static uint64_t profile_gap_ns, profile_last_end_ns;
+static int bench_finish;
+static uint64_t bench_finish_ns;
+void video_set_bench_finish(int on) { bench_finish = on != 0; }
+uint64_t video_bench_finish_ns(void) { return bench_finish_ns; }
+void video_bench_reset(void) { bench_finish_ns = 0; }
 static unsigned profile_gap_frames, profile_sleep_calls;
 static uint64_t profile_sleep_ns;
 void video_profile_bucket(int bucket, uint64_t ns)
@@ -817,10 +822,14 @@ void plat_video_end_frame(void)
                       GL_NEAREST);
     if (present_start)
         video_profile_bucket(VIDEO_BUCKET_PRESENT, plat_time_ns() - present_start);
-    if (profile_frames) {
+    if (bench_finish || profile_frames) {
         uint64_t wait_start = plat_time_ns();
         glFinish();
-        video_profile_bucket(VIDEO_BUCKET_PRESENT, plat_time_ns() - wait_start);
+        uint64_t waited = plat_time_ns() - wait_start;
+        bench_finish_ns += waited;
+        if (profile_frames)
+            video_profile_bucket(VIDEO_BUCKET_PRESENT, waited);
+        if (profile_frames) {
         profile_total += plat_time_ns() - profile_start;
         profile_count++;
         if (profile_count == 30) {
@@ -873,6 +882,7 @@ void plat_video_end_frame(void)
             profile_gap_ns = profile_gap_frames = 0;
             profile_sleep_calls = 0;
             profile_sleep_ns = 0;
+        }
         }
     }
     SWP_POP();

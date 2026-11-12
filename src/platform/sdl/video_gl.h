@@ -31,6 +31,9 @@ enum {
     VIDEO_BUCKET_COUNT
 };
 void video_profile_bucket(int bucket, uint64_t ns);
+void video_set_bench_finish(int on);
+uint64_t video_bench_finish_ns(void);
+void video_bench_reset(void);
 /* Bound frontend rendering to its native 60 Hz; race timing is separate. */
 void video_set_menu_pacing(int enabled);
 /* Frames whose pacing deadline had already passed when they began (the debug

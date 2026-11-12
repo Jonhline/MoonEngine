@@ -210,7 +210,8 @@ static int update_and_draw_race(app_race_flow *flow, double elapsed, int *car_re
             menu_option_number((*flow->mn), rp ? "replay_se_volume_raw" : "race_se_volume_raw",
                                120));
     }
-    race_game_update(flow->game, elapsed);
+    if (!bench_freeze)
+        race_game_update(flow->game, elapsed);
     (*car_ready) = race_game_draw(flow->game);
     if ((*flow->theater) == 2)
         (*flow->attract_seconds) += elapsed; /* 00434590 +0x10: 90-second demo budget. */

@@ -101,6 +101,7 @@ static void app_jukebox_leave(void);
 static int app_jukebox_fixture(menu *m);
 #include "custom_modes.inc"
 #include "main_support.inc"
+static int bench_freeze;
 #include "main_race_flow.inc"
 
 /* The product was OpenGT4, then VULCAN 4, now MOON ENGINE. User data has to follow the name or the
@@ -4283,7 +4284,9 @@ int main(int argc, char **argv)
     int window_full = settings.current.video.fullscreen, upscale = settings.current.video.upscale,
         video_vsync = settings.current.video.vsync;
     int race_preview = 0, race_active = 0, race_loading = 0, race_drive = 0, loading_preview = 0,
-        race_return = 0;
+        bench_frames = 0, bench_started = 0, bench_count = 0;
+    double *bench_times = NULL;
+    int race_return = 0;
     int pre_race_preview = 0, quick_options = 0, quick_options_project = -1, race_time_trial = 0;
     int logger_track = -1;     /* the Logger's Load Track waiting for labomode's best lap */
     int logger_load_asked = 0; /* its Load Ghost not yet sent: the quick menu must be on screen */
@@ -4406,6 +4409,14 @@ int main(int argc, char **argv)
             race_preview = race_drive = 1;
             continue;
         } /* the race itself, not the grid preview */
+        if (!strcmp(argv[i], "--bench-frames") && i + 1 < argc) {
+            char *end;
+            long n = strtol(argv[++i], &end, 10);
+            if (!*argv[i] || *end || n < 0 || n > 100000)
+                return 2;
+            bench_frames = (int)n;
+            continue;
+        }
         if (!strcmp(argv[i], "--time-trial")) {
             race_time_trial = race_preview = race_drive = 1;
             pre_race_preview = !getenv("MOON_RACE_SNAPSHOT");
@@ -6844,9 +6855,18 @@ int main(int argc, char **argv)
             (!race_active && driving != 2) ||
             (race_active && (race_game_license_active(game) || race_game_mission_active(game))));
         video_set_menu_projection(!race_active && driving != 2);
+        if (bench_frames > 0 && !bench_started && driving == 2) {
+            bench_started = 1;
+            bench_freeze = 1;
+            bench_times = malloc((size_t)bench_frames * sizeof *bench_times);
+            video_set_bench_finish(1);
+            video_bench_reset();
+            fprintf(stderr, "bench: start frames=%d\n", bench_frames);
+        }
         presentation_pregrid = (driving == 3 || driving == 4) && race_quick_project(proj);
         if (!presentation_pregrid)
             pregrid_clock = 0;
+        uint64_t bench_frame_start = bench_started ? plat_time_ns() : 0;
         plat_video_begin_frame();
         SWP_PUSH(SWP_SCENE);
         int car_ready = 1;
@@ -7096,6 +7116,36 @@ int main(int argc, char **argv)
         SWP_READY(car_ready && !loading_screen_active() && !race_loading);
         SWP_POP();
         plat_video_end_frame();
+        if (bench_started && bench_frame_start && bench_count < bench_frames) {
+            bench_times[bench_count++] = (plat_time_ns() - bench_frame_start) / 1e6;
+            if (bench_count >= bench_frames) {
+                double sum = 0, min = bench_times[0], max = bench_times[0];
+                for (int bi = 0; bi < bench_count; bi++) {
+                    sum += bench_times[bi];
+                    if (bench_times[bi] < min) min = bench_times[bi];
+                    if (bench_times[bi] > max) max = bench_times[bi];
+                }
+                for (int bi = 1; bi < bench_count; bi++) {
+                    double key = bench_times[bi];
+                    int bj = bi - 1;
+                    while (bj >= 0 && bench_times[bj] > key) {
+                        bench_times[bj + 1] = bench_times[bj];
+                        bj--;
+                    }
+                    bench_times[bj + 1] = key;
+                }
+                double median = bench_count & 1 ? bench_times[bench_count / 2]
+                                                : .5 * (bench_times[bench_count / 2 - 1] +
+                                                        bench_times[bench_count / 2]);
+                fprintf(stderr,
+                        "bench: frames=%d min=%.3f median=%.3f max=%.3f mean=%.3f draws=%u "
+                        "gpu_finish=%.3f\n",
+                        bench_count, min, median, max, sum / bench_count,
+                        r3d_frame_stats().draws,
+                        (double)video_bench_finish_ns() / 1e6 / bench_count);
+                goto done;
+            }
+        }
         /* Discord presence: one cheap check a second, never in the race step. */
         if ((driving == 2 || driving == 5) && race_course[0]) {
             const char *mode = race_game_replaying(game)      ? "Replay"
