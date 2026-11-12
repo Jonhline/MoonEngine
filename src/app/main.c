@@ -4310,6 +4310,9 @@ int main(int argc, char **argv)
         video_vsync = settings.current.video.vsync;
     int race_preview = 0, race_active = 0, race_loading = 0, race_drive = 0, loading_preview = 0,
         bench_frames = 0, bench_started = 0, bench_count = 0, bench_frame_index = 0;
+    double bench_throughput_seconds = 0;
+    uint64_t bench_throughput_wall = 0, bench_throughput_cpu = 0, bench_throughput_frames = 0;
+    uint64_t bench_throughput_gpu = 0, bench_throughput_submits = 0;
     double *bench_times = NULL;
     double bench_gpu_first = 0, bench_gpu_last = 0;
     int race_return = 0;
@@ -4441,6 +4444,14 @@ int main(int argc, char **argv)
             if (!*argv[i] || *end || n < 0 || n > 100000)
                 return 2;
             bench_frames = (int)n;
+            continue;
+        }
+        if (!strcmp(argv[i], "--bench-throughput") && i + 1 < argc) {
+            char *end;
+            double sec = strtod(argv[++i], &end);
+            if (!*argv[i] || *end || sec <= 0 || sec > 600)
+                return 2;
+            bench_throughput_seconds = sec;
             continue;
         }
         if (!strcmp(argv[i], "--time-trial")) {
@@ -6884,13 +6895,26 @@ int main(int argc, char **argv)
             (!race_active && driving != 2) ||
             (race_active && (race_game_license_active(game) || race_game_mission_active(game))));
         video_set_menu_projection(!race_active && driving != 2);
-        if (bench_frames > 0 && !bench_started && driving == 2) {
+        if ((bench_frames > 0 || bench_throughput_seconds > 0) && !bench_started && driving == 2) {
             bench_started = 1;
             bench_freeze = 1;
-            bench_times = malloc((size_t)bench_frames * sizeof *bench_times);
-            video_set_bench_finish(1);
+            if (bench_frames > 0)
+                bench_times = malloc((size_t)bench_frames * sizeof *bench_times);
+            video_set_bench_finish(bench_frames > 0 ? 1 : 0);
             video_bench_reset();
-            fprintf(stderr, "bench: start frames=%d\n", bench_frames);
+            if (bench_throughput_seconds > 0) {
+                struct timespec ts;
+                clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
+                bench_throughput_cpu = (uint64_t)ts.tv_sec * 1000000000ull + ts.tv_nsec;
+                bench_throughput_wall = plat_time_ns();
+#ifdef MOON_PC_VULKAN
+                moon_vk_render_stats vk = moon_vk_render_statistics();
+                bench_throughput_gpu = vk.gpu_ns;
+                bench_throughput_submits = vk.submissions;
+#endif
+                fprintf(stderr, "bench: start throughput seconds=%.2f\n", bench_throughput_seconds);
+            } else
+                fprintf(stderr, "bench: start frames=%d\n", bench_frames);
         }
         presentation_pregrid = (driving == 3 || driving == 4) && race_quick_project(proj);
         if (!presentation_pregrid)
@@ -7146,7 +7170,7 @@ int main(int argc, char **argv)
         SWP_POP();
         uint64_t bench_gpu_before = bench_started ? video_bench_finish_ns() : 0;
         plat_video_end_frame();
-        if (bench_started && bench_frame_start) {
+        if (bench_started && bench_frame_start && bench_frames > 0) {
             bench_frame_index++;
             double gpu_frame = (video_bench_finish_ns() - bench_gpu_before) / 1e6;
             if (bench_frame_index > 30) {
@@ -7185,6 +7209,31 @@ int main(int argc, char **argv)
                 if (median > 0 && (bench_times[p90i] - bench_times[p10i]) / median > .05)
                     fprintf(stderr, "bench: spread=%.1f%% note=clock/swapchain/caches still vary\n",
                             100.0 * (bench_times[p90i] - bench_times[p10i]) / median);
+                goto done;
+            }
+        }
+        if (bench_throughput_seconds > 0 && bench_started) {
+            bench_throughput_frames++;
+            uint64_t wall_now = plat_time_ns();
+            double elapsed = (wall_now - bench_throughput_wall) / 1e9;
+            if (elapsed >= bench_throughput_seconds) {
+                struct timespec ts;
+                clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
+                uint64_t cpu_now = (uint64_t)ts.tv_sec * 1000000000ull + ts.tv_nsec;
+                double cpu_ms = (cpu_now - bench_throughput_cpu) / 1e6 / bench_throughput_frames;
+                double gpu_ms = 0;
+                uint64_t submits = bench_throughput_submits;
+#ifdef MOON_PC_VULKAN
+                moon_vk_render_stats vk = moon_vk_render_statistics();
+                gpu_ms = (vk.gpu_ns - bench_throughput_gpu) / 1e6;
+                submits = vk.submissions - bench_throughput_submits;
+#endif
+                fprintf(stderr,
+                        "throughput: frames=%llu seconds=%.3f fps=%.1f cpu_per_frame=%.3f "
+                        "gpu_total=%.3f submits=%llu waits=0\n",
+                        (unsigned long long)bench_throughput_frames, elapsed,
+                        bench_throughput_frames / elapsed, cpu_ms, gpu_ms,
+                        (unsigned long long)submits);
                 goto done;
             }
         }
