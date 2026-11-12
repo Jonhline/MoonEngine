@@ -209,6 +209,7 @@ int r3d_resident_reflections(void)
 }
 #endif
 static r3d_stats frame_stats;
+static unsigned measure_light_frames, measure_light_draws, measure_light_sum, measure_light_max;
 static r3d_totals completed_work;
 static void accumulate_work(r3d_totals *total, const r3d_stats *view)
 {
@@ -244,7 +245,7 @@ static struct {
     GLint skinned, palette, morph, morph_color, colorop, colormul, coloradd, valpha;
     GLint fog, fogcol, grade_rgb, grade;
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
-    GLint material_shading, skip_material_light, measure_no_env;
+    GLint material_shading, skip_material_light, measure_no_env, measure_no_spec;
     GLint night_sky, authored_night;
     GLint car_lamp_count,car_lamp_position,car_lamp_direction,car_lamp_color;
     GLint lamp_lens;
@@ -561,6 +562,7 @@ int r3d_available(void)
     UNI(material_shading, "u_material_shading");
     UNI(skip_material_light, "u_skip_material_light");
     UNI(measure_no_env, "u_measure_no_env");
+    UNI(measure_no_spec, "u_measure_no_spec");
     UNI(hdr,"u_hdr");
     UNI(daylight, "u_daylight");
     UNI(authored_environment,"u_authored_environment");
@@ -1427,6 +1429,12 @@ void r3d_environment_changed(void)
 
 void r3d_end(void)
 {
+    if (getenv("MOON_MEASURE_LIGHTS") && measure_light_draws) {
+        if (++measure_light_frames % 60 == 0)
+            fprintf(stderr, "render: lights max=%u avg=%.2f draws=%u\n", measure_light_max,
+                    (double)measure_light_sum / measure_light_draws, measure_light_draws);
+        measure_light_draws = measure_light_sum = measure_light_max = 0;
+    }
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
     glDisable(GL_POLYGON_OFFSET_FILL);
@@ -1789,6 +1797,10 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
         if (cap >= 0 && cap < n)
             n = cap;
     }
+    measure_light_draws++;
+    measure_light_sum += (unsigned)n;
+    if ((unsigned)n > measure_light_max)
+        measure_light_max = (unsigned)n;
     glUniform1i(U.nlights, n);
     glUniform1i(U.local_lights, n ? lights->authored_local : 0);
     glUniform1f(U.lvertex, n ? lights->vertex_limit : 0);
@@ -1844,6 +1856,7 @@ static void draw_mesh(r3d_mesh *mesh, const r3d_view *view, const r3d_lights *li
 
     glUniform1i(U.modern_lighting, pc_submission.modern_lighting && view->modern_light && !view->ghost && !view->shadow);
     glUniform1i(U.measure_no_env, getenv("MOON_MEASURE_NO_ENV") != NULL);
+    glUniform1i(U.measure_no_spec, getenv("MOON_MEASURE_NO_SPEC") != NULL);
 #endif
     glUniform1f(U.shadow_alpha, view->shadow_alpha > 0 ? view->shadow_alpha : .55f);
     glUniform3fv(U.shadow_rgb, 1, view->shadow_rgb);

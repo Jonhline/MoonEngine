@@ -56,7 +56,7 @@
 "   float d=a2/(3.14159265*pow(nh*nh*(a2-1.)+1.,2.));\n"
 "   float smith=.5/max(nl*sqrt(nv*nv*(1.-a2)+a2)+nv*sqrt(nl*nl*(1.-a2)+a2),1e-5);\n"
 "   vec3 f=f0+(1.-f0)*pow(1.-vh,5.);\n"
-"   vec3 diffuse=u_specular_only==1?vec3(0.):(1.-f)*base/3.14159265;vec3 spec=d*smith*f;\n"
+"   vec3 diffuse=u_specular_only==1?vec3(0.):(1.-f)*base/3.14159265;vec3 spec=u_measure_no_spec==1?vec3(0.):d*smith*f;\n"
 "   float scale=solar?1.:u_lvertex>0.?1./u_lvertex:1.;vec3 sunTint=vec3(1.);if(u_daylight==0&&u_local_lights==0&&i==0&&l.y>0.){float mass=1./max(l.y,.08);vec3 trans=exp(-vec3(.0428,.1,.24414)*mass);sunTint=trans/max(dot(trans,vec3(.2126,.7152,.0722)),1e-4);}\n"
 "   result+=(diffuse*(solar?daylightDirect():max(u_ldif[i],vec3(0.)))+spec*(solar?daylightDirect():max(u_lspe[i],vec3(0.)))*u_lspec_scale)*nl*(u_local_lights==1?1.:visibility)*(solar?cloudSunVisibility(v_shadow_world):1.)*scale*3.14159265*sunTint;\n"
 "   float sky=.5+.5*n.y;vec3 skyTint=mix(vec3(.85,.78,.68),vec3(.78,.88,1.),sky);\n"
