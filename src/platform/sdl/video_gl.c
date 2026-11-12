@@ -125,6 +125,7 @@ static GLuint fbo, color_rb, depth_rb;
 static int fb_w, fb_h;
 static GLuint scene_fbo, scene_color, scene_depth, scene_tex, scene_resolve;
 static int scene_w, scene_h, scene_samples, scene_active, output_w, output_h;
+static int scene_scale_percent = 100, scene_quality_antialiasing, scene_quality_render_scale;
 static int speed_blur, speed_blur_amount, speed_vignette, speed_post_warned;
 static float speed_level;
 static GLuint speed_program, speed_fbo, speed_tex, speed_vao, speed_vbo;
@@ -1080,8 +1081,18 @@ int video_fsr_available(void)
 
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
 static int scene_antialiasing, scene_render_scale = 2, scene_size_limit;
+void video_set_scene_scale(int percent)
+{
+    if (percent < 25) percent = 25;
+    if (percent > 200) percent = 200;
+    scene_scale_percent = percent;
+    video_scene_quality(scene_quality_antialiasing, scene_quality_render_scale);
+}
+
 void video_scene_quality(int antialiasing, int render_scale)
 {
+    scene_quality_antialiasing = antialiasing;
+    scene_quality_render_scale = render_scale;
     scene_size_limit = 0;
     scene_antialiasing = antialiasing >= 0 && antialiasing <= 4 ? antialiasing : 0;
     scene_render_scale = render_scale >= 0 && render_scale <= 2 ? render_scale : 2;
@@ -1153,6 +1164,12 @@ void video_begin_scene(void)
     }
 #endif
 #endif
+    if (scene_scale_percent != 100) {
+        w = (int)(output_w * (float)scene_scale_percent / 100.f + .5f);
+        h = (int)(output_h * (float)scene_scale_percent / 100.f + .5f);
+        if (w < 1) w = 1;
+        if (h < 1) h = 1;
+    }
     scene_upscale = mode;
     int hdr=0;
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
@@ -1217,6 +1234,7 @@ void video_begin_scene(void)
 #endif
         printf("scene: %dx%d -> %dx%d, MSAA %dx, %s\n", w, h, output_w, output_h, samples,
                mode ? "FSR 1" : "native");
+        fprintf(stderr, "settings: scene_scale=%d scene_target=%dx%d\n", scene_scale_percent, w, h);
 #ifdef __SWITCH__
         fprintf(stderr, "Switch scene: %dx%d -> %dx%d, samples=%d, linear upscale\n", w, h,
                 output_w, output_h, samples);

@@ -4654,6 +4654,7 @@ int main(int argc, char **argv)
             settings.current.speed_vignette, settings.current.speed_blur_amount);
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
     video_scene_quality(settings.current.antialiasing, settings.current.render_scale);
+    video_set_scene_scale(settings.current.scene_scale);
     r3d_texture_smoothing(settings.current.texture_smoothing);
     r3d_texture_filtering(settings.current.texture_filtering);
     r3d_car_shadows(settings.current.car_shadows);

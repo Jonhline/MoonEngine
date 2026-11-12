@@ -111,6 +111,7 @@ static void quality(const pc_video_options *v)
     video_ambient_occlusion(v->ambient_occlusion);
 #endif
     video_set_speed_post(v->speed_blur, v->speed_blur_amount, v->speed_vignette);
+    video_set_scene_scale(v->scene_scale);
 }
 
 static void apply_discord(video_settings *s)
@@ -146,6 +147,7 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     s->current.filter = 0;
     s->current.text = 0;
     s->current.render_scale = 2;
+    s->current.scene_scale = 100;
     s->current.antialiasing = 4;
     s->current.texture_filtering = 3;
     s->current.car_shadows = 1;
@@ -238,6 +240,14 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
 #if !defined(__ANDROID__)
     s->current.antialiasing = moon_options_int(&s->store, "graphics.antialiasing", enhanced ? 4 : 0, 0, 4);
     s->current.render_scale = moon_options_int(&s->store, "graphics.render_scale", 2, 0, 2);
+    {
+        const char *raw = moon_options_get(&s->store, "graphics.scene_scale", "100");
+        char *end = NULL;
+        long pct = strtol(raw, &end, 10);
+        if (end && *end == '%')
+            end++;
+        s->current.scene_scale = (!*raw || (end && *end) || pct < 25 || pct > 200) ? 100 : (int)pct;
+    }
     s->current.texture_smoothing =
         moon_options_int(&s->store, "graphics.texture_smoothing", 0, 0, 1);
     s->current.texture_filtering = moon_options_int(&s->store, "graphics.texture_filtering", enhanced ? 3 : 0, 0, 4);
@@ -354,6 +364,11 @@ static void save(video_settings *s)
     }
 #endif
     moon_options_set(&s->store,"interface.preview_mode",v->preview_mode ? "benchmark" : "before_after");
+    {
+        char scale[16];
+        snprintf(scale, sizeof scale, "%d", v->scene_scale);
+        moon_options_set(&s->store, "graphics.scene_scale", scale);
+    }
     moon_options_set(&s->store,"interface.preset_tools",v->preset_tools ? "1" : "0");
     moon_options_set(&s->store,"interface.save_transfer_tools",v->save_tools ? "1" : "0");
     {

@@ -55,6 +55,7 @@ void video_set_fill_window(int enabled);
 int video_fill_window(void);
 /* Sense-of-speed post pass (PC only): radial blur amount 0..100, vignette 0/1. */
 void video_set_speed_post(int blur, int amount, int vignette);
+void video_set_scene_scale(int percent);
 /* 0..1 per-frame level for the existing blur/vignette pass; 0 leaves it off. */
 void video_set_speed_level(float level);
 /* Current offscreen frame target (the main FBO), for diagnostics. */

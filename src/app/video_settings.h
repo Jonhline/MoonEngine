@@ -27,6 +27,7 @@ typedef struct {
     int field_size;        /* total field when phantoms are on (conductor..MOON_MAX_CARS) */
     int discord_presence;
     int preview_mode; /* 0 before/after, 1 benchmark */
+    int scene_scale; /* 3D target scale in percent, 25..200 */
 #ifdef __ANDROID__
     int touch_menu;
     moon_mobile_options mobile;
