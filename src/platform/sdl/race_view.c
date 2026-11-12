@@ -1725,6 +1725,14 @@ void race_view_set_wheels(race_view *v, const float wheels[4][3])
         memcpy(v->wheel_pose, wheels, sizeof v->wheel_pose);
 }
 
+void race_view_set_opponent_wheel_spin(race_view *v, int i, float degrees)
+{
+    if (!v || i < 0 || i >= OPPONENTS)
+        return;
+    for (int k = 0; k < 4; k++)
+        v->other_pose[i].interval[k] = degrees;
+}
+
 void race_view_set_wheel_motion(race_view *v, unsigned entry, const float current[4],
                                 const float previous[4], float interpolation)
 {

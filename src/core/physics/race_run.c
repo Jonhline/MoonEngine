@@ -97,6 +97,7 @@ struct gt4_race_run {
     float phantom_cap[MOON_MAX_PHANTOMS];
     float phantom_accel_peak, phantom_accel_prev_kmh;
     unsigned phantom_accel_peak_frame;
+    float phantom_ground_max;
     int phantom_contact_logged[MOON_MAX_PHANTOMS];
     int course_grid_count;
     gt4_grid course_grid[64];
@@ -1036,12 +1037,14 @@ fail:
 }
 
 static void native_phantom_pace_report(gt4_race_run *r);
+static void native_phantom_ground_report(gt4_race_run *r);
 
 void gt4_race_run_close(gt4_race_run *r)
 {
     if (!r)
         return;
     native_phantom_pace_report(r);
+    native_phantom_ground_report(r);
     if (gt4_phys_specdb == &r->db)
         gt4_phys_specdb = NULL;
     if (gt4_phys_mem == r->ram)
@@ -1737,6 +1740,7 @@ static void elim_end(gt4_race_run *r, int winner)
     fprintf(stderr, "custom modes: winner id=%d %s\n", winner,
             winner >= 0 && r->entrant_name[winner][0] ? r->entrant_name[winner] : "UNKNOWN DRIVER");
     native_phantom_pace_report(r);
+    native_phantom_ground_report(r);
     fprintf(stderr, "custom modes: race over, winner=%d player_eliminated=%d\n", winner,
             r->eliminated[0]);
 }
@@ -2049,6 +2053,12 @@ static void native_phantom_pace_report(gt4_race_run *r)
             r->phantom_pace_max, r->phantom_pace_violations);
 }
 
+static void native_phantom_ground_report(gt4_race_run *r)
+{
+    if (r && r->native_phantoms && r->phantom_count)
+        fprintf(stderr, "phantom ground: max_dy=%.3f\n", r->phantom_ground_max);
+}
+
 static void native_phantoms_step(gt4_race_run *r)
 {
     if (!r || !r->native_phantoms || !r->phantom_count)
@@ -2169,6 +2179,14 @@ static void native_phantoms_step(gt4_race_run *r)
         r->native[i].pos[0] = p0[0] - dz * r->native[i].lateral;
         r->native[i].pos[1] = p0[1];
         r->native[i].pos[2] = p0[2] + dx * r->native[i].lateral;
+        uint32_t ground_car = gt4_race_run_car(r, 0);
+        if (ground_car) {
+            float ground_y = GT4_F32(ground_car + CAR_POSITION + 4);
+            float dy = fabsf(r->native[i].pos[1] - ground_y);
+            if (dy > r->phantom_ground_max)
+                r->phantom_ground_max = dy;
+            r->native[i].pos[1] = ground_y;
+        }
         uint32_t player_car = gt4_race_run_car(r, 0);
         float px = 0, pz = 0;
         if (player_car && gt4_race_run_xy(r, 0, &px, &pz)) {
@@ -2436,6 +2454,13 @@ int gt4_race_run_pose(const gt4_race_run *r, int i, float pos[3], float rot[9], 
         return 0;
     return pose_car(gt4_race_run_car(r, i), r->travel0[i], pos, rot, wheels);
 }
+float gt4_race_run_phantom_speed(const gt4_race_run *r, int i)
+{
+    if (!r || i < 0 || i >= r->phantom_count || !r->native_phantoms)
+        return 0;
+    return r->native[i].speed;
+}
+
 int gt4_race_run_phantom_pose(const gt4_race_run *r, int i, float pos[3], float rot[9],
                               float wheels[4][3])
 {

@@ -129,6 +129,7 @@ int race_view_phantom_draws(void);
    it. */
 void race_view_set_opponent(race_view *v, int i, const float pos[3], const float rot[9],
                             const float wheels[4][3]);
+void race_view_set_opponent_wheel_spin(race_view *v, int i, float degrees);
 /* opponent i drawn see-through at alpha (the Time Trial's ghost); 0 opaque */
 void race_view_set_ghost(race_view *v, int i, float alpha);
 /* Where a car's shadow lies and how the ground under it is lit: entry 0

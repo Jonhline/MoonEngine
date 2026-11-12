@@ -3009,8 +3009,12 @@ static void publish_photo_poses(race_game *g)
             update_wheel_motion(g, i, rot);
         }
     for (int j = 0; j < gt4_race_run_phantom_count(g->run); j++)
-        if (gt4_race_run_phantom_pose(g->run, j, pos, rot, wheels))
+        if (gt4_race_run_phantom_pose(g->run, j, pos, rot, wheels)) {
             race_view_set_opponent(g->view, g->others + j, pos, rot, wheels);
+            float speed = gt4_race_run_phantom_speed(g->run, j);
+            race_view_set_opponent_wheel_spin(g->view, g->others + j,
+                                              speed / .3f * (180.f / 3.14159265f) / 60.f);
+        }
     if (licence_exam_run(g) && !g->ghost_car && !g->split) {
         unsigned frame = gt4_race_run_frames(g->run);
         float now[LIC_SAMPLE];
