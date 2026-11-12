@@ -703,7 +703,7 @@ static int studio_tweaks_parity(void)
     app_video_settings->tweaks_open = saved;
     return ok;
 }
-/* P: Load and Save Preset are buttons (they open a file window), not choices */
+/* P: Import and Export Preset are buttons (they open a file window), not choices */
 static int studio_row_button(int id)
 {
     return id == -4 || id >= 3000;
@@ -711,7 +711,7 @@ static int studio_row_button(int id)
 static const char *studio_row_label(int id)
 {
     if (id == -4) return "Open Music Folder";
-    if (id>=3000) return id==3000 ? "Load Preset" : "Save Preset";
+    if (id>=3000) return id==3000 ? "Import preset..." : "Export preset...";
     if (id == -1)
         return "Theme";
     if (id == -2)
@@ -728,7 +728,7 @@ static const char *studio_row_help(int id)
 {
     if (id == -4) return "Open Music Folder: Add WAV, MP3, FLAC, OGG or M4A files here, then reopen Jukebox.";
     static char line[192];
-    if (id>=3000) return app_video_settings && app_video_settings->message[0] ? app_video_settings->message : "Personal preset files: import, create, duplicate and export. Display and save paths stay local.";
+    if (id>=3000) return app_video_settings && app_video_settings->message[0] ? app_video_settings->message : "Import or export a personal preset file. Display and save paths stay local.";
     if (id == -1)
         return "Theme: The room in light or dark.";
     if (id == -2)

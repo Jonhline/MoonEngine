@@ -473,6 +473,11 @@ static const char *const vs_preset[] = {"Classic", "Enhanced", "Performance", "T
 #else
 #define VS_MENU_MODIFIED 4
 #endif
+#if VS_MENU_MODIFIED == 4
+#define VS_PRESET_CHOICES 5
+#else
+#define VS_PRESET_CHOICES (VS_MENU_MODIFIED + 1)
+#endif
 static const char *const vs_preview_mode[] = {"Before & After", "Benchmark"};
 static const char *const vs_fps[] = {"Off", "30 FPS", "60 FPS", "72 FPS", "120 FPS",
                                      "144 FPS", "165 FPS", "240 FPS", "Match Display"};
@@ -545,8 +550,8 @@ static const video_setting_info vs_info_values[VS_COUNT] = {
      vs_off_on},
     {"General", "PC Preset",
      "Classic: the PS2 game. Enhanced: the recommended improvements. Performance: Enhanced with the Fast shadow filter. Any change makes it Modified.",
-     3, vs_preset},
-    {"Video", "Frame Limit", "The most frames drawn a second.", 7, vs_fps},
+     VS_PRESET_CHOICES, vs_preset},
+    {"Video", "Frame Limit", "The most frames drawn a second.", 9, vs_fps},
     {"Quality", "Anti-Aliasing", "Edge AA smooths the final 3D image; SSAA renders extra pixels.", 5, vs_aa},
     {"Quality", "3D Resolution", "Scene resolution; menus and HUD keep their output resolution.", 3,
      vs_scale},
@@ -783,7 +788,7 @@ int video_setting_get(const video_settings *s, int i)
                                 strcmp(s->store.preset, "Classic") != 0, 0, 1);
     case VS_PRESET: {
         int preset = video_settings_builtin_preset(s->store.preset);
-        return s->store.modified || preset < 0 ? 3 : preset;
+        return s->store.modified || preset < 0 ? VS_MENU_MODIFIED : preset;
     }
     case VS_FPS:
         for (int k = 0; k < 9; k++)
@@ -897,6 +902,15 @@ void video_setting_set(video_settings *s, int i, int value)
     case VS_PRESET: {
         /* as the Screen Settings page applies it: the registered PC options at the
            preset's values; host size, mode and the API are kept */
+#if VS_MENU_MODIFIED == 4
+        if (value == VS_MENU_MODIFIED) {
+            s->personal_preset[0] = 0;
+            s->preset_draft = -1;
+            s->store.modified = 1;
+            save(s);
+            return;
+        }
+#endif
         s->personal_preset[0]=0;
         video_settings_preset_values(v, value);
         fprintf(stderr, "settings: preset=%s modern_lighting=%d material_shading=%d\n",
@@ -1308,7 +1322,7 @@ static const char *hints[] = {
     "Advance daylight from simulation time; pause freezes it. No night.",
     "Floating-point scene, filmic resolve and bloom; UI remains SDR.",
     "Depth-occluded sun shafts; requires HDR and Daylight.",
-    "Show Load/Save Preset file actions. Off hides the optional tools.",
+    "Show Import/Export preset file actions. Off hides the optional tools.",
     "Show Export on the player profiles screen. Off restores its previous footer.",
     "Screen-space contact and cavity shading. Requires HDR and Daylight.",
     "Your own songs from the Music folder in the Jukebox, races and menus. Off keeps the disc's music only.",
@@ -2185,7 +2199,7 @@ void video_settings_attach(video_settings *s, menu *m)
 #endif
     const char *controller_tiles[] = {"Original", "By Player"};
     const char *const *lists[] = {
-        ratios, modes,  resolutions, filters, clarity, toggle, upscalers, toggle, presets,  toggle,
+        ratios, modes,  resolutions, filters, clarity, toggle, upscalers, toggle, presets,  vs_fps,
         toggle, toggle, toggle,      toggle,  toggle,  toggle, toggle,    vs_aa,  vs_scale, toggle, vs_texture_filtering, vs_car_shadows, vs_material_shading, vs_reflection_quality, vs_shadow_maps, vs_modern_lighting,vs_off_on,vs_hours,vs_cycle,vs_off_on,vs_rays,toggle,toggle,toggle,toggle,toggle,toggle,toggle,controller_tiles,toggle,toggle,vs_shadow_filter,vs_preview_mode};
     int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, VS_MENU_MODIFIED + 1, 9, 2, 2, 2, 2, 2, 2, 2, 5, 6, 2, 5, 2, 2, 3, 4, 2, 2, 25, 3, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 #ifdef __SWITCH__
@@ -2403,7 +2417,7 @@ void video_settings_attach(video_settings *s, menu *m)
         widen(preset_button,160);
         preset_button->x=104+i*176;
         preset_button->y=305;
-        text(ui_widget_child(preset_button,"label"),i ? "Save Preset..." : "Load Preset...");
+        text(ui_widget_child(preset_button,"label"),i ? "Export preset..." : "Import preset...");
         ui_widget_append(pane,preset_button);
         menu_native_method(m,preset_button,"onActivate",preset_file_action,s);
         menu_native_method(m,preset_button,"onKeyPress",preset_button_key,s);
