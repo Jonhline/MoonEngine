@@ -274,6 +274,27 @@ void Context::reset_submission()
                             pass_draws[i], pass_labels[i].c_str());
             }
             pass_frames++;
+            if (getenv("MOON_GPU_PROFILE") && pass_frames % 30 == 0) {
+                auto sum = [&](const char *name, uint64_t *draws) {
+                    auto it = pass_totals.find(name);
+                    if (it == pass_totals.end()) { if (draws) *draws = 0; return 0.0; }
+                    if (draws) *draws = it->second.second;
+                    return it->second.first / 1e6;
+                };
+                uint64_t ds = 0, dt = 0, dc = 0, du = 0;
+                double shadow = sum("shadow", &ds), track = sum("track", &dt),
+                       car = sum("car", &dc), ui = sum("ui", &du),
+                       post = sum("post", nullptr), blit = sum("blit", nullptr);
+                double total = shadow + track + car + ui + post + blit;
+                fprintf(stderr,
+                        "gpu: shadow=%.3f track=%.3f car=%.3f ui=%.3f post=%.3f blit=%.3f "
+                        "total=%.3f | draws shadow=%llu track=%llu car=%llu ui=%llu\n",
+                        shadow, track, car, ui, post, blit, total,
+                        (unsigned long long)ds, (unsigned long long)dt,
+                        (unsigned long long)dc, (unsigned long long)du);
+                pass_totals.clear();
+                pass_frames = 0;
+            }
         }
         pass_labels.clear();
         pass_draws.clear();
@@ -1013,11 +1034,13 @@ extern "C" int moon_vk_render_open(SDL_Window *window, int vsync)
         check(vkCreateDescriptorSetLayout(c.device, &layout, nullptr, &c.descriptors),
               "vkCreateDescriptorSetLayout");
         c.open_pipeline_cache();
-        if (getenv("MOON_VK_PROFILE_PASSES") && c.timestamp_bits) {
+        if ((getenv("MOON_VK_PROFILE_PASSES") || getenv("MOON_GPU_PROFILE")) && c.timestamp_bits) {
             VkQueryPoolCreateInfo query{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
             query.queryType = VK_QUERY_TYPE_TIMESTAMP;
             query.queryCount = 4096;
             check(vkCreateQueryPool(c.device, &query, nullptr, &c.pass_queries), "pass timestamps");
+        } else if (getenv("MOON_GPU_PROFILE")) {
+            fprintf(stderr, "gpu: timestamps unsupported on this queue; GPU profile disabled\n");
         }
         c.open_submission();
         c.swap_submission();

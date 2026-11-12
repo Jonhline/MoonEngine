@@ -512,6 +512,7 @@ int plat_video_init(const plat_video_desc *d)
     u_text2d = glGetUniformLocation(program2d, "text_sharpness");
     glGenVertexArrays(1, &vao2d);
     glGenBuffers(1, &vbo2d);
+    moon_vk_gpu_mark("ui");
     glBindVertexArray(vao2d);
     glBindBuffer(GL_ARRAY_BUFFER, vbo2d);
     glBufferData(GL_ARRAY_BUFFER, sizeof batch, NULL, GL_STREAM_DRAW);
@@ -586,6 +587,7 @@ void video_flush2d(void)
     }
     nbatch = 0;
     SWP_POP();
+    moon_vk_gpu_mark("ui_end");
     if (bucket_start)
         video_profile_bucket(VIDEO_BUCKET_UI, plat_time_ns() - bucket_start);
 }
@@ -818,8 +820,10 @@ void plat_video_end_frame(void)
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     int preview_w, preview_h;
     graphics_size(window, &preview_w, &preview_h);
+    moon_vk_gpu_mark("blit");
     glBlitFramebuffer(0, 0, fb_w, fb_h, 0, 0, preview_w, preview_h, GL_COLOR_BUFFER_BIT,
                       GL_NEAREST);
+    moon_vk_gpu_mark("blit_end");
     if (present_start)
         video_profile_bucket(VIDEO_BUCKET_PRESENT, plat_time_ns() - present_start);
     if (bench_finish || profile_frames) {
@@ -1355,9 +1359,11 @@ void video_end_scene(void)
 #endif
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
     if ((speed_blur || speed_vignette) && speed_level > 0.0001f) {
+        moon_vk_gpu_mark("post");
         GLuint posted = speed_post_apply(resolved, scene_w, scene_h);
         if (posted)
             resolved = posted;
+        moon_vk_gpu_mark("post_end");
     }
 #endif
     int source_w = scene_w, source_h = scene_h;

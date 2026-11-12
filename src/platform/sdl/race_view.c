@@ -13,6 +13,7 @@
 #endif
 #include "switch_render.h"
 #include "video_gl.h"
+#include "vk_render.h"
 #ifdef _WIN32
 /* Windows calling-convention aliases collide with course field names. */
 #undef near
@@ -2716,8 +2717,10 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
     v->mapped_shadow_ready = 0;
     r3d_shadow_map_bind(NULL);
     if (!pregrid) {
+        moon_vk_gpu_mark("shadow");
         prepare_lamp_shadow(v, &car);
         prepare_shadow_map(v, &car, split_entry);
+        moon_vk_gpu_mark("shadow_end");
     }
 #endif
 
@@ -2726,6 +2729,7 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
        is (A: the pass that does it is not read) */
     if (!menu && v->grade_on)
         memcpy(world.grade, v->grade, sizeof world.grade);
+    moon_vk_gpu_mark("track");
     if (v->gpu_env && v->env_ok
 #if !defined(__SWITCH__)
         && r3d_resident_reflections()
@@ -2813,6 +2817,8 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
     car_lights = NULL;
     /* 00340950 +564/+59C: camera car requests 16, other cars 1. */
     car.brake = v->now->pilot[0].brake;
+    moon_vk_gpu_mark("track_end");
+    moon_vk_gpu_mark("car");
     uint64_t car_start = plat_time_ns();
     if (!pregrid && v->now->car && (split_entry || !v->hide_car)) {
         draw_car(v, v->now, &v->mine, v->now->car, v->now->surface, &car, &v->shadow[0],
@@ -2845,6 +2851,7 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
         }
     }
     video_profile_bucket(VIDEO_BUCKET_CAR, plat_time_ns() - car_start);
+    moon_vk_gpu_mark("car_end");
     uint64_t tail_start = plat_time_ns();
     /* the backfire's flames after the cars, added over them */
     if (!pregrid && v->now->car && (split_entry || !v->hide_car) && v->flame_on[0])

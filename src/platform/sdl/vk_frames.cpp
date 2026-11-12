@@ -120,6 +120,13 @@ extern "C" void moon_vk_render_pass_report(void)
         fprintf(stderr, "  %8.3f ms %6.1f draws  %s\n", r.first / 1e6 / c.pass_frames,
                 (double)c.pass_totals[r.second].second / c.pass_frames, r.second.c_str());
 }
+extern "C" void moon_vk_gpu_mark(const char *label)
+{
+    if (moon_vk_render_active() && label) {
+        moon::context().begin();
+        moon::context().pass_mark(label);
+    }
+}
 extern "C" void moon_vk_render_pass_reset(void)
 {
     if (moon_vk_render_active()) {

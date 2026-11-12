@@ -23,6 +23,7 @@ void moon_vk_render_low_latency(int enabled);
 /* MOON_VK_PROFILE_PASSES: GPU time per pass since the last reset, to stderr. */
 void moon_vk_render_pass_report(void);
 void moon_vk_render_pass_reset(void);
+void moon_vk_gpu_mark(const char *label);
 int moon_vk_render_vsync(int enabled);
 typedef struct {
     uint64_t submissions, passes, draws, readbacks;
