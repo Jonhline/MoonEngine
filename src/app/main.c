@@ -4284,8 +4284,9 @@ int main(int argc, char **argv)
     int window_full = settings.current.video.fullscreen, upscale = settings.current.video.upscale,
         video_vsync = settings.current.video.vsync;
     int race_preview = 0, race_active = 0, race_loading = 0, race_drive = 0, loading_preview = 0,
-        bench_frames = 0, bench_started = 0, bench_count = 0;
+        bench_frames = 0, bench_started = 0, bench_count = 0, bench_frame_index = 0;
     double *bench_times = NULL;
+    double bench_gpu_first = 0, bench_gpu_last = 0;
     int race_return = 0;
     int pre_race_preview = 0, quick_options = 0, quick_options_project = -1, race_time_trial = 0;
     int logger_track = -1;     /* the Logger's Load Track waiting for labomode's best lap */
@@ -7115,9 +7116,17 @@ int main(int argc, char **argv)
         }
         SWP_READY(car_ready && !loading_screen_active() && !race_loading);
         SWP_POP();
+        uint64_t bench_gpu_before = bench_started ? video_bench_finish_ns() : 0;
         plat_video_end_frame();
-        if (bench_started && bench_frame_start && bench_count < bench_frames) {
-            bench_times[bench_count++] = (plat_time_ns() - bench_frame_start) / 1e6;
+        if (bench_started && bench_frame_start) {
+            bench_frame_index++;
+            double gpu_frame = (video_bench_finish_ns() - bench_gpu_before) / 1e6;
+            if (bench_frame_index > 30) {
+                if (bench_count == 0)
+                    bench_gpu_first = gpu_frame;
+                bench_gpu_last = gpu_frame;
+                bench_times[bench_count++] = (plat_time_ns() - bench_frame_start) / 1e6;
+            }
             if (bench_count >= bench_frames) {
                 double sum = 0, min = bench_times[0], max = bench_times[0];
                 for (int bi = 0; bi < bench_count; bi++) {
@@ -7134,15 +7143,20 @@ int main(int argc, char **argv)
                     }
                     bench_times[bj + 1] = key;
                 }
+                int p10i = (bench_count - 1) * 10 / 100, p90i = (bench_count - 1) * 90 / 100;
                 double median = bench_count & 1 ? bench_times[bench_count / 2]
                                                 : .5 * (bench_times[bench_count / 2 - 1] +
                                                         bench_times[bench_count / 2]);
                 fprintf(stderr,
-                        "bench: frames=%d min=%.3f median=%.3f max=%.3f mean=%.3f draws=%u "
-                        "gpu_finish=%.3f\n",
-                        bench_count, min, median, max, sum / bench_count,
+                        "bench: frames=%d p10=%.3f median=%.3f p90=%.3f min=%.3f max=%.3f "
+                        "draws=%u gpu_finish=%.3f gpu_first=%.3f gpu_last=%.3f\n",
+                        bench_count, bench_times[p10i], median, bench_times[p90i], min, max,
                         r3d_frame_stats().draws,
-                        (double)video_bench_finish_ns() / 1e6 / bench_count);
+                        (double)video_bench_finish_ns() / 1e6 / bench_frame_index,
+                        bench_gpu_first, bench_gpu_last);
+                if (median > 0 && (bench_times[p90i] - bench_times[p10i]) / median > .05)
+                    fprintf(stderr, "bench: spread=%.1f%% note=clock/swapchain/caches still vary\n",
+                            100.0 * (bench_times[p90i] - bench_times[p10i]) / median);
                 goto done;
             }
         }
