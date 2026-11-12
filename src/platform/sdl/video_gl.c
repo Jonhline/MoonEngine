@@ -19,6 +19,7 @@
 #ifdef MOON_PC_VULKAN
 #include "vk_render.h"
 #endif
+#include "race_view.h"
 #include "fsr.h"
 #include "../common/frame_pacing.h"
 #if defined(__SWITCH__) || defined(MOON_SWITCH_RENDER_TEST)
@@ -790,11 +791,22 @@ void plat_video_end_frame(void)
         profile_total += plat_time_ns() - profile_start;
         profile_count++;
         if (profile_count == 30) {
+            moon_vk_render_stats vk = {0};
+#ifdef MOON_PC_VULKAN
+            if (moon_vk_render_active())
+                vk = moon_vk_render_statistics();
+#endif
             fprintf(stderr,
-                    "video profile: %.3f ms/frame, %.1f draws/frame, %.1f quads/frame, %.1f fps\n",
+                    "video profile: %.3f ms/frame, %.1f draws/frame, %.1f quads/frame, "
+                    "%.1f fps, cars=%d car_draws=%d pipeline_lookups=%llu pipeline_misses=%llu "
+                    "descriptor_builds=%llu\n",
                     profile_total / 1e6 / profile_count, (double)profile_draws / profile_count,
                     (double)profile_quads / profile_count,
-                    (profile_count - 1) * 1e9 / (profile_start - profile_window));
+                    (profile_count - 1) * 1e9 / (profile_start - profile_window),
+                    race_view_car_count(), race_view_car_draws(),
+                    (unsigned long long)vk.pipeline_lookups,
+                    (unsigned long long)vk.pipeline_misses,
+                    (unsigned long long)vk.descriptor_builds);
             profile_count = profile_draws = profile_quads = 0;
             profile_total = profile_window = 0;
         }

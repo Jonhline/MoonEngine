@@ -31,6 +31,7 @@ typedef struct {
     uint64_t cpu_prepare_ns, cpu_descriptors_ns, cpu_pipeline_ns, cpu_commands_ns;
     uint64_t frame_rotations, pipeline_cache_bytes;
     uint64_t gpu_ns, gpu_samples, fence_wait_ns, pipeline_ns, pipeline_creations;
+    uint64_t pipeline_lookups, pipeline_misses, descriptor_builds;
 } moon_vk_render_stats;
 moon_vk_render_stats moon_vk_render_statistics(void);
 #ifdef __cplusplus

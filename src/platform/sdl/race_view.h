@@ -125,6 +125,8 @@ int race_view_set_opponents(race_view *v, const char *const *cars, const int *co
 /* number of opponent cars (index 5 and up) actually submitted in the last
    scene draw; native phantom field instrumentation */
 int race_view_phantom_draws(void);
+int race_view_car_draws(void);
+int race_view_car_count(void);
 /* Other car i's pose and wheels as for the player's car; pos NULL hides
    it. */
 void race_view_set_opponent(race_view *v, int i, const float pos[3], const float rot[9],

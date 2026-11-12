@@ -47,8 +47,10 @@
 #define H 448
 
 #define OPPONENTS MOON_MAX_OPPONENTS
-static int phantom_draws;
+static int phantom_draws, car_draws, car_count;
 int race_view_phantom_draws(void) { return phantom_draws; }
+int race_view_car_draws(void) { return car_draws; }
+int race_view_car_count(void) { return car_count; }
 /* Debug switches, read once per name and scene: getenv scans the environment
    block and some were read for every car and course object of every frame. */
 static const char *rv_env_names[16];
@@ -2194,6 +2196,7 @@ static void draw_car(race_view *owner, const race_asset *env, const car_meshes *
                      const float brake_glow[4], int wheel_samples, float steering,
                      const gt4_pit_crew *pit, const driver_actor *pilot)
 {
+    car_draws++;
     r3d_lights lights;
     r3d_view lit = *seen;
     const r3d_view *car = &lit;
@@ -2602,6 +2605,8 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
                           float h)
 {
     phantom_draws = 0;
+    car_draws = 0;
+    car_count = v ? v->other_count + 1 : 0;
     rv_env_count = 0;
     if (!v || !v->now)
         return 0;

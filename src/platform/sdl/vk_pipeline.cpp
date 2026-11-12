@@ -338,6 +338,7 @@ VkPipeline pipeline(Context &c, Program &p, VkRenderPass pass, GLenum topology)
             key[20 + i * 3] = attribute_format(a);
             key[21 + i * 3] = a.stride;
         }
+    c.statistics.pipeline_lookups++;
     if (p.last_pipeline && p.last_key == key)
         return p.last_pipeline;
     auto found = p.pipelines.find(key);
@@ -346,6 +347,7 @@ VkPipeline pipeline(Context &c, Program &p, VkRenderPass pass, GLenum topology)
         p.last_pipeline = found->second;
         return found->second;
     }
+    c.statistics.pipeline_misses++;
     VkPipelineShaderStageCreateInfo stages[2]{};
     stages[0].sType = stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -502,6 +504,7 @@ VkDescriptorSet Context::draw_descriptors(const Program &p)
     VkDescriptorSet set;
     check(vkAllocateDescriptorSets(device, &allocation, &set), "vkAllocateDescriptorSets");
     descriptor_count++;
+    statistics.descriptor_builds++;
     VkDescriptorBufferInfo uniform_buffer{arena.handle, 0, p.values.size()};
     std::array<VkWriteDescriptorSet, 9> writes{};
     /* Unused shader bindings need no descriptor write. Course materials use
