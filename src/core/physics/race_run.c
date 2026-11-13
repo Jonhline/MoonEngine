@@ -420,7 +420,7 @@ static void make_phantoms(gt4_race_run *r, const gt4_race_desc *d)
         w32(entry + 0x347c, 1);
         r->phantom_entry[i] = entry;
         r->phantom_car[i] = car;
-        if (d->phantom_car[i]) {
+        if (d->phantom_car[i] && !getenv("MOON_PHANTOM_KEEP_OFFICIAL_CAR")) {
             if (!gt4_garage_new(entry + 0x20, d->phantom_car[i], &r->db, GARAGE_SCRATCH))
                 r->phantom_bad = 1;
             GT4_U8(entry + 0x38) = (uint8_t)d->phantom_color[i];
@@ -1368,11 +1368,22 @@ static void order_classification(gt4_race_run *r, int n)
                     GT4_F32(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_ABS_SPEED),
                     GT4_F32(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_SPEED));
             if (r->phantom_count && r->phantom_car[0])
-                fprintf(stderr, " ph0: spd=%.2f dist=%.1f pos=(%.0f,%.0f)",
+                fprintf(stderr,
+                        " ph0: spd=%.2f thr=%.2f/%.2f gear=%d dist=%.1f pos=(%.0f,%.0f)"
+                        " | off: thr=%.2f/%.2f gear=%d",
                         GT4_F32(r->phantom_car[0] + CAR_ABS_SPEED),
+                        GT4_F32(r->phantom_car[0] + CAR_BLOCK_THROTTLE_REQ),
+                        GT4_F32(r->phantom_car[0] + CAR_BLOCK_THROTTLE),
+                        (int)GT4_U8(r->phantom_car[0] + CAR_BLOCK_GEAR),
                         GT4_F32(r->phantom_car[0] + CAR_FIELD_COURSE_DISTANCE),
                         GT4_F32(r->phantom_car[0] + CAR_POSITION),
-                        GT4_F32(r->phantom_car[0] + CAR_POSITION + 8));
+                        GT4_F32(r->phantom_car[0] + CAR_POSITION + 8),
+                        GT4_F32(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_SIZE +
+                                CAR_BLOCK_THROTTLE_REQ),
+                        GT4_F32(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_SIZE +
+                                CAR_BLOCK_THROTTLE),
+                        (int)GT4_U8(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_SIZE +
+                                    CAR_BLOCK_GEAR));
             for (int k = 0; k < n; k++) {
                 const gt4_race_entrant *e = &r->entrants[r->class_order[k]];
                 fprintf(stderr, " | %d%s%d:%s lap=%d prog=%.1f", k + 1,
