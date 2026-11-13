@@ -1384,7 +1384,7 @@ static void order_classification(gt4_race_run *r, int n)
             if (r->phantom_count && r->phantom_car[0])
                 fprintf(stderr,
                         " ph0: spd=%.2f thr=%.2f/%.2f gear=%d dist=%.1f pos=(%.0f,%.0f)"
-                        " | off: thr=%.2f/%.2f gear=%d hdg=%.2f ph_hdg=%.2f",
+                        " | off: thr=%.2f/%.2f gear=%d hdg=%.2f ph_hdg=%.2f tq=%.0f/%.0f ph_tq=%.0f/%.0f",
                         GT4_F32(r->phantom_car[0] + CAR_ABS_SPEED),
                         GT4_F32(r->phantom_car[0] + CAR_POSITION + CAR_BLOCK_THROTTLE_REQ),
                         GT4_F32(r->phantom_car[0] + CAR_POSITION + CAR_BLOCK_THROTTLE),
@@ -1400,7 +1400,27 @@ static void order_classification(gt4_race_run *r, int n)
                                     CAR_POSITION + CAR_BLOCK_GEAR),
                         GT4_F32(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_SIZE +
                                 CAR_BLOCK_HEADING),
-                        GT4_F32(r->phantom_car[0] + CAR_BLOCK_HEADING));
+                        GT4_F32(r->phantom_car[0] + CAR_BLOCK_HEADING),
+                        GT4_F32(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_SIZE + CAR_ENGINE_TORQUE),
+                        GT4_F32(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_SIZE + CAR_CLUTCH_TORQUE),
+                        GT4_F32(r->phantom_car[0] + CAR_ENGINE_TORQUE),
+                        GT4_F32(r->phantom_car[0] + CAR_CLUTCH_TORQUE));
+            if (r->phantom_count && r->phantom_car[0]) {
+                uint32_t oc0 = r->cond + CONDUCTOR_FIELD_CARS_U + CAR_SIZE,
+                         pc0 = r->phantom_car[0];
+                fprintf(stderr, " tm off=%d ph=%d",
+                        (int)GT4_U8(oc0 + CAR_FIELD_THROTTLE_MODE),
+                        (int)GT4_U8(pc0 + CAR_FIELD_THROTTLE_MODE));
+                fprintf(stderr, " wheels off c=%d,%d,%d,%d | ph c=%d,%d,%d,%d",
+                        (int)GT4_U8(oc0 + CAR_WHEELS + WHEEL_CONTACT),
+                        (int)GT4_U8(oc0 + CAR_WHEELS + WHEEL_SIZE + WHEEL_CONTACT),
+                        (int)GT4_U8(oc0 + CAR_WHEELS + 2 * WHEEL_SIZE + WHEEL_CONTACT),
+                        (int)GT4_U8(oc0 + CAR_WHEELS + 3 * WHEEL_SIZE + WHEEL_CONTACT),
+                        (int)GT4_U8(pc0 + CAR_WHEELS + WHEEL_CONTACT),
+                        (int)GT4_U8(pc0 + CAR_WHEELS + WHEEL_SIZE + WHEEL_CONTACT),
+                        (int)GT4_U8(pc0 + CAR_WHEELS + 2 * WHEEL_SIZE + WHEEL_CONTACT),
+                        (int)GT4_U8(pc0 + CAR_WHEELS + 3 * WHEEL_SIZE + WHEEL_CONTACT));
+            }
             if (r->phantom_count && r->phantom_car[0]) {
                 uint32_t oc = r->cond + CONDUCTOR_FIELD_CARS_U + CAR_SIZE;
                 uint32_t pc = r->phantom_car[0];
@@ -2722,8 +2742,9 @@ int gt4_race_run_frame(gt4_race_run *r)
                started and the cars crawl. */
             w32(PHANTOM_COND + CONDUCTOR_FIELD_RACE_CLOCK_U,
                 GT4_U32(COND + CONDUCTOR_FIELD_RACE_CLOCK_U));
-            w32(PHANTOM_COND + CONDUCTOR_FIELD_RUNNING_CLOCK_U,
-                GT4_U32(COND + CONDUCTOR_FIELD_RUNNING_CLOCK_U));
+            if (!getenv("MOON_PHANTOM_NO_CLOCK_COPY"))
+                w32(PHANTOM_COND + CONDUCTOR_FIELD_RUNNING_CLOCK_U,
+                    GT4_U32(COND + CONDUCTOR_FIELD_RUNNING_CLOCK_U));
             if (!r->phantom_laps_set) {
                 uint16_t lap = GT4_U16(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_POSITION +
                                        CAR_BLOCK_LAP_COUNT);
