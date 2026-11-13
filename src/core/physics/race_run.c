@@ -506,6 +506,41 @@ static void make_phantoms(gt4_race_run *r, const gt4_race_desc *d)
                     GT4_F32(car + CAR_FIELD_COURSE_DISTANCE);
             }
         }
+        { /* The officials' grid stops at six; put each phantom on the
+             course's own line behind the rearmost official, not on an
+             extrapolated world-space row. */
+            int line = 6;
+            float len = native_course_length(COND);
+            float rear = 1e30f;
+            for (int k = 0; k < official; k++) {
+                float od = GT4_F32(COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)k * CAR_SIZE +
+                                   CAR_FIELD_COURSE_DISTANCE);
+                if (od < rear)
+                    rear = od;
+            }
+            float d = rear - (float)(i + 1) * 7.f;
+            float p[3], q[3];
+            if (len > 1.f)
+                while (d < 0.f)
+                    d += len;
+            if (gt4_line_course_point(r->cond + CONDUCTOR_FIELD_LINES_U, line, d, p) &&
+                gt4_line_course_point(r->cond + CONDUCTOR_FIELD_LINES_U, line, d + 3.f, q)) {
+                float pos[3] = {p[0], p[2], -p[1]};
+                float heading = atan2f(q[0] - p[0], -(q[2] - p[2]));
+                for (int k = 0; k < 3; k++) {
+                    GT4_F32(car + CAR_POSITION + (uint32_t)k * 4) = pos[k];
+                    GT4_F32(car + CAR_REF_A + (uint32_t)k * 4) = pos[k];
+                    GT4_F32(car + CAR_REF_B + (uint32_t)k * 4) = pos[k];
+                    GT4_F32(car + CAR_REF_A_PREV + (uint32_t)k * 4) = pos[k];
+                    GT4_F32(car + CAR_REF_B_PREV + (uint32_t)k * 4) = pos[k];
+                }
+                GT4_F32(car + CAR_BLOCK_HEADING) = heading;
+                GT4_F32(car + CAR_FIELD_COURSE_DISTANCE) = d;
+                GT4_F32(car + CAR_FIELD_PREVIOUS_COURSE_DISTANCE) = d;
+                fprintf(stderr, "phantom spawn: i=%d line=%d dist=%.2f lateral=0.000\n", i, line,
+                        d);
+            }
+        }
         for (int k = 0; k < 3; k++)
             r->phantom_start[i][k] = GT4_F32(car + CAR_POSITION + (uint32_t)k * 4);
         for (int k = 0; k < 3; k++) {
@@ -2386,6 +2421,12 @@ int gt4_race_run_frame(gt4_race_run *r)
             gt4_race_before_step(PHANTOM_RACE);
             gt4_step(r->phantom_cond, 0, STEP_BUF);
             gt4_race_after_step(PHANTOM_RACE);
+            for (int i = 0; i < r->phantom_count; i++) {
+                uint32_t car = r->phantom_car[i];
+                float pd = 0;
+                if (gt4_session(PHANTOM_COND, 0x108, car, 0, 0, 0, 0, &pd) && pd > 0)
+                    GT4_F32(car + CAR_FIELD_COURSE_DISTANCE) = pd;
+            }
             if (!official_release && !rolling)
                 phantom_hold_start(r);
             else if (!r->phantom_rolling_hold) {
@@ -2395,6 +2436,20 @@ int gt4_race_run_frame(gt4_race_run *r)
             phantom_contacts(r);
         }
         build_classification(r);
+        if (getenv("MOON_PHANTOM_POS_TRACE") && r->frames % 60 == 0) {
+            for (int i = 0; i < r->class_n; i++) {
+                gt4_race_entrant *e = &r->entrants[i];
+                uint32_t car = e->official ? r->cond + CONDUCTOR_FIELD_CARS_U +
+                                                (uint32_t)i * CAR_SIZE
+                                          : r->phantom_car[i - r->cars];
+                fprintf(stderr,
+                        "pos table: f=%u id=%d %s name=%s lap=%d dist=%.3f fin=%d "
+                        "merged=%d guest=%d\n",
+                        r->frames, i, e->official ? "official" : "phantom", e->name, e->laps,
+                        e->distance, e->finished, e->place,
+                        car ? (int)GT4_U8(car + CAR_FIELD_POSITION) : -1);
+            }
+        }
         elim_step(r);
         elim_hold(r);
     }
