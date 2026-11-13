@@ -150,6 +150,7 @@ struct gt4_race_run {
     int phantom_offset_set;
     int phantom_lap_base_i[MOON_MAX_PHANTOMS]; /* per-phantom lap offset */
     int phantom_lap_base_set;
+    int phantom_placed; /* the field's real poses exist; phantoms put down once */
     float phantom_last_dist[MOON_MAX_PHANTOMS];
     int phantom_last_lap[MOON_MAX_PHANTOMS];
     int legacy_recording;
@@ -518,68 +519,10 @@ static void make_phantoms(gt4_race_run *r, const gt4_race_desc *d)
                     GT4_F32(car + CAR_FIELD_COURSE_DISTANCE);
             }
         }
-        { /* Continue the officials' own grid formation behind their last
-             row, using the grid's own geometry: the two rearmost officials
-             are the last row, the two ahead of them give the row-to-row
-             step. No extra lateral offset - the original code added one and
-             pushed the phantoms off the road. */
-            uint32_t ord[4] = {0, 0, 0, 0};
-            float od[4] = {1e30f, 1e30f, 1e30f, 1e30f};
-            for (int k = 0; k < official && k < MOON_CONDUCTOR_CARS; k++) {
-                uint32_t c = COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)k * CAR_SIZE;
-                float v = GT4_F32(c + CAR_FIELD_COURSE_DISTANCE);
-                for (int j = 0; j < 4; j++)
-                    if (v < od[j]) {
-                        for (int m = 3; m > j; m--) {
-                            od[m] = od[m - 1];
-                            ord[m] = ord[m - 1];
-                        }
-                        od[j] = v;
-                        ord[j] = c;
-                        break;
-                    }
-            }
-            if (!ord[1])
-                ord[1] = ord[0];
-            if (!ord[2])
-                ord[2] = ord[0];
-            if (!ord[3])
-                ord[3] = ord[1];
-            uint32_t base_car = ord[0];
-            /* Back along the base car's OWN forward axis (the rotation
-               matrix's first column), not the row-to-row delta: the grid is
-               staggered, so two cars "ahead" are not one row ahead. */
-            float fx = GT4_F32(base_car + CAR_MATRIX), fz = GT4_F32(base_car + CAR_MATRIX + 8);
-            float fn = sqrtf(fx * fx + fz * fz);
-            if (!(fn > 1e-4f)) {
-                fx = 0.f;
-                fz = -1.f;
-                fn = 1.f;
-            }
-            fx /= fn;
-            fz /= fn;
-            /* Single file behind the last car, alternating half a car
-               width either side of its centre line. */
-            float back = 7.f * (float)(i + 1), lat = (i & 1) ? 2.5f : -2.5f;
-            float pos[3] = {GT4_F32(base_car + CAR_POSITION) - fx * back - fz * lat,
-                            GT4_F32(base_car + CAR_POSITION + 4),
-                            GT4_F32(base_car + CAR_POSITION + 8) - fz * back + fx * lat};
-            float heading = atan2f(fx, -fz);
-            for (int k = 0; k < 3; k++) {
-                GT4_F32(car + CAR_POSITION + (uint32_t)k * 4) = pos[k];
-                GT4_F32(car + CAR_REF_A + (uint32_t)k * 4) = pos[k];
-                GT4_F32(car + CAR_REF_B + (uint32_t)k * 4) = pos[k];
-                GT4_F32(car + CAR_REF_A_PREV + (uint32_t)k * 4) = pos[k];
-                GT4_F32(car + CAR_REF_B_PREV + (uint32_t)k * 4) = pos[k];
-            }
-            GT4_F32(car + CAR_BLOCK_HEADING) = heading;
-            GT4_F32(car + CAR_FIELD_COURSE_DISTANCE) = od[0] - back;
-            GT4_F32(car + CAR_FIELD_PREVIOUS_COURSE_DISTANCE) = GT4_F32(car + CAR_FIELD_COURSE_DISTANCE);
-            fprintf(stderr,
-                    "phantom spawn: i=%d back=%.1f lat=%.1f fwd=(%.2f,%.2f) "
-                    "pos=(%.1f,%.1f,%.1f) heading=%.2f dist=%.1f\n",
-                    i, back, lat, fx, fz, pos[0], pos[1], pos[2], heading,
-                    GT4_F32(car + CAR_FIELD_COURSE_DISTANCE));
+        { /* Placement is deferred to the first frame that has the field's
+             real poses (place_phantoms); a standing start has not put the
+             cars on the ground when make_phantoms runs, which is why the
+             phantoms did not appear at all. */
         }
         for (int k = 0; k < 3; k++)
             r->phantom_start[i][k] = GT4_F32(car + CAR_POSITION + (uint32_t)k * 4);
@@ -2433,6 +2376,62 @@ static void native_phantoms_step(gt4_race_run *r)
         native_phantom_pace_report(r);
 }
 
+/* Put the phantoms down on the first frame where the player's car really
+   has a pose. A standing start has not placed the field when make_phantoms
+   runs, so anything computed there is against zeros - that is why the
+   phantoms were invisible on standing-start tracks. Single file behind the
+   player, along the player's own forward axis. */
+static void place_phantoms(gt4_race_run *r)
+{
+    if (!r || r->phantom_placed || r->phantom_count <= 0)
+        return;
+    uint32_t pc = COND + CONDUCTOR_FIELD_CARS_U;
+    float px = GT4_F32(pc + CAR_POSITION), py = GT4_F32(pc + CAR_POSITION + 4),
+          pz = GT4_F32(pc + CAR_POSITION + 8);
+    if (!(fabsf(px) + fabsf(pz) > 1.f))
+        return;
+    float fx = GT4_F32(pc + CAR_MATRIX), fz = GT4_F32(pc + CAR_MATRIX + 8);
+    float fn = sqrtf(fx * fx + fz * fz);
+    if (!(fn > 1e-4f)) {
+        fx = 0.f;
+        fz = -1.f;
+        fn = 1.f;
+    }
+    fx /= fn;
+    fz /= fn;
+    float pd = GT4_F32(pc + CAR_FIELD_COURSE_DISTANCE);
+    float heading = atan2f(fx, -fz);
+    for (int i = 0; i < r->phantom_count; i++) {
+        uint32_t car = r->phantom_car[i];
+        float back = 7.f * (float)(i + 1), lat = (i & 1) ? 2.5f : -2.5f;
+        float pos[3] = {px - fx * back - fz * lat, py, pz - fz * back + fx * lat};
+        for (int k = 0; k < 3; k++) {
+            GT4_F32(car + CAR_POSITION + (uint32_t)k * 4) = pos[k];
+            GT4_F32(car + CAR_REF_A + (uint32_t)k * 4) = pos[k];
+            GT4_F32(car + CAR_REF_B + (uint32_t)k * 4) = pos[k];
+            GT4_F32(car + CAR_REF_A_PREV + (uint32_t)k * 4) = pos[k];
+            GT4_F32(car + CAR_REF_B_PREV + (uint32_t)k * 4) = pos[k];
+            r->phantom_start[i][k] = pos[k];
+            r->phantom_refs[i][k] = pos[k];
+            r->phantom_refs[i][3 + k] = pos[k];
+            r->phantom_refs[i][6 + k] = pos[k];
+            r->phantom_refs[i][9 + k] = pos[k];
+        }
+        GT4_F32(car + CAR_BLOCK_HEADING) = heading;
+        GT4_F32(car + CAR_FIELD_COURSE_DISTANCE) = pd - back;
+        GT4_F32(car + CAR_FIELD_PREVIOUS_COURSE_DISTANCE) = pd - back;
+        for (int k = 0; k < 18; k++)
+            r->phantom_matrix[i][k] = GT4_F32(car + CAR_MATRIX + (uint32_t)k * 4);
+        r->phantom_heading[i] = heading;
+        r->phantom_dist0[i] = pd - back;
+        r->phantom_last_dist[i] = pd - back;
+        fprintf(stderr,
+                "phantom place: i=%d back=%.1f lat=%.1f pos=(%.1f,%.1f,%.1f) dist=%.1f\n", i,
+                back, lat, pos[0], pos[1], pos[2], pd - back);
+    }
+    r->phantom_placed = 1;
+}
+
 static void phantom_hold_start(gt4_race_run *r)
 {
     for (int i = 0; i < r->phantom_count; i++) {
@@ -2502,6 +2501,7 @@ int gt4_race_run_frame(gt4_race_run *r)
             gt4_race_before_step(PHANTOM_RACE);
             gt4_step(r->phantom_cond, 0, STEP_BUF);
             gt4_race_after_step(PHANTOM_RACE);
+            place_phantoms(r);
             if (!r->phantom_laps_set) {
                 uint16_t lap = GT4_U16(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_POSITION +
                                        CAR_BLOCK_LAP_COUNT);
