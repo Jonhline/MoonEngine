@@ -2520,20 +2520,26 @@ static void place_phantoms(gt4_race_run *r)
        official - searched over the WHOLE lap, because the same parameter
        window one lap away looks similar and put them on the far side of the
        circuit - then step back along the line. */
-    int line = 6;
+    int line = -1;
     float base = pd, clen = native_course_length(COND);
     {
         float best = 1e30f;
-        if (clen > 1.f) {
-            for (float t = 0.f; t < clen; t += 2.f) {
-                float q[3];
-                if (!gt4_line_course_point(COND + CONDUCTOR_FIELD_LINES_U, 6, t, q))
-                    continue;
-                float dx = q[0] - px, dz = -q[1] - pz;
-                float d2 = dx * dx + dz * dz;
-                if (d2 < best) {
-                    best = d2;
-                    base = t;
+        int lines = gt4_ai_line_table_count(COND + CONDUCTOR_FIELD_LINES_U);
+        if (clen > 1.f && lines > 0) {
+            for (int ln = 0; ln < lines; ln++) {
+                if (ln == 4)
+                    continue; /* the pit line */
+                for (float t = 0.f; t < clen; t += 2.f) {
+                    float q[3];
+                    if (!gt4_line_course_point(COND + CONDUCTOR_FIELD_LINES_U, ln, t, q))
+                        continue;
+                    float dx = q[0] - px, dz = -q[1] - pz;
+                    float d2 = dx * dx + dz * dz;
+                    if (d2 < best) {
+                        best = d2;
+                        base = t;
+                        line = ln;
+                    }
                 }
             }
         }
