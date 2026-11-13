@@ -2477,39 +2477,31 @@ static void place_phantoms(gt4_race_run *r)
     float pspd = GT4_F32(pc + CAR_SPEED), pvx = GT4_F32(pc + CAR_VELOCITY),
           pvz = GT4_F32(pc + CAR_VELOCITY + 8);
     /* The road curves, so stacking the phantoms along a straight line from
-       the last car puts the far ones in the grass. Follow the course's own
-       line: pick the table+parameter whose point is nearest the rearmost
-       official, then step BACK along that line for each phantom. */
-    int line = -1;
+       the last car puts the far ones in the grass. The game itself places
+       cars with func_0034C518 = the course's LINE 6 at a distance, so find
+       the line-6 parameter whose world point is nearest the rearmost
+       official - searched over the WHOLE lap, because the same parameter
+       window one lap away looks similar and put them on the far side of the
+       circuit - then step back along the line. */
+    int line = 6;
     float base = pd, clen = native_course_length(COND);
     {
-        int tables = gt4_ai_line_table_count(COND + CONDUCTOR_FIELD_LINES_U);
         float best = 1e30f;
-        for (int tb = 0; tb < tables; tb++) {
-            if (tb == 4)
-                continue; /* line 4 is the pit line, not the racing line */
-            for (float t = pd - 40.f; t <= pd + 40.f; t += 2.f) {
-                float tt = t;
-                if (clen > 1.f) {
-                    while (tt < 0.f)
-                        tt += clen;
-                    while (tt >= clen)
-                        tt -= clen;
-                }
+        if (clen > 1.f) {
+            for (float t = 0.f; t < clen; t += 2.f) {
                 float q[3];
-                if (!gt4_line_course_point(COND + CONDUCTOR_FIELD_LINES_U, tb, tt, q))
+                if (!gt4_line_course_point(COND + CONDUCTOR_FIELD_LINES_U, 6, t, q))
                     continue;
                 float dx = q[0] - px, dz = -q[1] - pz;
                 float d2 = dx * dx + dz * dz;
                 if (d2 < best) {
                     best = d2;
-                    base = tt;
-                    line = tb;
+                    base = t;
                 }
             }
         }
-        if (best > 30.f * 30.f)
-            line = -1; /* nothing near enough: use the straight-line fallback */
+        if (!(clen > 1.f) || best > 60.f * 60.f)
+            line = -1; /* no usable line here: straight-line fallback */
     }
     for (int i = 0; i < r->phantom_count; i++) {
         uint32_t car = r->phantom_car[i];
@@ -2586,9 +2578,9 @@ static void place_phantoms(gt4_race_run *r)
         }
         float gdx = pos[0] - px, gdz = pos[2] - pz;
         fprintf(stderr,
-                "phantom place: i=%d line=%d back=%.1f gap=%.1f rolling=%d "
+                "phantom place: i=%d line=%d base=%.1f pd=%.1f back=%.1f gap=%.1f rolling=%d "
                 "pos=(%.1f,%.1f,%.1f) world_gap=%.1f dist=%.1f\n",
-                i, line, back, gap, rolling, pos[0], pos[1], pos[2],
+                i, line, base, pd, back, gap, rolling, pos[0], pos[1], pos[2],
                 sqrtf(gdx * gdx + gdz * gdz), pd - back);
     }
     r->phantom_placed = 1;
@@ -2664,6 +2656,14 @@ int gt4_race_run_frame(gt4_race_run *r)
             gt4_step(r->phantom_cond, 0, STEP_BUF);
             gt4_race_after_step(PHANTOM_RACE);
             place_phantoms(r);
+            /* The phantom conductor needs the same race clocks as the real
+               one every frame, not only while a standing start is held:
+               with a stopped clock its AI drives as if the race has not
+               started and the cars crawl. */
+            w32(PHANTOM_COND + CONDUCTOR_FIELD_RACE_CLOCK_U,
+                GT4_U32(COND + CONDUCTOR_FIELD_RACE_CLOCK_U));
+            w32(PHANTOM_COND + CONDUCTOR_FIELD_RUNNING_CLOCK_U,
+                GT4_U32(COND + CONDUCTOR_FIELD_RUNNING_CLOCK_U));
             if (!r->phantom_laps_set) {
                 uint16_t lap = GT4_U16(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_POSITION +
                                        CAR_BLOCK_LAP_COUNT);
