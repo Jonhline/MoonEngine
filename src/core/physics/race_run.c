@@ -1315,6 +1315,18 @@ static float entrant_progress(int laps, float distance, float length)
     return (float)laps * len + distance;
 }
 
+/* The phantom conductor sometimes reports a zero course distance for a frame
+   while its lap word still says the same lap (the lap counter and the
+   distance wrap disagree between the two conductors). Rank on the best
+   progress a car has been seen at, so one stale read cannot swap places. */
+static float entrant_progress_hold(gt4_race_entrant *e, float length)
+{
+    float p = entrant_progress(e->laps, e->distance, length);
+    if (p > e->progress)
+        e->progress = p;
+    return e->progress;
+}
+
 static int entrant_cmp(const gt4_race_entrant *a, const gt4_race_entrant *b)
 {
     if (a->eliminated != b->eliminated)
@@ -1425,7 +1437,7 @@ static void build_classification(gt4_race_run *r)
                 e->cond = GT4_U32(car + CAR_SESSION);
                 e->laps = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
                 e->distance = GT4_F32(car + CAR_POSITION + CAR_BLOCK_COURSE_DISTANCE);
-            e->progress = entrant_progress(e->laps, e->distance, course_len);
+            e->progress = entrant_progress_hold(e, course_len);
                 e->live_rank = (int8_t)GT4_U8(car + CAR_FIELD_POSITION);
                 if (GT4_U8(car + CAR_5B6) && !r->finish_seen[i]) {
                     r->finish_seen[i] = 1;
@@ -1493,7 +1505,7 @@ static void build_classification(gt4_race_run *r)
             e->laps = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT) -
                        r->phantom_lap_base;
             e->distance = GT4_F32(car + CAR_POSITION + CAR_BLOCK_COURSE_DISTANCE);
-            e->progress = entrant_progress(e->laps, e->distance, course_len);
+            e->progress = entrant_progress_hold(e, course_len);
             e->live_rank = (int8_t)GT4_U8(car + CAR_FIELD_POSITION);
         }
         e->eliminated = r->eliminated[i];
