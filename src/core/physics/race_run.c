@@ -314,6 +314,10 @@ static void make_phantoms(gt4_race_run *r, const gt4_race_desc *d)
     if (p < 1 || p > MOON_MAX_PHANTOMS)
         return;
     fprintf(stderr, "race: field_size=%d official=%d phantoms=%d\n", r->field_size, official, p);
+    fprintf(stderr, "race start: rolling=%d start_speed=%d start_distance=%d\n",
+            (int)GT4_U8(COND + CONDUCTOR_FIELD_CLOCK_STOPPED_U),
+            (int)GT4_U8(COND + CONDUCTOR_FIELD_START_SPEED_U),
+            (int)(int16_t)GT4_U16(COND + CONDUCTOR_FIELD_START_DISTANCE_U));
     if (p > 0 && getenv("MOON_PHANTOM_NATIVE")) {
         /* A/B fallback: native kinematics, not the guest conductor. */
         r->native_phantoms = 1;
