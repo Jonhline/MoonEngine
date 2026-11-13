@@ -148,6 +148,8 @@ struct gt4_race_run {
     float phantom_dist_offset; /* official distance scale minus the phantom
                                   conductor's own course-distance origin */
     int phantom_offset_set;
+    int phantom_lap_base_i[MOON_MAX_PHANTOMS]; /* per-phantom lap offset */
+    int phantom_lap_base_set;
     float phantom_last_dist[MOON_MAX_PHANTOMS];
     int phantom_last_lap[MOON_MAX_PHANTOMS];
     int legacy_recording;
@@ -512,92 +514,68 @@ static void make_phantoms(gt4_race_run *r, const gt4_race_desc *d)
                     GT4_F32(car + CAR_FIELD_COURSE_DISTANCE);
             }
         }
-        { /* Put each phantom behind the rearmost official, ON the course's
-             own line. The line's parameter is NOT the car's course distance
-             (different origin and scale), so find the line parameter whose
-             world point is nearest to the rearmost official and walk back
-             along the line from there. */
-            int line = -1, tables = gt4_ai_line_table_count(COND + CONDUCTOR_FIELD_LINES_U);
-            float len = native_course_length(COND);
-            float rear = 1e30f;
-            uint32_t rear_car = COND + CONDUCTOR_FIELD_CARS_U;
-            for (int k = 0; k < official; k++) {
+        { /* Continue the officials' own grid formation behind their last
+             row, using the grid's own geometry: the two rearmost officials
+             are the last row, the two ahead of them give the row-to-row
+             step. No extra lateral offset - the original code added one and
+             pushed the phantoms off the road. */
+            uint32_t ord[4] = {0, 0, 0, 0};
+            float od[4] = {1e30f, 1e30f, 1e30f, 1e30f};
+            for (int k = 0; k < official && k < MOON_CONDUCTOR_CARS; k++) {
                 uint32_t c = COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)k * CAR_SIZE;
-                float od = GT4_F32(c + CAR_FIELD_COURSE_DISTANCE);
-                if (od < rear) {
-                    rear = od;
-                    rear_car = c;
-                }
-            }
-            float rx = GT4_F32(rear_car + CAR_POSITION);
-            float rz = GT4_F32(rear_car + CAR_POSITION + 8);
-            float best = 1e30f, base = 0.f, seg = len > 1.f ? len / 480.f : 1.f;
-            for (int tb = 0; tb < tables; tb++) {
-                for (float t = 0; len > 1.f && t < len; t += seg) {
-                    float q[3];
-                    if (!gt4_line_course_point(COND + CONDUCTOR_FIELD_LINES_U, tb, t, q))
-                        continue;
-                    float dx = q[0] - rx, dz = -q[1] - rz;
-                    float d2 = dx * dx + dz * dz;
-                    if (d2 < best) {
-                        best = d2;
-                        base = t;
-                        line = tb;
+                float v = GT4_F32(c + CAR_FIELD_COURSE_DISTANCE);
+                for (int j = 0; j < 4; j++)
+                    if (v < od[j]) {
+                        for (int m = 3; m > j; m--) {
+                            od[m] = od[m - 1];
+                            ord[m] = ord[m - 1];
+                        }
+                        od[j] = v;
+                        ord[j] = c;
+                        break;
                     }
-                }
             }
-            if (line < 0)
-                line = 6;
-            /* Same lane as the grid: the racing line is not where a car
-               actually sits (measured 4.9 m off the rear official), so carry
-               the rear car's lateral offset from the line onto every
-               phantom. That puts them in the officials' column instead of
-               on the centre line. */
-            float pbase[3], qbase[3], nx = 0.f, nz = 0.f, lat = 0.f;
-            if (gt4_line_course_point(COND + CONDUCTOR_FIELD_LINES_U, line, base, pbase) &&
-                gt4_line_course_point(COND + CONDUCTOR_FIELD_LINES_U, line, base + 3.f, qbase)) {
-                float tx = qbase[0] - pbase[0], tz = pbase[1] - qbase[1];
-                float tn = sqrtf(tx * tx + tz * tz);
-                if (tn > 1e-4f) {
-                    nx = -tz / tn;
-                    nz = tx / tn;
-                    lat = (rx - pbase[0]) * nx + (rz + pbase[1]) * nz;
-                }
+            if (!ord[1])
+                ord[1] = ord[0];
+            if (!ord[2])
+                ord[2] = ord[0];
+            if (!ord[3])
+                ord[3] = ord[1];
+            uint32_t base_car = ord[0];
+            /* Back along the base car's OWN forward axis (the rotation
+               matrix's first column), not the row-to-row delta: the grid is
+               staggered, so two cars "ahead" are not one row ahead. */
+            float fx = GT4_F32(base_car + CAR_MATRIX), fz = GT4_F32(base_car + CAR_MATRIX + 8);
+            float fn = sqrtf(fx * fx + fz * fz);
+            if (!(fn > 1e-4f)) {
+                fx = 0.f;
+                fz = -1.f;
+                fn = 1.f;
             }
-            float d = base - (float)(i + 1) * 7.f;
-            float d2s = d + 3.f;
-            if (len > 1.f) {
-                while (d < 0.f)
-                    d += len;
-                while (d2s < 0.f)
-                    d2s += len;
-                if (d2s > len)
-                    d2s -= len;
+            fx /= fn;
+            fz /= fn;
+            /* Single file behind the last car, alternating half a car
+               width either side of its centre line. */
+            float back = 7.f * (float)(i + 1), lat = (i & 1) ? 2.5f : -2.5f;
+            float pos[3] = {GT4_F32(base_car + CAR_POSITION) - fx * back - fz * lat,
+                            GT4_F32(base_car + CAR_POSITION + 4),
+                            GT4_F32(base_car + CAR_POSITION + 8) - fz * back + fx * lat};
+            float heading = atan2f(fx, -fz);
+            for (int k = 0; k < 3; k++) {
+                GT4_F32(car + CAR_POSITION + (uint32_t)k * 4) = pos[k];
+                GT4_F32(car + CAR_REF_A + (uint32_t)k * 4) = pos[k];
+                GT4_F32(car + CAR_REF_B + (uint32_t)k * 4) = pos[k];
+                GT4_F32(car + CAR_REF_A_PREV + (uint32_t)k * 4) = pos[k];
+                GT4_F32(car + CAR_REF_B_PREV + (uint32_t)k * 4) = pos[k];
             }
-            float p[3], q[3];
-            if (gt4_line_course_point(r->cond + CONDUCTOR_FIELD_LINES_U, line, d, p) &&
-                gt4_line_course_point(r->cond + CONDUCTOR_FIELD_LINES_U, line, d2s, q)) {
-                float pos[3] = {p[0] + nx * lat, p[2], -p[1] + nz * lat};
-                float p1[3] = {q[0], q[2], -q[1]};
-                float hx = p1[0] - p[0], hz = p1[2] - (-p[1]);
-                float heading = (fabsf(hx) + fabsf(hz) > 1e-4f) ? atan2f(hx, -hz) : 0.f;
-                for (int k = 0; k < 3; k++) {
-                    GT4_F32(car + CAR_POSITION + (uint32_t)k * 4) = pos[k];
-                    GT4_F32(car + CAR_REF_A + (uint32_t)k * 4) = pos[k];
-                    GT4_F32(car + CAR_REF_B + (uint32_t)k * 4) = pos[k];
-                    GT4_F32(car + CAR_REF_A_PREV + (uint32_t)k * 4) = pos[k];
-                    GT4_F32(car + CAR_REF_B_PREV + (uint32_t)k * 4) = pos[k];
-                }
-                GT4_F32(car + CAR_BLOCK_HEADING) = heading;
-                GT4_F32(car + CAR_FIELD_COURSE_DISTANCE) = rear - (float)(i + 1) * 7.f;
-                GT4_F32(car + CAR_FIELD_PREVIOUS_COURSE_DISTANCE) =
-                    GT4_F32(car + CAR_FIELD_COURSE_DISTANCE);
-                float gdx = pos[0] - rx, gdz = pos[2] - rz;
-                fprintf(stderr,
-                        "phantom spawn: i=%d line=%d t=%.2f nearest=%.2f gap_to_rear=%.1f "
-                        "lateral=0.000\n",
-                        i, line, d, sqrtf(best), sqrtf(gdx * gdx + gdz * gdz));
-            }
+            GT4_F32(car + CAR_BLOCK_HEADING) = heading;
+            GT4_F32(car + CAR_FIELD_COURSE_DISTANCE) = od[0] - back;
+            GT4_F32(car + CAR_FIELD_PREVIOUS_COURSE_DISTANCE) = GT4_F32(car + CAR_FIELD_COURSE_DISTANCE);
+            fprintf(stderr,
+                    "phantom spawn: i=%d back=%.1f lat=%.1f fwd=(%.2f,%.2f) "
+                    "pos=(%.1f,%.1f,%.1f) heading=%.2f dist=%.1f\n",
+                    i, back, lat, fx, fz, pos[0], pos[1], pos[2], heading,
+                    GT4_F32(car + CAR_FIELD_COURSE_DISTANCE));
         }
         for (int k = 0; k < 3; k++)
             r->phantom_start[i][k] = GT4_F32(car + CAR_POSITION + (uint32_t)k * 4);
@@ -1510,7 +1488,8 @@ static void build_classification(gt4_race_run *r)
                 uint32_t car = r->phantom_car[i - official];
                 e->car = car;
                 e->cond = GT4_U32(car + CAR_SESSION);
-                e->laps = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
+                e->laps = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT) -
+                          r->phantom_lap_base_i[i - official];
                 e->distance = GT4_F32(car + CAR_POSITION + CAR_BLOCK_COURSE_DISTANCE) +
                               r->phantom_dist_offset;
             e->progress = entrant_progress_hold(e, course_len);
@@ -1579,7 +1558,7 @@ static void build_classification(gt4_race_run *r)
             e->finished = r->finish_seen[i];
             e->finish_time = r->finish_time[i];
             e->laps = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT) -
-                       r->phantom_lap_base;
+                       r->phantom_lap_base_i[i - official];
             e->distance = GT4_F32(car + CAR_POSITION + CAR_BLOCK_COURSE_DISTANCE) +
                           r->phantom_dist_offset;
             e->progress = entrant_progress_hold(e, course_len);
@@ -2537,6 +2516,18 @@ int gt4_race_run_frame(gt4_race_run *r)
                    one-frame zero. */
                 uint32_t car = r->phantom_car[i];
                 int lap = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
+                {
+                    /* Keep each phantom's lap word on the officials' scale:
+                       a phantom sitting on the start line crosses it on the
+                       first step and would otherwise report lap 1 while
+                       every official still reports lap 0 (it ranked 7th from
+                       the grid). The offset only ever grows. */
+                    int olap = (int16_t)GT4_U16(COND + CONDUCTOR_FIELD_CARS_U + CAR_POSITION +
+                                                CAR_BLOCK_LAP_COUNT);
+                    int diff = lap - olap;
+                    if (diff > r->phantom_lap_base_i[i])
+                        r->phantom_lap_base_i[i] = diff;
+                }
                 float d = GT4_F32(car + CAR_FIELD_COURSE_DISTANCE);
                 /* The phantom conductor's course distance has a different
                    origin from the officials' (measured 718 m where the grid
