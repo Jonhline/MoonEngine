@@ -451,6 +451,9 @@ static void make_phantoms(gt4_race_run *r, const gt4_race_desc *d)
             GT4_U32(obj + 0xe4) = PHANTOM_COND;
             GT4_U32(obj + 0xe8) = car;
             GT4_U32(obj + 0xec) = PHANTOM_COND + CONDUCTOR_FIELD_LINES_U;
+            GT4_U8(obj + 0x1c) = 6; /* the course's own line, as the officials use */
+            GT4_U8(obj + 0x1d) = 0;
+            GT4_U8(obj + 0x1e) = 2;
         }
         /* Continue the official grid's own formation behind its last row.
            The six officials are three two-car rows; the two back cars give
@@ -1398,6 +1401,15 @@ static void order_classification(gt4_race_run *r, int n)
                         GT4_F32(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_SIZE +
                                 CAR_BLOCK_HEADING),
                         GT4_F32(r->phantom_car[0] + CAR_BLOCK_HEADING));
+            if (r->phantom_count && r->phantom_car[0]) {
+                uint32_t oo = r->cond + CONDUCTOR_FIELD_CARS_U + CAR_SIZE + CAR_FIELD_DRIVER_MODEL;
+                uint32_t po = r->phantom_car[0] + CAR_FIELD_DRIVER_MODEL;
+                fprintf(stderr, " aiobj off: st=%d t24=%.1f t28=%.1f t34=%.2f g40=%d | ph: st=%d t24=%.1f t28=%.1f t34=%.2f g40=%d",
+                        GT4_U8(oo + 0x1e), GT4_F32(oo + 0x24), GT4_F32(oo + 0x28),
+                        GT4_F32(oo + 0x34), (int)(int8_t)GT4_U8(oo + 0x40),
+                        GT4_U8(po + 0x1e), GT4_F32(po + 0x24), GT4_F32(po + 0x28),
+                        GT4_F32(po + 0x34), (int)(int8_t)GT4_U8(po + 0x40));
+            }
             for (int k = 0; k < n; k++) {
                 const gt4_race_entrant *e = &r->entrants[r->class_order[k]];
                 fprintf(stderr, " | %d%s%d:%s lap=%d prog=%.1f", k + 1,
