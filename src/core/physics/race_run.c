@@ -87,6 +87,7 @@ struct gt4_race_run {
     int field_size;   /* the requested field, official cars plus phantoms */
     int phantom_count;
     int phantom_laps_set;
+    int phantom_rolling_hold;
     int phantom_bad;
     int native_phantoms;
     int phantom_line, phantom_line2, phantom_line_points;
@@ -1880,6 +1881,114 @@ static void contact_body_speed(uint32_t car, float vx, float vy)
     GT4_F32(car + CAR_ABS_SPEED) = sqrtf(vx * vx + vy * vy);
 }
 
+static float contact_hull_radius(uint32_t car)
+{
+    uint32_t p = GT4_U32(car + CAR_PARAMS);
+    float w = GT4_F32(p), hl = GT4_F32(p + 8) * .5f;
+    return sqrtf(w * w + hl * hl);
+}
+
+/* One cross-conductor pair. The guest solver only sees the six cars inside
+   one conductor; this is our box approximation for the pairs it cannot see. */
+static int phantom_contact_pair(gt4_race_run *r, uint32_t ca, uint32_t cb, int ia, int ib,
+                                const char *kind, float e)
+{
+    if (GT4_U8(ca + CAR_5B6) || GT4_U8(cb + CAR_5B6))
+        return 0;
+    float dx = GT4_F32(cb + CAR_POSITION) - GT4_F32(ca + CAR_POSITION);
+    float dy = GT4_F32(cb + CAR_POSITION + 4) - GT4_F32(ca + CAR_POSITION + 4);
+    float dz = GT4_F32(cb + CAR_POSITION + 8) - GT4_F32(ca + CAR_POSITION + 8);
+    if (fabsf(dz) > 2.f)
+        return 0;
+    float ra = contact_hull_radius(ca), rb = contact_hull_radius(cb);
+    float d = sqrtf(dx * dx + dy * dy);
+    if (d >= ra + rb || d < .05f)
+        return 0;
+    uint32_t params_a = GT4_U32(ca + CAR_PARAMS), params_b = GT4_U32(cb + CAR_PARAMS);
+    float hw_a = GT4_F32(params_a), hl_a = GT4_F32(params_a + 8) * .5f;
+    float hw_b = GT4_F32(params_b), hl_b = GT4_F32(params_b + 8) * .5f;
+    float afx = GT4_F32(ca + CAR_MATRIX), afz = GT4_F32(ca + CAR_MATRIX + 8);
+    float asx = GT4_F32(ca + CAR_MATRIX + 0xc), asz = GT4_F32(ca + CAR_MATRIX + 0x10);
+    float bfx = GT4_F32(cb + CAR_MATRIX), bfz = GT4_F32(cb + CAR_MATRIX + 8);
+    float bsx = GT4_F32(cb + CAR_MATRIX + 0xc), bsz = GT4_F32(cb + CAR_MATRIX + 0x10);
+    const float axes[4][2] = {{afx, afz}, {asx, asz}, {bfx, bfz}, {bsx, bsz}};
+    float best = 1e30f, nx = 0, ny = 0;
+    for (int k = 0; k < 4; k++) {
+        float ax = axes[k][0], ay = axes[k][1];
+        float al = sqrtf(ax * ax + ay * ay);
+        if (al < .001f)
+            continue;
+        ax /= al;
+        ay /= al;
+        float proj = fabsf(dx * ax + dy * ay);
+        float ea = hw_a * fabsf(afx * ax + afz * ay) + hl_a * fabsf(asx * ax + asz * ay);
+        float eb = hw_b * fabsf(bfx * ax + bfz * ay) + hl_b * fabsf(bsx * ax + bsz * ay);
+        float overlap = ea + eb - proj;
+        if (overlap <= 0)
+            return 0;
+        if (overlap < best) {
+            best = overlap;
+            nx = dx * ax + dy * ay >= 0 ? ax : -ax;
+            ny = dx * ax + dy * ay >= 0 ? ay : -ay;
+        }
+    }
+    float ob[3], pb[3];
+    for (int k = 0; k < 3; k++) {
+        ob[k] = GT4_F32(ca + CAR_POSITION + (uint32_t)k * 4);
+        pb[k] = GT4_F32(cb + CAR_POSITION + (uint32_t)k * 4);
+    }
+    for (int k = 0; k < 3; k++) {
+        float n = k == 0 ? nx : k == 1 ? ny : 0.f, half = n * best * .5f;
+        GT4_F32(ca + CAR_POSITION + (uint32_t)k * 4) = ob[k] - half;
+        GT4_F32(cb + CAR_POSITION + (uint32_t)k * 4) = pb[k] + half;
+        GT4_F32(ca + CAR_REF_A + (uint32_t)k * 4) -= half;
+        GT4_F32(ca + CAR_REF_B + (uint32_t)k * 4) -= half;
+        GT4_F32(ca + CAR_REF_A_PREV + (uint32_t)k * 4) -= half;
+        GT4_F32(ca + CAR_REF_B_PREV + (uint32_t)k * 4) -= half;
+        GT4_F32(cb + CAR_REF_A + (uint32_t)k * 4) += half;
+        GT4_F32(cb + CAR_REF_B + (uint32_t)k * 4) += half;
+        GT4_F32(cb + CAR_REF_A_PREV + (uint32_t)k * 4) += half;
+        GT4_F32(cb + CAR_REF_B_PREV + (uint32_t)k * 4) += half;
+    }
+    float vox = GT4_F32(ca + CAR_VELOCITY), voy = GT4_F32(ca + CAR_VELOCITY + 4);
+    float vpx = GT4_F32(cb + CAR_VELOCITY), vpy = GT4_F32(cb + CAR_VELOCITY + 4);
+    float vrel = (vpx - vox) * nx + (vpy - voy) * ny, impulse = 0;
+    if (vrel < 0) {
+        float mo = GT4_F32(params_a + 0x48), mp = GT4_F32(params_b + 0x48);
+        if (!(mo > 0))
+            mo = 1;
+        if (!(mp > 0))
+            mp = 1;
+        impulse = -(1.f + e) * vrel / (1.f / mo + 1.f / mp);
+        vox -= impulse / mo * nx;
+        voy -= impulse / mo * ny;
+        vpx += impulse / mp * nx;
+        vpy += impulse / mp * ny;
+        GT4_F32(ca + CAR_VELOCITY) = vox;
+        GT4_F32(ca + CAR_VELOCITY + 4) = voy;
+        GT4_F32(cb + CAR_VELOCITY) = vpx;
+        GT4_F32(cb + CAR_VELOCITY + 4) = vpy;
+        contact_body_speed(ca, vox, voy);
+        contact_body_speed(cb, vpx, vpy);
+    }
+    float dist = 0;
+    gt4_session(GT4_U32(ca + CAR_SESSION), 0x108, ca, 0, 0, 0, 0, &dist);
+    GT4_F32(ca + CAR_FIELD_COURSE_DISTANCE) = dist;
+    gt4_session(GT4_U32(cb + CAR_SESSION), 0x108, cb, 0, 0, 0, 0, &dist);
+    GT4_F32(cb + CAR_FIELD_COURSE_DISTANCE) = dist;
+    if (getenv("MOON_PHANTOM_CONTACT_TRACE"))
+        fprintf(stderr,
+                "phantom contact: pair=%s a=%d b=%d before=(%.3f,%.3f,%.3f)/(%.3f,%.3f,%.3f) "
+                "after=(%.3f,%.3f,%.3f)/(%.3f,%.3f,%.3f) dist=%.3f radii=%.3f+%.3f "
+                "vrel=%.3f impulse=%.3f e=%.3f\n",
+                kind, ia, ib, ob[0], ob[1], ob[2], pb[0], pb[1], pb[2],
+                GT4_F32(ca + CAR_POSITION), GT4_F32(ca + CAR_POSITION + 4),
+                GT4_F32(ca + CAR_POSITION + 8), GT4_F32(cb + CAR_POSITION),
+                GT4_F32(cb + CAR_POSITION + 4), GT4_F32(cb + CAR_POSITION + 8), d, ra, rb,
+                vrel, impulse, e);
+    return 1;
+}
+
 static void phantom_contacts(gt4_race_run *r)
 {
     if (!r || !r->phantom_count || r->native_phantoms)
@@ -1889,78 +1998,14 @@ static void phantom_contacts(gt4_race_run *r)
         e = 0.5f;
     for (int i = 0; i < r->cars; i++) {
         uint32_t co = r->cond + CONDUCTOR_FIELD_CARS_U + (uint32_t)i * CAR_SIZE;
-        if (GT4_U8(co + CAR_5B6))
-            continue;
-        for (int j = 0; j < r->phantom_count; j++) {
-            uint32_t cp = r->phantom_car[j];
-            if (GT4_U8(cp + CAR_5B6))
-                continue;
-            float dx = GT4_F32(cp + CAR_POSITION) - GT4_F32(co + CAR_POSITION);
-            float dy = GT4_F32(cp + CAR_POSITION + 4) - GT4_F32(co + CAR_POSITION + 4);
-            float dz = GT4_F32(cp + CAR_POSITION + 8) - GT4_F32(co + CAR_POSITION + 8);
-            if (fabsf(dz) > 2.f)
-                continue;
-            float d = sqrtf(dx * dx + dy * dy);
-            if (d >= 4.f || d < 0.05f)
-                continue;
-            float nx = dx / d, ny = dy / d, pen = 4.f - d;
-            float ob[3], pb[3];
-            for (int k = 0; k < 3; k++) {
-                ob[k] = GT4_F32(co + CAR_POSITION + (uint32_t)k * 4);
-                pb[k] = GT4_F32(cp + CAR_POSITION + (uint32_t)k * 4);
-            }
-            for (int k = 0; k < 3; k++) {
-                float n = k == 0 ? nx : k == 1 ? ny : 0.f, half = n * pen * 0.5f;
-                GT4_F32(co + CAR_POSITION + (uint32_t)k * 4) = ob[k] - half;
-                GT4_F32(cp + CAR_POSITION + (uint32_t)k * 4) = pb[k] + half;
-                GT4_F32(co + CAR_REF_A + (uint32_t)k * 4) -= half;
-                GT4_F32(co + CAR_REF_B + (uint32_t)k * 4) -= half;
-                GT4_F32(co + CAR_REF_A_PREV + (uint32_t)k * 4) -= half;
-                GT4_F32(co + CAR_REF_B_PREV + (uint32_t)k * 4) -= half;
-                GT4_F32(cp + CAR_REF_A + (uint32_t)k * 4) += half;
-                GT4_F32(cp + CAR_REF_B + (uint32_t)k * 4) += half;
-                GT4_F32(cp + CAR_REF_A_PREV + (uint32_t)k * 4) += half;
-                GT4_F32(cp + CAR_REF_B_PREV + (uint32_t)k * 4) += half;
-            }
-            float vox = GT4_F32(co + CAR_VELOCITY), voy = GT4_F32(co + CAR_VELOCITY + 4);
-            float vpx = GT4_F32(cp + CAR_VELOCITY), vpy = GT4_F32(cp + CAR_VELOCITY + 4);
-            float vrel = (vpx - vox) * nx + (vpy - voy) * ny, impulse = 0;
-            if (vrel < 0) {
-                float mo = GT4_F32(GT4_U32(co + CAR_PARAMS) + 0x48);
-                float mp = GT4_F32(GT4_U32(cp + CAR_PARAMS) + 0x48);
-                if (!(mo > 0))
-                    mo = 1;
-                if (!(mp > 0))
-                    mp = 1;
-                impulse = -(1.f + e) * vrel / (1.f / mo + 1.f / mp);
-                vox -= impulse / mo * nx;
-                voy -= impulse / mo * ny;
-                vpx += impulse / mp * nx;
-                vpy += impulse / mp * ny;
-                GT4_F32(co + CAR_VELOCITY) = vox;
-                GT4_F32(co + CAR_VELOCITY + 4) = voy;
-                GT4_F32(cp + CAR_VELOCITY) = vpx;
-                GT4_F32(cp + CAR_VELOCITY + 4) = vpy;
-                contact_body_speed(co, vox, voy);
-                contact_body_speed(cp, vpx, vpy);
-            }
-            float dist = 0;
-            gt4_session(COND, 0x108, co, 0, 0, 0, 0, &dist);
-            GT4_F32(co + CAR_FIELD_COURSE_DISTANCE) = dist;
-            gt4_session(PHANTOM_COND, 0x108, cp, 0, 0, 0, 0, &dist);
-            GT4_F32(cp + CAR_FIELD_COURSE_DISTANCE) = dist;
-            if (getenv("MOON_PHANTOM_CONTACT_TRACE"))
-                fprintf(stderr,
-                        "phantom contact: official=%d phantom=%d before=(%.3f,%.3f,%.3f)/"
-                        "(%.3f,%.3f,%.3f) after=(%.3f,%.3f,%.3f)/(%.3f,%.3f,%.3f) "
-                        "vrel=%.3f impulse=%.3f e=%.3f\n",
-                        i, j, ob[0], ob[1], ob[2], pb[0], pb[1], pb[2],
-                        GT4_F32(co + CAR_POSITION), GT4_F32(co + CAR_POSITION + 4),
-                        GT4_F32(co + CAR_POSITION + 8), GT4_F32(cp + CAR_POSITION),
-                        GT4_F32(cp + CAR_POSITION + 4), GT4_F32(cp + CAR_POSITION + 8), vrel,
-                        impulse, e);
-        }
+        for (int j = 0; j < r->phantom_count; j++)
+            phantom_contact_pair(r, co, r->phantom_car[j], i, j,
+                                 i == 0 ? "player-phantom" : "official-phantom", e);
     }
+    for (int i = 0; i < r->phantom_count; i++)
+        for (int j = i + 1; j < r->phantom_count; j++)
+            phantom_contact_pair(r, r->phantom_car[i], r->phantom_car[j], i, j,
+                                 "phantom-phantom", e);
 }
 
 static int native_pick_line(gt4_race_run *r)
@@ -2263,6 +2308,32 @@ static void native_phantoms_step(gt4_race_run *r)
         native_phantom_pace_report(r);
 }
 
+static void phantom_hold_start(gt4_race_run *r)
+{
+    for (int i = 0; i < r->phantom_count; i++) {
+        uint32_t car = r->phantom_car[i];
+        for (int k = 0; k < 3; k++) {
+            GT4_F32(car + CAR_POSITION + (uint32_t)k * 4) = r->phantom_start[i][k];
+            GT4_F32(car + CAR_REF_A + (uint32_t)k * 4) = r->phantom_refs[i][k];
+            GT4_F32(car + CAR_REF_B + (uint32_t)k * 4) = r->phantom_refs[i][3 + k];
+            GT4_F32(car + CAR_REF_A_PREV + (uint32_t)k * 4) = r->phantom_refs[i][6 + k];
+            GT4_F32(car + CAR_REF_B_PREV + (uint32_t)k * 4) = r->phantom_refs[i][9 + k];
+            GT4_F32(car + CAR_VELOCITY + (uint32_t)k * 4) = 0;
+        }
+        for (int k = 0; k < 18; k++)
+            GT4_F32(car + CAR_MATRIX + (uint32_t)k * 4) = r->phantom_matrix[i][k];
+        GT4_F32(car + CAR_BLOCK_HEADING) = r->phantom_heading[i];
+        GT4_F32(car + CAR_SPEED) = 0;
+        GT4_F32(car + CAR_LAT_SPEED) = 0;
+        GT4_F32(car + CAR_ABS_SPEED) = 0;
+        GT4_F32(car + CAR_FIELD_COURSE_DISTANCE) = r->phantom_dist0[i];
+    }
+    w32(PHANTOM_COND + CONDUCTOR_FIELD_RACE_CLOCK_U,
+        GT4_U32(COND + CONDUCTOR_FIELD_RACE_CLOCK_U));
+    w32(PHANTOM_COND + CONDUCTOR_FIELD_RUNNING_CLOCK_U,
+        GT4_U32(COND + CONDUCTOR_FIELD_RUNNING_CLOCK_U));
+}
+
 int gt4_race_run_frame(gt4_race_run *r)
 {
 #ifndef MOON_LEGACY_RECORDING
@@ -2311,34 +2382,15 @@ int gt4_race_run_frame(gt4_race_run *r)
                     r->phantom_laps_set = 1;
                 }
             }
+            int rolling = GT4_U8(r->cond + CONDUCTOR_FIELD_CLOCK_STOPPED_U) != 0;
             gt4_race_before_step(PHANTOM_RACE);
             gt4_step(r->phantom_cond, 0, STEP_BUF);
             gt4_race_after_step(PHANTOM_RACE);
-            if (!official_release) {
-                for (int i = 0; i < r->phantom_count; i++) {
-                    uint32_t car = r->phantom_car[i];
-                    for (int k = 0; k < 3; k++) {
-                        GT4_F32(car + CAR_POSITION + (uint32_t)k * 4) = r->phantom_start[i][k];
-                        GT4_F32(car + CAR_REF_A + (uint32_t)k * 4) = r->phantom_refs[i][k];
-                        GT4_F32(car + CAR_REF_B + (uint32_t)k * 4) = r->phantom_refs[i][3 + k];
-                        GT4_F32(car + CAR_REF_A_PREV + (uint32_t)k * 4) =
-                            r->phantom_refs[i][6 + k];
-                        GT4_F32(car + CAR_REF_B_PREV + (uint32_t)k * 4) =
-                            r->phantom_refs[i][9 + k];
-                        GT4_F32(car + CAR_VELOCITY + (uint32_t)k * 4) = 0;
-                    }
-                    for (int k = 0; k < 18; k++)
-                        GT4_F32(car + CAR_MATRIX + (uint32_t)k * 4) = r->phantom_matrix[i][k];
-                    GT4_F32(car + CAR_BLOCK_HEADING) = r->phantom_heading[i];
-                    GT4_F32(car + CAR_SPEED) = 0;
-                    GT4_F32(car + CAR_LAT_SPEED) = 0;
-                    GT4_F32(car + CAR_ABS_SPEED) = 0;
-                    GT4_F32(car + CAR_FIELD_COURSE_DISTANCE) = r->phantom_dist0[i];
-                }
-                w32(PHANTOM_COND + CONDUCTOR_FIELD_RACE_CLOCK_U,
-                    GT4_U32(COND + CONDUCTOR_FIELD_RACE_CLOCK_U));
-                w32(PHANTOM_COND + CONDUCTOR_FIELD_RUNNING_CLOCK_U,
-                    GT4_U32(COND + CONDUCTOR_FIELD_RUNNING_CLOCK_U));
+            if (!official_release && !rolling)
+                phantom_hold_start(r);
+            else if (!r->phantom_rolling_hold) {
+                phantom_hold_start(r);
+                r->phantom_rolling_hold = 1;
             }
             phantom_contacts(r);
         }
@@ -2761,15 +2813,19 @@ int gt4_race_run_shadow(const gt4_race_run *r, int i, float pos[3], float rot[9]
 
 int gt4_race_run_xy(const gt4_race_run *r, int i, float *x, float *y)
 {
+    uint32_t car;
     if (r && i >= r->cars) {
         int j = i - r->cars;
-        if (!r->native_phantoms || j < 0 || j >= r->phantom_count)
+        if (j < 0 || j >= r->phantom_count)
             return 0;
-        *x = r->native[j].pos[0];
-        *y = r->native[j].pos[2];
-        return r->native[j].finished ? 2 : 3;
-    }
-    uint32_t car = gt4_race_run_car(r, i);
+        if (r->native_phantoms) {
+            *x = r->native[j].pos[0];
+            *y = r->native[j].pos[2];
+            return r->native[j].finished ? 2 : 3;
+        }
+        car = r->phantom_car[j];
+    } else
+        car = gt4_race_run_car(r, i);
     if (!car)
         return 0;
     { /* func_00344798, func_00344828: the drawn position (+0x8A4, the
