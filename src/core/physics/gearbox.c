@@ -213,7 +213,7 @@ static int auto_gear(uint32_t car, int model)
         float top = ((float)(int32_t)(GT4_U16(params + PARAMS_ENGINE + ENGINE_REDLINE) + 500) *
                      K(0x3dd6774eu)) /
                     GT4_F32(drive + 0x68 + (uint32_t)gear * 4);
-        if (top < v)
+        if (top <= v + 0.05f)
             return gear + 1;
     }
 mode: {
