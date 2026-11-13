@@ -87,6 +87,7 @@ typedef struct {
     uint32_t finish_time;
     int laps;
     float distance;
+    float progress; /* laps * course length + distance: one ranking scale */
     int live_rank;
     int place;
 } gt4_race_entrant;

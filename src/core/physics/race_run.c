@@ -88,6 +88,7 @@ struct gt4_race_run {
     int phantom_count;
     int phantom_laps_set;
     int phantom_rolling_hold;
+    int phantom_lap_base;
     int phantom_bad;
     int native_phantoms;
     int phantom_line, phantom_line2, phantom_line_points;
@@ -144,6 +145,8 @@ struct gt4_race_run {
     float phantom_matrix[MOON_MAX_PHANTOMS][18];
     float phantom_heading[MOON_MAX_PHANTOMS];
     float phantom_dist0[MOON_MAX_PHANTOMS];
+    float phantom_last_dist[MOON_MAX_PHANTOMS];
+    int phantom_last_lap[MOON_MAX_PHANTOMS];
     int legacy_recording;
     unsigned frames;                /* display time since the start event, at 60 Hz */
     int aspec_points;               /* func_003C0FF8, computed after the entries start */
@@ -553,6 +556,8 @@ static void make_phantoms(gt4_race_run *r, const gt4_race_desc *d)
             r->phantom_matrix[i][k] = GT4_F32(car + CAR_MATRIX + (uint32_t)k * 4);
         r->phantom_heading[i] = GT4_F32(car + CAR_BLOCK_HEADING);
         r->phantom_dist0[i] = GT4_F32(car + CAR_FIELD_COURSE_DISTANCE);
+        r->phantom_last_dist[i] = r->phantom_dist0[i];
+        r->phantom_last_lap[i] = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
         {
             float ground = 0;
             for (int k = 0; k < 4; k++) {
@@ -1304,6 +1309,12 @@ int gt4_race_run_ghost_set(gt4_race_run *r, const uint8_t car[GT4_GHOST_CAR], ui
 /* The live order across the official and phantom conductors: each car's
    merged place goes to its own +0x5B3, nothing else. Runs after both steps
    so the phantom conductor's own positions cannot overwrite it. */
+static float entrant_progress(int laps, float distance, float length)
+{
+    float len = length > 1.f ? length : 1e6f;
+    return (float)laps * len + distance;
+}
+
 static int entrant_cmp(const gt4_race_entrant *a, const gt4_race_entrant *b)
 {
     if (a->eliminated != b->eliminated)
@@ -1323,10 +1334,8 @@ static int entrant_cmp(const gt4_race_entrant *a, const gt4_race_entrant *b)
         return -gt4_position_order_cross(a->cond, a->car + CAR_POSITION, b->cond,
                                          b->car + CAR_POSITION);
     }
-    if (a->laps != b->laps)
-        return a->laps > b->laps ? -1 : 1;
-    if (a->distance != b->distance)
-        return a->distance > b->distance ? -1 : 1;
+    if (a->progress != b->progress)
+        return a->progress > b->progress ? -1 : 1;
     return a->id < b->id ? -1 : a->id > b->id;
 }
 
@@ -1366,8 +1375,10 @@ static void order_classification(gt4_race_run *r, int n)
 static void build_classification(gt4_race_run *r)
 {
     int official, phantoms, n;
+    float course_len = 0;
     if (!r)
         return;
+    course_len = native_course_length(r->cond);
     if (r->class_frozen) {
         int official = (int)GT4_U32(r->cond + CONDUCTOR_FIELD_CAR_COUNT_U);
         int n = official + r->phantom_count;
@@ -1389,6 +1400,7 @@ static void build_classification(gt4_race_run *r)
                 e->cond = r->cond;
                 e->laps = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
                 e->distance = GT4_F32(car + CAR_POSITION + CAR_BLOCK_COURSE_DISTANCE);
+            e->progress = entrant_progress(e->laps, e->distance, course_len);
                 e->live_rank = (int8_t)GT4_U8(car + CAR_FIELD_POSITION);
                 if (GT4_U8(car + CAR_5B6) && !r->finish_seen[i]) {
                     r->finish_seen[i] = 1;
@@ -1403,6 +1415,7 @@ static void build_classification(gt4_race_run *r)
                 e->cond = 0;
                 e->laps = r->native[j].lap;
                 e->distance = r->native[j].dist;
+            e->progress = entrant_progress(e->laps, e->distance, course_len);
                 e->live_rank = 0;
                 e->finished = r->native[j].finished;
                 e->finish_time = r->native[j].finish_time;
@@ -1412,6 +1425,7 @@ static void build_classification(gt4_race_run *r)
                 e->cond = GT4_U32(car + CAR_SESSION);
                 e->laps = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
                 e->distance = GT4_F32(car + CAR_POSITION + CAR_BLOCK_COURSE_DISTANCE);
+            e->progress = entrant_progress(e->laps, e->distance, course_len);
                 e->live_rank = (int8_t)GT4_U8(car + CAR_FIELD_POSITION);
                 if (GT4_U8(car + CAR_5B6) && !r->finish_seen[i]) {
                     r->finish_seen[i] = 1;
@@ -1452,6 +1466,7 @@ static void build_classification(gt4_race_run *r)
             e->finish_time = r->finish_time[i];
             e->laps = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
             e->distance = GT4_F32(car + CAR_POSITION + CAR_BLOCK_COURSE_DISTANCE);
+            e->progress = entrant_progress(e->laps, e->distance, course_len);
             e->live_rank = (int8_t)GT4_U8(car + CAR_FIELD_POSITION);
         } else if (r->native_phantoms) {
             int j = i - official;
@@ -1461,6 +1476,7 @@ static void build_classification(gt4_race_run *r)
             e->finish_time = r->native[j].finish_time;
             e->laps = r->native[j].lap;
             e->distance = r->native[j].dist;
+            e->progress = entrant_progress(e->laps, e->distance, course_len);
             e->live_rank = 0;
         } else {
             uint32_t car = r->phantom_car[i - official];
@@ -1474,8 +1490,10 @@ static void build_classification(gt4_race_run *r)
             }
             e->finished = r->finish_seen[i];
             e->finish_time = r->finish_time[i];
-            e->laps = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
+            e->laps = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT) -
+                       r->phantom_lap_base;
             e->distance = GT4_F32(car + CAR_POSITION + CAR_BLOCK_COURSE_DISTANCE);
+            e->progress = entrant_progress(e->laps, e->distance, course_len);
             e->live_rank = (int8_t)GT4_U8(car + CAR_FIELD_POSITION);
         }
         e->eliminated = r->eliminated[i];
@@ -2408,24 +2426,39 @@ int gt4_race_run_frame(gt4_race_run *r)
         if (r->native_phantoms) {
             native_phantoms_step(r);
         } else {
-            if (!r->phantom_laps_set) {
-                uint16_t lap = GT4_U16(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_POSITION +
-                                       CAR_BLOCK_LAP_COUNT);
-                if (lap) {
-                    for (int i = 0; i < r->phantom_count; i++)
-                        GT4_U16(r->phantom_car[i] + CAR_POSITION + CAR_BLOCK_LAP_COUNT) = lap;
-                    r->phantom_laps_set = 1;
-                }
-            }
             int rolling = GT4_U8(r->cond + CONDUCTOR_FIELD_CLOCK_STOPPED_U) != 0;
             gt4_race_before_step(PHANTOM_RACE);
             gt4_step(r->phantom_cond, 0, STEP_BUF);
             gt4_race_after_step(PHANTOM_RACE);
+            if (!r->phantom_laps_set) {
+                uint16_t lap = GT4_U16(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_POSITION +
+                                       CAR_BLOCK_LAP_COUNT);
+                for (int i = 0; i < r->phantom_count; i++)
+                    GT4_U16(r->phantom_car[i] + CAR_POSITION + CAR_BLOCK_LAP_COUNT) = lap;
+                r->phantom_laps_set = 1;
+            }
             for (int i = 0; i < r->phantom_count; i++) {
                 uint32_t car = r->phantom_car[i];
                 float pd = 0;
                 if (gt4_session(PHANTOM_COND, 0x108, car, 0, 0, 0, 0, &pd) && pd > 0)
                     GT4_F32(car + CAR_FIELD_COURSE_DISTANCE) = pd;
+                int lap = (int16_t)GT4_U16(car + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
+                float d = GT4_F32(car + CAR_FIELD_COURSE_DISTANCE);
+                if (d == 0.f && lap == r->phantom_last_lap[i] &&
+                    r->phantom_last_dist[i] > 0.f)
+                    GT4_F32(car + CAR_FIELD_COURSE_DISTANCE) = r->phantom_last_dist[i];
+                else {
+                    r->phantom_last_lap[i] = lap;
+                    r->phantom_last_dist[i] = d;
+                }
+            }
+            if (!r->phantom_lap_base) {
+                uint16_t plap = GT4_U16(r->phantom_car[0] + CAR_POSITION + CAR_BLOCK_LAP_COUNT);
+                uint16_t olap = GT4_U16(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_POSITION +
+                                        CAR_BLOCK_LAP_COUNT);
+                if (plap > olap &&
+                    fabsf(GT4_F32(r->phantom_car[0] + CAR_FIELD_COURSE_DISTANCE)) < 1.f)
+                    r->phantom_lap_base = (int)plap - (int)olap;
             }
             if (!official_release && !rolling)
                 phantom_hold_start(r);
@@ -2436,18 +2469,21 @@ int gt4_race_run_frame(gt4_race_run *r)
             phantom_contacts(r);
         }
         build_classification(r);
-        if (getenv("MOON_PHANTOM_POS_TRACE") && r->frames % 60 == 0) {
+        if (getenv("MOON_PHANTOM_POS_TRACE") && r->frames % 30 == 0) {
+            float course_len = native_course_length(r->cond);
             for (int i = 0; i < r->class_n; i++) {
                 gt4_race_entrant *e = &r->entrants[i];
                 uint32_t car = e->official ? r->cond + CONDUCTOR_FIELD_CARS_U +
                                                 (uint32_t)i * CAR_SIZE
                                           : r->phantom_car[i - r->cars];
                 fprintf(stderr,
-                        "pos table: f=%u id=%d %s name=%s lap=%d dist=%.3f fin=%d "
-                        "merged=%d guest=%d\n",
+                        "pos table: f=%u id=%d %s name=%s lap=%d dist=%.3f len=%.3f "
+                        "total=%.3f fin=%d merged=%d guest=%d hud=%d\n",
                         r->frames, i, e->official ? "official" : "phantom", e->name, e->laps,
-                        e->distance, e->finished, e->place,
-                        car ? (int)GT4_U8(car + CAR_FIELD_POSITION) : -1);
+                        e->distance, course_len, e->progress, e->finished, e->place,
+                        car ? (int)GT4_U8(car + CAR_FIELD_POSITION) : -1,
+                        i == 0 ? (int)GT4_U8(r->cond + CONDUCTOR_FIELD_CARS_U +
+                                             CAR_FIELD_POSITION) : -1);
             }
         }
         elim_step(r);
