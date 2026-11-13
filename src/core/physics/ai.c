@@ -9,6 +9,8 @@
    speed, +0x2c blend toward the second line (0x21), +0x30 steering, +0x54
    the aim's lateral offset, +0xe4 session, +0xe8 car, +0xec the lines. */
 #include "car.h"
+#include <stdio.h>
+#include <stdlib.h>
 #include "fields_conductor.h"
 #include "assist_line.h"
 
@@ -759,6 +761,10 @@ void gt4_ai_apply(uint32_t obj)
         GT4_F32(b + CAR_BLOCK_THROTTLE_REQ) = t;
     }
     GT4_F32(b + CAR_BLOCK_THROTTLE) = t;
+    if (getenv("MOON_AI_THROTTLE_TRACE"))
+        fprintf(stderr, "ai thr: car=%08x req=%.2f thr=%.2f t=%.2f t34=%.2f settings=%d\n",
+                car, GT4_F32(b + CAR_BLOCK_THROTTLE_REQ), GT4_F32(b + CAR_BLOCK_THROTTLE), t,
+                OF(0x34), GT4_U8(AI_SETTINGS));
     GT4_F32(b + CAR_BLOCK_UNK_468) = OF(0x30);
     brake_all(car, OF(0x38));
     GT4_U8(b + 0x462) = OU8(0x3e);
