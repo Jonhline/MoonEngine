@@ -2401,9 +2401,35 @@ static void place_phantoms(gt4_race_run *r)
     fz /= fn;
     float pd = GT4_F32(pc + CAR_FIELD_COURSE_DISTANCE);
     float heading = atan2f(fx, -fz);
+    /* Space the phantoms the way the officials are spaced on THIS start:
+       measured ~8 m apart on a standing grid and ~20.5 m on a rolling one.
+       A fixed 7 m stacked them into each other on rolling starts. */
+    float gap = 7.f;
+    {
+        float lo = 1e30f, hi = -1e30f;
+        int n = 0;
+        for (int k = 0; k < MOON_CONDUCTOR_CARS; k++) {
+            uint32_t c = COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)k * CAR_SIZE;
+            float v = GT4_F32(c + CAR_FIELD_COURSE_DISTANCE);
+            if (!(fabsf(v) > 1.f))
+                continue;
+            if (v < lo)
+                lo = v;
+            if (v > hi)
+                hi = v;
+            n++;
+        }
+        if (n > 1 && hi > lo)
+            gap = (hi - lo) / (float)(n - 1);
+        if (!(gap >= 5.f && gap <= 30.f))
+            gap = 7.f;
+    }
+    int rolling = GT4_U8(COND + CONDUCTOR_FIELD_CLOCK_STOPPED_U) != 0;
+    float pspd = GT4_F32(pc + CAR_SPEED), pvx = GT4_F32(pc + CAR_VELOCITY),
+          pvz = GT4_F32(pc + CAR_VELOCITY + 8);
     for (int i = 0; i < r->phantom_count; i++) {
         uint32_t car = r->phantom_car[i];
-        float back = 7.f * (float)(i + 1), lat = (i & 1) ? 2.5f : -2.5f;
+        float back = gap * (float)(i + 1), lat = (i & 1) ? 2.5f : -2.5f;
         float pos[3] = {px - fx * back - fz * lat, py, pz - fz * back + fx * lat};
         for (int k = 0; k < 3; k++) {
             GT4_F32(car + CAR_POSITION + (uint32_t)k * 4) = pos[k];
@@ -2425,9 +2451,19 @@ static void place_phantoms(gt4_race_run *r)
         r->phantom_heading[i] = heading;
         r->phantom_dist0[i] = pd - back;
         r->phantom_last_dist[i] = pd - back;
+        if (rolling) {
+            /* A rolling start is already at speed: give the phantom the
+               player's speed and velocity so it joins the pack instead of
+               stalling behind it. */
+            GT4_F32(car + CAR_SPEED) = pspd;
+            GT4_F32(car + CAR_ABS_SPEED) = fabsf(pspd);
+            GT4_F32(car + CAR_VELOCITY) = pvx;
+            GT4_F32(car + CAR_VELOCITY + 8) = pvz;
+        }
         fprintf(stderr,
-                "phantom place: i=%d back=%.1f lat=%.1f pos=(%.1f,%.1f,%.1f) dist=%.1f\n", i,
-                back, lat, pos[0], pos[1], pos[2], pd - back);
+                "phantom place: i=%d back=%.1f gap=%.1f lat=%.1f rolling=%d "
+                "pos=(%.1f,%.1f,%.1f) dist=%.1f\n",
+                i, back, gap, lat, rolling, pos[0], pos[1], pos[2], pd - back);
     }
     r->phantom_placed = 1;
 }
