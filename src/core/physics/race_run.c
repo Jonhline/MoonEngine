@@ -302,6 +302,8 @@ static void make_race(int cars, int laps, int time_trial)
     w32(COND + CONDUCTOR_FIELD_CAR_COUNT, (uint32_t)cars);
 }
 
+static void arcade_tyres(uint32_t gar, uint32_t car, int level, const gt4_specdb_src *db);
+
 static float native_course_length(uint32_t cond)
 {
     uint32_t race = GT4_U32(cond), course = GT4_U32(race + 0x80), data = GT4_U32(course + 4),
@@ -410,12 +412,18 @@ static void make_phantoms(gt4_race_run *r, const gt4_race_desc *d)
         w32(PHANTOM_ENTRIES + 0x24 + (uint32_t)i * 4,
             PHANTOM_ENTRY_BASE + (uint32_t)i * PHANTOM_ENTRY_SIZE);
 
+    uint8_t phantom_course_row[22];
+    int phantom_tire_type = r->db.row(r->db.ctx, 0x22, GT4_U32(SETTINGS + 0xa0), 0,
+                                      phantom_course_row, sizeof phantom_course_row) ==
+                                    sizeof phantom_course_row
+                                ? phantom_course_row[0x10]
+                                : -1;
     for (int i = 0; i < p; i++) {
         int src = official > 1 ? 1 + i % (official - 1) : 0;
         uint32_t entry = PHANTOM_ENTRY_BASE + (uint32_t)i * PHANTOM_ENTRY_SIZE,
                  car = PHANTOM_COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)i * CAR_SIZE;
         memcpy(gt4_ptr(entry), gt4_ptr(entry_at[src]), PHANTOM_ENTRY_SIZE);
-        w32(entry + 0x3444, (uint32_t)(official - 1)); /* heading/start of the last grid slot */
+        w32(entry + 0x3444, (uint32_t)(official + i)); /* the game's own slot */
         w32(entry + 0x343c, AI_PROFILE);
         w32(entry + 0x347c, 1);
         r->phantom_entry[i] = entry;
@@ -424,6 +432,9 @@ static void make_phantoms(gt4_race_run *r, const gt4_race_desc *d)
             if (!gt4_garage_new(entry + 0x20, d->phantom_car[i], &r->db, GARAGE_SCRATCH))
                 r->phantom_bad = 1;
             GT4_U8(entry + 0x38) = (uint8_t)d->phantom_color[i];
+            gt4_garage_world_tyres(entry + 0x20, phantom_tire_type, &r->db);
+            if (d->tire > 0)
+                arcade_tyres(entry + 0x20, d->phantom_car[i], d->tire - 1, &r->db);
         }
         gt4_race_init_extra_car(PHANTOM_COND, PHANTOM_RACE, (uint32_t)i, entry, car, &r->db,
                                 PHANTOM_SCRATCH);
@@ -1370,7 +1381,7 @@ static void order_classification(gt4_race_run *r, int n)
             if (r->phantom_count && r->phantom_car[0])
                 fprintf(stderr,
                         " ph0: spd=%.2f thr=%.2f/%.2f gear=%d dist=%.1f pos=(%.0f,%.0f)"
-                        " | off: thr=%.2f/%.2f gear=%d",
+                        " | off: thr=%.2f/%.2f gear=%d hdg=%.2f ph_hdg=%.2f",
                         GT4_F32(r->phantom_car[0] + CAR_ABS_SPEED),
                         GT4_F32(r->phantom_car[0] + CAR_BLOCK_THROTTLE_REQ),
                         GT4_F32(r->phantom_car[0] + CAR_BLOCK_THROTTLE),
@@ -1383,7 +1394,10 @@ static void order_classification(gt4_race_run *r, int n)
                         GT4_F32(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_SIZE +
                                 CAR_BLOCK_THROTTLE),
                         (int)GT4_U8(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_SIZE +
-                                    CAR_BLOCK_GEAR));
+                                    CAR_BLOCK_GEAR),
+                        GT4_F32(r->cond + CONDUCTOR_FIELD_CARS_U + CAR_SIZE +
+                                CAR_BLOCK_HEADING),
+                        GT4_F32(r->phantom_car[0] + CAR_BLOCK_HEADING));
             for (int k = 0; k < n; k++) {
                 const gt4_race_entrant *e = &r->entrants[r->class_order[k]];
                 fprintf(stderr, " | %d%s%d:%s lap=%d prog=%.1f", k + 1,
@@ -2589,9 +2603,10 @@ static void place_phantoms(gt4_race_run *r)
         }
         float gdx = pos[0] - px, gdz = pos[2] - pz;
         fprintf(stderr,
-                "phantom place: i=%d line=%d base=%.1f pd=%.1f back=%.1f gap=%.1f rolling=%d "
+                "phantom place: i=%d slot=%d line=%d base=%.1f pd=%.1f back=%.1f gap=%.1f rolling=%d "
                 "pos=(%.1f,%.1f,%.1f) world_gap=%.1f dist=%.1f\n",
-                i, line, base, pd, back, gap, rolling, pos[0], pos[1], pos[2],
+                i, (int)GT4_U32(r->phantom_entry[i] + 0x3444), line, base, pd, back, gap, rolling,
+                pos[0], pos[1], pos[2],
                 sqrtf(gdx * gdx + gdz * gdz), pd - back);
     }
     r->phantom_placed = 1;
