@@ -2603,7 +2603,12 @@ static void place_phantoms(gt4_race_run *r)
             if (gt4_line_course_point(COND + CONDUCTOR_FIELD_LINES_U, line, t0, p0) &&
                 gt4_line_course_point(COND + CONDUCTOR_FIELD_LINES_U, line, t1, p1)) {
                 pos[0] = p0[0];
-                pos[1] = p0[2];
+                /* The line's own height is not the road's surface height for a
+                   car: spawning on it left the phantom dropping onto the road,
+                   losing wheel contact (contact 0,0,1,0) and traction. The
+                   rearmost official is on the same stretch, so its height is
+                   the car's ride height there. */
+                pos[1] = py;
                 pos[2] = -p0[1];
                 float dx = p1[0] - p0[0], dz = p0[1] - p1[1];
                 if (fabsf(dx) + fabsf(dz) > 1e-4f)
