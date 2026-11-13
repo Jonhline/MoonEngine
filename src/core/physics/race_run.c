@@ -305,9 +305,8 @@ static void make_phantoms(gt4_race_run *r, const gt4_race_desc *d)
     if (p < 1 || p > MOON_MAX_PHANTOMS)
         return;
     fprintf(stderr, "race: field_size=%d official=%d phantoms=%d\n", r->field_size, official, p);
-    if (p > 0) {
-        /* Every phantom is native kinematics; the guest conductor is never
-           given a phantom car. */
+    if (p > 0 && getenv("MOON_PHANTOM_NATIVE")) {
+        /* A/B fallback: native kinematics, not the guest conductor. */
         r->native_phantoms = 1;
         int last = official - 1;
         uint32_t ref = COND + CONDUCTOR_FIELD_CARS_U + (uint32_t)last * CAR_SIZE;
@@ -475,9 +474,18 @@ static void make_phantoms(gt4_race_run *r, const gt4_race_desc *d)
                     step[k] = last[1][k] - last[0][k];
             }
             int row = i / 2 + 1, col = i & 1;
-            float pos[3];
+            float pos[3], side[3] = {0, 0, 0}, side_len = 0;
+            if (official >= 2) {
+                for (int k = 0; k < 3; k++)
+                    side[k] = last[1][k] - last[0][k];
+                side_len = sqrtf(side[0] * side[0] + side[1] * side[1] + side[2] * side[2]);
+                if (side_len > .001f)
+                    for (int k = 0; k < 3; k++)
+                        side[k] /= side_len;
+            }
             for (int k = 0; k < 3; k++)
-                pos[k] = last[col][k] - (float)row * step[k];
+                pos[k] = last[0][k] - (float)row * step[k] +
+                         side[k] * (col ? 3.5f : -3.5f);
             for (int k = 0; k < 3; k++) {
                 GT4_F32(car + CAR_POSITION + (uint32_t)k * 4) = pos[k];
                 GT4_F32(car + CAR_REF_A + (uint32_t)k * 4) = pos[k];
@@ -1308,7 +1316,7 @@ static void order_classification(gt4_race_run *r, int n)
     for (int k = 0; k < n; k++) {
         gt4_race_entrant *e = &r->entrants[r->class_order[k]];
         e->place = k + 1;
-        if (e->official)
+        if (e->car)
             GT4_U8(e->car + CAR_FIELD_POSITION) = (uint8_t)(k + 1);
     }
     r->class_n = n;
@@ -2303,7 +2311,9 @@ int gt4_race_run_frame(gt4_race_run *r)
                     r->phantom_laps_set = 1;
                 }
             }
+            gt4_race_before_step(PHANTOM_RACE);
             gt4_step(r->phantom_cond, 0, STEP_BUF);
+            gt4_race_after_step(PHANTOM_RACE);
             if (!official_release) {
                 for (int i = 0; i < r->phantom_count; i++) {
                     uint32_t car = r->phantom_car[i];
