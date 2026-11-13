@@ -1402,13 +1402,23 @@ static void order_classification(gt4_race_run *r, int n)
                                 CAR_BLOCK_HEADING),
                         GT4_F32(r->phantom_car[0] + CAR_BLOCK_HEADING));
             if (r->phantom_count && r->phantom_car[0]) {
-                uint32_t oo = r->cond + CONDUCTOR_FIELD_CARS_U + CAR_SIZE + CAR_FIELD_DRIVER_MODEL;
-                uint32_t po = r->phantom_car[0] + CAR_FIELD_DRIVER_MODEL;
-                fprintf(stderr, " aiobj off: st=%d t24=%.1f t28=%.1f t34=%.2f g40=%d | ph: st=%d t24=%.1f t28=%.1f t34=%.2f g40=%d",
+                uint32_t oc = r->cond + CONDUCTOR_FIELD_CARS_U + CAR_SIZE;
+                uint32_t pc = r->phantom_car[0];
+                uint32_t oo = oc + CAR_FIELD_DRIVER_MODEL, po = pc + CAR_FIELD_DRIVER_MODEL;
+                int og = GT4_U8(oc + CAR_GEAR), pg = GT4_U8(pc + CAR_GEAR);
+                uint32_t op = GT4_U32(oc + CAR_PARAMS) + PARAMS_DRIVE,
+                         pp = GT4_U32(pc + CAR_PARAMS) + PARAMS_DRIVE;
+                fprintf(stderr, " aiobj off: st=%d t24=%.1f t28=%.1f t34=%.2f g40=%d g=%d 62a=%d 56a=%d 546=%d rpm=%d ratio=%.2f cnt=%d | ph: st=%d t24=%.1f t28=%.1f t34=%.2f g40=%d g=%d 62a=%d 56a=%d 546=%d rpm=%d ratio=%.2f cnt=%d",
                         GT4_U8(oo + 0x1e), GT4_F32(oo + 0x24), GT4_F32(oo + 0x28),
-                        GT4_F32(oo + 0x34), (int)(int8_t)GT4_U8(oo + 0x40),
+                        GT4_F32(oo + 0x34), (int)(int8_t)GT4_U8(oo + 0x40), og,
+                        GT4_U8(oc + 0x62a), GT4_U8(oc + CAR_56A), GT4_U8(oc + 0x546),
+                        GT4_U16(oc + CAR_ENGINE_RPM),
+                        GT4_F32(op + 0x68 + (uint32_t)og * 4), GT4_U8(op + 2),
                         GT4_U8(po + 0x1e), GT4_F32(po + 0x24), GT4_F32(po + 0x28),
-                        GT4_F32(po + 0x34), (int)(int8_t)GT4_U8(po + 0x40));
+                        GT4_F32(po + 0x34), (int)(int8_t)GT4_U8(po + 0x40), pg,
+                        GT4_U8(pc + 0x62a), GT4_U8(pc + CAR_56A), GT4_U8(pc + 0x546),
+                        GT4_U16(pc + CAR_ENGINE_RPM),
+                        GT4_F32(pp + 0x68 + (uint32_t)pg * 4), GT4_U8(pp + 2));
             }
             for (int k = 0; k < n; k++) {
                 const gt4_race_entrant *e = &r->entrants[r->class_order[k]];
