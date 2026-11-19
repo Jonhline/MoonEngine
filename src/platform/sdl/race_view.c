@@ -2820,9 +2820,9 @@ static void strike_build_splash(strike_path *s, const float base[3], unsigned *s
 /* The horizontal glow lying on the road. Its corners are world points, not
    billboards, so it is seen from the camera as a plane. */
 static void strike_ground(race_view *v, const r3d_view *world, const float base[3], float t,
-                          float gain)
+                          float gain, float radius0)
 {
-    float radius = 18.f + 18.f * t;
+    float radius = radius0 * (1.f + .35f * t);
     float a = expf(-t * 7.f) * gain;
     float wp[4][3], vp[4][3], corners[4 * 9];
     const float uv[4][2] = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
@@ -2854,10 +2854,11 @@ static void strike_draw(race_view *v, const r3d_view *world, const float pos[3],
                         const float rot[9])
 {
     strike_path mainline, branches[STRIKE_BRANCHES], splash;
-    float base[3], right[3], back[3];
+    float base[3], right[3], back[3], normal[3], ground;
     unsigned seed;
     double t = v->strike_age;
-    float height, life, flick, gain;
+    float height, life, flick, gain, base_depth, xscale;
+    float core_px, halo_px, ground_px, core_base, halo_base, ground_radius;
     int nbranch;
     float view[STRIKE_POINTS][3];
     float bview[STRIKE_BRANCHES][STRIKE_BRANCH_POINTS][3];
@@ -2871,12 +2872,18 @@ static void strike_draw(race_view *v, const r3d_view *world, const float pos[3],
     back[0] = rot[2]; back[1] = rot[5]; back[2] = rot[8];
     seed = v->strike_seed ^ (((unsigned)(t * 60.0) + 1u) * 2654435761u);
     {
-        float ahead = 150.f + (float)(strike_rand(&seed) % 71); /* 150-220 m */
-        float side = (15.f + (float)(strike_rand(&seed) % 26)) *
+        float ahead = 35.f + (float)(strike_rand(&seed) % 26); /* 35-60 m */
+        float side = (6.f + (float)(strike_rand(&seed) % 13)) *
                      ((strike_rand(&seed) & 1u) ? 1.f : -1.f);
         for (int k = 0; k < 3; k++)
             base[k] = pos[k] - back[k] * ahead + right[k] * side;
-        base[1] = pos[1] + .02f;
+        ground = pos[1];
+        if (v->now->surface &&
+            gt4_course_surface_at(v->now->surface, base[0], base[2], pos[1] + 30.f, &ground,
+                                  normal))
+            base[1] = ground + .02f;
+        else
+            base[1] = pos[1] + .02f;
     }
     height = 45.f + (float)(strike_rand(&seed) % 26); /* 45-70 m */
     strike_build_main(&mainline, base, height, &seed);
@@ -2889,13 +2896,27 @@ static void strike_draw(race_view *v, const r3d_view *world, const float pos[3],
             strike_to_view(world, branches[j].p[i], bview[j][i]);
     for (int i = 0; i < splash.n; i++)
         strike_to_view(world, splash.p[i], sview[i]);
+    base_depth = -view[STRIKE_SEGMENTS][2];
+    xscale = world->focal / 320.f * video_projection_x();
+    if (base_depth < .1f || xscale < .001f)
+        return;
+    core_px = 18.f + (float)(strike_rand(&seed) % 13);  /* 18-30 px at 1280 */
+    halo_px = 60.f + (float)(strike_rand(&seed) % 51);  /* 60-110 px at 1280 */
+    ground_px = 230.f + (float)(strike_rand(&seed) % 51); /* 230-280 px */
+    core_base = core_px * base_depth / (2.f * 640.f * xscale);
+    halo_base = halo_px * base_depth / (2.f * 640.f * xscale);
+    ground_radius = ground_px * base_depth / (2.f * 640.f * xscale);
     if (getenv("MOON_STRIKE_TRACE")) {
+        float ndc_x = view[STRIKE_SEGMENTS][0] * xscale / base_depth;
+        float ndc_y = strike_ndc_y(world, view[STRIKE_SEGMENTS]);
         fprintf(stderr,
                 "custom modes: strike trace tip=(%.2f,%.2f,%.2f) base=(%.2f,%.2f,%.2f) "
-                "ndc_y=%.3f,%.3f\n",
+                "base_depth=%.1f core_px=%.1f halo_px=%.1f ground_px=%.1f "
+                "base_px=(%.1f,%.1f)\n",
                 view[0][0], view[0][1], view[0][2],
                 view[STRIKE_SEGMENTS][0], view[STRIKE_SEGMENTS][1], view[STRIKE_SEGMENTS][2],
-                strike_ndc_y(world, view[0]), strike_ndc_y(world, view[STRIKE_SEGMENTS]));
+                base_depth, core_px, halo_px, ground_px,
+                640.f + ndc_x * 640.f, (1.f - ndc_y) * 480.f);
     }
     life = t < .15 ? 1.f : 1.f - (float)((t - .15) / .85);
     if (life < 0.f)
@@ -2909,15 +2930,17 @@ static void strike_draw(race_view *v, const r3d_view *world, const float pos[3],
         float halo[4] = {.78f, .88f, 1.f, .78f * gain};
         float core[4] = {.97f, .99f, 1.f, .95f * gain};
         /* Halo first (alpha-blended over the sky), then the hot additive core. */
-        strike_emit(v, world, view, mainline.n, 1.75f, 4.f, halo, 0);
+        strike_emit(v, world, view, mainline.n, halo_base * .60f, halo_base, halo, 0);
         for (int j = 0; j < nbranch; j++)
-            strike_emit(v, world, bview[j], branches[j].n, 1.0f, 2.0f, halo, 0);
-        strike_emit(v, world, sview, splash.n, 1.2f, 3.0f, halo, 0);
-        strike_ground(v, world, base, (float)t, gain);
-        strike_emit(v, world, view, mainline.n, .90f, 1.1f, core, 1);
+            strike_emit(v, world, bview[j], branches[j].n, halo_base * .30f, halo_base * .50f,
+                        halo, 0);
+        strike_emit(v, world, sview, splash.n, halo_base * .45f, halo_base * .85f, halo, 0);
+        strike_ground(v, world, base, (float)t, gain, ground_radius);
+        strike_emit(v, world, view, mainline.n, core_base * .60f, core_base, core, 1);
         for (int j = 0; j < nbranch; j++)
-            strike_emit(v, world, bview[j], branches[j].n, .45f, .70f, core, 1);
-        strike_emit(v, world, sview, splash.n, .40f, .90f, core, 1);
+            strike_emit(v, world, bview[j], branches[j].n, core_base * .28f, core_base * .50f,
+                        core, 1);
+        strike_emit(v, world, sview, splash.n, core_base * .40f, core_base * .85f, core, 1);
     }
 }
 
