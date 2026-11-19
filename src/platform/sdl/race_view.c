@@ -229,7 +229,10 @@ struct race_view {
     const race_smoke *smoke; /* race_view_set_smoke */
     r3d_sprite_texture *leaf_tex[8];
     const race_leaves *leaves; /* race_view_set_leaves */
-    r3d_sprite_texture *strike_tex, *strike_glow_tex;
+    r3d_mesh *strike_halo_main, *strike_core_main;
+    r3d_mesh *strike_halo_branch[5], *strike_core_branch[5];
+    r3d_mesh *strike_halo_splash[3], *strike_core_splash[3];
+    int strike_mesh_ready, strike_mesh_logged;
     int strike_on;
     double strike_age;
     unsigned strike_seed; /* race_view_set_strike */
@@ -845,10 +848,20 @@ static void drop_meshes(race_view *v)
         r3d_sprite_texture_destroy(v->leaf_tex[i]);
         v->leaf_tex[i] = NULL;
     }
-    r3d_sprite_texture_destroy(v->strike_tex);
-    v->strike_tex = NULL;
-    r3d_sprite_texture_destroy(v->strike_glow_tex);
-    v->strike_glow_tex = NULL;
+    r3d_mesh_destroy(v->strike_halo_main);
+    r3d_mesh_destroy(v->strike_core_main);
+    v->strike_halo_main = v->strike_core_main = NULL;
+    for (int i = 0; i < 5; i++) {
+        r3d_mesh_destroy(v->strike_halo_branch[i]);
+        r3d_mesh_destroy(v->strike_core_branch[i]);
+        v->strike_halo_branch[i] = v->strike_core_branch[i] = NULL;
+    }
+    for (int i = 0; i < 3; i++) {
+        r3d_mesh_destroy(v->strike_halo_splash[i]);
+        r3d_mesh_destroy(v->strike_core_splash[i]);
+        v->strike_halo_splash[i] = v->strike_core_splash[i] = NULL;
+    }
+    v->strike_mesh_ready = 0;
     v->strike_on = 0;
 }
 
@@ -2623,12 +2636,15 @@ static void update_car_lamps(race_view *v,const float pos[3],const float rot[9],
     r3d_car_lamp_frame(lights,count);
 }
 #endif
-/* The bolt's soft profile: white texel, alpha falls from the centre line to
-   the edge. 128 is the sprites' unity alpha. */
+/* Custom Modes: the strike is real geometry.  Resident tubes are created
+   once and only their vertex positions change each frame. */
 #define STRIKE_SEGMENTS 16
 #define STRIKE_POINTS (STRIKE_SEGMENTS + 1)
 #define STRIKE_BRANCHES 5
 #define STRIKE_BRANCH_POINTS 4
+#define STRIKE_MESH_SEGMENTS 11
+#define STRIKE_MESH_POINTS (STRIKE_MESH_SEGMENTS + 1)
+#define STRIKE_SPLASH_COUNT 3
 typedef struct {
     float p[STRIKE_POINTS][3];
     int n;
@@ -2640,64 +2656,103 @@ static unsigned strike_rand(unsigned *state)
     return *state;
 }
 
-/* The bolt's soft profile: white texel, alpha falls from the centre line to
-   the edge. 128 is the sprites' unity alpha. */
-static r3d_sprite_texture *strike_texture(race_view *v)
+/* A fixed tube: 4-sided cross-section, 8 triangles per segment. */
+static r3d_mesh *strike_mesh_new(int segments, int blend, int depth_write, const float rgb[3])
 {
-    tex1_image image;
-    if (v->strike_tex)
-        return v->strike_tex;
-    memset(&image, 0, sizeof image);
-    image.width = 64;
-    image.height = 64;
-    image.tex_w = 64;
-    image.tex_h = 64;
-    image.magnify = image.minify = 1;
-    image.rgba = malloc((size_t)image.width * image.height * 4);
-    if (!image.rgba)
+    gt4_model model = {0};
+    int tris = segments * 8;
+    gt4_triangle *triangles = calloc((size_t)tris, sizeof *triangles);
+    r3d_mesh *mesh;
+    if (!triangles)
         return NULL;
-    for (int y = 0; y < image.height; y++)
-        for (int x = 0; x < image.width; x++) {
-            float u = ((float)x + .5f) / (float)image.width;
-            float edge = 1.f - fabsf(2.f * u - 1.f);
-            float a = powf(edge, 1.25f) * 128.f;
-            uint8_t *p = image.rgba + ((size_t)y * image.width + x) * 4;
-            p[0] = p[1] = p[2] = 255;
-            p[3] = (uint8_t)a;
+    model.count = tris;
+    model.triangles = triangles;
+    for (int i = 0; i < tris; i++) {
+        gt4_triangle *t = triangles + i;
+        t->texture = -1;
+        t->blend_enabled = 1;
+        t->state.blend = (uint8_t)blend;
+        t->state.color_mask = 0xffffffff;
+        t->state.depth_test = 1;
+        t->state.depth_write = (uint8_t)depth_write;
+        t->state.depth_func = 2;
+        t->state.cull = 0;
+        for (int v = 0; v < 3; v++) {
+            t->v[v].rgb[0] = rgb[0];
+            t->v[v].rgb[1] = rgb[1];
+            t->v[v].rgb[2] = rgb[2];
+            t->v[v].normal[1] = 1;
+            t->v[v].alpha = 1;
         }
-    v->strike_tex = r3d_sprite_texture_create(&image);
-    free(image.rgba);
-    return v->strike_tex;
+    }
+    mesh = r3d_mesh_create(&model);
+    free(triangles);
+    return mesh;
 }
 
-/* Radial glow for the ground impact: alpha falls in both axes. */
-static r3d_sprite_texture *strike_glow_texture(race_view *v)
+static void strike_meshes_free(race_view *v)
 {
-    tex1_image image;
-    if (v->strike_glow_tex)
-        return v->strike_glow_tex;
-    memset(&image, 0, sizeof image);
-    image.width = 64;
-    image.height = 64;
-    image.tex_w = 64;
-    image.tex_h = 64;
-    image.magnify = image.minify = 1;
-    image.rgba = malloc((size_t)image.width * image.height * 4);
-    if (!image.rgba)
-        return NULL;
-    for (int y = 0; y < image.height; y++)
-        for (int x = 0; x < image.width; x++) {
-            float u = ((float)x + .5f) / (float)image.width - .5f;
-            float v = ((float)y + .5f) / (float)image.height - .5f;
-            float r = sqrtf(u * u + v * v) * 2.f;
-            float a = r < 1.f ? powf(1.f - r, 1.7f) * 128.f : 0.f;
-            uint8_t *p = image.rgba + ((size_t)y * image.width + x) * 4;
-            p[0] = p[1] = p[2] = 255;
-            p[3] = (uint8_t)a;
+    r3d_mesh_destroy(v->strike_halo_main);
+    r3d_mesh_destroy(v->strike_core_main);
+    v->strike_halo_main = v->strike_core_main = NULL;
+    for (int i = 0; i < STRIKE_BRANCHES; i++) {
+        r3d_mesh_destroy(v->strike_halo_branch[i]);
+        r3d_mesh_destroy(v->strike_core_branch[i]);
+        v->strike_halo_branch[i] = v->strike_core_branch[i] = NULL;
+    }
+    for (int i = 0; i < STRIKE_SPLASH_COUNT; i++) {
+        r3d_mesh_destroy(v->strike_halo_splash[i]);
+        r3d_mesh_destroy(v->strike_core_splash[i]);
+        v->strike_halo_splash[i] = v->strike_core_splash[i] = NULL;
+    }
+    v->strike_mesh_ready = 0;
+}
+
+static int strike_meshes_init(race_view *v)
+{
+    static const float halo_rgb[3] = {.65f, .80f, 1.f};
+    static const float core_rgb[3] = {.97f, .99f, 1.f};
+    int verts, tris;
+    if (v->strike_mesh_ready)
+        return 1;
+    v->strike_halo_main = strike_mesh_new(STRIKE_MESH_SEGMENTS, 0x44, 0, halo_rgb);
+    v->strike_core_main = strike_mesh_new(STRIKE_MESH_SEGMENTS, 0x48, 1, core_rgb);
+    for (int i = 0; i < STRIKE_BRANCHES; i++) {
+        v->strike_halo_branch[i] =
+            strike_mesh_new(STRIKE_BRANCH_POINTS - 1, 0x44, 0, halo_rgb);
+        v->strike_core_branch[i] =
+            strike_mesh_new(STRIKE_BRANCH_POINTS - 1, 0x48, 1, core_rgb);
+    }
+    for (int i = 0; i < STRIKE_SPLASH_COUNT; i++) {
+        v->strike_halo_splash[i] =
+            strike_mesh_new(STRIKE_BRANCH_POINTS - 1, 0x44, 0, halo_rgb);
+        v->strike_core_splash[i] =
+            strike_mesh_new(STRIKE_BRANCH_POINTS - 1, 0x48, 1, core_rgb);
+    }
+    if (!v->strike_halo_main || !v->strike_core_main) {
+        strike_meshes_free(v);
+        return 0;
+    }
+    for (int i = 0; i < STRIKE_BRANCHES; i++)
+        if (!v->strike_halo_branch[i] || !v->strike_core_branch[i]) {
+            strike_meshes_free(v);
+            return 0;
         }
-    v->strike_glow_tex = r3d_sprite_texture_create(&image);
-    free(image.rgba);
-    return v->strike_glow_tex;
+    for (int i = 0; i < STRIKE_SPLASH_COUNT; i++)
+        if (!v->strike_halo_splash[i] || !v->strike_core_splash[i]) {
+            strike_meshes_free(v);
+            return 0;
+        }
+    verts = 2 * (STRIKE_MESH_SEGMENTS + STRIKE_BRANCHES * (STRIKE_BRANCH_POINTS - 1) +
+                 STRIKE_SPLASH_COUNT * (STRIKE_BRANCH_POINTS - 1)) * 24;
+    tris = 2 * (STRIKE_MESH_SEGMENTS + STRIKE_BRANCHES * (STRIKE_BRANCH_POINTS - 1) +
+                STRIKE_SPLASH_COUNT * (STRIKE_BRANCH_POINTS - 1)) * 8;
+    if (!v->strike_mesh_logged) {
+        v->strike_mesh_logged = 1;
+        fprintf(stderr, "custom modes: strike mesh verts=%d tris=%d\n", verts, tris);
+    }
+    v->strike_mesh_ready = 1;
+    return 1;
 }
 
 static void strike_to_view(const r3d_view *world, const float p[3], float out[3])
@@ -2708,45 +2763,88 @@ static void strike_to_view(const r3d_view *world, const float p[3], float out[3]
     out[2] = -(d[0] * world->f[0] + d[1] * world->f[1] + d[2] * world->f[2]);
 }
 
-/* One pass of a world polyline: camera-facing quads between its view-space
-   points, the same corners race_smoke_quads feeds to r3d_draw_sprites. */
-static void strike_emit(race_view *v, const r3d_view *world, const float p[][3], int n,
-                        float top_half, float bottom_half, const float rgba[4], int mode)
+/* Sample the fractal channel down to the tube's fixed vertex count. */
+static void strike_sample(const strike_path *src, float dst[][3], int count)
 {
-    float corners[(STRIKE_POINTS - 1) * 4 * 9];
-    int q = 0;
-    for (int i = 0; i + 1 < n; i++) {
-        float dx = p[i + 1][0] - p[i][0], dy = p[i + 1][1] - p[i][1];
-        float len = sqrtf(dx * dx + dy * dy), nx, ny, f, half;
-        if (len < 1e-4f)
-            continue;
-        f = n > 1 ? ((float)i + .5f) / (float)(n - 1) : 0.f;
-        half = top_half + (bottom_half - top_half) * f;
-        nx = -dy / len * half;
-        ny = dx / len * half;
-        {
-            float xy[4][2] = {{p[i][0] + nx, p[i][1] + ny},
-                              {p[i][0] - nx, p[i][1] - ny},
-                              {p[i + 1][0] + nx, p[i + 1][1] + ny},
-                              {p[i + 1][0] - nx, p[i + 1][1] - ny}};
-            const float uv[4][2] = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
-            for (int k = 0; k < 4; k++) {
-                float *o = corners + (q * 4 + k) * 9;
-                o[0] = xy[k][0];
-                o[1] = xy[k][1];
-                o[2] = p[i + ((k & 2) ? 1 : 0)][2];
-                o[3] = uv[k][0];
-                o[4] = uv[k][1];
-                o[5] = rgba[0];
-                o[6] = rgba[1];
-                o[7] = rgba[2];
-                o[8] = rgba[3];
-            }
-        }
-        q++;
+    for (int i = 0; i < count; i++) {
+        float t = src->n > 1 ? (float)i * (float)(src->n - 1) / (float)(count - 1) : 0.f;
+        int j = (int)t;
+        float f = t - (float)j;
+        if (j >= src->n - 1) {
+            memcpy(dst[i], src->p[src->n - 1], sizeof dst[i]);
+        } else
+            for (int k = 0; k < 3; k++)
+                dst[i][k] = src->p[j][k] * (1.f - f) + src->p[j + 1][k] * f;
     }
-    if (q)
-        r3d_draw_sprites(v->strike_tex, world, corners, q, mode);
+}
+
+/* Four-sided tube positions for one path.  The triangle order matches the
+   fixed model built by strike_mesh_new(). */
+static void strike_tube_positions(const float p[][3], int n, float top_r, float bottom_r,
+                                  float out[][3])
+{
+    float ring[STRIKE_MESH_POINTS][4][3];
+    int q = 0;
+    for (int i = 0; i < n; i++) {
+        float t[3], side[3], up[3], ref[3] = {0, 1, 0}, r, len;
+        if (i == 0)
+            for (int k = 0; k < 3; k++) t[k] = p[1][k] - p[0][k];
+        else if (i == n - 1)
+            for (int k = 0; k < 3; k++) t[k] = p[n - 1][k] - p[n - 2][k];
+        else
+            for (int k = 0; k < 3; k++) t[k] = p[i + 1][k] - p[i - 1][k];
+        len = sqrtf(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]);
+        if (len < 1e-5f) {
+            t[0] = 0; t[1] = 1; t[2] = 0;
+            len = 1;
+        }
+        for (int k = 0; k < 3; k++) t[k] /= len;
+        if (fabsf(t[1]) > .9f) {
+            ref[0] = 1; ref[1] = 0; ref[2] = 0;
+        }
+        side[0] = t[1] * ref[2] - t[2] * ref[1];
+        side[1] = t[2] * ref[0] - t[0] * ref[2];
+        side[2] = t[0] * ref[1] - t[1] * ref[0];
+        len = sqrtf(side[0] * side[0] + side[1] * side[1] + side[2] * side[2]);
+        if (len < 1e-5f) {
+            side[0] = 1; side[1] = 0; side[2] = 0;
+            len = 1;
+        }
+        for (int k = 0; k < 3; k++) side[k] /= len;
+        up[0] = side[1] * t[2] - side[2] * t[1];
+        up[1] = side[2] * t[0] - side[0] * t[2];
+        up[2] = side[0] * t[1] - side[1] * t[0];
+        r = top_r + (bottom_r - top_r) * (n > 1 ? (float)i / (float)(n - 1) : 0.f);
+        for (int s = 0; s < 4; s++) {
+            float a = (float)s * 1.5707963f, c = cosf(a), sn = sinf(a);
+            for (int k = 0; k < 3; k++)
+                ring[i][s][k] = p[i][k] + side[k] * c * r + up[k] * sn * r;
+        }
+    }
+    for (int i = 0; i + 1 < n; i++)
+        for (int s = 0; s < 4; s++) {
+            const float *a = ring[i][s], *b = ring[i][(s + 1) & 3];
+            const float *c = ring[i + 1][s], *d = ring[i + 1][(s + 1) & 3];
+            memcpy(out[q++], a, sizeof out[0]);
+            memcpy(out[q++], b, sizeof out[0]);
+            memcpy(out[q++], c, sizeof out[0]);
+            memcpy(out[q++], b, sizeof out[0]);
+            memcpy(out[q++], d, sizeof out[0]);
+            memcpy(out[q++], c, sizeof out[0]);
+        }
+}
+
+static void strike_draw_tube(race_view *v, const r3d_view *view, r3d_mesh *mesh, const float p[][3],
+                             int n, float top_r, float bottom_r, float alpha)
+{
+    float positions[264][3];
+    int count = (n - 1) * 24;
+    (void)v;
+    if (!mesh || count <= 0 || count > 264)
+        return;
+    strike_tube_positions(p, n, top_r, bottom_r, positions);
+    if (r3d_mesh_update_positions(mesh, positions, (unsigned)count, alpha))
+        r3d_draw(mesh, view);
 }
 
 /* Fractal midpoint displacement: 16 segments from the sky point to the base.
@@ -2780,7 +2878,7 @@ static int strike_build_branches(strike_path *b, int max, const strike_path *mai
     if (count > max)
         count = max;
     for (int j = 0; j < count; j++) {
-        int at = 4 + (int)(strike_rand(seed) % 9); /* 25%..75% of the height */
+        int at = 4 + (int)(strike_rand(seed) % 9);
         const float *start = main->p[at];
         float len = height * (.20f + (float)(strike_rand(seed) % 21) * .01f);
         float ang = (float)(strike_rand(seed) % 628) * .01f;
@@ -2803,123 +2901,70 @@ static int strike_build_branches(strike_path *b, int max, const strike_path *mai
     return count;
 }
 
-static void strike_build_splash(strike_path *s, const float base[3], unsigned *seed)
+/* Short burst tubes radiating from the car roof. */
+static void strike_build_splash(strike_path *s, const float base[3], int index, unsigned *seed)
 {
-    float height = 8.f + (float)(strike_rand(seed) % 7);
+    float ang = 2.0943951f * (float)index + (float)(strike_rand(seed) % 100) * .01f;
+    float len = 2.5f + (float)(strike_rand(seed) % 4);
+    float rise = .4f + (float)(strike_rand(seed) % 60) * .01f;
     memset(s, 0, sizeof *s);
     s->n = STRIKE_BRANCH_POINTS;
     memcpy(s->p[0], base, sizeof s->p[0]);
     for (int k = 1; k < STRIKE_BRANCH_POINTS; k++) {
         float f = (float)k / (float)(STRIKE_BRANCH_POINTS - 1);
-        s->p[k][0] = base[0] + (((float)(strike_rand(seed) % 201) / 100.f) - 1.f) * 1.6f * f;
-        s->p[k][1] = base[1] + height * f;
-        s->p[k][2] = base[2] + (((float)(strike_rand(seed) % 201) / 100.f) - 1.f) * 1.6f * f;
+        s->p[k][0] = base[0] + cosf(ang) * len * f;
+        s->p[k][1] = base[1] + rise * len * f;
+        s->p[k][2] = base[2] + sinf(ang) * len * f;
     }
 }
 
-/* The horizontal glow lying on the road. Its corners are world points, not
-   billboards, so it is seen from the camera as a plane. */
-static void strike_ground(race_view *v, const r3d_view *world, const float base[3], float t,
-                          float gain, float radius0)
-{
-    float radius = radius0 * (1.f + .35f * t);
-    float a = expf(-t * 7.f) * gain;
-    float wp[4][3], vp[4][3], corners[4 * 9];
-    const float uv[4][2] = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
-    if (a < .02f || !strike_glow_texture(v))
-        return;
-    wp[0][0] = base[0] - radius; wp[0][1] = base[1] + .03f; wp[0][2] = base[2] - radius;
-    wp[1][0] = base[0] + radius; wp[1][1] = base[1] + .03f; wp[1][2] = base[2] - radius;
-    wp[2][0] = base[0] - radius; wp[2][1] = base[1] + .03f; wp[2][2] = base[2] + radius;
-    wp[3][0] = base[0] + radius; wp[3][1] = base[1] + .03f; wp[3][2] = base[2] + radius;
-    for (int k = 0; k < 4; k++) {
-        float *o = corners + k * 9;
-        strike_to_view(world, wp[k], vp[k]);
-        o[0] = vp[k][0]; o[1] = vp[k][1]; o[2] = vp[k][2];
-        o[3] = uv[k][0]; o[4] = uv[k][1];
-        o[5] = .78f; o[6] = .88f; o[7] = 1.f; o[8] = a * .85f;
-    }
-    r3d_draw_sprites(v->strike_glow_tex, world, corners, 1, 0);
-}
-
-static float strike_ndc_y(const r3d_view *world, const float p[3])
-{
-    float fy = world->focal_y > 0 ? world->focal_y : world->focal;
-    float depth = -p[2];
-    return depth > .01f ? p[1] * (fy / 224.f) / depth : 0.f;
-}
-
-/* Custom Modes: one Minecraft-style strike in the race world. */
+/* Custom Modes: one strike in the race world, landing on the player's car. */
 static void strike_draw(race_view *v, const r3d_view *world, const float pos[3],
                         const float rot[9])
 {
-    strike_path mainline, branches[STRIKE_BRANCHES], splash;
-    float base[3], right[3], back[3], normal[3], ground;
+    strike_path mainline, branches[STRIKE_BRANCHES], splash[STRIKE_SPLASH_COUNT];
+    float base[3], right[3], up[3], back[3], bv[3];
     unsigned seed;
     double t = v->strike_age;
     float height, life, flick, gain, base_depth, xscale;
-    float core_px, halo_px, ground_px, core_base, halo_base, ground_radius;
-    int nbranch;
-    float view[STRIKE_POINTS][3];
-    float bview[STRIKE_BRANCHES][STRIKE_BRANCH_POINTS][3];
-    float sview[STRIKE_BRANCH_POINTS][3];
+    float core_px, halo_px, core_r, halo_r;
+    int nbranch, i;
+    float mainpts[STRIKE_MESH_POINTS][3], bpts[STRIKE_BRANCH_POINTS][3];
+    float spts[STRIKE_BRANCH_POINTS][3];
+    r3d_view strike;
     if (!v || !world || !pos || !rot || !v->strike_on || t < 0 || t >= 1.0)
         return;
-    if (!strike_texture(v))
+    if (!strike_meshes_init(v))
         return;
     /* pose_car writes the car's columns: right, up, back. */
     right[0] = rot[0]; right[1] = rot[3]; right[2] = rot[6];
+    up[0] = rot[1]; up[1] = rot[4]; up[2] = rot[7];
     back[0] = rot[2]; back[1] = rot[5]; back[2] = rot[8];
-    seed = v->strike_seed ^ (((unsigned)(t * 60.0) + 1u) * 2654435761u);
+    for (i = 0; i < 3; i++)
+        base[i] = pos[i] + up[i] * 1.35f; /* the car's roof */
+    strike_to_view(world, base, bv);
+    base_depth = -bv[2];
     xscale = world->focal / 320.f * video_projection_x();
-    if (xscale < .001f)
+    if (base_depth < .1f || xscale < .001f)
         return;
-    {
-        float ahead = 22.f + (float)(strike_rand(&seed) % 11); /* 22-32 m */
-        float side = 2.f + (float)(strike_rand(&seed) % 5);     /* 2-6 m */
-        if (strike_rand(&seed) & 1u)
-            side = -side;
-        for (int k = 0; k < 3; k++)
-            base[k] = pos[k] - back[k] * ahead + right[k] * side;
-        ground = pos[1];
-        if (v->now->surface &&
-            gt4_course_surface_at(v->now->surface, base[0], base[2], pos[1] + 30.f, &ground,
-                                  normal))
-            base[1] = ground + .02f;
-        else
-            base[1] = pos[1] + .02f;
-    }
-    height = 45.f + (float)(strike_rand(&seed) % 26); /* 45-70 m */
+    seed = v->strike_seed ^ (((unsigned)(t * 60.0) + 1u) * 2654435761u);
+    core_px = 18.f + (float)(strike_rand(&seed) % 13);
+    halo_px = 60.f + (float)(strike_rand(&seed) % 51);
+    core_r = core_px * base_depth / (2.f * 640.f * xscale);
+    halo_r = halo_px * base_depth / (2.f * 640.f * xscale);
+    height = 45.f + (float)(strike_rand(&seed) % 26);
     strike_build_main(&mainline, base, height, &seed);
     nbranch = strike_build_branches(branches, STRIKE_BRANCHES, &mainline, height, &seed);
-    strike_build_splash(&splash, base, &seed);
-    for (int i = 0; i < mainline.n; i++)
-        strike_to_view(world, mainline.p[i], view[i]);
-    for (int j = 0; j < nbranch; j++)
-        for (int i = 0; i < branches[j].n; i++)
-            strike_to_view(world, branches[j].p[i], bview[j][i]);
-    for (int i = 0; i < splash.n; i++)
-        strike_to_view(world, splash.p[i], sview[i]);
-    base_depth = -view[STRIKE_SEGMENTS][2];
-    if (base_depth < .1f)
-        return;
-    core_px = 18.f + (float)(strike_rand(&seed) % 13);  /* 18-30 px at 1280 */
-    halo_px = 60.f + (float)(strike_rand(&seed) % 51);  /* 60-110 px at 1280 */
-    ground_px = 230.f + (float)(strike_rand(&seed) % 51); /* 230-280 px */
-    core_base = core_px * base_depth / (2.f * 640.f * xscale);
-    halo_base = halo_px * base_depth / (2.f * 640.f * xscale);
-    ground_radius = ground_px * base_depth / (2.f * 640.f * xscale);
+    for (i = 0; i < STRIKE_SPLASH_COUNT; i++)
+        strike_build_splash(&splash[i], base, i, &seed);
     if (getenv("MOON_STRIKE_TRACE")) {
-        float ndc_x = view[STRIKE_SEGMENTS][0] * xscale / base_depth;
-        float ndc_y = strike_ndc_y(world, view[STRIKE_SEGMENTS]);
+        float dx = base[0] - (pos[0] + up[0] * 1.35f);
+        float dy = base[1] - (pos[1] + up[1] * 1.35f);
+        float dz = base[2] - (pos[2] + up[2] * 1.35f);
         fprintf(stderr,
-                "custom modes: strike trace tip=(%.2f,%.2f,%.2f) base=(%.2f,%.2f,%.2f) "
-                "base_depth=%.1f core_px=%.1f halo_px=%.1f ground_px=%.1f "
-                "base_px=(%.1f,%.1f)\n",
-                view[0][0], view[0][1], view[0][2],
-                view[STRIKE_SEGMENTS][0], view[STRIKE_SEGMENTS][1], view[STRIKE_SEGMENTS][2],
-                base_depth, core_px, halo_px, ground_px,
-                640.f + ndc_x * 640.f, (1.f - ndc_y) * 480.f);
+                "custom modes: strike trace base_car_dist=%.2f base_depth=%.1f "
+                "core_px=%.1f halo_px=%.1f\n",
+                sqrtf(dx * dx + dy * dy + dz * dz), base_depth, core_px, halo_px);
     }
     life = t < .15 ? 1.f : 1.f - (float)((t - .15) / .85);
     if (life < 0.f)
@@ -2929,21 +2974,44 @@ static void strike_draw(race_view *v, const r3d_view *world, const float pos[3],
         flick = t < .15 ? 1.f : phase == 0 ? .35f : phase == 1 ? .8f : phase == 2 ? .55f : 1.f;
     }
     gain = life * flick;
-    if (gain > .01f) {
-        float halo[4] = {.78f, .88f, 1.f, .78f * gain};
-        float core[4] = {.97f, .99f, 1.f, .95f * gain};
-        /* Halo first (alpha-blended over the sky), then the hot additive core. */
-        strike_emit(v, world, view, mainline.n, halo_base * .60f, halo_base, halo, 0);
-        for (int j = 0; j < nbranch; j++)
-            strike_emit(v, world, bview[j], branches[j].n, halo_base * .30f, halo_base * .50f,
-                        halo, 0);
-        strike_emit(v, world, sview, splash.n, halo_base * .45f, halo_base * .85f, halo, 0);
-        strike_ground(v, world, base, (float)t, gain, ground_radius);
-        strike_emit(v, world, view, mainline.n, core_base * .60f, core_base, core, 1);
-        for (int j = 0; j < nbranch; j++)
-            strike_emit(v, world, bview[j], branches[j].n, core_base * .28f, core_base * .50f,
-                        core, 1);
-        strike_emit(v, world, sview, splash.n, core_base * .40f, core_base * .85f, core, 1);
+    if (gain <= .01f)
+        return;
+    strike_sample(&mainline, mainpts, STRIKE_MESH_POINTS);
+    strike = *world;
+    memset(strike.pos, 0, sizeof strike.pos);
+    memset(strike.rot, 0, sizeof strike.rot);
+    strike.rot[0] = strike.rot[4] = strike.rot[8] = 1;
+    strike.unlit = 1;
+    strike.color_scale = 1;
+    strike.skin_palette = NULL;
+    /* Halo first (alpha blended), then the hot additive core. */
+    strike_draw_tube(v, &strike, v->strike_halo_main, mainpts, STRIKE_MESH_POINTS,
+                     halo_r * .55f, halo_r, .78f * gain);
+    for (i = 0; i < nbranch; i++) {
+        for (int k = 0; k < STRIKE_BRANCH_POINTS; k++)
+            memcpy(bpts[k], branches[i].p[k], sizeof bpts[k]);
+        strike_draw_tube(v, &strike, v->strike_halo_branch[i], bpts, STRIKE_BRANCH_POINTS,
+                         halo_r * .35f, halo_r * .18f, .78f * gain);
+    }
+    for (i = 0; i < STRIKE_SPLASH_COUNT; i++) {
+        for (int k = 0; k < STRIKE_BRANCH_POINTS; k++)
+            memcpy(spts[k], splash[i].p[k], sizeof spts[k]);
+        strike_draw_tube(v, &strike, v->strike_halo_splash[i], spts, STRIKE_BRANCH_POINTS,
+                         halo_r * .80f, halo_r * .25f, .78f * gain);
+    }
+    strike_draw_tube(v, &strike, v->strike_core_main, mainpts, STRIKE_MESH_POINTS,
+                     core_r * .55f, core_r, .95f * gain);
+    for (i = 0; i < nbranch; i++) {
+        for (int k = 0; k < STRIKE_BRANCH_POINTS; k++)
+            memcpy(bpts[k], branches[i].p[k], sizeof bpts[k]);
+        strike_draw_tube(v, &strike, v->strike_core_branch[i], bpts, STRIKE_BRANCH_POINTS,
+                         core_r * .30f, core_r * .15f, .95f * gain);
+    }
+    for (i = 0; i < STRIKE_SPLASH_COUNT; i++) {
+        for (int k = 0; k < STRIKE_BRANCH_POINTS; k++)
+            memcpy(spts[k], splash[i].p[k], sizeof spts[k]);
+        strike_draw_tube(v, &strike, v->strike_core_splash[i], spts, STRIKE_BRANCH_POINTS,
+                         core_r * .80f, core_r * .20f, .95f * gain);
     }
 }
 
