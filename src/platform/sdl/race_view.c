@@ -229,6 +229,10 @@ struct race_view {
     const race_smoke *smoke; /* race_view_set_smoke */
     r3d_sprite_texture *leaf_tex[8];
     const race_leaves *leaves; /* race_view_set_leaves */
+    r3d_sprite_texture *strike_tex, *strike_glow_tex;
+    int strike_on;
+    double strike_age;
+    unsigned strike_seed; /* race_view_set_strike */
     r3d_mesh *afterfire[6], *afterfire_ground[6];
     int afterfire_tried; /* race/after_fire.mdl's six frames */
     float flame[OPPONENTS + 1][4][3];
@@ -841,6 +845,11 @@ static void drop_meshes(race_view *v)
         r3d_sprite_texture_destroy(v->leaf_tex[i]);
         v->leaf_tex[i] = NULL;
     }
+    r3d_sprite_texture_destroy(v->strike_tex);
+    v->strike_tex = NULL;
+    r3d_sprite_texture_destroy(v->strike_glow_tex);
+    v->strike_glow_tex = NULL;
+    v->strike_on = 0;
 }
 
 static void make_car(car_meshes *m, const car_model *a)
@@ -2614,6 +2623,284 @@ static void update_car_lamps(race_view *v,const float pos[3],const float rot[9],
     r3d_car_lamp_frame(lights,count);
 }
 #endif
+/* The bolt's soft profile: white texel, alpha falls from the centre line to
+   the edge. 128 is the sprites' unity alpha. */
+#define STRIKE_SEGMENTS 16
+#define STRIKE_POINTS (STRIKE_SEGMENTS + 1)
+#define STRIKE_BRANCHES 5
+#define STRIKE_BRANCH_POINTS 4
+typedef struct {
+    float p[STRIKE_POINTS][3];
+    int n;
+} strike_path;
+
+static unsigned strike_rand(unsigned *state)
+{
+    *state = *state * 1664525u + 1013904223u;
+    return *state;
+}
+
+/* The bolt's soft profile: white texel, alpha falls from the centre line to
+   the edge. 128 is the sprites' unity alpha. */
+static r3d_sprite_texture *strike_texture(race_view *v)
+{
+    tex1_image image;
+    if (v->strike_tex)
+        return v->strike_tex;
+    memset(&image, 0, sizeof image);
+    image.width = 64;
+    image.height = 64;
+    image.tex_w = 64;
+    image.tex_h = 64;
+    image.magnify = image.minify = 1;
+    image.rgba = malloc((size_t)image.width * image.height * 4);
+    if (!image.rgba)
+        return NULL;
+    for (int y = 0; y < image.height; y++)
+        for (int x = 0; x < image.width; x++) {
+            float u = ((float)x + .5f) / (float)image.width;
+            float edge = 1.f - fabsf(2.f * u - 1.f);
+            float a = powf(edge, 1.25f) * 128.f;
+            uint8_t *p = image.rgba + ((size_t)y * image.width + x) * 4;
+            p[0] = p[1] = p[2] = 255;
+            p[3] = (uint8_t)a;
+        }
+    v->strike_tex = r3d_sprite_texture_create(&image);
+    free(image.rgba);
+    return v->strike_tex;
+}
+
+/* Radial glow for the ground impact: alpha falls in both axes. */
+static r3d_sprite_texture *strike_glow_texture(race_view *v)
+{
+    tex1_image image;
+    if (v->strike_glow_tex)
+        return v->strike_glow_tex;
+    memset(&image, 0, sizeof image);
+    image.width = 64;
+    image.height = 64;
+    image.tex_w = 64;
+    image.tex_h = 64;
+    image.magnify = image.minify = 1;
+    image.rgba = malloc((size_t)image.width * image.height * 4);
+    if (!image.rgba)
+        return NULL;
+    for (int y = 0; y < image.height; y++)
+        for (int x = 0; x < image.width; x++) {
+            float u = ((float)x + .5f) / (float)image.width - .5f;
+            float v = ((float)y + .5f) / (float)image.height - .5f;
+            float r = sqrtf(u * u + v * v) * 2.f;
+            float a = r < 1.f ? powf(1.f - r, 1.7f) * 128.f : 0.f;
+            uint8_t *p = image.rgba + ((size_t)y * image.width + x) * 4;
+            p[0] = p[1] = p[2] = 255;
+            p[3] = (uint8_t)a;
+        }
+    v->strike_glow_tex = r3d_sprite_texture_create(&image);
+    free(image.rgba);
+    return v->strike_glow_tex;
+}
+
+static void strike_to_view(const r3d_view *world, const float p[3], float out[3])
+{
+    float d[3] = {p[0] - world->cam[0], p[1] - world->cam[1], p[2] - world->cam[2]};
+    out[0] = d[0] * world->r[0] + d[1] * world->r[1] + d[2] * world->r[2];
+    out[1] = d[0] * world->u[0] + d[1] * world->u[1] + d[2] * world->u[2];
+    out[2] = -(d[0] * world->f[0] + d[1] * world->f[1] + d[2] * world->f[2]);
+}
+
+/* One pass of a world polyline: camera-facing quads between its view-space
+   points, the same corners race_smoke_quads feeds to r3d_draw_sprites. */
+static void strike_emit(race_view *v, const r3d_view *world, const float p[][3], int n,
+                        float top_half, float bottom_half, const float rgba[4])
+{
+    float corners[(STRIKE_POINTS - 1) * 4 * 9];
+    int q = 0;
+    for (int i = 0; i + 1 < n; i++) {
+        float dx = p[i + 1][0] - p[i][0], dy = p[i + 1][1] - p[i][1];
+        float len = sqrtf(dx * dx + dy * dy), nx, ny, f;
+        if (len < 1e-4f)
+            continue;
+        f = n > 1 ? ((float)i + .5f) / (float)(n - 1) : 0.f;
+        nx = -dy / len * (top_half + (bottom_half - top_half) * f);
+        ny = dx / len * (top_half + (bottom_half - top_half) * f);
+        {
+            float xy[4][2] = {{p[i][0] + nx, p[i][1] + ny},
+                              {p[i][0] - nx, p[i][1] - ny},
+                              {p[i + 1][0] + nx, p[i + 1][1] + ny},
+                              {p[i + 1][0] - nx, p[i + 1][1] - ny}};
+            const float uv[4][2] = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
+            for (int k = 0; k < 4; k++) {
+                float *o = corners + (q * 4 + k) * 9;
+                o[0] = xy[k][0];
+                o[1] = xy[k][1];
+                o[2] = p[i + ((k & 2) ? 1 : 0)][2];
+                o[3] = uv[k][0];
+                o[4] = uv[k][1];
+                o[5] = rgba[0];
+                o[6] = rgba[1];
+                o[7] = rgba[2];
+                o[8] = rgba[3];
+            }
+        }
+        q++;
+    }
+    if (q)
+        r3d_draw_sprites(v->strike_tex, world, corners, q, 1);
+}
+
+/* Fractal midpoint displacement: 16 segments from the sky point to the base.
+   Each level halves the horizontal offset of the previous one. */
+static void strike_build_main(strike_path *s, const float base[3], float height, unsigned *seed)
+{
+    float amp = 5.f + (float)(strike_rand(seed) % 4);
+    memset(s, 0, sizeof *s);
+    s->n = STRIKE_POINTS;
+    s->p[0][0] = base[0] + (((float)(strike_rand(seed) % 201) / 100.f) - 1.f) * 3.f;
+    s->p[0][1] = base[1] + height;
+    s->p[0][2] = base[2] + (((float)(strike_rand(seed) % 201) / 100.f) - 1.f) * 3.f;
+    memcpy(s->p[STRIKE_SEGMENTS], base, sizeof s->p[STRIKE_SEGMENTS]);
+    for (int step = STRIKE_SEGMENTS / 2; step >= 1; step >>= 1) {
+        for (int i = step; i < STRIKE_SEGMENTS; i += step * 2) {
+            int a = i - step, b = i + step;
+            s->p[i][0] = (s->p[a][0] + s->p[b][0]) * .5f +
+                         (((float)(strike_rand(seed) % 201) / 100.f) - 1.f) * amp;
+            s->p[i][1] = (s->p[a][1] + s->p[b][1]) * .5f;
+            s->p[i][2] = (s->p[a][2] + s->p[b][2]) * .5f +
+                         (((float)(strike_rand(seed) % 201) / 100.f) - 1.f) * amp;
+        }
+        amp *= .5f;
+    }
+}
+
+static int strike_build_branches(strike_path *b, int max, const strike_path *main, float height,
+                                 unsigned *seed)
+{
+    int count = 3 + (int)(strike_rand(seed) % 3);
+    if (count > max)
+        count = max;
+    for (int j = 0; j < count; j++) {
+        int at = 4 + (int)(strike_rand(seed) % 9); /* 25%..75% of the height */
+        const float *start = main->p[at];
+        float len = height * (.14f + (float)(strike_rand(seed) % 16) * .01f);
+        float ang = (float)(strike_rand(seed) % 628) * .01f;
+        float dir[3] = {cosf(ang) * .8f, -1.f, sinf(ang) * .8f};
+        float norm = sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+        b[j].n = STRIKE_BRANCH_POINTS;
+        for (int k = 0; k < 3; k++)
+            dir[k] /= norm;
+        memcpy(b[j].p[0], start, sizeof b[j].p[0]);
+        for (int k = 1; k < STRIKE_BRANCH_POINTS; k++) {
+            float f = (float)k / (float)(STRIKE_BRANCH_POINTS - 1);
+            float jitter = (1.f - f) * (1.f + (float)(strike_rand(seed) % 100) * .02f);
+            b[j].p[k][0] = start[0] + dir[0] * len * f +
+                           (((float)(strike_rand(seed) % 201) / 100.f) - 1.f) * jitter;
+            b[j].p[k][1] = start[1] + dir[1] * len * f;
+            b[j].p[k][2] = start[2] + dir[2] * len * f +
+                           (((float)(strike_rand(seed) % 201) / 100.f) - 1.f) * jitter;
+        }
+    }
+    return count;
+}
+
+static void strike_build_splash(strike_path *s, const float base[3], unsigned *seed)
+{
+    float height = 3.f + (float)(strike_rand(seed) % 31) * .1f;
+    memset(s, 0, sizeof *s);
+    s->n = STRIKE_BRANCH_POINTS;
+    memcpy(s->p[0], base, sizeof s->p[0]);
+    for (int k = 1; k < STRIKE_BRANCH_POINTS; k++) {
+        float f = (float)k / (float)(STRIKE_BRANCH_POINTS - 1);
+        s->p[k][0] = base[0] + (((float)(strike_rand(seed) % 201) / 100.f) - 1.f) * .7f * f;
+        s->p[k][1] = base[1] + height * f;
+        s->p[k][2] = base[2] + (((float)(strike_rand(seed) % 201) / 100.f) - 1.f) * .7f * f;
+    }
+}
+
+/* The horizontal glow lying on the road. Its corners are world points, not
+   billboards, so it is seen from the camera as a plane. */
+static void strike_ground(race_view *v, const r3d_view *world, const float base[3], float t,
+                          float gain)
+{
+    float radius = 5.f + 10.f * t;
+    float a = expf(-t * 7.f) * gain;
+    float wp[4][3], vp[4][3], corners[4 * 9];
+    const float uv[4][2] = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
+    if (a < .02f || !strike_glow_texture(v))
+        return;
+    wp[0][0] = base[0] - radius; wp[0][1] = base[1] + .03f; wp[0][2] = base[2] - radius;
+    wp[1][0] = base[0] + radius; wp[1][1] = base[1] + .03f; wp[1][2] = base[2] - radius;
+    wp[2][0] = base[0] - radius; wp[2][1] = base[1] + .03f; wp[2][2] = base[2] + radius;
+    wp[3][0] = base[0] + radius; wp[3][1] = base[1] + .03f; wp[3][2] = base[2] + radius;
+    for (int k = 0; k < 4; k++) {
+        float *o = corners + k * 9;
+        strike_to_view(world, wp[k], vp[k]);
+        o[0] = vp[k][0]; o[1] = vp[k][1]; o[2] = vp[k][2];
+        o[3] = uv[k][0]; o[4] = uv[k][1];
+        o[5] = .62f; o[6] = .78f; o[7] = 1.f; o[8] = a * .9f;
+    }
+    r3d_draw_sprites(v->strike_glow_tex, world, corners, 1, 1);
+}
+
+/* Custom Modes: one Minecraft-style strike in the race world at the player's
+   car, 25-60 m ahead and 5-15 m off the line. */
+static void strike_draw(race_view *v, const r3d_view *world, const float pos[3],
+                        const float rot[9])
+{
+    strike_path mainline, branches[STRIKE_BRANCHES], splash;
+    float base[3], right[3], back[3];
+    unsigned seed;
+    double t = v->strike_age;
+    float height, life, flick, gain;
+    int nbranch;
+    if (!v || !world || !pos || !rot || !v->strike_on || t < 0 || t >= 1.0)
+        return;
+    if (!strike_texture(v))
+        return;
+    right[0] = rot[0]; right[1] = rot[1]; right[2] = rot[2];
+    back[0] = rot[6]; back[1] = rot[7]; back[2] = rot[8];
+    seed = v->strike_seed ^ (((unsigned)(t * 60.0) + 1u) * 2654435761u);
+    {
+        float ahead = 25.f + (float)(strike_rand(&seed) % 36);
+        float side = (5.f + (float)(strike_rand(&seed) % 11)) *
+                     ((strike_rand(&seed) & 1u) ? 1.f : -1.f);
+        for (int k = 0; k < 3; k++)
+            base[k] = pos[k] - back[k] * ahead + right[k] * side;
+        base[1] = pos[1] + .02f;
+    }
+    height = 60.f + (float)(strike_rand(&seed) % 31);
+    strike_build_main(&mainline, base, height, &seed);
+    nbranch = strike_build_branches(branches, STRIKE_BRANCHES, &mainline, height, &seed);
+    strike_build_splash(&splash, base, &seed);
+    life = t < .15 ? 1.f : 1.f - (float)((t - .15) / .85);
+    if (life < 0.f)
+        life = 0.f;
+    {
+        int phase = (int)(t * 17.f) % 4;
+        flick = t < .15 ? 1.f : phase == 0 ? .35f : phase == 1 ? .8f : phase == 2 ? .55f : 1.f;
+    }
+    gain = life * flick;
+    if (gain > .01f) {
+        float view[STRIKE_POINTS][3], bview[STRIKE_BRANCH_POINTS][3];
+        float halo[4] = {.55f, .75f, 1.f, .32f * gain};
+        float core[4] = {.94f, .98f, 1.f, .95f * gain};
+        for (int i = 0; i < mainline.n; i++)
+            strike_to_view(world, mainline.p[i], view[i]);
+        strike_emit(v, world, view, mainline.n, .55f, .10f, halo);
+        strike_emit(v, world, view, mainline.n, .16f, .035f, core);
+        for (int j = 0; j < nbranch; j++) {
+            for (int i = 0; i < branches[j].n; i++)
+                strike_to_view(world, branches[j].p[i], bview[i]);
+            strike_emit(v, world, bview, branches[j].n, .28f, .06f, halo);
+            strike_emit(v, world, bview, branches[j].n, .08f, .02f, core);
+        }
+        for (int i = 0; i < splash.n; i++)
+            strike_to_view(world, splash.p[i], bview[i]);
+        strike_emit(v, world, bview, splash.n, .45f, .08f, halo);
+        strike_emit(v, world, bview, splash.n, .12f, .025f, core);
+    }
+    strike_ground(v, world, base, (float)t, gain);
+}
+
 static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float x, float y, float w,
                           float h)
 {
@@ -2911,6 +3198,8 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
             }
         r3d_draw_sprites(v->smoke_tex, &world, corners, n, race_smoke_blend(v->smoke) == 0x48);
     }
+    if (!pregrid && v->strike_on)
+        strike_draw(v, &world, pos, rot);
 #if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
     if(!v->screen_reflect && !split_mode)r3d_shadow_map_volume(&world);
 #endif
@@ -2939,6 +3228,15 @@ void race_view_set_leaves(race_view *v, const race_leaves *l)
 {
     if (v)
         v->leaves = l;
+}
+
+void race_view_set_strike(race_view *v, int on, double age, unsigned serial)
+{
+    if (!v)
+        return;
+    v->strike_on = on && age >= 0 && age < 1.05;
+    v->strike_age = age;
+    v->strike_seed = serial ? serial : 1u;
 }
 
 static int draw_scene(race_view *v, int pregrid, int menu)

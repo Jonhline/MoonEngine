@@ -151,6 +151,10 @@ void race_view_set_smoke(race_view *v, const struct race_smoke *s);
 /* the leaves thrown up by the wheels (borrowed; NULL none) */
 struct race_leaves;
 void race_view_set_leaves(race_view *v, const struct race_leaves *l);
+/* Custom Modes: one world-space lightning bolt at the player's car. age is
+   seconds since the strike (drawn for about a second), serial reproduces
+   its shape. Drawn inside the scene pass with the smoke/leaf sprites. */
+void race_view_set_strike(race_view *v, int on, double age, unsigned serial);
 /* Shared resident scene, a watched entry and a clipped race viewport. */
 int race_view_draw_player(race_view *v, int entry, int show, float y, float h);
 int race_view_camera_point_entry(const race_view *v, int entry, int point, float out[8]);
