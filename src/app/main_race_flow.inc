@@ -222,7 +222,7 @@ static void app_strike_poll(race_game *game, menu **mn, double dt, int *driving,
 }
 
 static void app_fail_poll(race_game *game, menu **mn, int *driving, int *race_start_pending,
-                          int *last_root)
+                          int *last_root, const char *race_course)
 {
     int retry;
     if (!game || *driving != 2)
@@ -243,10 +243,12 @@ static void app_fail_poll(race_game *game, menu **mn, int *driving, int *race_st
             *driving = 1;
             *race_start_pending = 1;
             *last_root = -1;
+            fprintf(stderr, "custom modes: fail retry race start course=%s\n",
+                    race_course ? race_course : "?");
         } else
             fprintf(stderr, "custom modes: fail retry: %s\n", msg);
-    } else
-        app_strike_cut(game, mn, driving, race_start_pending, last_root);
+    } else if (app_strike_cut(game, mn, driving, race_start_pending, last_root))
+        fprintf(stderr, "custom modes: fail exit to custom modes\n");
 }
 
 static void app_strike_draw(void)

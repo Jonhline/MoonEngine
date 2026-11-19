@@ -7008,7 +7008,7 @@ int main(int argc, char **argv)
         if (scene_layer)
             video_end_scene();
         app_strike_poll(game, &mn, elapsed, &driving, &race_start_pending, &last_root);
-        app_fail_poll(game, &mn, &driving, &race_start_pending, &last_root);
+        app_fail_poll(game, &mn, &driving, &race_start_pending, &last_root, race_course);
         if (driving == 2 && race_game_wants_thumbnail(
                                 game)) { /* the race's picture for a saved replay, before its HUD */
             int tw, th;

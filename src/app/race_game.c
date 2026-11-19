@@ -1871,10 +1871,14 @@ int race_game_restart(race_game *g, char *msg, size_t len)
         snprintf(msg, len, "no race to restart");
         return 0;
     }
+    char course[32], car[96];
     if (g->last_prepared)
         return race_game_start_impl(g, g->last_desc.course, NULL, 0, NULL, NULL,
                                     g->last_desc.cars - 1, &g->last_desc, msg, len);
-    return race_game_start(g, g->last_course, g->last_car, g->last_color, g->last_other_ptr,
+    /* start_impl rewrites last_course; do not hand it its own buffer. */
+    snprintf(course, sizeof course, "%s", g->last_course);
+    snprintf(car, sizeof car, "%s", g->last_car);
+    return race_game_start(g, course, car, g->last_color, g->last_other_ptr,
                            g->last_has_colors ? g->last_colors : NULL, g->last_nothers, msg, len);
 }
 int race_game_setting(race_game *g, const uint8_t body[0x4b8])

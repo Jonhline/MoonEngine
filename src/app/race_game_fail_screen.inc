@@ -19,6 +19,10 @@ struct race_fail_movie {
     uint8_t image_lut[256][3];
     float saturation;
     int pad_held[7];
+    uint64_t opened_ns;
+    int test_key_done;
+    int pending_key;
+    uint64_t pending_at;
 };
 
 /* COPY of src/core/race_result.c:53 format_time — custom modes owns this
@@ -79,6 +83,7 @@ static int cfail_call(void *user, const char *name, const strb_value *args, int 
     }
     if (!strcmp(upper, "EXIT_MENU")) {
         r->retry = nargs && args[0].t == STRB_STR && !strcmp(args[0].s, "retry");
+        fprintf(stderr, "custom modes: fail screen button %s\n", r->retry ? "RETRY" : "EXIT");
         r->over = 1;
         return 1;
     }
@@ -152,9 +157,8 @@ static struct race_fail_movie *cfail_open(race_game *g, uint32_t time)
     r->state = 0;
     r->first = 1;
     r->saturation = 1.f;
+    r->opened_ns = plat_time_ns();
     cfail_format_time(time, r->time_text, sizeof r->time_text);
-    r->difference[0] = '+';
-    cfail_format_time(time, r->difference + 1, sizeof r->difference - 1);
     r->rt_data = gt4_vol_read(g->vol, "/rtext/raceUS.rt2", &n);
     r->rt_ok = r->rt_data && gt4_rtext_open(&r->rt, r->rt_data, n);
     host.call = cfail_call;
@@ -186,6 +190,25 @@ void race_game_fail_open(race_game *g)
         fprintf(stderr, "custom modes: fail screen unavailable\\n");
 }
 
+/* The licence movie's own navigation: Up then Enter is Retry, Down then
+   Enter is Exit (the same pairs tests/gtmode/license_app.py uses).  The
+   Enter follows one update later, as the movie's focus needs a tick. */
+static void cfail_activate(struct race_fail_movie *r, int key)
+{
+    if (!r || !r->movie)
+        return;
+    if (key == 13) {
+        strb_key(r->movie, 38);
+        r->pending_key = 13;
+        r->pending_at = plat_time_ns() + 120000000ull;
+    } else if (key == 27) {
+        strb_key(r->movie, 40);
+        r->pending_key = 13;
+        r->pending_at = plat_time_ns() + 120000000ull;
+    } else
+        strb_key(r->movie, key);
+}
+
 void race_game_fail_update(race_game *g, double dt)
 {
     struct race_fail_movie *r;
@@ -197,6 +220,23 @@ void race_game_fail_update(race_game *g, double dt)
         float movie_dt = gt4_license_result_tick(&r->first);
         if (movie_dt > 0)
             strb_tick(r->movie, movie_dt);
+    }
+    if (r->pending_key && plat_time_ns() >= r->pending_at) {
+        strb_key(r->movie, r->pending_key);
+        r->pending_key = 0;
+    }
+    { /* tests: MOON_FAIL_TEST_KEY=<ms>:<13|27> */
+        const char *spec = getenv("MOON_FAIL_TEST_KEY");
+        if (spec && !r->test_key_done) {
+            long ms = 0;
+            int key = 0;
+            if (sscanf(spec, "%ld:%d", &ms, &key) == 2 && (key == 13 || key == 27) &&
+                plat_time_ns() - r->opened_ns >= (uint64_t)ms * 1000000ull) {
+                cfail_activate(r, key);
+                fprintf(stderr, "custom modes: fail screen key %d\n", key);
+                r->test_key_done = 1;
+            }
+        }
     }
 }
 
@@ -214,8 +254,14 @@ void race_game_fail_input(race_game *g)
     pad = plat_sdl_pad(0);
     for (int i = 0; i < 6; i++) {
         int down = pad && SDL_GameControllerGetButton(pad, buttons[i]);
-        if (down && !r->pad_held[i])
-            strb_key(r->movie, codes[i]);
+        if (down && !r->pad_held[i]) {
+            if (i == 4)
+                cfail_activate(r, 13);
+            else if (i == 5)
+                cfail_activate(r, 27);
+            else
+                strb_key(r->movie, codes[i]);
+        }
         r->pad_held[i] = down;
     }
 }
@@ -248,7 +294,7 @@ int race_game_fail_key(race_game *g, int key)
                                                     : 0;
     if (!code)
         return 0;
-    strb_key(r->movie, code);
+    cfail_activate(r, code);
     return 1;
 }
 
