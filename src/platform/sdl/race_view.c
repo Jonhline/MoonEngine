@@ -2875,24 +2875,8 @@ static void strike_draw(race_view *v, const r3d_view *world, const float pos[3],
     if (xscale < .001f)
         return;
     {
-        float ahead = 16.f + (float)(strike_rand(&seed) % 6); /* 16-21 m */
-        float probe[3], pv[3], depth;
-        float target_px, side, side_max;
-        for (int k = 0; k < 3; k++)
-            probe[k] = pos[k] - back[k] * ahead;
-        probe[1] = pos[1];
-        strike_to_view(world, probe, pv);
-        depth = -pv[2];
-        /* Aim the base outside the card's 300..980 px box and on screen. */
-        target_px = 360.f + (float)(strike_rand(&seed) % 141); /* 360-500 px */
-        side = depth > .1f ? target_px * depth / (640.f * xscale) : 12.f;
-        side_max = depth > .1f ? 500.f * depth / (640.f * xscale) : 22.f;
-        if (side_max > 22.f)
-            side_max = 22.f;
-        if (side > side_max)
-            side = side_max;
-        if (side < 8.f)
-            side = 8.f;
+        float ahead = 22.f + (float)(strike_rand(&seed) % 11); /* 22-32 m */
+        float side = 2.f + (float)(strike_rand(&seed) % 5);     /* 2-6 m */
         if (strike_rand(&seed) & 1u)
             side = -side;
         for (int k = 0; k < 3; k++)
