@@ -549,6 +549,25 @@ unsigned race_game_take_strike(race_game *g, int *thunder)
     return serial;
 }
 
+int race_game_fail_test(race_game *g)
+{
+    int running;
+    if (!g || !g->run || !g->ready || g->replaying || g->split)
+        return 0;
+    if (!gt4_race_run_elimination(g->run)) {
+        fprintf(stderr, "custom modes: fail test (K) refused, elimination off\n");
+        return 0;
+    }
+    running = gt4_race_run_elimination_test_fail(g->run);
+    if (!running) {
+        fprintf(stderr, "custom modes: fail test (K) refused, countdown=%d\n",
+                gt4_race_run_countdown(g->run, 0));
+        return 0;
+    }
+    fprintf(stderr, "custom modes: fail test (K) running=%d\n", running);
+    return 1;
+}
+
 int race_game_strike_test(race_game *g)
 {
     int serial;

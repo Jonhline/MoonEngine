@@ -42,6 +42,8 @@ unsigned race_game_take_strike(race_game *g, int *thunder);
 /* The L test key: one real elimination cut for the player, same code as the
    lap line. 1 when it fired (the log line names the serial). */
 int race_game_strike_test(race_game *g);
+/* The K test key: one non-final player cut through the fail-screen path. */
+int race_game_fail_test(race_game *g);
 /* Silence only the race music, leaving the engines and effects alive. */
 void race_game_mute_music(race_game *g, int on);
 /* The world-space strike bolt at the player's car; age < 0 hides it. */

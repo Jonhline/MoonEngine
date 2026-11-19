@@ -2163,7 +2163,8 @@ int gt4_race_run_elimination_test_fail(gt4_race_run *r)
     if (running <= 2)
         return 0;
     leader_lap = r->elim_last_lap >= 0 ? r->elim_last_lap : 0;
-    return elim_cut(r, 0, leader_lap, running, 0);
+    elim_cut(r, 0, leader_lap, running, 0);
+    return gt4_race_run_player_failed(r) ? running : 0;
 }
 
 int gt4_race_run_player_failed(const gt4_race_run *r)

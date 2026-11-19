@@ -5559,6 +5559,10 @@ int main(int argc, char **argv)
                     race_game_strike_test(game);
                     continue;
                 }
+                if (!ev.pad && ev.key == SDLK_k) {
+                    race_game_fail_test(game);
+                    continue;
+                }
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
                 if (!ev.pad && ev.key == SDLK_F7 && settings.current.graphics_swap) {
                     race_graphics_swap ^= 1;
