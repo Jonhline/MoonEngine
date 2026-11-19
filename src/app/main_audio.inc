@@ -160,6 +160,11 @@ static void update_present_pcm(menu *m)
 {
     if (!m)
         return;
+    if (preparing_audio && !preparing_audio->allowed) {
+        if (preparing_audio->pcm)
+            pregrid_audio_update(preparing_audio->pcm, NULL, 0, 0);
+        return;
+    }
     update_present_midi(m);
     if (app_jukebox_pcm(m, !loading_screen_active()))
         return;
@@ -191,7 +196,7 @@ static void update_present_pcm(menu *m)
 static void prepare_menu_audio(menu *m, void *user)
 {
     (void)user;
-    if (!preparing_audio)
+    if (!preparing_audio || !preparing_audio->allowed)
         return;
     int volume = 0;
     const char *group = menu_pcm_request(m, &volume);

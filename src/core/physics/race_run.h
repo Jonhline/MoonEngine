@@ -119,6 +119,19 @@ void gt4_race_run_set_elimination(gt4_race_run *r, int on);
 int gt4_race_run_elimination(const gt4_race_run *r);
 /* Increments for each car eliminated; the host plays thunder on a change. */
 int gt4_race_run_elimination_serial(const gt4_race_run *r);
+/* 1 when the player's car (id 0) has been eliminated. */
+int gt4_race_run_elimination_player(const gt4_race_run *r);
+/* The L test: eliminate the player through the same cut the lap line uses.
+   Returns the new serial, 0 when the test is not available. */
+int gt4_race_run_elimination_test_cut(gt4_race_run *r);
+/* A non-final player cut: the licence-failure screen path, no strike serial. */
+int gt4_race_run_player_failed(const gt4_race_run *r);
+int gt4_race_run_take_player_failed(gt4_race_run *r);
+int gt4_race_run_player_fail_lap(const gt4_race_run *r);
+int gt4_race_run_player_fail_running(const gt4_race_run *r);
+uint32_t gt4_race_run_player_fail_time(const gt4_race_run *r);
+/* tests: force a non-final player cut when the field has more than two running. */
+int gt4_race_run_elimination_test_fail(gt4_race_run *r);
 /* 0 disables the elimination thunder/flash/bolt, not the cut. */
 void gt4_race_run_set_elimination_thunder(gt4_race_run *r, int on);
 int gt4_race_run_elimination_thunder(const gt4_race_run *r);

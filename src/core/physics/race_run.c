@@ -115,6 +115,8 @@ struct gt4_race_run {
     int finish_serial[MOON_MAX_CARS];
     int finish_next;
     int elimination, elim_done, elim_last_lap, elim_serial;
+    int player_failed, player_fail_lap, player_fail_running;
+    uint32_t player_fail_time;
     int elim_field_size, elim_thunder;
     float elim_start_dist;
     int elim_cut_count, elim_last_count;
@@ -1712,6 +1714,10 @@ void gt4_race_run_set_elimination(gt4_race_run *r, int on)
     r->elim_card_kind = r->elim_card_place = r->elim_card_remaining = 0;
     r->elim_card_name[0] = 0;
     r->elim_card_frame = 0;
+    r->player_failed = 0;
+    r->player_fail_lap = 0;
+    r->player_fail_running = 0;
+    r->player_fail_time = 0;
     memset(r->eliminated, 0, sizeof r->eliminated);
     if (on) {
         /* no lap limit: the lap line is only the elimination checkpoint */
@@ -1741,6 +1747,11 @@ int gt4_race_run_elimination(const gt4_race_run *r)
 int gt4_race_run_elimination_serial(const gt4_race_run *r)
 {
     return r && r->elimination ? r->elim_serial : 0;
+}
+
+int gt4_race_run_elimination_player(const gt4_race_run *r)
+{
+    return r && r->elimination && r->eliminated[0] ? 1 : 0;
 }
 
 void gt4_race_run_set_elimination_thunder(gt4_race_run *r, int on)
@@ -1901,7 +1912,10 @@ static void elim_stop(gt4_race_run *r, int id)
     GT4_F32(car + CAR_LAT_SPEED) = 0;
     GT4_F32(car + CAR_ABS_SPEED) = 0;
     GT4_U8(car + CAR_VIBRATION_ON) = 1;
-    GT4_U8(car + CAR_5B6) = 1;
+    /* The player's own finish flag is what makes the guest raise the results
+       board: leave it clear so the app can play the strike first. */
+    if (id != 0)
+        GT4_U8(car + CAR_5B6) = 1;
     fprintf(stderr,
             "custom modes: stop id=%d pos=%.2f,%.2f,%.2f speed=%.2f vel=%.2f,%.2f,%.2f passable=%d finish=%d\n",
             id, r->elim_pos[id][0], r->elim_pos[id][1], r->elim_pos[id][2],
@@ -1954,12 +1968,10 @@ static void elim_end(gt4_race_run *r, int winner)
         r->elim_card_frame = r->frames;
     }
     if (r->eliminated[0]) {
-        for (int id = 0; id < r->cars + r->phantom_count && id < MOON_MAX_CARS; id++)
-            elim_mark_finished(r, id);
-        for (int j = 0; j < r->phantom_count; j++) {
-            r->native[j].finished = 1;
-            r->native[j].speed = 0;
-        }
+        /* The player is out, but the round must NOT be classified here: the
+           app plays the strike over the live picture and cuts to black
+           itself. Eliminating the player never raises his own finish flag
+           (see elim_stop), so the guest keeps the track live for that. */
         r->elim_card_kind = 3;
         r->elim_card_remaining = r->elim_field_size - r->elim_cut_count;
         r->elim_card_place = r->elim_card_remaining + 1;
@@ -1975,52 +1987,31 @@ static void elim_end(gt4_race_run *r, int winner)
             r->eliminated[0]);
 }
 
-static void elim_step(gt4_race_run *r)
+static int elim_cut(gt4_race_run *r, int last, int leader_lap, int running, int force_strike)
 {
-    int n, running = 0, leader_lap = -1, last = -1;
+    int n;
+    int failed;
     if (!r || !r->elimination || r->elim_done)
-        return;
-    if (gt4_race_run_countdown(r, 0) > 0)
-        return;
+        return 0;
+    if (last < 0 || last >= r->cars + r->phantom_count || last >= MOON_MAX_CARS)
+        return 0;
+    if (r->eliminated[last] || r->entrants[last].finished)
+        return 0;
+    if (running <= 1)
+        return 0;
     n = r->class_n;
-    for (int k = 0; k < n; k++) {
-        int id = r->class_order[k];
-        gt4_race_entrant *e = &r->entrants[id];
-        if (e->eliminated || e->finished)
-            continue;
-        running++;
-        if (leader_lap < 0)
-            leader_lap = e->laps;
-        last = id;
-    }
-    if (running <= 1) {
-        elim_end(r, last);
-        return;
-    }
-    if (r->elim_last_lap < 0) {
-        r->elim_last_lap = leader_lap;
-        fprintf(stderr, "custom modes: elim armed at lap=%d (first lap not counted)\n",
-                leader_lap);
-        return;
-    }
-    if (leader_lap < r->elim_last_lap + 2)
-        return;
-    r->elim_last_lap = leader_lap;
-    if (last < 0)
-        return;
-    /* tests: keep the stationary player in so the field can run to one. */
-    if (last == 0 && getenv("MOON_CUSTOM_KEEP_PLAYER")) {
-        for (int k = n - 1; k >= 0; k--) {
-            int id = r->class_order[k];
-            if (id && !r->eliminated[id] && !r->entrants[id].finished) {
-                last = id;
-                break;
-            }
-        }
-    }
+    failed = last == 0 && running > 2 && !force_strike;
     r->eliminated[last] = 1;
-    r->elim_serial++;
     r->elim_cut_count++;
+    if (failed) {
+        r->player_failed = 1;
+        r->player_fail_lap = leader_lap;
+        r->player_fail_running = running;
+        r->player_fail_time = GT4_U32(r->cond + CONDUCTOR_FIELD_RACE_CLOCK_U) / 3u;
+        fprintf(stderr, "custom modes: player failed running=%d lap=%d time=%u\n", running,
+                leader_lap, r->player_fail_time);
+    } else
+        r->elim_serial++;
     elim_stop(r, last);
     for (int k = 2; k > 0; k--)
         snprintf(r->elim_last_names[k], sizeof r->elim_last_names[k], "%s",
@@ -2067,6 +2058,140 @@ static void elim_step(gt4_race_run *r)
         r->elim_msg_frame = r->frames;
         elim_end(r, winner);
     }
+    return r->elim_serial;
+}
+
+static void elim_step(gt4_race_run *r)
+{
+    int n, running = 0, leader_lap = -1, last = -1, first = -1;
+    if (!r || !r->elimination || r->elim_done)
+        return;
+    if (gt4_race_run_countdown(r, 0) > 0)
+        return;
+    n = r->class_n;
+    for (int k = 0; k < n; k++) {
+        int id = r->class_order[k];
+        gt4_race_entrant *e = &r->entrants[id];
+        if (e->eliminated || e->finished)
+            continue;
+        running++;
+        if (first < 0)
+            first = id;
+        if (leader_lap < 0)
+            leader_lap = e->laps;
+        last = id;
+    }
+    if (running <= 1) {
+        elim_end(r, last);
+        return;
+    }
+    if (r->elim_last_lap < 0) {
+        r->elim_last_lap = leader_lap;
+        fprintf(stderr, "custom modes: elim armed at lap=%d (first lap not counted)\n",
+                leader_lap);
+        return;
+    }
+    /* The final two: the next lap line decides. First across it wins; if the
+       player is the one behind, the strike takes him out. */
+    if (running == 2 && !r->eliminated[0] && !r->entrants[0].finished &&
+        leader_lap > r->elim_last_lap) {
+        r->elim_last_lap = leader_lap;
+        if (first == 0) {
+            fprintf(stderr, "custom modes: final lap %d player first, win\n", leader_lap);
+            elim_end(r, 0);
+        } else {
+            fprintf(stderr, "custom modes: final lap %d player not first, eliminated\n",
+                    leader_lap);
+            elim_cut(r, 0, leader_lap, running, 0);
+        }
+        return;
+    }
+    if (leader_lap < r->elim_last_lap + 2)
+        return;
+    r->elim_last_lap = leader_lap;
+    if (last < 0)
+        return;
+    /* tests: keep the stationary player in so the field can run to one. */
+    if (last == 0 && getenv("MOON_CUSTOM_KEEP_PLAYER")) {
+        for (int k = n - 1; k >= 0; k--) {
+            int id = r->class_order[k];
+            if (id && !r->eliminated[id] && !r->entrants[id].finished) {
+                last = id;
+                break;
+            }
+        }
+    }
+    elim_cut(r, last, leader_lap, running, 0);
+}
+
+static int elim_running(const gt4_race_run *r)
+{
+    int n, running = 0;
+    if (!r)
+        return 0;
+    n = r->class_n;
+    for (int k = 0; k < n; k++) {
+        int id = r->class_order[k];
+        if (!r->entrants[id].eliminated && !r->entrants[id].finished)
+            running++;
+    }
+    return running;
+}
+
+int gt4_race_run_elimination_test_cut(gt4_race_run *r)
+{
+    int leader_lap, running;
+    if (!r || !r->elimination || r->elim_done || r->eliminated[0])
+        return 0;
+    if (gt4_race_run_countdown(r, 0) > 0)
+        return 0;
+    build_classification(r);
+    running = elim_running(r);
+    leader_lap = r->elim_last_lap >= 0 ? r->elim_last_lap : 0;
+    return elim_cut(r, 0, leader_lap, running, 1);
+}
+
+int gt4_race_run_elimination_test_fail(gt4_race_run *r)
+{
+    int leader_lap, running;
+    if (!r || !r->elimination || r->elim_done || r->eliminated[0])
+        return 0;
+    if (gt4_race_run_countdown(r, 0) > 0)
+        return 0;
+    build_classification(r);
+    running = elim_running(r);
+    if (running <= 2)
+        return 0;
+    leader_lap = r->elim_last_lap >= 0 ? r->elim_last_lap : 0;
+    return elim_cut(r, 0, leader_lap, running, 0);
+}
+
+int gt4_race_run_player_failed(const gt4_race_run *r)
+{
+    return r && r->player_failed ? 1 : 0;
+}
+
+int gt4_race_run_take_player_failed(gt4_race_run *r)
+{
+    int failed = r && r->player_failed;
+    if (r)
+        r->player_failed = 0;
+    return failed;
+}
+
+int gt4_race_run_player_fail_lap(const gt4_race_run *r)
+{
+    return r ? r->player_fail_lap : 0;
+}
+
+int gt4_race_run_player_fail_running(const gt4_race_run *r)
+{
+    return r ? r->player_fail_running : 0;
+}
+
+uint32_t gt4_race_run_player_fail_time(const gt4_race_run *r)
+{
+    return r ? r->player_fail_time : 0;
 }
 
 int gt4_race_run_player_place(const gt4_race_run *r)

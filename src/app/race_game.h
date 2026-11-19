@@ -18,6 +18,33 @@ void race_game_set_field_size(int field_size);
 /* Custom Modes: arm elimination on the run after the race is built. */
 void race_game_set_elimination(race_game *g, int on, int thunder);
 int race_game_elimination(const race_game *g);
+int race_game_elimination_thunder(const race_game *g);
+/* Custom Modes: a non-final player cut gets the licence-failure screen. */
+int race_game_take_player_fail(race_game *g);
+int race_game_player_failed(const race_game *g);
+uint32_t race_game_player_fail_time(const race_game *g);
+int race_game_player_fail_lap(const race_game *g);
+/* Custom Modes' private licence-failure screen; not used by licence races. */
+void race_game_fail_open(race_game *g);
+void race_game_fail_update(race_game *g, double dt);
+void race_game_fail_input(race_game *g);
+int race_game_fail_key(race_game *g, int key);
+int race_game_fail_press(race_game *g);
+int race_game_fail_active(const race_game *g);
+int race_game_fail_over(const race_game *g);
+int race_game_fail_retry(const race_game *g);
+void race_game_draw_fail(race_game *g, double dt);
+void race_game_fail_close(race_game *g);
+/* The player's elimination waiting for its strike presentation: serial or 0.
+   *thunder is the setting that was captured when the serial changed. */
+unsigned race_game_take_strike(race_game *g, int *thunder);
+/* The L test key: one real elimination cut for the player, same code as the
+   lap line. 1 when it fired (the log line names the serial). */
+int race_game_strike_test(race_game *g);
+/* Silence only the race music, leaving the engines and effects alive. */
+void race_game_mute_music(race_game *g, int on);
+/* The world-space strike bolt at the player's car; age < 0 hides it. */
+void race_game_set_strike_visual(race_game *g, double age, unsigned serial);
 
 /* A race on `course` with the player's car (GENERIC_CAR label, paint) and
    the other cars (labels and paints, colors may be NULL; up to MOON_CONDUCTOR_CARS-1). The physics is set up at once; the

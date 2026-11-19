@@ -81,6 +81,14 @@ struct race_game {
     gt4_race_run *run;
     int loading, ready, others, laps, time_trial;
     int elim_seen;
+    int strike_pending, strike_thunder;
+    unsigned strike_serial;
+    int music_muted;
+    int elim_thunder;
+    int player_failed, player_fail_taken, player_fail_lap, player_fail_running;
+    uint32_t player_fail_time;
+    int fail_test_done;
+    struct race_fail_movie *cfail; /* Custom Modes' own failure screen */
     int hud_preparing;
     int world_mode; /* GT Mode Free Run 11 / Practice 12 (race_game_set_world_mode) */
     int tire, manual, assist_asm, assist_tcs;
@@ -267,9 +275,9 @@ struct race_game {
     long replay_open;  /* the opening's clock at the tape's start (frames), -1 unset */
     double replay_end; /* seconds since the tape ran out */
     /* the last race's lineup, for its replay */
-    char last_course[32], last_car[96], last_others[MOON_CONDUCTOR_CARS - 1][96];
-    const char *last_other_ptr[MOON_CONDUCTOR_CARS - 1];
-    int last_color, last_colors[MOON_CONDUCTOR_CARS - 1], last_nothers, last_has_colors;
+    char last_course[32], last_car[96], last_others[MOON_MAX_CARS - 1][96];
+    const char *last_other_ptr[MOON_MAX_CARS - 1];
+    int last_color, last_colors[MOON_MAX_CARS - 1], last_nothers, last_has_colors;
     int last_prepared;
     gt4_race_desc last_desc;
     uint8_t disc_entries[MOON_CONDUCTOR_CARS][0x228];
@@ -313,7 +321,22 @@ struct race_game {
     int open_on, open_front, open_rear;
     float open_power;
 };
-static void custom_thunder(void)
+static uint32_t thunder_random(uint32_t *state)
+{
+    uint32_t x = *state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    *state = x ? x : 0x6d2b79f5u;
+    return *state;
+}
+
+static float thunder_noise(uint32_t *state)
+{
+    return ((int32_t)(thunder_random(state) >> 8) / 8388608.f) - 1.f;
+}
+
+static void custom_thunder(unsigned serial)
 {
     char *root = moon_pref_path();
     char path[1200];
@@ -322,35 +345,140 @@ static void custom_thunder(void)
     Uint32 len = 0;
     if (!root)
         return;
-    snprintf(path, sizeof path, "%scustom/thunder.wav", root);
+    /* The captain's strikes: custom/thunder1.wav .. thunder3.wav, one of the
+       ones that is there chosen at random per strike (custom/thunder.wav
+       still counts as an extra take). */
+    {
+        static const char *const names[] = {"thunder1.wav", "thunder2.wav", "thunder3.wav",
+                                            "thunder.wav"};
+        const int count = (int)(sizeof names / sizeof names[0]);
+        char present[count][1200];
+        int have = 0;
+        for (int i = 0; i < count; i++) {
+            snprintf(path, sizeof path, "%scustom/%s", root, names[i]);
+            FILE *probe = fopen(path, "rb");
+            if (!probe)
+                continue;
+            fclose(probe);
+            snprintf(present[have], sizeof present[have], "%s", path);
+            have++;
+        }
+        if (have > 0) {
+            /* Stir once per strike: two eliminations in a row should not
+               always play the same take, and the serial keeps it in the log. */
+            static unsigned spins;
+            spins = spins * 1103515245u + 12345u + serial * 2654435761u;
+            snprintf(path, sizeof path, "%s", present[(spins >> 16) % (unsigned)have]);
+            fprintf(stderr, "custom modes: thunder take %s\n", path);
+        }
+    }
     if (!SDL_LoadWAV(path, &spec, &wav, &len)) {
         /* The disc's SE table has no thunder/kaminari/lightning entry (only
-           rain_noiz), so synthesise a low brown-noise burst instead of
-           shipping an audio file. */
-        const int rate = 48000, frames = rate * 2;
+           rain_noiz), so synthesise the strike instead of shipping a file:
+           a bright crack, then three rolling low lobes, stereo and seeded by
+           the elimination serial so a log can reproduce it. */
+        const int rate = 48000;
+        const int frames = rate * 26 / 5; /* 5.2 s */
         int16_t *pcm = malloc((size_t)frames * 2 * sizeof *pcm);
-        if (pcm) {
-            uint32_t seed = 0x9e3779b9u;
-            float brown = 0.f;
-            for (int i = 0; i < frames; i++) {
-                seed = seed * 1664525u + 1013904223u;
-                float n = ((int32_t)(seed >> 8) / 8388608.f) - 1.f;
-                brown = brown * .985f + n * .015f;
-                float t = (float)i / (float)rate;
-                float env = expf(-t * 1.9f) * (1.f - expf(-t * 30.f));
-                float rumble = sinf(6.2831853f * 38.f * t) * .25f;
-                float v = (brown * 1.6f + rumble) * env * 32767.f;
-                if (v > 32767.f)
-                    v = 32767.f;
-                if (v < -32768.f)
-                    v = -32768.f;
-                pcm[2 * i] = pcm[2 * i + 1] = (int16_t)v;
+        float *mix = malloc((size_t)frames * 2 * sizeof *mix);
+        if (pcm && mix) {
+            uint32_t seed = 0x9e3779b9u ^ (serial * 2654435761u);
+            uint32_t jstate;
+            uint32_t noise_state[2];
+            float hp_lp[2] = {0.f, 0.f}, low_lp[2] = {0.f, 0.f};
+            float lobe_start[3], lobe_attack[3], lobe_decay[3], lobe_level[3];
+            float lobe_freq[3], lobe_phase[3][2];
+            const float hp_alpha = 1.f - expf(-6.2831853f * 250.f / (float)rate);
+            const float low_alpha = 1.f - expf(-6.2831853f * 70.f / (float)rate);
+            const float target = 0.7079458f * 32767.f; /* -3 dBFS */
+            float peak = 0.f, prev[2] = {0.f, 0.f};
+            if (!seed)
+                seed = 0x6d2b79f5u;
+            jstate = seed;
+            noise_state[0] = seed ^ 0xa511e9b3u;
+            noise_state[1] = seed ^ 0x63d83595u;
+            if (!noise_state[0])
+                noise_state[0] = 0x1234567u;
+            if (!noise_state[1])
+                noise_state[1] = 0x7654321u;
+            /* first lobe at 300-380 ms, then 500-800 ms and 600-900 ms apart */
+            for (int l = 0; l < 3; l++) {
+                float jitter = (float)(thunder_random(&jstate) >> 8) / 16777216.f;
+                float gap = l == 0 ? 0.f : (l == 1 ? 0.50f : 0.60f) + jitter * .30f;
+                lobe_start[l] = (l == 0 ? 0.30f + jitter * .08f : lobe_start[l - 1] + gap);
+                lobe_attack[l] = 0.10f + .04f * (float)l + jitter * .03f;
+                lobe_decay[l] = 0.65f + .30f * (float)l + jitter * .15f;
+                lobe_level[l] = .60f - .14f * (float)l;
+                lobe_freq[l] = 34.f + 4.f * (float)l + jitter * 5.f;
+                lobe_phase[l][0] = jitter * 6.2831853f;
+                lobe_phase[l][1] = lobe_phase[l][0] + 1.7f + .9f * (float)l;
             }
-            int played = plat_audio_play(pcm, (size_t)frames, rate, 2);
-            fprintf(stderr, "custom modes: thunder source=synth frames=%d played=%d\n", frames,
-                    played);
-            free(pcm);
+            for (int i = 0; i < frames; i++) {
+                float t = (float)i / (float)rate;
+                float crack_env = (1.f - expf(-t / .006f)) * expf(-t / .18f);
+                float snap_env = expf(-t / .022f);
+                float lobe_env[3] = {0.f, 0.f, 0.f};
+                float body = 0.f, clap = 0.f;
+                for (int l = 0; l < 3; l++) {
+                    float d = t - lobe_start[l];
+                    if (d > 0.f) {
+                        lobe_env[l] = (1.f - expf(-d / lobe_attack[l])) *
+                                      expf(-d / lobe_decay[l]);
+                        body += lobe_level[l] * lobe_env[l];
+                        clap += lobe_level[l] * lobe_env[l] * expf(-d / .07f);
+                    }
+                }
+                for (int c = 0; c < 2; c++) {
+                    float n = thunder_noise(&noise_state[c]);
+                    float bright, low, tones = 0.f;
+                    hp_lp[c] += hp_alpha * (n - hp_lp[c]);
+                    low_lp[c] += low_alpha * (n - low_lp[c]);
+                    bright = n - hp_lp[c];
+                    low = low_lp[c];
+                    for (int l = 0; l < 3; l++) {
+                        if (lobe_env[l] <= 0.f)
+                            continue;
+                        float f = lobe_freq[l];
+                        float ph = lobe_phase[l][c];
+                        tones += lobe_level[l] * lobe_env[l] *
+                                 (sinf(6.2831853f * f * t + ph) +
+                                  .55f * sinf(6.2831853f * f * 1.5f * t + ph * .7f) +
+                                  .30f * sinf(6.2831853f * f * 2.1f * t + ph * 1.3f));
+                    }
+                    float v = bright * (.55f * crack_env + .15f * snap_env) +
+                              bright * clap * .35f + body * (low * 3.2f + tones * .85f);
+                    /* A touch of inter-channel delay keeps the roll wide. */
+                    float out = .82f * v + .18f * prev[c];
+                    prev[c] = v;
+                    mix[2 * i + c] = out;
+                    if (out > peak)
+                        peak = out;
+                    else if (-out > peak)
+                        peak = -out;
+                }
+            }
+            if (peak > 1e-6f) {
+                float gain = target / peak;
+                for (int i = 0; i < frames * 2; i++) {
+                    float v = mix[i] * gain;
+                    if (v > 32767.f)
+                        v = 32767.f;
+                    if (v < -32768.f)
+                        v = -32768.f;
+                    pcm[i] = (int16_t)v;
+                }
+            } else
+                memset(pcm, 0, (size_t)frames * 2 * sizeof *pcm);
+            {
+                int played = plat_audio_play(pcm, (size_t)frames, rate, 2);
+                fprintf(stderr, "custom modes: thunder source=synth frames=%d played=%d\n", frames,
+                        played);
+                fprintf(stderr, "custom modes: thunder layers=4 frames=%d peak=%.3f seed=%u\n",
+                        frames, (double)(target / 32767.f), seed);
+            }
         }
+        free(mix);
+        free(pcm);
         free(root);
         return;
     }
@@ -375,7 +503,8 @@ static void custom_thunder(void)
         int frames = cvt.len_cvt / 4;
         int played = frames > 0 ? plat_audio_play((const int16_t *)cvt.buf, (size_t)frames, 48000, 2)
                                 : 0;
-        fprintf(stderr, "custom modes: thunder source=wav frames=%d played=%d\n", frames, played);
+        fprintf(stderr, "custom modes: thunder source=wav frames=%d played=%d seed=%u\n", frames,
+                played, serial);
     } else
         fprintf(stderr, "custom modes: thunder convert failed: %s\n", SDL_GetError());
     free(cvt.buf);
@@ -390,14 +519,109 @@ void race_game_set_elimination(race_game *g, int on, int thunder)
 {
     if (g && g->run) {
         g->elim_seen = 0;
+        g->strike_pending = 0;
+        g->strike_thunder = 0;
+        g->strike_serial = 0;
+        g->music_muted = 0;
+        g->elim_thunder = thunder != 0;
+        g->player_failed = 0;
+        g->player_fail_taken = 0;
+        g->player_fail_lap = 0;
+        g->player_fail_running = 0;
+        g->player_fail_time = 0;
+        g->fail_test_done = 0;
         gt4_race_run_set_elimination(g->run, on);
         gt4_race_run_set_elimination_thunder(g->run, thunder);
     }
 }
 
+unsigned race_game_take_strike(race_game *g, int *thunder)
+{
+    unsigned serial;
+    if (!g || !g->strike_pending)
+        return 0;
+    serial = g->strike_serial;
+    if (thunder)
+        *thunder = g->strike_thunder;
+    g->strike_pending = 0;
+    g->strike_serial = 0;
+    g->strike_thunder = 0;
+    return serial;
+}
+
+int race_game_strike_test(race_game *g)
+{
+    int serial;
+    if (!g || !g->run || !g->ready || g->replaying || g->split)
+        return 0;
+    if (!gt4_race_run_elimination(g->run)) {
+        fprintf(stderr, "custom modes: strike test (L) refused, elimination off\n");
+        return 0;
+    }
+    serial = gt4_race_run_elimination_test_cut(g->run);
+    if (!serial) {
+        fprintf(stderr, "custom modes: strike test (L) refused, countdown=%d\n",
+                gt4_race_run_countdown(g->run, 0));
+        return 0;
+    }
+    /* The natural path arms the presentation from the frame step; a forced
+       cut has to arm it here or the round simply ends with no strike. */
+    if (gt4_race_run_elimination_player(g->run)) {
+        g->strike_pending = 1;
+        g->strike_thunder = gt4_race_run_elimination_thunder(g->run);
+        g->strike_serial = (unsigned)serial;
+        if (g->strike_thunder)
+            g->music_muted = 1;
+    }
+    fprintf(stderr, "custom modes: strike test (L) serial=%d\n", serial);
+    return 1;
+}
+
+void race_game_mute_music(race_game *g, int on)
+{
+    if (g) {
+        g->music_muted = on != 0;
+        race_audio_mute_music(g->audio, on);
+    }
+}
+
+void race_game_set_strike_visual(race_game *g, double age, unsigned serial)
+{
+    if (g && g->view)
+        race_view_set_strike(g->view, age >= 0.0 && age < 1.05, age, serial);
+}
+
 int race_game_elimination(const race_game *g)
 {
     return g && g->run ? gt4_race_run_elimination(g->run) : 0;
+}
+
+int race_game_elimination_thunder(const race_game *g)
+{
+    return g ? g->elim_thunder : 0;
+}
+
+int race_game_take_player_fail(race_game *g)
+{
+    if (!g || !g->player_failed || g->player_fail_taken)
+        return 0;
+    g->player_fail_taken = 1;
+    return 1;
+}
+
+int race_game_player_failed(const race_game *g)
+{
+    return g && g->player_failed ? 1 : 0;
+}
+
+uint32_t race_game_player_fail_time(const race_game *g)
+{
+    return g ? g->player_fail_time : 0;
+}
+
+int race_game_player_fail_lap(const race_game *g)
+{
+    return g ? g->player_fail_lap : 0;
 }
 
 
@@ -970,6 +1194,7 @@ void race_game_stop(race_game *g)
     g->dive = NULL;
     g->dive_tried = g->dive_had = 0;
     race_view_clear(g->view);
+    race_game_fail_close(g);
     race_result_close(g->result);
     race_pause_close(g->pause);
     g->pause = NULL;
@@ -993,6 +1218,12 @@ void race_game_stop(race_game *g)
     g->film_clock = 0;
     gt4_race_run_close(g->run);
     g->run = NULL;
+    g->player_failed = 0;
+    g->player_fail_taken = 0;
+    g->player_fail_lap = 0;
+    g->player_fail_running = 0;
+    g->player_fail_time = 0;
+    g->fail_test_done = 0;
     g->loading = g->ready = 0;
     g->hud_preparing = 0;
     g->ghost_car = 0;
@@ -1508,7 +1739,7 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
         g->last_color = color;
         g->last_nothers = nothers;
         g->last_has_colors = colors != NULL;
-        for (int i = 0; i < nothers && i < MOON_CONDUCTOR_CARS - 1; i++) {
+        for (int i = 0; i < nothers && i < MOON_MAX_CARS - 1; i++) {
             snprintf(g->last_others[i], sizeof g->last_others[i], "%s", others[i]);
             g->last_other_ptr[i] = g->last_others[i];
             g->last_colors[i] = colors ? colors[i] : 0;
@@ -2768,7 +2999,8 @@ static void split_camera_audio_update(race_game *g)
                                          race_view_exhaust_count(g->view, i));
     if (g->audio)
         race_audio_update(g->audio, g->run, g->split_eye[0], g->split_rows[0], g->camera,
-                          g->bgm_enabled ? g->bgm_volume : -1, g->se_volume);
+                          g->bgm_enabled && !g->music_muted ? g->bgm_volume : -1,
+                          g->se_volume);
 }
 static void race_camera_audio_update(race_game *g, double dt)
 {
@@ -2881,7 +3113,8 @@ static void race_camera_audio_update(race_game *g, double dt)
                         (watched_car(g) < MOON_CONDUCTOR_CARS && g->pit_crew[watched_car(g)].camera_control >= 0)
                     ? -1
                     : g->camera,
-                (g->bgm_enabled != g->bgm_off) ? g->bgm_volume : -1, g->se_volume);
+                (g->bgm_enabled != g->bgm_off && !g->music_muted) ? g->bgm_volume : -1,
+                g->se_volume);
     }
 }
 
@@ -3081,7 +3314,10 @@ void race_game_update(race_game *g, double dt)
 {
     if (!g || !g->ready || !g->run || g->photo_held)
         return;
-    pause_input(g);
+    if (g->cfail)
+        race_game_fail_input(g);
+    else
+        pause_input(g);
     { /* tests: MOON_RACE_PAUSE=<seconds>[,key,key...] opens the pause
            menu then sends Flash key codes, one each half second */
         const char *t = getenv("MOON_RACE_PAUSE");
@@ -3109,7 +3345,10 @@ void race_game_update(race_game *g, double dt)
             if (race_view_get_camera(g->view, eye, rows, projection))
                 race_audio_update(g->audio, g->run, eye, rows,
                                   g->start_cam_on || g->inspect_on ? -1 : g->camera,
-                                  (g->bgm_enabled != g->bgm_off) ? g->bgm_volume : -1, 0);
+                                  (g->bgm_enabled != g->bgm_off && !g->music_muted)
+                                      ? g->bgm_volume
+                                      : -1,
+                                  0);
             race_audio_hold(g->audio, dt);
         }
         return;
@@ -3205,9 +3444,32 @@ void race_game_update(race_game *g, double dt)
         {
             int serial = gt4_race_run_elimination_serial(g->run);
             if (serial && serial != g->elim_seen) {
+                int thunder = gt4_race_run_elimination_thunder(g->run);
                 g->elim_seen = serial;
-                if (gt4_race_run_elimination_thunder(g->run))
-                    custom_thunder();
+                if (thunder)
+                    custom_thunder((unsigned)serial);
+                if (gt4_race_run_elimination_player(g->run)) {
+                    g->strike_pending = 1;
+                    g->strike_thunder = thunder;
+                    g->strike_serial = (unsigned)serial;
+                    if (thunder) {
+                        g->music_muted = 1;
+                        race_audio_mute_music(g->audio, 1);
+                    }
+                }
+            }
+            { /* tests: MOON_ELIM_TEST=3 forces a non-final player cut. */
+                const char *elim = getenv("MOON_ELIM_TEST");
+                if (elim && atoi(elim) == 3 && !g->fail_test_done &&
+                    gt4_race_run_elimination_test_fail(g->run))
+                    g->fail_test_done = 1;
+            }
+            if (gt4_race_run_take_player_failed(g->run)) {
+                g->player_failed = 1;
+                g->player_fail_lap = gt4_race_run_player_fail_lap(g->run);
+                g->player_fail_running = gt4_race_run_player_fail_running(g->run);
+                g->player_fail_time = gt4_race_run_player_fail_time(g->run);
+                race_game_fail_open(g);
             }
         }
         g->license_test_frame++;
@@ -3307,6 +3569,8 @@ void race_game_update(race_game *g, double dt)
         else if (gt4_race_run_finished(g->run))
             g->finished = 0;
     }
+    if (g->cfail)
+        race_game_fail_update(g, dt);
     if (!stepped)
         publish_photo_poses(g);
     /* Snapshot/initialization has no physics tick to publish its camera. */
@@ -3558,6 +3822,8 @@ void race_game_set_audio(race_game *g, int bgm, int enabled, int se)
 }
 
 #include "race_game_hud.inc"
+
+#include "race_game_fail_screen.inc"
 
 /* 0011ABE0: Photo Drive single-car RACE mode 0, or a resident replay.
    This borrows only the renderer; the command tape and solver stay paused. */

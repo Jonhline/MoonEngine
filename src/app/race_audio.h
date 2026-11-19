@@ -33,6 +33,8 @@ void race_audio_start(race_audio *audio);
 /* The pause opened (1) or closed (0): the cars' and the course's
    sounds stopped, then started again. */
 void race_audio_pause(race_audio *audio, int on);
+/* Silence the music stream only; engines and effects keep playing. */
+void race_audio_mute_music(race_audio *audio, int on);
 void race_audio_close(race_audio *audio);
 /* once a frame: the time to the music's next mark (NaN: none), *passed
    when one went by or the stream changed (0033D170) */

@@ -85,7 +85,7 @@ struct race_audio {
     gt4_pcm_music *music;
     const char *disc;
     SDL_Thread *music_worker;
-    SDL_atomic_t music_ready, music_ended, music_paused;
+    SDL_atomic_t music_ready, music_ended, music_paused, music_muted;
     gt4_pcm_music *prepared;
     int requested_music, worker_music, active_music;
     int music_serial; /* a new stream each time one starts */
@@ -109,6 +109,19 @@ static void completed_voices(const race_audio *a, uint8_t ended[VOICES])
 /* Hold the decoder cursor while paused; pause-menu SE continue mixing. */
 static void render_race_music(race_audio *a,int16_t *out,int frames)
 {
+    if(SDL_AtomicGet(&a->music_muted)) {
+        if(!SDL_AtomicGet(&a->music_paused) && a->music) {
+            int16_t discarded[BLOCK*2];
+            for(int left=frames;left>0;) {
+                int take=left>BLOCK?BLOCK:left;
+                gt4_pcm_music_render(discarded,take,a->music);
+                left-=take;
+            }
+            if(gt4_pcm_music_ended(a->music))SDL_AtomicSet(&a->music_ended,1);
+        }
+        memset(out,0,(size_t)frames*2*sizeof(*out));
+        return;
+    }
     if(a->active_music==12 && moon_music_override_render(a->replay?2:1,out,frames,128,SDL_AtomicGet(&a->music_paused))) {
         /* Keep authored replay cue timing alive without mixing a second song. */
         if(!SDL_AtomicGet(&a->music_paused)) {
@@ -926,6 +939,12 @@ void race_audio_hold(race_audio *a, double dt)
    depth at 0FFFh; back, 00389F90 restarts the cars (003924D0) and
    00398B58 marks the ambience started. 003D33C0 also stops the shared
    refueling handle; 003D3358 restores it on the next pit frame. */
+void race_audio_mute_music(race_audio *a, int on)
+{
+    if (a)
+        SDL_AtomicSet(&a->music_muted, on != 0);
+}
+
 void race_audio_pause(race_audio *a, int on)
 {
     if (!a) return;

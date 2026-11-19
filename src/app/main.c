@@ -5272,6 +5272,12 @@ int main(int argc, char **argv)
             }
             if (split_preview)
                 pre_race_preview = 0;
+            { /* test hook: arm Custom Modes elimination on a scripted race.
+                 1 = with the thunder strike, 2 = the silent cut. */
+                const char *elim = getenv("MOON_ELIM_TEST");
+                if (elim && *elim)
+                    race_game_set_elimination(game, 1, atoi(elim) != 2);
+            }
             driving = 1;
             race_start_pending = !pre_race_preview;
             race_color = color_preview;
@@ -5538,8 +5544,19 @@ int main(int argc, char **argv)
             if (notice < GT4_NOTICE_COUNT)
                 continue; /* the original screens take no input */
             if (driving == 2) {
+                if (race_game_fail_active(game)) {
+                    if (!ev.pad)
+                        race_game_fail_key(game, ev.key);
+                    continue;
+                }
                 if (!ev.pad && ev.key == SDLK_F9) {
                     race_game_cinematic_toggle(game);
+                    continue;
+                }
+                /* Custom Modes: L fires one real strike, through the same
+                   elimination cut the lap line uses. */
+                if (!ev.pad && ev.key == SDLK_l && race_game_elimination(game)) {
+                    race_game_strike_test(game);
                     continue;
                 }
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
@@ -6862,9 +6879,11 @@ int main(int argc, char **argv)
         const char *pcm_group = menu_pcm_request(mn, &pcm_volume);
         int wants_pcm = (!shot || music_with_shot) && !notice_active && !race_active &&
                         driving != 2 && !loading_screen_active() && pcm_group && *pcm_group &&
-                        strcmp(page, "MovieRoot") && !(music_faded && plat_sdl_music_fading());
+                        strcmp(page, "MovieRoot") && !(music_faded && plat_sdl_music_fading()) &&
+                        !app_strike_state.active;
         int prepare_pcm = (!shot || music_with_shot) && !notice_active && !race_active &&
-                          driving != 2 && pcm_group && *pcm_group && strcmp(page, "MovieRoot");
+                          driving != 2 && pcm_group && *pcm_group && strcmp(page, "MovieRoot") &&
+                          !app_strike_state.active;
         if (!prepare_pcm)
             pregrid_audio_update(pregrid_music, NULL, 0, 0);
         if (!strcmp(page, "MovieRoot") && (root != movie_page_root || proj != movie_page_project)) {
@@ -6903,7 +6922,7 @@ int main(int argc, char **argv)
             desired_music[0] = 0;
         menu_audio_state.owner = mn;
         menu_audio_state.allowed = !notice_active && !race_active && driving != 2 &&
-                                   !race_quick_project(proj);
+                                   !race_quick_project(proj) && !app_strike_state.active;
         update_present_midi(mn);
         if (app_jukebox_pcm(mn, wants_pcm)) {
             pregrid_audio_update(pregrid_music, NULL, 0, 0);
@@ -6988,6 +7007,8 @@ int main(int argc, char **argv)
         }
         if (scene_layer)
             video_end_scene();
+        app_strike_poll(game, &mn, elapsed, &driving, &race_start_pending, &last_root);
+        app_fail_poll(game, &mn, &driving, &race_start_pending, &last_root);
         if (driving == 2 && race_game_wants_thumbnail(
                                 game)) { /* the race's picture for a saved replay, before its HUD */
             int tw, th;
@@ -6997,8 +7018,12 @@ int main(int argc, char **argv)
                 free(px);
             }
         }
-        if (driving == 2)
-            race_game_draw_hud(game, elapsed);
+        if (driving == 2) {
+            if (race_game_fail_active(game))
+                race_game_draw_fail(game, elapsed);
+            else
+                race_game_draw_hud(game, elapsed);
+        }
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
         if (race_graphics_swap && driving != 2) { /* the race is over: back to the player's */
             race_graphics_swap = 0;
@@ -7020,6 +7045,26 @@ int main(int argc, char **argv)
                     key.key.keysym.sym = SDLK_F7;
                     SDL_PushEvent(&key);
                     swap_injected = 1;
+                }
+            }
+        }
+        { /* test hook: a real L press after this many seconds of the race,
+             repeated once a second until the cut actually happens */
+            static uint64_t strike_race_start;
+            static int strike_injected;
+            const char *after = getenv("MOON_STRIKE_TEST_AFTER");
+            if (driving != 2)
+                strike_race_start = 0;
+            else if (after && !strike_injected && !app_strike_state.active) {
+                if (!strike_race_start)
+                    strike_race_start = plat_time_ns();
+                if ((plat_time_ns() - strike_race_start) / 1e9 >= atof(after)) {
+                    SDL_Event key = {0};
+                    key.type = SDL_KEYDOWN;
+                    key.key.keysym.sym = SDLK_l;
+                    SDL_PushEvent(&key);
+                    strike_race_start = plat_time_ns(); /* try again next second */
+                    fprintf(stderr, "custom modes: strike test key injected\n");
                 }
             }
         }
@@ -7157,6 +7202,39 @@ int main(int argc, char **argv)
         if (driving != 2)
             moon_debug_overlay_set_race(-1, 0, 0);
         moon_debug_overlay_draw();
+        app_strike_draw();
+        { /* dev: the strike sequence's own pictures, taken from its frames */
+            const char *prefix = getenv("MOON_STRIKE_SHOT");
+            static int shot_impact, shot_black, shot_fade, shot_menu;
+            if (prefix) {
+                char path[1200];
+                int take = 0;
+                const char *stage = NULL;
+                double t = app_strike_state.t;
+                if (app_strike_state.active && !shot_impact && !app_strike_state.cut_done &&
+                    t > .10 && t < .34) {
+                    stage = "thunder";
+                    shot_impact = take = 1;
+                } else if (app_strike_state.active && !shot_black && app_strike_state.cut_done &&
+                           t < STRIKE_THUNDER_S + STRIKE_HOLD_S) {
+                    stage = "black";
+                    shot_black = take = 1;
+                } else if (app_strike_state.active && !shot_fade &&
+                           t >= STRIKE_THUNDER_S + STRIKE_HOLD_S + .55 && t < STRIKE_TOTAL_S) {
+                    stage = "fade";
+                    shot_fade = take = 1;
+                } else if (!app_strike_state.active && shot_fade && !shot_menu &&
+                           app_strike_state.serial) {
+                    stage = "menu";
+                    shot_menu = take = 1;
+                }
+                if (take && stage) {
+                    snprintf(path, sizeof path, "%s-%s.png", prefix, stage);
+                    screenshot(path);
+                    printf("strike shot: %s\n", path);
+                }
+            }
+        }
         int shot_due = shot != NULL && !app_jukebox_fixture(mn);
         if (shot && shot_delay > 0) {
             if (!shot_started)
