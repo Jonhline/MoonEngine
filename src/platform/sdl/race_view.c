@@ -2871,10 +2871,30 @@ static void strike_draw(race_view *v, const r3d_view *world, const float pos[3],
     right[0] = rot[0]; right[1] = rot[3]; right[2] = rot[6];
     back[0] = rot[2]; back[1] = rot[5]; back[2] = rot[8];
     seed = v->strike_seed ^ (((unsigned)(t * 60.0) + 1u) * 2654435761u);
+    xscale = world->focal / 320.f * video_projection_x();
+    if (xscale < .001f)
+        return;
     {
-        float ahead = 35.f + (float)(strike_rand(&seed) % 26); /* 35-60 m */
-        float side = (6.f + (float)(strike_rand(&seed) % 13)) *
-                     ((strike_rand(&seed) & 1u) ? 1.f : -1.f);
+        float ahead = 16.f + (float)(strike_rand(&seed) % 6); /* 16-21 m */
+        float probe[3], pv[3], depth;
+        float target_px, side, side_max;
+        for (int k = 0; k < 3; k++)
+            probe[k] = pos[k] - back[k] * ahead;
+        probe[1] = pos[1];
+        strike_to_view(world, probe, pv);
+        depth = -pv[2];
+        /* Aim the base outside the card's 300..980 px box and on screen. */
+        target_px = 360.f + (float)(strike_rand(&seed) % 141); /* 360-500 px */
+        side = depth > .1f ? target_px * depth / (640.f * xscale) : 12.f;
+        side_max = depth > .1f ? 500.f * depth / (640.f * xscale) : 22.f;
+        if (side_max > 22.f)
+            side_max = 22.f;
+        if (side > side_max)
+            side = side_max;
+        if (side < 8.f)
+            side = 8.f;
+        if (strike_rand(&seed) & 1u)
+            side = -side;
         for (int k = 0; k < 3; k++)
             base[k] = pos[k] - back[k] * ahead + right[k] * side;
         ground = pos[1];
@@ -2897,8 +2917,7 @@ static void strike_draw(race_view *v, const r3d_view *world, const float pos[3],
     for (int i = 0; i < splash.n; i++)
         strike_to_view(world, splash.p[i], sview[i]);
     base_depth = -view[STRIKE_SEGMENTS][2];
-    xscale = world->focal / 320.f * video_projection_x();
-    if (base_depth < .1f || xscale < .001f)
+    if (base_depth < .1f)
         return;
     core_px = 18.f + (float)(strike_rand(&seed) % 13);  /* 18-30 px at 1280 */
     halo_px = 60.f + (float)(strike_rand(&seed) % 51);  /* 60-110 px at 1280 */
