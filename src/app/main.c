@@ -7205,7 +7205,7 @@ int main(int argc, char **argv)
         app_strike_draw();
         { /* dev: the strike sequence's own pictures, taken from its frames */
             const char *prefix = getenv("MOON_STRIKE_SHOT");
-            static int shot_impact, shot_black, shot_fade, shot_menu;
+            static int shot_impact, shot_peak, shot_black, shot_fade, shot_menu;
             if (prefix) {
                 char path[1200];
                 int take = 0;
@@ -7215,6 +7215,10 @@ int main(int argc, char **argv)
                     t > .10 && t < .34) {
                     stage = "thunder";
                     shot_impact = take = 1;
+                } else if (app_strike_state.active && !shot_peak && !app_strike_state.cut_done &&
+                           t >= .20 && t < .30) {
+                    stage = "peak";
+                    shot_peak = take = 1;
                 } else if (app_strike_state.active && !shot_black && app_strike_state.cut_done &&
                            t < STRIKE_THUNDER_S + STRIKE_HOLD_S) {
                     stage = "black";

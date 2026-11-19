@@ -2711,18 +2711,19 @@ static void strike_to_view(const r3d_view *world, const float p[3], float out[3]
 /* One pass of a world polyline: camera-facing quads between its view-space
    points, the same corners race_smoke_quads feeds to r3d_draw_sprites. */
 static void strike_emit(race_view *v, const r3d_view *world, const float p[][3], int n,
-                        float top_half, float bottom_half, const float rgba[4])
+                        float top_half, float bottom_half, const float rgba[4], int mode)
 {
     float corners[(STRIKE_POINTS - 1) * 4 * 9];
     int q = 0;
     for (int i = 0; i + 1 < n; i++) {
         float dx = p[i + 1][0] - p[i][0], dy = p[i + 1][1] - p[i][1];
-        float len = sqrtf(dx * dx + dy * dy), nx, ny, f;
+        float len = sqrtf(dx * dx + dy * dy), nx, ny, f, half;
         if (len < 1e-4f)
             continue;
         f = n > 1 ? ((float)i + .5f) / (float)(n - 1) : 0.f;
-        nx = -dy / len * (top_half + (bottom_half - top_half) * f);
-        ny = dx / len * (top_half + (bottom_half - top_half) * f);
+        half = top_half + (bottom_half - top_half) * f;
+        nx = -dy / len * half;
+        ny = dx / len * half;
         {
             float xy[4][2] = {{p[i][0] + nx, p[i][1] + ny},
                               {p[i][0] - nx, p[i][1] - ny},
@@ -2745,7 +2746,7 @@ static void strike_emit(race_view *v, const r3d_view *world, const float p[][3],
         q++;
     }
     if (q)
-        r3d_draw_sprites(v->strike_tex, world, corners, q, 1);
+        r3d_draw_sprites(v->strike_tex, world, corners, q, mode);
 }
 
 /* Fractal midpoint displacement: 16 segments from the sky point to the base.
@@ -2781,7 +2782,7 @@ static int strike_build_branches(strike_path *b, int max, const strike_path *mai
     for (int j = 0; j < count; j++) {
         int at = 4 + (int)(strike_rand(seed) % 9); /* 25%..75% of the height */
         const float *start = main->p[at];
-        float len = height * (.14f + (float)(strike_rand(seed) % 16) * .01f);
+        float len = height * (.20f + (float)(strike_rand(seed) % 21) * .01f);
         float ang = (float)(strike_rand(seed) % 628) * .01f;
         float dir[3] = {cosf(ang) * .8f, -1.f, sinf(ang) * .8f};
         float norm = sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
@@ -2804,15 +2805,15 @@ static int strike_build_branches(strike_path *b, int max, const strike_path *mai
 
 static void strike_build_splash(strike_path *s, const float base[3], unsigned *seed)
 {
-    float height = 3.f + (float)(strike_rand(seed) % 31) * .1f;
+    float height = 8.f + (float)(strike_rand(seed) % 7);
     memset(s, 0, sizeof *s);
     s->n = STRIKE_BRANCH_POINTS;
     memcpy(s->p[0], base, sizeof s->p[0]);
     for (int k = 1; k < STRIKE_BRANCH_POINTS; k++) {
         float f = (float)k / (float)(STRIKE_BRANCH_POINTS - 1);
-        s->p[k][0] = base[0] + (((float)(strike_rand(seed) % 201) / 100.f) - 1.f) * .7f * f;
+        s->p[k][0] = base[0] + (((float)(strike_rand(seed) % 201) / 100.f) - 1.f) * 1.6f * f;
         s->p[k][1] = base[1] + height * f;
-        s->p[k][2] = base[2] + (((float)(strike_rand(seed) % 201) / 100.f) - 1.f) * .7f * f;
+        s->p[k][2] = base[2] + (((float)(strike_rand(seed) % 201) / 100.f) - 1.f) * 1.6f * f;
     }
 }
 
@@ -2821,7 +2822,7 @@ static void strike_build_splash(strike_path *s, const float base[3], unsigned *s
 static void strike_ground(race_view *v, const r3d_view *world, const float base[3], float t,
                           float gain)
 {
-    float radius = 5.f + 10.f * t;
+    float radius = 18.f + 18.f * t;
     float a = expf(-t * 7.f) * gain;
     float wp[4][3], vp[4][3], corners[4 * 9];
     const float uv[4][2] = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
@@ -2836,13 +2837,19 @@ static void strike_ground(race_view *v, const r3d_view *world, const float base[
         strike_to_view(world, wp[k], vp[k]);
         o[0] = vp[k][0]; o[1] = vp[k][1]; o[2] = vp[k][2];
         o[3] = uv[k][0]; o[4] = uv[k][1];
-        o[5] = .62f; o[6] = .78f; o[7] = 1.f; o[8] = a * .9f;
+        o[5] = .78f; o[6] = .88f; o[7] = 1.f; o[8] = a * .85f;
     }
-    r3d_draw_sprites(v->strike_glow_tex, world, corners, 1, 1);
+    r3d_draw_sprites(v->strike_glow_tex, world, corners, 1, 0);
 }
 
-/* Custom Modes: one Minecraft-style strike in the race world at the player's
-   car, 25-60 m ahead and 5-15 m off the line. */
+static float strike_ndc_y(const r3d_view *world, const float p[3])
+{
+    float fy = world->focal_y > 0 ? world->focal_y : world->focal;
+    float depth = -p[2];
+    return depth > .01f ? p[1] * (fy / 224.f) / depth : 0.f;
+}
+
+/* Custom Modes: one Minecraft-style strike in the race world. */
 static void strike_draw(race_view *v, const r3d_view *world, const float pos[3],
                         const float rot[9])
 {
@@ -2852,25 +2859,44 @@ static void strike_draw(race_view *v, const r3d_view *world, const float pos[3],
     double t = v->strike_age;
     float height, life, flick, gain;
     int nbranch;
+    float view[STRIKE_POINTS][3];
+    float bview[STRIKE_BRANCHES][STRIKE_BRANCH_POINTS][3];
+    float sview[STRIKE_BRANCH_POINTS][3];
     if (!v || !world || !pos || !rot || !v->strike_on || t < 0 || t >= 1.0)
         return;
     if (!strike_texture(v))
         return;
-    right[0] = rot[0]; right[1] = rot[1]; right[2] = rot[2];
-    back[0] = rot[6]; back[1] = rot[7]; back[2] = rot[8];
+    /* pose_car writes the car's columns: right, up, back. */
+    right[0] = rot[0]; right[1] = rot[3]; right[2] = rot[6];
+    back[0] = rot[2]; back[1] = rot[5]; back[2] = rot[8];
     seed = v->strike_seed ^ (((unsigned)(t * 60.0) + 1u) * 2654435761u);
     {
-        float ahead = 25.f + (float)(strike_rand(&seed) % 36);
-        float side = (5.f + (float)(strike_rand(&seed) % 11)) *
+        float ahead = 150.f + (float)(strike_rand(&seed) % 71); /* 150-220 m */
+        float side = (15.f + (float)(strike_rand(&seed) % 26)) *
                      ((strike_rand(&seed) & 1u) ? 1.f : -1.f);
         for (int k = 0; k < 3; k++)
             base[k] = pos[k] - back[k] * ahead + right[k] * side;
         base[1] = pos[1] + .02f;
     }
-    height = 60.f + (float)(strike_rand(&seed) % 31);
+    height = 45.f + (float)(strike_rand(&seed) % 26); /* 45-70 m */
     strike_build_main(&mainline, base, height, &seed);
     nbranch = strike_build_branches(branches, STRIKE_BRANCHES, &mainline, height, &seed);
     strike_build_splash(&splash, base, &seed);
+    for (int i = 0; i < mainline.n; i++)
+        strike_to_view(world, mainline.p[i], view[i]);
+    for (int j = 0; j < nbranch; j++)
+        for (int i = 0; i < branches[j].n; i++)
+            strike_to_view(world, branches[j].p[i], bview[j][i]);
+    for (int i = 0; i < splash.n; i++)
+        strike_to_view(world, splash.p[i], sview[i]);
+    if (getenv("MOON_STRIKE_TRACE")) {
+        fprintf(stderr,
+                "custom modes: strike trace tip=(%.2f,%.2f,%.2f) base=(%.2f,%.2f,%.2f) "
+                "ndc_y=%.3f,%.3f\n",
+                view[0][0], view[0][1], view[0][2],
+                view[STRIKE_SEGMENTS][0], view[STRIKE_SEGMENTS][1], view[STRIKE_SEGMENTS][2],
+                strike_ndc_y(world, view[0]), strike_ndc_y(world, view[STRIKE_SEGMENTS]));
+    }
     life = t < .15 ? 1.f : 1.f - (float)((t - .15) / .85);
     if (life < 0.f)
         life = 0.f;
@@ -2880,25 +2906,19 @@ static void strike_draw(race_view *v, const r3d_view *world, const float pos[3],
     }
     gain = life * flick;
     if (gain > .01f) {
-        float view[STRIKE_POINTS][3], bview[STRIKE_BRANCH_POINTS][3];
-        float halo[4] = {.55f, .75f, 1.f, .32f * gain};
-        float core[4] = {.94f, .98f, 1.f, .95f * gain};
-        for (int i = 0; i < mainline.n; i++)
-            strike_to_view(world, mainline.p[i], view[i]);
-        strike_emit(v, world, view, mainline.n, .55f, .10f, halo);
-        strike_emit(v, world, view, mainline.n, .16f, .035f, core);
-        for (int j = 0; j < nbranch; j++) {
-            for (int i = 0; i < branches[j].n; i++)
-                strike_to_view(world, branches[j].p[i], bview[i]);
-            strike_emit(v, world, bview, branches[j].n, .28f, .06f, halo);
-            strike_emit(v, world, bview, branches[j].n, .08f, .02f, core);
-        }
-        for (int i = 0; i < splash.n; i++)
-            strike_to_view(world, splash.p[i], bview[i]);
-        strike_emit(v, world, bview, splash.n, .45f, .08f, halo);
-        strike_emit(v, world, bview, splash.n, .12f, .025f, core);
+        float halo[4] = {.78f, .88f, 1.f, .78f * gain};
+        float core[4] = {.97f, .99f, 1.f, .95f * gain};
+        /* Halo first (alpha-blended over the sky), then the hot additive core. */
+        strike_emit(v, world, view, mainline.n, 1.75f, 4.f, halo, 0);
+        for (int j = 0; j < nbranch; j++)
+            strike_emit(v, world, bview[j], branches[j].n, 1.0f, 2.0f, halo, 0);
+        strike_emit(v, world, sview, splash.n, 1.2f, 3.0f, halo, 0);
+        strike_ground(v, world, base, (float)t, gain);
+        strike_emit(v, world, view, mainline.n, .90f, 1.1f, core, 1);
+        for (int j = 0; j < nbranch; j++)
+            strike_emit(v, world, bview[j], branches[j].n, .45f, .70f, core, 1);
+        strike_emit(v, world, sview, splash.n, .40f, .90f, core, 1);
     }
-    strike_ground(v, world, base, (float)t, gain);
 }
 
 static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float x, float y, float w,
