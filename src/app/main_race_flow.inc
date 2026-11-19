@@ -222,7 +222,7 @@ static void app_strike_poll(race_game *game, menu **mn, double dt, int *driving,
 }
 
 static void app_fail_poll(race_game *game, menu **mn, int *driving, int *race_start_pending,
-                          int *last_root, const char *race_course)
+                          int *last_root)
 {
     int retry;
     if (!game || *driving != 2)
@@ -233,18 +233,12 @@ static void app_fail_poll(race_game *game, menu **mn, int *driving, int *race_st
     retry = race_game_fail_retry(game);
     fprintf(stderr, "custom modes: fail screen close retry=%d\n", retry);
     if (retry) {
-        int elim = race_game_elimination(game);
-        int thunder = race_game_elimination_thunder(game);
         char msg[256];
-        if (race_game_restart(game, msg, sizeof msg)) {
-            if (elim)
-                race_game_set_elimination(game, 1, thunder);
+        if (race_game_fail_retry_race(game, msg, sizeof msg)) {
             loading_screen_begin();
             *driving = 1;
             *race_start_pending = 1;
             *last_root = -1;
-            fprintf(stderr, "custom modes: fail retry race start course=%s\n",
-                    race_course ? race_course : "?");
         } else
             fprintf(stderr, "custom modes: fail retry: %s\n", msg);
     } else if (app_strike_cut(game, mn, driving, race_start_pending, last_root))

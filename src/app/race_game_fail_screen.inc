@@ -23,6 +23,9 @@ struct race_fail_movie {
     int test_key_done;
     int pending_key;
     uint64_t pending_at;
+    char course[32], car[96], others[MOON_MAX_CARS - 1][96];
+    const char *other_ptr[MOON_MAX_CARS - 1];
+    int nothers, color, field_size, thunder;
 };
 
 /* COPY of src/core/race_result.c:53 format_time — custom modes owns this
@@ -158,6 +161,16 @@ static struct race_fail_movie *cfail_open(race_game *g, uint32_t time)
     r->first = 1;
     r->saturation = 1.f;
     r->opened_ns = plat_time_ns();
+    snprintf(r->course, sizeof r->course, "%s", g->last_course);
+    snprintf(r->car, sizeof r->car, "%s", g->last_car);
+    r->color = g->last_color;
+    r->nothers = g->last_nothers;
+    r->field_size = field_size_request ? field_size_request : g->last_nothers + 1;
+    r->thunder = g->elim_thunder;
+    for (int i = 0; i < g->last_nothers && i < MOON_MAX_CARS - 1; i++) {
+        snprintf(r->others[i], sizeof r->others[i], "%s", g->last_others[i]);
+        r->other_ptr[i] = r->others[i];
+    }
     cfail_format_time(time, r->time_text, sizeof r->time_text);
     r->rt_data = gt4_vol_read(g->vol, "/rtext/raceUS.rt2", &n);
     r->rt_ok = r->rt_data && gt4_rtext_open(&r->rt, r->rt_data, n);
@@ -314,6 +327,39 @@ int race_game_fail_over(const race_game *g)
 int race_game_fail_retry(const race_game *g)
 {
     return g && g->cfail && g->cfail->over && g->cfail->retry;
+}
+
+int race_game_fail_retry_race(race_game *g, char *msg, size_t len)
+{
+    struct race_fail_movie *r = g ? g->cfail : NULL;
+    char course[32], car[96], others[MOON_MAX_CARS - 1][96];
+    const char *other_ptr[MOON_MAX_CARS - 1];
+    int nothers, color, field, thunder, i;
+    if (!r) {
+        snprintf(msg, len, "no failed custom race");
+        return 0;
+    }
+    snprintf(course, sizeof course, "%s", r->course);
+    snprintf(car, sizeof car, "%s", r->car);
+    nothers = r->nothers;
+    color = r->color;
+    field = r->field_size;
+    thunder = r->thunder;
+    if (!course[0]) {
+        fprintf(stderr, "custom modes: fail retry: course unavailable\n");
+        snprintf(msg, len, "custom race course unavailable");
+        return 0;
+    }
+    for (i = 0; i < nothers && i < MOON_MAX_CARS - 1; i++) {
+        snprintf(others[i], sizeof others[i], "%s", r->others[i]);
+        other_ptr[i] = others[i];
+    }
+    race_game_set_field_size(field);
+    if (!race_game_start(g, course, car, color, other_ptr, NULL, nothers, msg, len))
+        return 0;
+    race_game_set_elimination(g, 1, thunder);
+    fprintf(stderr, "custom modes: fail retry race start course=%s field=%d\n", course, field);
+    return 1;
 }
 
 void race_game_fail_close(race_game *g)

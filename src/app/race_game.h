@@ -33,6 +33,7 @@ int race_game_fail_press(race_game *g);
 int race_game_fail_active(const race_game *g);
 int race_game_fail_over(const race_game *g);
 int race_game_fail_retry(const race_game *g);
+int race_game_fail_retry_race(race_game *g, char *msg, size_t len);
 void race_game_draw_fail(race_game *g, double dt);
 void race_game_fail_close(race_game *g);
 /* The player's elimination waiting for its strike presentation: serial or 0.
