@@ -12,6 +12,7 @@ static int custom_modes_attached;
 static moon_options *custom_modes_options;
 static int custom_modes_pending;
 static int custom_modes_header_logged;
+static int custom_modes_money_logged;
 static int custom_modes_course_root = -1, custom_modes_home_root = -1;
 static int custom_modes_course_select;
 static int custom_modes_field_size = 12, custom_modes_thunder = 1;
@@ -148,20 +149,49 @@ static void custom_modes_refresh_header(menu *m)
     ui_widget *money = ui_widget_child(header, "Money");
     ui_widget *money_label = money ? ui_widget_child(money, "label") : NULL;
     ui_widget *money_cr = money ? ui_widget_child(money, "cr") : NULL;
-    if (money_cr) {
-        money_cr->x = 77;
-        money_cr->y = 0;
-        money_cr->w = 22;
-        money_cr->h = 22;
-        money_cr->has_geometry = 1;
-    }
     if (money_label) {
         money_label->has_runtime_align = 1;
-        money_label->runtime_align = 2;
+        money_label->runtime_align = 2; /* right: the number ends at the icon */
         char text[48];
         if (!gt4_game_money_text(menu_game_number(m, "money", 0), text, sizeof text))
             snprintf(text, sizeof text, "--");
         cm_text(money_label, text);
+    }
+    if (money_cr) {
+        /* The "Cr" art sits right after the number, so it moves out as the
+           number grows instead of being overrun. The slot's own right edge is
+           the anchor; the number's right edge is the icon's left. */
+        float right = money && money->w > 1 ? money->w : 99.f;
+        float icon_w = money_cr->w > 1 ? money_cr->w : 22.f;
+        float gap = 2.f;
+        float tw = 0.f;
+        float size[2] = {0, 0};
+        if (money_label) {
+            ui_text_size(menu_ui(m), money_label, size);
+            tw = size[0];
+        }
+        money_cr->x = right - icon_w;
+        money_cr->y = 0;
+        money_cr->w = icon_w;
+        money_cr->h = money_cr->h > 1 ? money_cr->h : 22.f;
+        money_cr->has_geometry = 1;
+        if (money_label) {
+            money_label->x = money_cr->x - gap - tw;
+            money_label->y = 0;
+            money_label->w = tw > 0.f ? tw : 1.f;
+            money_label->h = money->h > 1 ? money->h : money_cr->h;
+            money_label->has_geometry = 1;
+        }
+        if (!custom_modes_money_logged) {
+            custom_modes_money_logged = 1;
+            fprintf(stderr,
+                    "custom modes: money slot=%.0f,%.0f,%.0f,%.0f text=%.0f icon=%.0f,%.0f "
+                    "label=%.0f,%.0f,%.0f,%.0f\n",
+                    money ? money->x : -1, money ? money->y : -1, money ? money->w : -1,
+                    money ? money->h : -1, tw, money_cr->x, money_cr->y, money_label ? money_label->x : -1,
+                    money_label ? money_label->y : -1, money_label ? money_label->w : -1,
+                    money_label ? money_label->h : -1);
+        }
     }
     ui_widget *date_jp = ui_widget_child(header, "DateJP");
     ui_widget *date_us = ui_widget_child(header, "DateUS");
