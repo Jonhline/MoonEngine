@@ -5,6 +5,9 @@
 #define MD_TOOL_BYTES 23575744ull
 #define MD_TOOL_SHA "f5389d3698ecde4ef06f4e6b1ce0294fe9ac1396228c8990b8d3416d6d177a7d"
 #define MD_TOOL_URL "https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp.exe"
+#define MD_LINUX_URL "https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp_linux"
+#define MD_LINUX_BYTES 41166968ull
+#define MD_LINUX_SHA "767ba9dce7052aa196f8b12652f433d76de128ba168966fa84b6394d5e6c6795"
 
 static struct {
     int active, running, started, tool_ready, tool_fetching;
@@ -13,6 +16,9 @@ static struct {
     int at, count;
     float progress, tool_progress;
     int tool_percent;
+    double tool_mb;
+    char version[32];
+    int has_playlist;
     SDL_mutex *lock;
     SDL_Thread *worker, *tool_worker;
     char tool[1200];
@@ -159,8 +165,8 @@ static void md_tool_line(const char *line, void *user)
             if (p != md.tool_percent) {
                 md.tool_percent = p;
                 md.tool_progress = v / 100.f;
-                md_log("tools: fetching yt-dlp %d%% (%.1f/22.5 MB)", p,
-                       22.5 * v / 100.0);
+                md_log("tools: fetching yt-dlp %d%% (%.1f/%.1f MB)", p,
+                       md.tool_mb * v / 100.0, md.tool_mb);
             }
         }
     }
@@ -168,12 +174,47 @@ static void md_tool_line(const char *line, void *user)
         md_log("tools: %s", line);
 }
 
+#ifndef _WIN32
+static char md_hash[65];
+static char md_version[64];
+static void md_hash_line(const char *line, void *user)
+{
+    (void)user;
+    if (strlen(line) >= 64) { memcpy(md_hash, line, 64); md_hash[64] = 0; }
+}
+static void md_version_line(const char *line, void *user)
+{
+    (void)user;
+    if (*line) snprintf(md_version, sizeof md_version, "%s", line);
+}
+static int md_linux_verify(const char *path)
+{
+    md_hash[0] = 0;
+    char *argv[] = {"sha256sum", (char *)path, NULL};
+    md_spawn(argv, md_hash_line, NULL);
+    return md_hash[0] && !strcasecmp(md_hash, MD_LINUX_SHA);
+}
+static void md_linux_version(int fetched)
+{
+    if (fetched) {
+        snprintf(md.version, sizeof md.version, "2026.10.26");
+        return;
+    }
+    md_version[0] = 0;
+    char *argv[] = {"yt-dlp", "--version", NULL};
+    md_spawn(argv, md_version_line, NULL);
+    snprintf(md.version, sizeof md.version, "%s", md_version[0] ? md_version : "unknown");
+}
+#endif
+
 static int md_tool_worker(void *unused)
 {
     (void)unused;
 #ifdef _WIN32
+    md.tool_mb = 22.5;
     if (md_verify(md.tool)) {
-        md_log("tools: yt-dlp sha256 ok");
+        snprintf(md.version, sizeof md.version, "2026.10.26");
+        md_log("tools: yt-dlp sha256 ok (version 2026.10.26)");
         md.tool_ready = 1;
         md.tool_fetching = 0;
         return 0;
@@ -184,7 +225,8 @@ static int md_tool_worker(void *unused)
     char *argv[] = {"curl.exe", "-L", "--fail", "-o", md.tool, MD_TOOL_URL, NULL};
     int rc = md_spawn(argv, md_tool_line, NULL);
     if (rc == 0 && md_verify(md.tool)) {
-        md_log("tools: yt-dlp sha256 ok");
+        snprintf(md.version, sizeof md.version, "2026.10.26");
+        md_log("tools: yt-dlp sha256 ok (version 2026.10.26)");
         md.tool_ready = 1;
     } else {
         remove(md.tool);
@@ -192,8 +234,31 @@ static int md_tool_worker(void *unused)
     }
     md.tool_fetching = 0;
 #else
-    md_log("tools: using yt-dlp on PATH (system); no download needed");
-    md.tool_ready = 1;
+    md.tool_mb = 41.2;
+    if (md_linux_verify(md.tool)) {
+        chmod(md.tool, 0755);
+        md_linux_version(1);
+        md_log("tools: yt-dlp sha256 ok (version 2026.10.26)");
+        md.tool_ready = 1;
+    } else {
+        remove(md.tool);
+        md.tool_percent = -1;
+        md_log("tools: fetching yt-dlp");
+        char *argv[] = {"curl", "-L", "--fail", "-o", md.tool, MD_LINUX_URL, NULL};
+        int rc = md_spawn(argv, md_tool_line, NULL);
+        if (rc == 0) chmod(md.tool, 0755);
+        if (rc == 0 && md_linux_verify(md.tool)) {
+            md_linux_version(1);
+            md_log("tools: yt-dlp sha256 ok (version 2026.10.26)");
+            md.tool_ready = 1;
+        } else {
+            remove(md.tool);
+            snprintf(md.tool, sizeof md.tool, "yt-dlp");
+            md_linux_version(0);
+            md_log("tools: fetch failed; using yt-dlp on PATH (version %s)", md.version);
+            md.tool_ready = 1;
+        }
+    }
     md.tool_fetching = 0;
     if (getenv("MOON_DOWNLOAD_START")) md_start();
 #endif
@@ -216,7 +281,7 @@ static void md_tools_begin(void)
 #ifdef _WIN32
     snprintf(md.tool, sizeof md.tool, "%s/yt-dlp.exe", dir);
 #else
-    snprintf(md.tool, sizeof md.tool, "yt-dlp");
+    snprintf(md.tool, sizeof md.tool, "%s/yt-dlp", dir);
 #endif
     md_log("tools: %s", md.tool);
     md.tool_fetching = 1;
@@ -236,6 +301,7 @@ static void md_start(void)
     md.progress = 0;
     md.count = md.at = 0;
     snprintf(md.job_url, sizeof md.job_url, "%s", md.url);
+    md.url[0] = 0;
     md.worker = SDL_CreateThread(md_worker, "music download", NULL);
 }
 
@@ -247,6 +313,12 @@ static int md_url_ok(const char *u)
         strstr(u, "$") || strstr(u, "<") || strstr(u, ">"))
         return 0;
     return 1;
+}
+
+static void md_print_line(const char *line, void *user)
+{
+    (void)user;
+    if (*line) md.has_playlist = 1;
 }
 
 static void md_job_line(const char *line, void *user)
@@ -278,11 +350,11 @@ static int md_worker(void *unused)
     md.last[0] = 0;
     char *argv[] = {md.tool, "-f", "bestaudio[ext=m4a]/bestaudio", "--newline",
                     "--paths", music, "-o",
-                    "%(playlist_title,playlist_id,title)s/%(title)s.%(ext)s",
+                    "%(playlist_title|)s%(playlist_title&/|)s%(title)s.%(ext)s",
                     md.job_url, NULL};
     md_log("url: %s", md.job_url);
     int rc = md_spawn(argv, md_job_line, NULL);
-    (void)rc;
+    if (rc < 0) md_log("yt-dlp error: could not start %s", md.tool);
     if (app_music_library)
         music_library_sync(app_music_library);
     if (md.last[0])

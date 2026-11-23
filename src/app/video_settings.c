@@ -1130,10 +1130,6 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
     update_field_size_ui(s);
 #ifndef __SWITCH__
     ui_widget *sender = ah_host_data(self);
-    if (sender == s->choices[58]) {
-        sender->focus_index = 0;
-        app_music_download_open();
-    }
     if (sender == s->choices[41]) {
         s->tweaks_open = sender->focus_index;
         if (!s->tweaks_open)
@@ -1384,8 +1380,7 @@ static int focus(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     (void)argv;
     video_settings *s = data;
     ui_widget *w = ah_host_data(self);
-    if (w == s->choices[58]) {
-        app_music_download_open();
+    if (w == s->rows[58]) {
         ui_set_tooltips(s->page, "Download songs or playlists from the internet into your Music folder.");
         *ret = ah_int(2);
         return 0;
@@ -2238,11 +2233,11 @@ void video_settings_attach(video_settings *s, menu *m)
     const char *presets[] = {"Classic", "Enhanced", "Modified"};
 #endif
     const char *controller_tiles[] = {"Original", "By Player"};
-    const char *one_open[] = {"Open", "Download"};
+    const char *one_open[] = {""};
     const char *const *lists[] = {
         ratios, modes,  resolutions, filters, clarity, toggle, upscalers, toggle, presets,  vs_fps,
         toggle, toggle, toggle,      toggle,  toggle,  toggle, toggle,    vs_aa,  vs_scale, toggle, vs_texture_filtering, vs_car_shadows, vs_material_shading, vs_reflection_quality, vs_shadow_maps, vs_modern_lighting,vs_off_on,vs_hours,vs_cycle,vs_off_on,vs_rays,toggle,toggle,toggle,toggle,toggle,toggle,toggle,controller_tiles,toggle,toggle,vs_shadow_filter,vs_preview_mode,one_open};
-    int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, VS_MENU_MODIFIED + 1, 9, 2, 2, 2, 2, 2, 2, 2, 5, 6, 2, 5, 2, 2, 3, 4, 2, 2, 25, 3, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
+    int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, VS_MENU_MODIFIED + 1, 9, 2, 2, 2, 2, 2, 2, 2, 5, 6, 2, 5, 2, 2, 3, 4, 2, 2, 25, 3, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1};
 #ifdef __SWITCH__
     const char *scene_sizes[]={"Classic","Balanced","Performance"};
     names[7]="SceneResolution"; titles[7]="3D Resolution"; titles[8]="Preset";
@@ -2304,6 +2299,13 @@ void video_settings_attach(video_settings *s, menu *m)
             ui_text_adjust_scale(ui, label);
         }
 #endif
+        if (at == 58) {
+            ui_widget_detach(choice);
+            w->has_focus_override = 1;
+            w->focus_override = 1;
+            menu_native_method(m, w, "onActivate", music_download_row, s);
+            menu_native_method(m, w, "onKeyPress", music_download_key, s);
+        } else
         values(ui, choice, lists[i], counts[i]);
 #ifndef __SWITCH__
         ui_widget *popup=ui_widget_child(choice,"popup");
@@ -2318,11 +2320,6 @@ void video_settings_attach(video_settings *s, menu *m)
 #endif
         menu_native_method(m, choice, "onValueChanged", changed, s);
         menu_native_method(m, choice, "onFocusEnter", focus, s);
-        if (at == 58) {
-            menu_native_method(m, w, "onActivate", music_download_row, s);
-            menu_native_method(m, choice, "onActivate", music_download_row, s);
-            menu_native_method(m, choice, "onKeyPress", music_download_key, s);
-        }
     }
 #ifndef __SWITCH__
     {
