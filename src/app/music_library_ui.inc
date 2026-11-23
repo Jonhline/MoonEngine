@@ -445,6 +445,7 @@ static void mlj_audio_tick(ml_jukebox *j, int allowed)
 }
 /* Called by both PCM update paths; nonzero means the Jukebox owns this page's stream. */
 static void mlj_file_buttons(menu *m);
+static void mlj_tip_shortcuts(menu *m);
 static int mlj_buttons_done;
 static int app_jukebox_pcm(menu *m, int allowed)
 {
@@ -452,6 +453,7 @@ static int app_jukebox_pcm(menu *m, int allowed)
         mlj_file_buttons(m);
         mlj_buttons_done = 1;
     }
+    if (m && menu_jukebox_page_widget(m)) mlj_tip_shortcuts(m);
     if (!m || m != app_jukebox.page)
         return 0;
     mlj_audio_tick(&app_jukebox, allowed);
@@ -883,6 +885,26 @@ void mlj_rename_draw(void)
     wiz_text(mlj_rename.name, 150, 226, .34f, black);
     wiz_text("Enter saves  ·  Esc cancels", 86, 276, .30f, dim);
     if (mlj_rename.warning[0]) wiz_text(mlj_rename.warning, 86, 252, .30f, black);
+}
+void mlj_jukebox_rename_now(void)
+{
+    if (app_jukebox.page) mlj_rename_begin(app_jukebox.page);
+}
+static void mlj_tip_shortcuts(menu *m)
+{
+    ui_widget *root = menu_jukebox_page_widget(m);
+    ui_widget *tip = root ? ui_widget_child(root, "Tooltip") : NULL;
+    if (!tip || !mlj_selected(m)) return;
+    for (int i = 0; i < tip->nkids; i++) {
+        ui_widget *c = tip->kids[i];
+        if (!c || !c->text || !c->type || strcmp(c->type, "TextFace")) continue;
+        if (strstr(c->text, "Ctrl+R")) return;
+        char buf[512];
+        snprintf(buf, sizeof buf, "%s   Del deletes, Ctrl+R renames", c->text);
+        free(c->text);
+        c->text = strdup(buf);
+        return;
+    }
 }
 int mlj_jukebox_hotkey(int sym)
 {

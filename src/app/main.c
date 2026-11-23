@@ -5569,9 +5569,14 @@ int main(int argc, char **argv)
         uint64_t event_start = plat_time_ns();
         while (plat_sdl_poll(&ev)) {
             if (mn && ev.key && menu_active_root(mn) >= 0 &&
-                !strcmp(ui_root_name(menu_ui(mn), menu_active_root(mn)), "MusicRoot") &&
-                mlj_jukebox_hotkey(ev.key))
-                continue;
+                !strcmp(ui_root_name(menu_ui(mn), menu_active_root(mn)), "MusicRoot")) {
+                if ((SDL_GetModState() & KMOD_CTRL) && (ev.key == 'r' || ev.key == 'R')) {
+                    mlj_jukebox_rename_now();
+                    continue;
+                }
+                if (mlj_jukebox_hotkey(ev.key))
+                    continue;
+            }
             if (mlj_rename_active() && mlj_rename_event(&ev))
                 continue;
             if (music_download_active() && music_download_event(&ev))
