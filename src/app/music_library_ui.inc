@@ -655,8 +655,11 @@ static const ml_track *mlj_footer_track(menu *m, ui_widget *root)
         char *dot = strrchr(display, '.');
         if (dot && dot != display) *dot = 0;
         mlj_group(cat->tracks[i].path, grp, sizeof grp);
-        if (!strcmp(display, title) && !strcmp(grp, group) &&
-            access(cat->tracks[i].path, F_OK) == 0)
+        size_t tl = strlen(title), gl = strlen(group);
+        int tmatch = !strcmp(display, title) ||
+                     (tl >= 12 && !strncmp(display, title, tl));
+        int gmatch = !strcmp(grp, group) || (gl >= 6 && !strncmp(grp, group, gl));
+        if (tmatch && gmatch && access(cat->tracks[i].path, F_OK) == 0)
             return &cat->tracks[i];
     }
     return NULL;
