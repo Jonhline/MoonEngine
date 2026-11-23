@@ -584,44 +584,35 @@ static int mlj_track_row(menu *m, int *widget_row)
     const ml_playlist *cat = music_library_list(app_jukebox.library, app_jukebox.catalog);
     int at = list ? list->focus_index : -1;
     if (widget_row) *widget_row = at;
-    if (!list || !cat || at < 0) return -1;
-    int headers = 0;
-    for (int i = 0; i < at && i < list->nkids; i++) {
-        char buf[256];
-        const char *text = mlj_cell_text(list->kids[i], buf, sizeof buf);
-        if (!text) continue;
-        int track = 0;
-        for (int j = 0; j < cat->count && !track; j++) {
-            char title[160];
-            snprintf(title, sizeof title, "%s", cat->tracks[j].title);
-            char *dot = strrchr(title, '.');
-            if (dot && dot != title) *dot = 0;
-            /* Rows print "<title> / <group>" and truncate with an ellipsis, so the
-               plain strcmp below never matched and every row counted as a group
-               header. Compare the part before " / ", and accept a truncated
-               prefix as well. Measured 2026-11-23: the row text is
-               "Glare - Blank / Sanest anti broccoli hair acti...". */
-            size_t n = strlen(text);
-            const char *sep = strstr(text, " / ");
-            if (sep) n = (size_t)(sep - text);
-            else if (n && (unsigned char)text[n - 1] == 0x85) n--; /* the ellipsis byte */
-            size_t want = strlen(title);
-            if (n && !strncmp(title, text, n < want ? n : want))
-                track = 1;
-        }
-        if (!track) headers++;
+    if (!list || !cat || at < 0 || at >= list->nkids) return -1;
+    /* Resolve the focused row by what it SAYS, not by counting group headers.
+       The rows print "<title> / <group>" and truncate the tail, so the row text
+       is a prefix of the track's base name; take the longest track whose base
+       name starts with it. Measured 2026-11-23: header counting drifted by rows
+       and used to point at a gt4: track. */
+    char raw[256];
+    const char *text = mlj_cell_text(list->kids[at], raw, sizeof raw);
+    if (!text) return -1;
+    size_t n = strlen(text);
+    const char *sep = strstr(text, " / ");
+    if (sep) n = (size_t)(sep - text);
+    while (n && (text[n - 1] == '.' || (unsigned char)text[n - 1] == 0x85)) n--;
+    int best = -1;
+    size_t bestn = 0;
+    for (int j = 0; n && j < cat->count; j++) {
+        char title[200];
+        snprintf(title, sizeof title, "%s", cat->tracks[j].title);
+        char *dot = strrchr(title, '.');
+        if (dot && dot != title) *dot = 0;
+        if (strncmp(title, text, n)) continue;
+        if (strlen(title) == n) { best = j; break; } /* exact beats a longer sibling */
+        if (n > bestn) { bestn = n; best = j; }
     }
-    int shown = at - headers;
     if (getenv("MLJ_DUMP")) {
-        int ci = shown >= 0 && shown < ML_TRACKS ? mlj_shown[shown] : -1;
-        const char *p = cat && ci >= 0 && ci < cat->count ? cat->tracks[ci].path : "(none)";
-        char text[256] = "";
-        if (list && at >= 0 && at < list->nkids)
-            mlj_cell_text(list->kids[at], text, sizeof text);
-        fprintf(stderr, "jukebox map: row=%d headers=%d shown=%d -> %s  [text=%s]\n",
-                at, headers, shown, p, text);
+        const char *p = best >= 0 ? cat->tracks[best].path : "(none)";
+        fprintf(stderr, "jukebox map: row=%d -> %s  [text=%s]\n", at, p, text);
     }
-    return shown >= 0 && shown < ML_TRACKS ? mlj_shown[shown] : -1;
+    return best;
 }
 static const char *mlj_shown_tip(const ui_widget *w);
 static const ml_track *mlj_footer_track(menu *m, ui_widget *root)
