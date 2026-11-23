@@ -632,6 +632,33 @@ static void mlj_refresh(menu *m, int row)
     if (list) list->focus_index = row;
     mlj_file_buttons(m);
 }
+/* The Library rows are guest composites whose visible text is a cached TextFace
+   inside the row, so writing the catalog/guest array is not enough: the pixels
+   only follow if this cell is rewritten. Measured 2026-11-23: title cell is
+   kids[3] named "title", text "Song / Group". */
+static void mlj_row_text(menu *m, int row, const char *title)
+{
+    ui_widget *root = m ? menu_jukebox_page_widget(m) : NULL;
+    ui_widget *list = root ? ui_widget_child(ui_widget_child(root, "List"), "list_box") : NULL;
+    if (!list || !title || row < 0 || row >= list->nkids)
+        return;
+    ui_widget *r = list->kids[row];
+    for (int i = 0; r && i < r->nkids; i++) {
+        ui_widget *c = r->kids[i];
+        if (!c || !c->text || !c->type || strcmp(c->type, "TextFace"))
+            continue;
+        char buf[256];
+        const char *slash = strstr(c->text, " / ");
+        if (slash)
+            snprintf(buf, sizeof buf, "%s%s", title, slash);
+        else
+            snprintf(buf, sizeof buf, "%s", title);
+        free(c->text);
+        c->text = strdup(buf);
+        fprintf(stderr, "jukebox: row %d retitled to %s\n", row, buf);
+        return;
+    }
+}
 static void mlj_rename_begin(menu *m)
 {
     const ml_track *t = mlj_selected(m);
@@ -704,6 +731,7 @@ static void mlj_rename_commit(void)
         if (mlj_rename.owner) {
             mlj_refresh(mlj_rename.owner, mlj_rename.row);
             menu_jukebox_retitle(mlj_rename.owner, mlj_rename.idx, mlj_rename.name);
+            mlj_row_text(mlj_rename.owner, mlj_rename.row, mlj_rename.name);
         }
         mlj_rename.active = 0;
         SDL_StopTextInput();
