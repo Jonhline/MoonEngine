@@ -431,8 +431,14 @@ static void mlj_audio_tick(ml_jukebox *j, int allowed)
                    SDL_AtomicGet(&j->playing) && music_library_preview_playing(j->library));
 }
 /* Called by both PCM update paths; nonzero means the Jukebox owns this page's stream. */
+static void mlj_file_buttons(menu *m);
+static int mlj_buttons_done;
 static int app_jukebox_pcm(menu *m, int allowed)
 {
+    if (!mlj_buttons_done && m && menu_jukebox_page_widget(m)) {
+        mlj_file_buttons(m);
+        mlj_buttons_done = 1;
+    }
     if (!m || m != app_jukebox.page)
         return 0;
     mlj_audio_tick(&app_jukebox, allowed);
@@ -544,6 +550,78 @@ static void mlj_scan(ml_jukebox *j)
 }
 /* GT Mode -> Jukebox (or a direct slide start): before the page is entered. With no
    local song the page stays exactly the disc's, on its PS2 playlist blobs. */
+static const ml_track *mlj_selected(menu *m)
+{
+    if (!m || m != app_jukebox.page || menu_active_root(m) < 0) return NULL;
+    ui_widget *root = ui_root_widget(menu_ui(m), menu_active_root(m));
+    ui_widget *list = ui_widget_child(ui_widget_child(root, "List"), "list_box");
+    const ml_playlist *cat = music_library_list(app_jukebox.library, app_jukebox.catalog);
+    int row = list ? list->focus_index : -1;
+    if (!cat || row < 0 || row >= cat->count) return NULL;
+    int idx = mlj_shown[row];
+    return idx >= 0 && idx < cat->count ? &cat->tracks[idx] : NULL;
+}
+static int mlj_delete_activate(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
+                               ah_val *ret)
+{
+    (void)vm; (void)self; (void)argc; (void)argv;
+    menu *m = data;
+    const ml_track *t = mlj_selected(m);
+    *ret = ah_int(2);
+    if (!t) return 0;
+    if (!strncmp(t->path, "gt4:", 4)) {
+        menu_confirm(m, "Delete", "This song is part of the game disc.");
+        return 0;
+    }
+    char msg[512];
+    snprintf(msg, sizeof msg, "Delete %s?", t->title[0] ? t->title : "this song");
+    if (menu_confirm(m, "Delete", msg)) {
+        if (remove(t->path) == 0) {
+            mlj_log("jukebox: deleted %s", t->path);
+            printf("jukebox: deleted %s\n", t->path);
+        } else
+            mlj_log("jukebox: could not delete %s", t->path);
+    }
+    return 0;
+}
+static int mlj_rename_activate(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
+                               ah_val *ret)
+{
+    (void)vm; (void)self; (void)argc; (void)argv;
+    menu *m = data;
+    const ml_track *t = mlj_selected(m);
+    *ret = ah_int(2);
+    if (!t) return 0;
+    if (!strncmp(t->path, "gt4:", 4)) {
+        menu_confirm(m, "Rename", "This song is part of the game disc.");
+        return 0;
+    }
+    /* The disc's text dialog is not exposed as a native call; this keeps the
+       refusal honest instead of pretending the name changed. */
+    menu_confirm(m, "Rename", "Renaming local songs is not available yet.");
+    return 0;
+}
+static void mlj_file_buttons(menu *m)
+{
+    ui_project *ui = menu_ui(m);
+    ui_widget *root = menu_jukebox_page_widget(m);
+    ui_widget *sample = root ? ui_widget_child(root, "Trash") : NULL;
+    if (!sample) sample = root ? ui_widget_child(root, "Append1") : NULL;
+    if (!sample || ui_widget_child(root, "MoonDelete")) return;
+    const char *names[2] = {"MoonDelete", "MoonRename"};
+    for (int i = 0; i < 2; i++) {
+        ui_widget *b = ui_widget_copy(ui, sample);
+        b->name = names[i];
+        b->x = i ? 563.f : 500.f;
+        b->y = 349.f;
+        b->visible = 1;
+        b->insensitive = 0;
+        ui_widget *label = ui_widget_child(b, "label");
+        if (label) { free(label->text); label->text = strdup(i ? "Rename" : "Delete"); }
+        ui_widget_append(root, b);
+        menu_native_method(m, b, "onActivate", i ? mlj_rename_activate : mlj_delete_activate, m);
+    }
+}
 static void app_jukebox_attach(menu *m)
 {
     if (!m || app_jukebox.page == m)
@@ -604,6 +682,7 @@ static void app_jukebox_attach(menu *m)
         app_jukebox.folder[1] = j.folder[1];
         app_jukebox.serial = 0;
         SDL_AtomicSet(&app_jukebox.playing, 0);
+        mlj_buttons_done = 0;
         printf("jukebox: original Library, master=%d folders=%d\n", music_library_enabled(j.library),
                j.folder[0] >= 0);
     }

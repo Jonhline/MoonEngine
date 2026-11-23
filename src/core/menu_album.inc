@@ -704,6 +704,10 @@ static void jukebox_folder_widgets(menu *m, ui_widget *page)
     }
 }
 
+ui_widget *menu_jukebox_page_widget(menu *m)
+{
+    return m && m->jukebox_root ? ah_host_data(m->jukebox_root) : NULL;
+}
 static ui_widget *jukebox_page_child(menu *m, const char *name)
 {
     return ui_widget_child(ah_host_data(m->jukebox_root), name);

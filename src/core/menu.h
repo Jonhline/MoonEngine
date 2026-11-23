@@ -285,6 +285,7 @@ void menu_jukebox_finish(menu *m);
    given their Library indices before MusicRoot is entered; counts NULL
    leaves the authored three folders. The result reads one folder back. */
 int menu_jukebox_folders(menu *m, const int *const ids[2], const int counts[2]);
+ui_widget *menu_jukebox_page_widget(menu *m);
 int menu_jukebox_folder_result(menu *m, int folder, int *ids, int capacity);
 /* P: the Library's rows in this order (main::default_library_playlist). */
 int menu_jukebox_library_order(menu *m, const int *order, int count);
