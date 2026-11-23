@@ -566,6 +566,7 @@ static const ml_track *mlj_selected(menu *m)
         return NULL;
     return &cat->tracks[idx];
 }
+static void mlj_refresh(menu *m, int row);
 static int mlj_delete_activate(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
                                ah_val *ret)
 {
@@ -584,15 +585,35 @@ static int mlj_delete_activate(ah_vm *vm, ah_obj *self, void *data, int argc, co
         if (remove(t->path) == 0) {
             mlj_log("jukebox: deleted %s", t->path);
             printf("jukebox: deleted %s\n", t->path);
+            ui_widget *root = menu_jukebox_page_widget(m);
+            ui_widget *list = root ? ui_widget_child(ui_widget_child(root, "List"), "list_box") : NULL;
+            int row = list ? list->focus_index : 0, idx = row >= 0 && row < ML_TRACKS ? mlj_shown[row] : -1;
+            if (idx >= 0) music_library_remove(app_jukebox.library, app_jukebox.catalog, idx);
+            mlj_refresh(m, row > 0 ? row - 1 : 0);
         } else
             mlj_log("jukebox: could not delete %s", t->path);
     }
     return 0;
 }
 static struct {
-    int active;
+    int active, row, idx;
+    menu *owner;
     char name[256], old[1200], ext[32], warning[96];
 } mlj_rename;
+static void mlj_refresh(menu *m, int row)
+{
+    const char *disc = studio_disc ? studio_disc : presentation_disc;
+    const char *err = NULL;
+    gt4_vol *v = disc && *disc ? gt4_vol_open(disc, &err) : NULL;
+    if (v) {
+        mlj_bind(&app_jukebox, m, v);
+        gt4_vol_close(v);
+    }
+    menu_jukebox_refresh(m);
+    ui_widget *root = menu_jukebox_page_widget(m);
+    ui_widget *list = root ? ui_widget_child(ui_widget_child(root, "List"), "list_box") : NULL;
+    if (list) list->focus_index = row;
+}
 static void mlj_rename_begin(menu *m)
 {
     const ml_track *t = mlj_selected(m);
@@ -600,6 +621,14 @@ static void mlj_rename_begin(menu *m)
     if (!strncmp(t->path, "gt4:", 4)) {
         menu_confirm(m, "Rename", "This song is part of the game disc.");
         return;
+    }
+    mlj_rename.owner = m;
+    mlj_rename.row = mlj_shown && 1 ? 0 : 0;
+    {
+        ui_widget *root = menu_jukebox_page_widget(m);
+        ui_widget *list = root ? ui_widget_child(ui_widget_child(root, "List"), "list_box") : NULL;
+        mlj_rename.row = list ? list->focus_index : 0;
+        mlj_rename.idx = mlj_rename.row >= 0 && mlj_rename.row < ML_TRACKS ? mlj_shown[mlj_rename.row] : -1;
     }
     snprintf(mlj_rename.old, sizeof mlj_rename.old, "%s", t->path);
     const char *base = strrchr(t->path, '/');
@@ -650,6 +679,14 @@ static void mlj_rename_commit(void)
     if (rename(mlj_rename.old, next) == 0) {
         fprintf(stderr, "jukebox: renamed %s -> %s\n", mlj_rename.old, next);
         mlj_log("jukebox: renamed %s -> %s", mlj_rename.old, next);
+        ml_playlist *cat = (ml_playlist *)music_library_list(app_jukebox.library,
+                                                             app_jukebox.catalog);
+        if (cat && mlj_rename.idx >= 0 && mlj_rename.idx < cat->count) {
+            snprintf(cat->tracks[mlj_rename.idx].path, ML_PATH, "%s", next);
+            snprintf(cat->tracks[mlj_rename.idx].title, sizeof cat->tracks[mlj_rename.idx].title,
+                     "%s%s", mlj_rename.name, mlj_rename.ext);
+        }
+        if (mlj_rename.owner) mlj_refresh(mlj_rename.owner, mlj_rename.row);
         mlj_rename.active = 0;
         SDL_StopTextInput();
     } else {

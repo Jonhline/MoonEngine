@@ -941,6 +941,10 @@ static void jukebox_folders_fill(menu *m)
         }
 }
 
+void menu_jukebox_refresh(menu *m)
+{
+    if (m) jukebox_folders_fill(m);
+}
 int menu_jukebox_folders(menu *m, const int *const ids[2], const int counts[2])
 {
     int root = m ? menu_active_root(m) : -1;
