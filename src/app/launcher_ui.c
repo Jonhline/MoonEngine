@@ -42,7 +42,7 @@
 #define UI_H 800
 #define MAX_ENTRIES 256
 #define MAX_MODS 32
-#define DOCK_ITEMS 5              /* DISC MODS OPTIONS START ... EXIT */
+#define DOCK_ITEMS 6              /* DISC MODS OPTIONS MUSIC START ... EXIT */
 #define DOCK_ICON 44
 #define DOCK_SLOT 132
 #define DOCK_Y_FROM_BOTTOM 156
@@ -70,8 +70,8 @@
 #define C_RULE_G 47
 #define C_RULE_B 56
 
-enum { PAGE_DISC=0, PAGE_MODS, PAGE_OPTIONS, PAGE_START, PAGE_COUNT };
-static const char *const page_names[PAGE_COUNT]={"DISC","MODS","OPTIONS","START"};
+enum { PAGE_DISC=0, PAGE_MODS, PAGE_OPTIONS, PAGE_MUSIC, PAGE_START, PAGE_COUNT };
+static const char *const page_names[PAGE_COUNT]={"DISC","MODS","OPTIONS","MUSIC","START"};
 
 typedef struct { char name[512]; int is_dir; } entry;
 
@@ -461,6 +461,15 @@ static void hand_over(struct ui *u)
    sit at can be checked without opening it. */
 static void announce_page(struct ui *u)
 {
+    if(u->open==PAGE_MUSIC){
+        char folder[1500];snprintf(folder,sizeof folder,"%sMusic",u->pref_dir);
+        int tracks=0;DIR *d=opendir(folder);
+        if(d){struct dirent *e;while((e=readdir(d))){if(e->d_name[0]=='.')continue;
+            size_t n=strlen(e->d_name);if(n>4&&(!strcasecmp(e->d_name+n-4,".mp3")||!strcasecmp(e->d_name+n-4,".m4a")||
+               !strcasecmp(e->d_name+n-4,".ogg")||!strcasecmp(e->d_name+n-4,".flac")))tracks++;}closedir(d);}
+        printf("launcher: page MUSIC folder=%s tracks=%d\n",folder,tracks);
+        return;
+    }
     if(u->open!=PAGE_MODS)return;
     printf("launcher: mods page: %d mod(s) in %s\n",u->nmods,u->mods_dir[0]?u->mods_dir:"(no user folder)");
     for(int i=0;i<u->nmods;i++){
@@ -613,6 +622,19 @@ static void draw_page(struct ui *u)
         text(u,tx,list_y,"SETTINGS FILE",3,C_FAINT_R,C_FAINT_G,C_FAINT_B);
         list_y+=30;
         text_fit(u,tx,list_y,u->start->video_file,0,w-56,C_DIM_R,C_DIM_G,C_DIM_B);
+    }else if(u->open==PAGE_MUSIC){
+        char folder[1500];snprintf(folder,sizeof folder,"%sMusic",u->pref_dir);
+        text_fit(u,tx,list_y,folder[0]?folder:"(no user folder)",0,w-56,C_FAINT_R,C_FAINT_G,C_FAINT_B);
+        list_y+=30;
+        int tracks=0;DIR *d=opendir(folder);
+        if(d){struct dirent *e;while((e=readdir(d))){if(e->d_name[0]=='.')continue;
+            size_t n=strlen(e->d_name);if(n>4&&(!strcasecmp(e->d_name+n-4,".mp3")||!strcasecmp(e->d_name+n-4,".m4a")||
+               !strcasecmp(e->d_name+n-4,".ogg")||!strcasecmp(e->d_name+n-4,".flac")))tracks++;}closedir(d);}
+        char line[128];snprintf(line,sizeof line,"%d tracks found",tracks);
+        text(u,tx,list_y,line,1,C_DIM_R,C_DIM_G,C_DIM_B);list_y+=38;
+        rule(u,tx,list_y-10,w-56);
+        text(u,tx,list_y,"Download music",2,C_ACCENT_R,C_ACCENT_G,C_ACCENT_B);list_y+=34;
+        text_fit(u,tx,list_y,"The download popup is not wired on the launcher yet.",0,w-56,C_FAINT_R,C_FAINT_G,C_FAINT_B);
     }else if(u->open==PAGE_START){
         text_fit(u,tx,list_y,u->start->preferences.disc[0]?u->start->preferences.disc:"NO DISC CHOSEN",
                  1,w-56,C_TEXT_R,C_TEXT_G,C_TEXT_B);
@@ -642,13 +664,14 @@ static void draw_dock(struct ui *u)
     for(int i=0;i<DOCK_ITEMS;i++){
         int cx,cy;dock_slot(u,i,&cx,&cy);
         int on=i==u->dock;
-        const char *name=i<4?page_names[i]:"EXIT";
+        const char *name=i<PAGE_COUNT?page_names[i]:"EXIT";
         int r=on?C_TEXT_R:C_DIM_R,g=on?C_TEXT_G:C_DIM_G,b=on?C_TEXT_B:C_DIM_B;
         switch(i){
             case 0:icon_disc(u,cx,cy,r,g,b);break;
             case 1:icon_grid(u,cx,cy,r,g,b);break;
             case 2:icon_gear(u,cx,cy,r,g,b);break;
-            case 3:icon_play(u,cx,cy,r,g,b);break;
+            case 3:icon_gear(u,cx,cy,r,g,b);break;
+            case 4:icon_play(u,cx,cy,r,g,b);break;
             default:icon_power(u,cx,cy,r,g,b);break;
         }
         int tw=text_w(u,name,1);
