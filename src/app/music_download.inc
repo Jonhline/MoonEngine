@@ -23,7 +23,6 @@ static struct {
     SDL_mutex *lock;
     SDL_Thread *worker, *tool_worker;
     char tool[1200];
-    char music_dir[1300];
 } md;
 
 static void md_lock(void) { if (md.lock) SDL_LockMutex(md.lock); }
@@ -388,10 +387,8 @@ static int md_worker(void *unused)
 {
     (void)unused;
     char music[1300];
-    if (md.music_dir[0])
-        snprintf(music, sizeof music, "%s", md.music_dir);
-    else if (!app_video_settings || !app_music_folder(app_video_settings->store.path, music,
-                                                      sizeof music)) {
+    if (!app_video_settings || !app_music_folder(app_video_settings->store.path, music,
+                                                 sizeof music)) {
         md_log("could not open the Music folder");
         md_lock(); md.running = 0; md_unlock();
         return 0;
@@ -443,13 +440,6 @@ void app_music_download_open(void)
         md.lock = SDL_CreateMutex();
     md.active = 1;
     SDL_StartTextInput();
-    if ((!app_video_settings || !app_video_settings->store.path[0]) && !md.music_dir[0]) {
-        char pref[1200];
-        if (plat_pref_dir(pref, sizeof pref)) {
-            snprintf(md.music_dir, sizeof md.music_dir, "%sMusic", pref);
-            gt4_save_mkdir(md.music_dir);
-        }
-    }
     md.font[0] = 0;
     if (app_video_settings && app_video_settings->rows[34]) {
         ui_widget *label = ui_widget_child(app_video_settings->rows[34], "label");
