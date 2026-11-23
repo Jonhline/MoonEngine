@@ -893,10 +893,6 @@ int mlj_jukebox_hotkey(int sym)
         mlj_delete_activate(NULL, NULL, m, 0, NULL, &ret);
         return 1;
     }
-    if (sym == 0xffbf) {
-        mlj_rename_begin(m);
-        return 1;
-    }
     return 0;
 }
 static int mlj_jukebox_key(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
@@ -910,9 +906,6 @@ static int mlj_jukebox_key(ah_vm *vm, ah_obj *self, void *data, int argc, const 
     int sym = (int)key.u.i;
     if (sym == 0xffff || sym == 0xff08) { /* Delete, Backspace */
         mlj_delete_activate(vm, self, m, 0, NULL, ret);
-        *ret = ah_int(2);
-    } else if (sym == 0xffbf) { /* F2 */
-        mlj_rename_begin(m);
         *ret = ah_int(2);
     }
     return 0;
@@ -934,9 +927,12 @@ static void mlj_file_buttons(menu *m)
     for (int i = 0; i < 2; i++) {
         ui_widget *b = ui_widget_copy(ui, i ? ren : del);
         b->name = i ? "MoonRename" : "MoonDelete";
-        b->x = 574.f;
-        b->y = i ? 367.f : 345.f;
-        b->scale_x = b->scale_y = .5f;
+        b->x = 563.f;
+        b->y = i ? 360.f : 330.f;
+        b->w = 34.f;
+        b->h = 24.f;
+        b->has_geometry = 1;
+        b->scale_x = b->scale_y = 1.f;
         b->visible = 1;
         b->insensitive = 0;
         b->has_focus_override = 1;
