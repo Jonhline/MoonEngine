@@ -512,41 +512,52 @@ void music_download_draw(void)
     const uint8_t gold[4] = {180, 160, 110, 255}, track[4] = {105, 105, 110, 255};
     ui_project *p = app_video_settings && app_video_settings->owner
                         ? menu_ui(app_video_settings->owner) : NULL;
+    md_lock();
+    int n = md.count < 10 ? md.count : 10;
+    int first = (md.at - n + MD_LOG_LINES) % MD_LOG_LINES;
+    int busy = md.running || md.tool_fetching;
+    md_unlock();
+    int H = 30 + 20 + (n < 4 ? 4 : n) * 17 + 10 + (busy ? 40 : 0) + 34 + 8;
+    if (n >= 6) H += 34; /* keep the footer and Close clear of the last lines */
+    int y0 = (480 - H) / 2;
     plat_video_set_view(640, 480);
     plat_draw_quad(NULL, 0, 0, 640, 480, 0, 0, 1, 1, overlay);
-    plat_draw_quad(NULL, 70, 52, 500, 372, 0, 0, 1, 1, panel);
-    plat_draw_quad(NULL, 70, 52, 500, 30, 0, 0, 1, 1, title);
+    plat_draw_quad(NULL, 70, (float)y0, 500, (float)H, 0, 0, 1, 1, panel);
+    plat_draw_quad(NULL, 70, (float)y0, 500, 30, 0, 0, 1, 1, title);
 #define MDT(x, y, sc, col, str) do { \
         if (p && md.font[0] && ui_string_height(p, md.font, (sc)) > 0) \
             ui_draw_string(p, md.font, (x), (y), (sc), 0, (col), (str)); \
         else { wiz_font_init(); wiz_text((str), (x), (y), (sc) * 1.2f, (col)); } \
     } while (0)
-    MDT(84, 66, .46f, white, "Download music");
-    MDT(86, 104, .34f, black, "URL");
-    MDT(130, 104, .34f, black, md.url[0] ? md.url : "(paste a song or playlist URL)");
-    if (md.running || md.tool_fetching) {
+    MDT(84, y0 + 14, .46f, white, "Download music");
+    MDT(86, y0 + 52, .34f, black, "URL");
+    MDT(130, y0 + 52, .34f, black, md.url[0] ? md.url : "(paste a song or playlist URL)");
+    if (busy) {
         float pr = md.running ? md.progress : md.tool_progress;
-        plat_draw_quad(NULL, 86, 320, 468, 10, 0, 0, 1, 1, track);
-        plat_draw_quad(NULL, 86, 320, 468 * pr, 10, 0, 0, 1, 1, gold);
+        plat_draw_quad(NULL, 86, (float)(y0 + H - 74), 468, 10, 0, 0, 1, 1, track);
+        plat_draw_quad(NULL, 86, (float)(y0 + H - 74), 468 * pr, 10, 0, 0, 1, 1, gold);
         char s[96];
         snprintf(s, sizeof s, "%s %d%%", md.running ? "download" : "tools: fetching yt-dlp",
                  (int)(pr * 100));
-        MDT(86, 340, .30f, black, s);
+        MDT(86, y0 + H - 54, .30f, black, s);
+    }
+    float lsc = .30f;
+    if (p && md.font[0]) {
+        float lh = ui_string_height(p, md.font, 1.f);
+        if (lh > 0) lsc = 16.f / lh;
     }
     md_lock();
-    int n = md.count < 10 ? md.count : 10;
-    int first = (md.at - n + MD_LOG_LINES) % MD_LOG_LINES;
     for (int i = 0; i < n; i++) {
         int idx = (first + i) % MD_LOG_LINES;
         char show[76];
         snprintf(show, sizeof show, "%.72s", md.line[idx]);
-        MDT(86, 142 + i * 17, .30f, black, show);
+        MDT(86, y0 + 90 + i * 17, lsc, black, show);
     }
     md_unlock();
     const uint8_t edge[4] = {115, 115, 120, 255}, face[4] = {195, 195, 200, 255};
-    plat_draw_quad(NULL, 392, 372, 140, 26, 0, 0, 1, 1, edge);
-    plat_draw_quad(NULL, 393, 373, 138, 24, 0, 0, 1, 1, face);
-    MDT(400, 386, .34f, black, "Close");
-    MDT(86, 400, .30f, dim, "Enter starts  ·  Esc closes (job keeps running)");
+    plat_draw_quad(NULL, 392, (float)(y0 + H - 46), 140, 26, 0, 0, 1, 1, edge);
+    plat_draw_quad(NULL, 393, (float)(y0 + H - 45), 138, 24, 0, 0, 1, 1, face);
+    MDT(400, y0 + H - 32, .34f, black, "Close");
+    MDT(86, y0 + H - 22, .30f, dim, "Enter starts  ·  Esc closes (job keeps running)");
 #undef MDT
 }
