@@ -1300,6 +1300,11 @@ static plat_texture *backdrop(showroom *s, int kind)
     return t;
 }
 
+static int skip_stage(const char *name)
+{
+    const char *v = getenv("MOON_STUDIO_SKIP");
+    return v && *v && strstr(v, name) != NULL;
+}
 static void draw_gpu(showroom *s)
 {
     if (s->gpu_for != s->active) {
@@ -1325,12 +1330,14 @@ static void draw_gpu(showroom *s)
         int kind = !s->active || !s->active->shadow;
         if (!room && !s->backdrops[kind])
             s->backdrops[kind] = backdrop(s, kind);
-        if (s->picture) {
-            const uint8_t bg[4] = {s->picture_bg[0], s->picture_bg[1], s->picture_bg[2], 255};
-            plat_draw_quad(NULL, 0, 0, s->rw, H, 0, 0, 1, 1, bg);
-        } else
-            plat_draw_quad(room ? room : s->backdrops[kind], 0, 0, s->rw, H, 0, 0, 1, 1, tint);
-        if (s->shadow_on && s->active && s->showing && !s->picture) {
+        if (!skip_stage("room")) {
+            if (s->picture) {
+                const uint8_t bg[4] = {s->picture_bg[0], s->picture_bg[1], s->picture_bg[2], 255};
+                plat_draw_quad(NULL, 0, 0, s->rw, H, 0, 0, 1, 1, bg);
+            } else
+                plat_draw_quad(room ? room : s->backdrops[kind], 0, 0, s->rw, H, 0, 0, 1, 1, tint);
+        }
+        if (!skip_stage("shadow") && s->shadow_on && s->active && s->showing && !s->picture) {
             if (s->shadow_tex)
                 plat_texture_update(s->shadow_tex, s->shadow_px);
             else
@@ -1354,7 +1361,7 @@ static void draw_gpu(showroom *s)
             r3d_gpu_environment(video_texture_id(switch_gpu_image_texture(s->gpu_env)), ENV_SIZE,
                                 ENV_SIZE);
 #elif !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
-        if (s->pc_env_ready)
+        if (!skip_stage("env") && s->pc_env_ready)
             r3d_gpu_environment(video_texture_id(switch_gpu_image_texture(s->pc_env)),
                                 s->reflection_size, s->reflection_size);
 #endif
@@ -1364,7 +1371,7 @@ static void draw_gpu(showroom *s)
        Then the room is drawn back over it from the contact line down, more opaque further
        down, so the reflection dies away from the tyres. Strength and fall-off are ours;
        the studio camera is one constant pose, so the line is computed, not guessed. */
-    if (s->active && s->showing && s->white_studio && !s->picture) {
+    if (!skip_stage("mirror") && s->active && s->showing && s->white_studio && !s->picture) {
         r3d_view mirror = car;
         mirror.mirror = 1;
         r3d_draw_lit(s->gpu_car, &mirror, s->lit.count ? &s->lit : NULL);
@@ -1387,12 +1394,14 @@ static void draw_gpu(showroom *s)
             float v_floor = 1 - floor / H, v_mid = 1 - (fminf(bottom, floor + fall)) / H;
             plat_texture *q = room ? room : s->backdrops[!s->active || !s->active->shadow];
             (void)px;
-            plat_draw_quad4(q, 0, floor, s->rw, fminf(bottom, floor + fall) - floor, 0, v_floor, 1,
-                            v_mid, grad);
-            if (floor + fall < bottom) {
-                uint8_t solid[4] = {255, 255, 255, 255};
-                plat_draw_quad(q, 0, floor + fall, s->rw, bottom - floor - fall, 0, v_mid, 1, 0,
-                               solid);
+            if (!skip_stage("room")) {
+                plat_draw_quad4(q, 0, floor, s->rw, fminf(bottom, floor + fall) - floor, 0, v_floor, 1,
+                                v_mid, grad);
+                if (floor + fall < bottom) {
+                    uint8_t solid[4] = {255, 255, 255, 255};
+                    plat_draw_quad(q, 0, floor + fall, s->rw, bottom - floor - fall, 0, v_mid, 1, 0,
+                                   solid);
+                }
             }
             printf("studio mirror: floor line %.0f, fall %.0f\n", floor, fall);
         }
@@ -1402,7 +1411,7 @@ static void draw_gpu(showroom *s)
             r3d_gpu_environment(video_texture_id(switch_gpu_image_texture(s->gpu_env)), ENV_SIZE,
                                 ENV_SIZE);
 #elif !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
-        if (s->pc_env_ready)
+        if (!skip_stage("env") && s->pc_env_ready)
             r3d_gpu_environment(video_texture_id(switch_gpu_image_texture(s->pc_env)),
                                 s->reflection_size, s->reflection_size);
 #endif
@@ -1417,17 +1426,20 @@ static void draw_gpu(showroom *s)
                 r3d_floor_shadow(s->gpu_car, &car, L, darkness, blur);
             }
         }
-        r3d_view shadow = car;
-        shadow.shadow = 1;
-        shadow.shadow_alpha = contact_shadow(s);
-        r3d_draw(s->gpu_shadow, &shadow); /* (a picture keeps it: the disc's car_pict has its soft shadow) */
+        if (!skip_stage("shadow")) {
+            r3d_view shadow = car;
+            shadow.shadow = 1;
+            shadow.shadow_alpha = contact_shadow(s);
+            r3d_draw(s->gpu_shadow, &shadow); /* (a picture keeps it: the disc's car_pict has its soft shadow) */
+        }
         if (s->gpu_hull)
             r3d_draw(s->gpu_hull, &car);
-        r3d_draw_lit(s->gpu_car, &car, s->lit.count ? &s->lit : NULL);
+        if (!skip_stage("car"))
+            r3d_draw_lit(s->gpu_car, &car, s->lit.count ? &s->lit : NULL);
     }
     r3d_end();
     /* The car appears out of the studio: its backdrop over it, fading away. */
-    if (s->showing && s->fade < 1 && !s->picture) {
+    if (!skip_stage("room") && s->showing && s->fade < 1 && !s->picture) {
         int kind = !s->active || !s->active->shadow;
         float o = s->fade * s->fade * (3 - 2 * s->fade);
         uint8_t veil[4] = {255, 255, 255, (uint8_t)(255 * (1 - o))};
@@ -2276,7 +2288,8 @@ int showroom_draw(showroom *s, const char *code, float dt)
 #else
 #if !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
         s->pc_env_ready = 0;
-        s->env_now = s->face && !s->face->studio_presentation ? NULL : showroom_reflection_compose(s, t);
+        s->env_now = (s->face && !s->face->studio_presentation) || skip_stage("env")
+                         ? NULL : showroom_reflection_compose(s, t);
 #else
         s->env_now = s->face && !s->face->studio_presentation ? NULL : compose_env(s, t);
 #endif
@@ -2297,7 +2310,7 @@ int showroom_draw(showroom *s, const char *code, float dt)
         if (s->gpu && r3d_available())
             draw_face_gpu(s);
     } /* no software path for faces yet */
-    else if (s->gpu && r3d_available())
+    else if (s->gpu && r3d_available() && !skip_stage("draw"))
         draw_gpu(s);
     else {
         /* The studio room; the neutral formula only if its assets are missing. */

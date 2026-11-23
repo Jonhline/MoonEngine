@@ -119,6 +119,12 @@ static int load(void *user)
     }
     SDL_AtomicSet(&a->ready, 1);
     while (!SDL_AtomicGet(&a->stop) && a->music && gt4_music_prepare_step(a->music, publish, a)) {}
+    if (!a->device) { /* no output: one prepared track is enough; do not spin tracks */
+        while (!SDL_AtomicGet(&a->stop))
+            SDL_Delay(50);
+        if (v) gt4_vol_close(v);
+        return 0;
+    }
     while (v && !SDL_AtomicGet(&a->stop)) {
         gt4_music *m = shuffle_open(v, counts, total, &last);
         unsigned frames = 0;
@@ -156,7 +162,8 @@ void launcher_audio_render(launcher_audio *a, int16_t *out, int frames)
     memset(out, 0, (size_t)frames * 4);
     if (!a || !SDL_AtomicGet(&a->ready)) return;
     if(!SDL_AtomicGet(&a->suspended)) {
-    if(!moon_music_override_render(4,out,frames,a->music_volume*128/120,0)) {
+    const char *sk = getenv("MOON_STUDIO_SKIP");
+    if((sk && strstr(sk, "override")) || !moon_music_override_render(4,out,frames,a->music_volume*128/120,0)) {
     gt4_music_render_available(out, frames, a->music, (unsigned)SDL_AtomicGet(&a->available));
     /* P: the next track comes in over the last three seconds of this one (a crossfade);
        the current one keeps playing through its loop point while it fades. Its length is

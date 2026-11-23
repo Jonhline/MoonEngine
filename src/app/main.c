@@ -1557,6 +1557,11 @@ static void dock_cursor_trace(studio_dock *d)
 /* The dock itself: four big icons and their names, drawn 1:1 in framebuffer pixels (the caller
    sets the view to the framebuffer), centred and bottom-anchored, plus the game's own pointer
    under the chosen one. A desktop toolbar: it never scales with the window. */
+static int studio_skip_dock(void)
+{
+    const char *v = getenv("MOON_STUDIO_SKIP");
+    return v && *v && strstr(v, "dock") != NULL;
+}
 static void dock_draw(const studio_dock *d, int sel, int pointer)
 {
     static const uint8_t opaque[4] = {255, 255, 255, 255};
@@ -2437,7 +2442,11 @@ static int first_run_wizard(launcher_preferences *prefs)
                 L.n = step ? 4 : 3;
             }
         }
-        plat_video_begin_frame();
+        {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "frame")))
+                plat_video_begin_frame();
+        }
         plat_video_set_view((float)fw, (float)fh);
         wiz_room((float)fw, (float)fh);
         {
@@ -2544,7 +2553,11 @@ static int first_run_wizard(launcher_preferences *prefs)
             screenshot(path);
             fprintf(stderr, "wizard: dropped %s -> %s (%s)\n", getenv("MOONSTUDIO_SETUP_DROP"), disc,
                    valid ? "valid" : status);
-            plat_video_end_frame();
+            {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "frame")))
+                plat_video_end_frame();
+        }
             break;
         }
         if (wiz_shot_prefix && getenv("MOONSTUDIO_SETUP_DROP"))
@@ -2582,7 +2595,11 @@ static int first_run_wizard(launcher_preferences *prefs)
             }
         } else
             frame++;
-        plat_video_end_frame();
+        {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "frame")))
+                plat_video_end_frame();
+        }
         app_window_geometry_tick(0);
         app_presence_poll("Launcher", NULL, NULL, NULL, -1, -1);
         plat_sleep_ms(16);
@@ -2990,8 +3007,16 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
             launcher_touch_mouse(0);
             return 1;
         }
-        plat_video_begin_frame();
-        plat_video_end_frame();
+        {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "frame")))
+                plat_video_begin_frame();
+        }
+        {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "frame")))
+                plat_video_end_frame();
+        }
         app_presence_poll("Launcher", NULL, NULL, chosen, -1, -1);
         plat_sleep_ms(10);
     }
@@ -3133,7 +3158,10 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
     const char *slot_at = getenv("MOONSTUDIO_SLOT"); /* dev: capture a dock slot's framing */
 #ifndef __SWITCH__
     /* the earlier launcher's music and menu sounds, on their own device, front-end only */
-    launcher_audio *sound = fade_in && studio_disc ? launcher_audio_open(studio_disc, 1) : NULL;
+    const char *studio_skip_audio = getenv("MOON_STUDIO_SKIP");
+    launcher_audio *sound = fade_in && studio_disc &&
+                            !(studio_skip_audio && strstr(studio_skip_audio, "audio"))
+                                ? launcher_audio_open(studio_disc, 1) : NULL;
     int sound_told = 0;
     launcher_mixer mixer;
     moon_options mixer_fallback = {0};
@@ -3801,36 +3829,61 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
         }
         if (options_open && studio_tab_guided(options_tab))
             guide_options_step(cars, chosen, cur_rw, options_ids[options_row], fw, fh);
-        else if (!options_open && options_alpha < .01f)
-            guide_options_close(); /* the course is read again when the panel needs it */
+        else if (!options_open && options_alpha < .01f) {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "guide")))
+                guide_options_close(); /* the course is read again when the panel needs it */
+        }
         if (options_open) /* the game's prints start the first time OPTIONS opens */
             launcher_prints_step(options_ids[options_row]);
         if (options_open && options_tab == 0)
             studio_renders_step(cars, chosen, cur_rw, options_ids[options_row], theme, mood, car,
                                 angle, cam_eye, cam_target, cam_fov);
-        launcher_scene_step(cars, chosen);
-        plat_video_begin_frame();
-        video_begin_scene();
+        {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "scene")))
+                launcher_scene_step(cars, chosen);
+        }
+        {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "frame")))
+                plat_video_begin_frame();
+        }
+        {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "scenetarget")))
+                video_begin_scene();
+        }
         /* the scene raster follows the window aspect (W = 448*window); the dock then draws in
            framebuffer pixels. Both map to the window at one uniform scale - nothing stretches. */
         plat_video_set_view((float)cur_rw, 448.f);
         if (!(options_open && guide_benchmark_enabled() &&
               guide_benchmark_scene(cars, chosen, cur_rw, 1.f / 60.f))) {
-            if (launcher_scene_ready()) /* the car in the chosen place; the room's car keeps loading */
-                launcher_scene_draw(locked ? cam_eye : eye, locked ? cam_target : target, car, angle,
-                                    locked ? cam_fov : LCAM_RIG_FOV, cur_rw);
-            else
-                showroom_draw(cars, chosen, 1.f / 60.f);
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "showroom"))) {
+                if (launcher_scene_ready()) /* the car in the chosen place; the room's car keeps loading */
+                    launcher_scene_draw(locked ? cam_eye : eye, locked ? cam_target : target, car, angle,
+                                        locked ? cam_fov : LCAM_RIG_FOV, cur_rw);
+                else
+                    showroom_draw(cars, chosen, 1.f / 60.f);
+            }
         }
-        video_end_scene();
+        {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "scenetarget")))
+                video_end_scene();
+        }
         if (dock_dirty) {
             dock_font_load(&dock, vol);
             dock_dirty = 0;
         }
         dock_cursor_step(&dock, dt);
         plat_video_set_view((float)fw, (float)fh);
-        if (clock_alpha > .004f)
-            studio_clock_draw(&dock, clock_alpha, cine_time);
+        {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "clock")) && clock_alpha > .004f)
+                studio_clock_draw(&dock, clock_alpha, cine_time);
+        }
         if (dock_sel != last_sel || activated)
             slot_picked = 1;
         if (dock_sel != DOCK_OPTIONS)
@@ -3873,7 +3926,7 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
             mods_arrow = 0;
             studio_tab_hover = -1;
         }
-        if (!cinematic) { /* the AFK cinematic shows only the room, the car and the clock */
+        if (!cinematic && !studio_skip_dock()) { /* the AFK cinematic shows only the room, the car and the clock */
             studio_info_draw(&dock);
 #ifndef __SWITCH__
             if (options_open || mods_open)
@@ -3925,7 +3978,11 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                               (uint8_t)(255 * fade_curve((float)start_fade / FADE_FRAMES))};
             plat_draw_quad(NULL, 0, 0, (float)fw, (float)fh, 0, 0, 1, 1, blk);
         }
-        moon_debug_overlay_draw(); /* G6.40: over the studio room too */
+        {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "overlay")))
+                moon_debug_overlay_draw(); /* G6.40: over the studio room too */
+        }
         if (start_shot_prefix && start_fade >= FADE_FRAMES / 2 && !start_shot_mid) {
             char p[1200];
             snprintf(p, sizeof p, "%s-mid.png", start_shot_prefix);
@@ -3952,7 +4009,11 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
             screenshot(shot);
             printf("studio: %s painted '%s'\n", chosen, showroom_caption(cars));
         }
-        plat_video_end_frame();
+        {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "frame")))
+                plat_video_end_frame();
+        }
         app_presence_poll(guide_options_busy() ? "Settings" : "Launcher", NULL, NULL,
                           guide_options_busy() ? NULL : chosen, -1, -1);
 
@@ -4042,7 +4103,11 @@ static int preview_run(showroom *cars,const char *code,const char *shot,int colo
     while(showroom_prepare(cars,chosen)==0){
         SDL_Event ev;while(SDL_PollEvent(&ev))if(ev.type==SDL_QUIT)return 0;
         if(plat_time_ns()-start>UINT64_C(60000000000)){fprintf(stderr,"preview: assets did not arrive for %s\n",chosen);return 1;}
-        plat_video_begin_frame();plat_video_end_frame();
+        {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "frame")))
+                plat_video_begin_frame();
+        }plat_video_end_frame();
         app_presence_poll("Launcher", NULL, NULL, chosen, -1, -1);
         plat_sleep_ms(10);
     }
@@ -4098,12 +4163,28 @@ static int preview_run(showroom *cars,const char *code,const char *shot,int colo
         uint64_t now=plat_time_ns();
         if(want!=pend_rw){pend_rw=want;pend_at=now;}
         if(want!=cur_rw && (cur_rw==0 || now-pend_at>UINT64_C(150000000))){showroom_set_width(cars,want);cur_rw=want;}
-        plat_video_begin_frame();
-        video_begin_scene();
+        {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "frame")))
+                plat_video_begin_frame();
+        }
+        {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "scenetarget")))
+                video_begin_scene();
+        }
         plat_video_set_view((float)cur_rw,448.f);
         showroom_draw(cars,chosen,1.f/60.f);
-        video_end_scene();
-        plat_video_end_frame();
+        {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "scenetarget")))
+                video_end_scene();
+        }
+        {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "frame")))
+                plat_video_end_frame();
+        }
         app_presence_poll("Launcher", NULL, NULL, chosen, -1, -1);
         if(!ready){ready=1;printf("preview: ready car=%s window=%dx%d\n",chosen,fw,fh);fflush(stdout);}
         if(shot && i==frames-1){screenshot(shot);printf("preview: %s painted '%s'\n",chosen,showroom_caption(cars));}
@@ -4840,7 +4921,11 @@ int main(int argc, char **argv)
 #ifdef MOON_PC_VULKAN
     if (moon_vk_render_active() && !getenv("MOON_VK_SKIP_PREPARE")) {
         loading_screen_begin();
-        plat_video_begin_frame();
+        {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "frame")))
+                plat_video_begin_frame();
+        }
         int prepared = r3d_warmup() && switch_gpu_warmup();
         moon_vk_render_drain();
         fprintf(stderr, "Vulkan startup preparation: ready=%d pipelines=%llu\n", prepared,
@@ -6988,7 +7073,11 @@ int main(int argc, char **argv)
         if (!presentation_pregrid)
             pregrid_clock = 0;
         uint64_t bench_frame_start = bench_started ? plat_time_ns() : 0;
-        plat_video_begin_frame();
+        {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "frame")))
+                plat_video_begin_frame();
+        }
         SWP_PUSH(SWP_SCENE);
         int car_ready = 1;
         int scene_layer = race_active || driving == 2 ||
@@ -7027,7 +7116,11 @@ int main(int argc, char **argv)
             }
         }
         if (scene_layer)
-            video_end_scene();
+            {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "scenetarget")))
+                video_end_scene();
+        }
         app_strike_poll(game, &mn, elapsed, &driving, &race_start_pending, &last_root);
         app_fail_poll(game, &mn, &driving, &race_start_pending, &last_root);
         if (driving == 2 && race_game_wants_thumbnail(
@@ -7211,7 +7304,11 @@ int main(int argc, char **argv)
                                                   ? 30000000000ull
                                                   : 5000000000ull)) {
                 SWP_POP();
+                {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "frame")))
                 plat_video_end_frame();
+        }
                 SDL_Delay(10);
                 continue;
             }
@@ -7301,7 +7398,11 @@ int main(int argc, char **argv)
         SWP_READY(car_ready && !loading_screen_active() && !race_loading);
         SWP_POP();
         uint64_t bench_gpu_before = bench_started ? video_bench_finish_ns() : 0;
-        plat_video_end_frame();
+        {
+            const char *sk = getenv("MOON_STUDIO_SKIP");
+            if (!(sk && strstr(sk, "frame")))
+                plat_video_end_frame();
+        }
         if (bench_started && bench_frame_start && bench_frames > 0) {
             bench_frame_index++;
             double gpu_frame = (video_bench_finish_ns() - bench_gpu_before) / 1e6;
