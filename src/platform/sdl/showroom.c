@@ -83,6 +83,7 @@ struct showroom {
     uint8_t *layers[4];
     int layers_ready;
     uint8_t *studio_px;
+    int studio_upload; /* set when compose_studio actually rewrote the pixels */
     plat_texture *studio_tex;
 #ifdef __SWITCH__
     switch_gpu_image *gpu_studio, *gpu_env;
@@ -880,6 +881,7 @@ static const uint8_t *compose_studio(showroom *s)
                 return NULL;
             white_sweep(s->studio_px, s->rw, s->room_dark, s->room_mood);
             s->white_ready = 1;
+            s->studio_upload = 1;
         }
         return s->studio_px;
     }
@@ -908,6 +910,7 @@ static const uint8_t *compose_studio(showroom *s)
         }
         s->studio_px[at + 3] = 255;
     }
+    s->studio_upload = 1;
     return s->studio_px;
 }
 
@@ -938,10 +941,13 @@ static plat_texture *studio_texture(showroom *s)
     const uint8_t *px = compose_studio(s);
     if (!px)
         return NULL;
-    if (s->studio_tex)
-        plat_texture_update(s->studio_tex, px);
-    else
+    if (!s->studio_tex) {
         s->studio_tex = plat_texture_create(s->rw, H, px);
+        s->studio_upload = 0;
+    } else if (s->studio_upload) {
+        plat_texture_update(s->studio_tex, px);
+        s->studio_upload = 0;
+    }
     return s->studio_tex;
 }
 
@@ -1172,6 +1178,7 @@ void showroom_set_room_mood(showroom *s, int dark, const float rgb[3])
     for (int k = 0; k < 3; k++)
         s->room_mood[k] = rgb ? rgb[k] : 1;
     s->white_ready = 0; /* the room is painted again with the new colours */
+    s->studio_upload = 1;
     SDL_UnlockMutex(s->lock);
 }
 
@@ -2058,6 +2065,7 @@ void showroom_set_width(showroom *s, int w)
     free(s->studio_px);
     s->studio_px = NULL;
     s->white_ready = 0;
+    s->studio_upload = 1;
     s->layers_ready = 0; /* the room layers are width-strided */
     for (int i = 0; i < 4; i++) {
         free(s->panel_maps[i]);
