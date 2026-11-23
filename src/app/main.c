@@ -7234,6 +7234,7 @@ int main(int argc, char **argv)
                 draw_pages(mn, &drawn, &skipped);
         }
         music_download_draw();
+        mlj_tip_refresh(mn); /* the hint line is per-frame, not per-audio-tick */
         mlj_rename_draw(); /* the Jukebox's rename panel is drawn here too; without
                               this call the panel sets .active but never appears */
         if ((photo_project(proj) || driving == 6 || (driving == 5 && proj == 21)) && !notice_active)

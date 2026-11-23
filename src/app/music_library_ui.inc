@@ -445,7 +445,7 @@ static void mlj_audio_tick(ml_jukebox *j, int allowed)
 }
 /* Called by both PCM update paths; nonzero means the Jukebox owns this page's stream. */
 static void mlj_file_buttons(menu *m);
-static void mlj_tip_shortcuts(menu *m);
+void mlj_tip_refresh(menu *m);
 static int mlj_buttons_done;
 static int app_jukebox_pcm(menu *m, int allowed)
 {
@@ -453,7 +453,7 @@ static int app_jukebox_pcm(menu *m, int allowed)
         mlj_file_buttons(m);
         mlj_buttons_done = 1;
     }
-    if (m && menu_jukebox_page_widget(m)) mlj_tip_shortcuts(m);
+    if (m && menu_jukebox_page_widget(m)) mlj_tip_refresh(m);
     if (!m || m != app_jukebox.page)
         return 0;
     mlj_audio_tick(&app_jukebox, allowed);
@@ -941,7 +941,7 @@ void mlj_jukebox_rename_now(void)
     if (app_jukebox.page) mlj_rename_begin(app_jukebox.page);
 }
 int mlj_jukebox_page_active(void) { return app_jukebox.page != NULL; }
-static void mlj_tip_shortcuts(menu *m)
+void mlj_tip_refresh(menu *m)
 {
     ui_widget *root = menu_jukebox_page_widget(m);
     ui_widget *hint = root ? ui_widget_child(root, "MoonHint") : NULL;
