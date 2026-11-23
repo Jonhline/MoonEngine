@@ -558,8 +558,13 @@ static const ml_track *mlj_selected(menu *m)
     const ml_playlist *cat = music_library_list(app_jukebox.library, app_jukebox.catalog);
     int row = list ? list->focus_index : -1;
     if (!cat || row < 0 || row >= cat->count) return NULL;
-    int idx = mlj_shown[row];
-    return idx >= 0 && idx < cat->count ? &cat->tracks[idx] : NULL;
+    int idx = row >= 0 && row < cat->count ? mlj_shown[row] : -1;
+    if (idx < 0 || idx >= cat->count) return NULL;
+    /* group/folder headers are not tracks: their path does not exist on disk */
+    if (strncmp(cat->tracks[idx].path, "gt4:", 4) &&
+        access(cat->tracks[idx].path, F_OK) != 0)
+        return NULL;
+    return &cat->tracks[idx];
 }
 static int mlj_delete_activate(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
                                ah_val *ret)
@@ -568,7 +573,7 @@ static int mlj_delete_activate(ah_vm *vm, ah_obj *self, void *data, int argc, co
     menu *m = data;
     const ml_track *t = mlj_selected(m);
     *ret = ah_int(2);
-    if (!t) return 0;
+    if (!t) { menu_confirm(m, "Delete", "This is a folder, not a song."); return 0; }
     if (!strncmp(t->path, "gt4:", 4)) {
         menu_confirm(m, "Delete", "This song is part of the game disc.");
         return 0;
