@@ -1676,6 +1676,52 @@ static void wiz_text_center(const char *s, float cx, float y, float sc, const ui
 {
     wiz_text(s, cx - wiz_text_width(s, sc) / 2.f, y, sc, col);
 }
+static float controller_map(float x, float dz, float range, int curve)
+{
+    float a = fabsf(x);
+    float z = dz > .10f ? dz : .10f;
+    if (a <= z) return 0.f;
+    float n = (a - z) / (1.f - z) / range;
+    if (n > 1.f) n = 1.f;
+    if (curve == 1) n = n * n * (3.f - 2.f * n);
+    else if (curve == 2) n = n * n;
+    return x < 0 ? -n : n;
+}
+static void controller_live_draw(void)
+{
+    if (!video_settings_controller_active()) return;
+    float dz = 0, range = 1;
+    int curve = 0;
+    video_settings_controller_values(&dz, &range, &curve);
+    SDL_GameController *pad = plat_sdl_pad(0);
+    static const SDL_GameControllerAxis axes[3] = {SDL_CONTROLLER_AXIS_LEFTX,
+                                                   SDL_CONTROLLER_AXIS_LEFTY,
+                                                   SDL_CONTROLLER_AXIS_RIGHTX};
+    static const char *names[3] = {"LX", "LY", "RX"};
+    const uint8_t bg[4] = {0, 0, 0, 170}, white[4] = {245, 245, 245, 255};
+    const uint8_t dim[4] = {150, 155, 165, 255}, gold[4] = {180, 160, 110, 255};
+    plat_video_set_view(640, 480);
+    plat_draw_quad(NULL, 40, 392, 560, 80, 0, 0, 1, 1, bg);
+    wiz_font_init();
+    for (int i = 0; i < 3; i++) {
+        const char *synth = getenv("MOON_PAD_SYNTH");
+        int raw = synth && *synth ? atoi(synth) : (pad ? SDL_GameControllerGetAxis(pad, axes[i]) : 0);
+        float x = raw < 0 ? raw / 32768.f : raw / 32767.f;
+        float m = controller_map(x, dz, range, curve);
+        float y = 398.f + i * 23.f;
+        plat_draw_quad(NULL, 150, y + 7, 300, 7, 0, 0, 1, 1, dim);
+        plat_draw_quad(NULL, 300, y + 5, 1, 11, 0, 0, 1, 1, white);
+        float w = fabsf(m) * 150.f;
+        plat_draw_quad(NULL, m < 0 ? 300 - w : 300, y + 7, w, 7, 0, 0, 1, 1, gold);
+        char line[96];
+        snprintf(line, sizeof line, "%s raw=%+d mapped=%.3f", names[i], raw, m);
+        wiz_text(line, 46, y + 2, .3f, white);
+    }
+    char cfg[96];
+    snprintf(cfg, sizeof cfg, "deadzone %d%%  range %d%%  curve %s", (int)(dz * 100 + .5f),
+             (int)(range * 100 + .5f), curve == 0 ? "linear" : curve == 1 ? "soft" : "hard");
+    wiz_text(cfg, 440, 400, .28f, dim);
+}
 
 /* The AFK clock: a small piece of the room, not a HUD readout. Same baked
    launcher face as the wizard, with deliberate tracking; the colon breathes
@@ -4318,6 +4364,9 @@ int main(int argc, char **argv)
     }
 #endif
     app_video_settings = &settings;
+    plat_sdl_steer_config(moon_options_int(&settings.store, "input.deadzone", 0, 0, 40) / 100.f,
+                          moon_options_int(&settings.store, "input.steer_range", 100, 50, 100) / 100.f,
+                          moon_options_int(&settings.store, "input.steer_curve", 0, 0, 2));
     if (getenv("MOON_SETTINGS_PARITY") && !studio_tweaks_parity()) {
         fprintf(stderr, "settings parity: the two Tweaks pages differ\n");
         return 3;
@@ -7117,6 +7166,7 @@ int main(int argc, char **argv)
                 draw_pages(mn, &drawn, &skipped);
         }
         music_download_draw();
+        controller_live_draw();
         if ((photo_project(proj) || driving == 6 || (driving == 5 && proj == 21)) && !notice_active)
             photo_travel_feedback(presentation_photo);
         { /* P: opt-in filming input, the same shutter path as F5. A real

@@ -137,6 +137,8 @@ typedef struct {
 
 int plat_input_init(void);
 int plat_input_poll(int index, plat_pad_state *out);
+/* R2: steer mapping. deadzone 0..0.4, range 0.5..1.0, curve 0 linear 1 soft 2 hard. */
+void plat_sdl_steer_config(float deadzone, float range, int curve);
 /* Force feedback: signed torque, -1..1. No-op on devices without FFB. */
 void plat_input_set_ffb(int index, float torque);
 /* Raw SDL steering wheel in this player's port (controller kind 4). */
