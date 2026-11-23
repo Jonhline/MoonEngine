@@ -324,6 +324,50 @@ static void md_print_line(const char *line, void *user)
     if (*line) md.has_playlist = 1;
 }
 
+#define MD_FILES 512
+static int md_audio_name(const char *n)
+{
+    size_t l = strlen(n);
+    if (l < 5) return 0;
+    const char *e = n + l - 4;
+    return (e[0] == '.' && (e[1] == 'm' || e[1] == 'M') && (e[2] == 'p' || e[2] == 'P') && e[3] == '3') ||
+           (e[0] == '.' && (e[1] == 'm' || e[1] == 'M') && e[2] == '4' && (e[3] == 'a' || e[3] == 'A')) ||
+           (e[0] == '.' && (e[1] == 'o' || e[1] == 'O') && (e[2] == 'g' || e[2] == 'G') && (e[3] == 'g' || e[3] == 'G')) ||
+           (l >= 6 && e[-1] == 'l' && (e[0] == 'a' || e[0] == 'A') && (e[1] == 'c' || e[1] == 'C') && (e[2] == 'f' || e[2] == 'F'));
+}
+static int md_scan_music(const char *dir, const char *rel, char names[][512], int max, int depth)
+{
+    if (depth > 8) return 0;
+    DIR *d = opendir(dir);
+    if (!d) return 0;
+    int n = 0;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL && n < max) {
+        if (e->d_name[0] == '.') continue;
+        char path[1300], full[1400];
+        snprintf(path, sizeof path, "%s%s%s", rel, rel[0] ? "/" : "", e->d_name);
+        snprintf(full, sizeof full, "%s/%s", dir, e->d_name);
+        if (md_audio_name(e->d_name)) {
+            snprintf(names[n], 512, "%s", path);
+            n++;
+        } else {
+            DIR *sub = opendir(full);
+            if (sub) {
+                closedir(sub);
+                n += md_scan_music(full, path, names + n, max - n, depth + 1);
+            }
+        }
+    }
+    closedir(d);
+    return n;
+}
+static int md_has_name(char names[][512], int n, const char *want)
+{
+    for (int i = 0; i < n; i++)
+        if (!strcmp(names[i], want)) return 1;
+    return 0;
+}
+
 static void md_job_line(const char *line, void *user)
 {
     (void)user;
@@ -352,6 +396,8 @@ static int md_worker(void *unused)
         md_lock(); md.running = 0; md_unlock();
         return 0;
     }
+    static char before_names[MD_FILES][512];
+    int before = md_scan_music(music, "", before_names, MD_FILES, 0);
     md.last[0] = 0;
     char *argv[] = {md.tool, "-f", "bestaudio[ext=m4a]/bestaudio", "--newline",
                     "--paths", music, "-o",
@@ -369,38 +415,24 @@ static int md_worker(void *unused)
         app_jukebox.library = app_music_library;
         app_jukebox.catalog = music_library_catalog(app_music_library);
     }
-    if (app_jukebox.library && app_jukebox.catalog >= 0) {
-        const ml_playlist *before = music_library_list(app_jukebox.library, app_jukebox.catalog);
-        int was = before ? (int)before->count : 0;
+    if (app_jukebox.library && app_jukebox.catalog >= 0)
         mlj_scan(&app_jukebox);
-        const ml_playlist *after = music_library_list(app_jukebox.library, app_jukebox.catalog);
-        int now = after ? (int)after->count : 0;
-        char folder[1300] = "";
-        if (md.music_dir[0])
-            snprintf(folder, sizeof folder, "%s", md.music_dir);
-        else if (app_video_settings)
-            app_music_folder(app_video_settings->store.path, folder, sizeof folder);
-        int found = 0;
-        {
-            char *hit = strstr(folder, " [");
-            (void)hit;
-            DIR *d = opendir(folder);
-            if (d) {
-                struct dirent *e;
-                while ((e = readdir(d))) {
-                    if (e->d_name[0] == '.') continue;
-                    size_t l = strlen(e->d_name);
-                    if (l > 4 && (!strcasecmp(e->d_name + l - 4, ".mp3") ||
-                                  !strcasecmp(e->d_name + l - 4, ".m4a") ||
-                                  !strcasecmp(e->d_name + l - 4, ".ogg") ||
-                                  !strcasecmp(e->d_name + l - 4, ".flac")))
-                        found++;
-                }
-                closedir(d);
-            }
+    static char after_names[MD_FILES][512];
+    int after = md_scan_music(music, "", after_names, MD_FILES, 0);
+    int added = after - before;
+    if (added < 0) added = 0;
+    char list[512] = "";
+    int named = 0;
+    if (added <= 3) {
+        for (int i = 0; i < after && named < added; i++) {
+            if (md_has_name(before_names, before, after_names[i])) continue;
+            strncat(list, named ? ", " : ": ", sizeof list - strlen(list) - 1);
+            strncat(list, after_names[i], sizeof list - strlen(list) - 1);
+            named++;
         }
-        md_log("Music: %d tracks added, %d in the library (folder %s)", now - was, found, folder);
     }
+    md_log("Music: %d track%s added%s, %d in the library (folder %s)", added,
+           added == 1 ? "" : "s", list, after, music);
     md_lock(); md.running = 0; md.progress = 1.f; md_unlock();
     return 0;
 }
