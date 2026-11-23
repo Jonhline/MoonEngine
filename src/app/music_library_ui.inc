@@ -584,22 +584,125 @@ static int mlj_delete_activate(ah_vm *vm, ah_obj *self, void *data, int argc, co
     }
     return 0;
 }
+static struct {
+    int active;
+    char name[256], old[1200], ext[32], warning[96];
+} mlj_rename;
+static void mlj_rename_begin(menu *m)
+{
+    const ml_track *t = mlj_selected(m);
+    if (!t) return;
+    if (!strncmp(t->path, "gt4:", 4)) {
+        menu_confirm(m, "Rename", "This song is part of the game disc.");
+        return;
+    }
+    snprintf(mlj_rename.old, sizeof mlj_rename.old, "%s", t->path);
+    const char *base = strrchr(t->path, '/');
+    base = base ? base + 1 : t->path;
+    const char *dot = strrchr(base, '.');
+    size_t n = dot ? (size_t)(dot - base) : strlen(base);
+    if (n >= sizeof mlj_rename.name) n = sizeof mlj_rename.name - 1;
+    memcpy(mlj_rename.name, base, n);
+    mlj_rename.name[n] = 0;
+    snprintf(mlj_rename.ext, sizeof mlj_rename.ext, "%s", dot ? dot : "");
+    mlj_rename.warning[0] = 0;
+    mlj_rename.active = 1;
+    SDL_StartTextInput();
+}
 static int mlj_rename_activate(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
                                ah_val *ret)
 {
     (void)vm; (void)self; (void)argc; (void)argv;
-    menu *m = data;
-    const ml_track *t = mlj_selected(m);
     *ret = ah_int(2);
-    if (!t) return 0;
-    if (!strncmp(t->path, "gt4:", 4)) {
-        menu_confirm(m, "Rename", "This song is part of the game disc.");
-        return 0;
-    }
-    /* The disc's text dialog is not exposed as a native call; this keeps the
-       refusal honest instead of pretending the name changed. */
-    menu_confirm(m, "Rename", "Renaming local songs is not available yet.");
+    mlj_rename_begin(data);
     return 0;
+}
+static int mlj_rename_valid(const char *s)
+{
+    if (!*s) return 0;
+    for (; *s; s++)
+        if ((unsigned char)*s < 0x20 || *s == 0x7f || strchr("/\\:*?\"<>|", *s))
+            return 0;
+    return 1;
+}
+static void mlj_rename_commit(void)
+{
+    if (!mlj_rename_valid(mlj_rename.name)) {
+        snprintf(mlj_rename.warning, sizeof mlj_rename.warning, "Invalid file name.");
+        return;
+    }
+    char path[1400];
+    snprintf(path, sizeof path, "%s", mlj_rename.old);
+    char *slash = strrchr(path, '/');
+    if (slash) slash[1] = 0; else path[0] = 0;
+    char next[1500];
+    snprintf(next, sizeof next, "%s%s%s", path, mlj_rename.name, mlj_rename.ext);
+    if (!strcmp(next, mlj_rename.old)) {
+        mlj_rename.active = 0;
+        SDL_StopTextInput();
+        return;
+    }
+    if (rename(mlj_rename.old, next) == 0) {
+        fprintf(stderr, "jukebox: renamed %s -> %s\n", mlj_rename.old, next);
+        mlj_log("jukebox: renamed %s -> %s", mlj_rename.old, next);
+        mlj_rename.active = 0;
+        SDL_StopTextInput();
+    } else {
+        snprintf(mlj_rename.warning, sizeof mlj_rename.warning, "Rename failed.");
+        fprintf(stderr, "jukebox: rename failed %s -> %s\n", mlj_rename.old, next);
+    }
+}
+int mlj_rename_active(void) { return mlj_rename.active; }
+int mlj_rename_event(plat_key_event *ev)
+{
+    if (!mlj_rename.active) return 0;
+    if (ev->text[0]) {
+        size_t n = strlen(mlj_rename.name), add = strlen(ev->text);
+        if (n + add < sizeof mlj_rename.name) memcpy(mlj_rename.name + n, ev->text, add + 1);
+        mlj_rename.warning[0] = 0;
+        return 1;
+    }
+    if (ev->key == SDLK_BACKSPACE) {
+        size_t n = strlen(mlj_rename.name);
+        if (n) mlj_rename.name[n - 1] = 0;
+        mlj_rename.warning[0] = 0;
+        return 1;
+    }
+    if (ev->key == SDLK_ESCAPE) {
+        mlj_rename.active = 0;
+        SDL_StopTextInput();
+        return 1;
+    }
+    if (ev->key == SDLK_RETURN || ev->key == SDLK_KP_ENTER) {
+        mlj_rename_commit();
+        return 1;
+    }
+    return 1;
+}
+int mlj_rename_sdl_event(const SDL_Event *ev)
+{
+    if (!mlj_rename.active || !ev) return 0;
+    plat_key_event k;
+    memset(&k, 0, sizeof k);
+    if (ev->type == SDL_TEXTINPUT) snprintf(k.text, sizeof k.text, "%s", ev->text.text);
+    else if (ev->type == SDL_KEYDOWN) k.key = ev->key.keysym.sym;
+    else return 0;
+    return mlj_rename_event(&k);
+}
+void mlj_rename_draw(void)
+{
+    if (!mlj_rename.active || !wiz_font_init()) return;
+    const uint8_t overlay[4] = {0,0,0,160}, panel[4] = {150,150,155,255}, title[4] = {60,58,56,255};
+    const uint8_t black[4] = {20,20,22,255}, white[4] = {245,245,245,255}, dim[4] = {90,90,95,255};
+    plat_video_set_view(640, 480);
+    plat_draw_quad(NULL, 0, 0, 640, 480, 0, 0, 1, 1, overlay);
+    plat_draw_quad(NULL, 70, 180, 500, 120, 0, 0, 1, 1, panel);
+    plat_draw_quad(NULL, 70, 180, 500, 30, 0, 0, 1, 1, title);
+    wiz_text("Rename song", 84, 194, .46f, white);
+    wiz_text("Name", 86, 226, .34f, black);
+    wiz_text(mlj_rename.name, 150, 226, .34f, black);
+    wiz_text("Enter saves  ·  Esc cancels", 86, 276, .30f, dim);
+    if (mlj_rename.warning[0]) wiz_text(mlj_rename.warning, 86, 252, .30f, black);
 }
 static void mlj_file_buttons(menu *m)
 {

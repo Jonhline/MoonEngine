@@ -5568,6 +5568,8 @@ int main(int argc, char **argv)
 #endif
         uint64_t event_start = plat_time_ns();
         while (plat_sdl_poll(&ev)) {
+            if (mlj_rename_active() && mlj_rename_event(&ev))
+                continue;
             if (music_download_active() && music_download_event(&ev))
                 continue;
 #ifdef __ANDROID__
