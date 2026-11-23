@@ -76,6 +76,10 @@ FetchContent_Declare(SDL2
   GIT_TAG release-2.30.9
   GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(SDL2)
+# SDL 2's PipeWire backend predates PipeWire 1.6's const pointers; GCC 14+ makes that an error
+if(NOT MSVC AND TARGET SDL2-static)
+  target_compile_options(SDL2-static PRIVATE -Wno-error=incompatible-pointer-types)
+endif()
 if(ANDROID)
   add_library(SDL2::SDL2-static ALIAS SDL2)
 endif()
@@ -253,6 +257,7 @@ add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/moon_logo.c
   COMMAND ${CMAKE_COMMAND} -DOUT=${CMAKE_BINARY_DIR}/moon_logo.c -DDIR=${CMAKE_SOURCE_DIR}/res
           -P ${CMAKE_SOURCE_DIR}/cmake/embed_logo.cmake
   DEPENDS ${CMAKE_SOURCE_DIR}/res/logo_black.png ${CMAKE_SOURCE_DIR}/res/logo_white.png
+          ${CMAKE_SOURCE_DIR}/res/moonengine_icon.png
           ${CMAKE_SOURCE_DIR}/cmake/embed_logo.cmake)
 if(NINTENDO_SWITCH OR ANDROID)
   set(MOON_FSR_SOURCES src/platform/sdl/fsr_disabled.c)
@@ -261,7 +266,8 @@ else()
 endif()
 if(NINTENDO_SWITCH AND MOON_SWITCH_RENDERER STREQUAL "deko3d")
   set(MOON_GRAPHICS_SOURCES src/platform/switch/deko_device.cpp
-    src/platform/switch/deko_video.cpp src/platform/switch/deko_render.cpp)
+    src/platform/switch/deko_video.cpp src/platform/switch/deko_render.cpp
+    src/platform/switch/deko_profile_stubs.c)
 else()
   set(MOON_GRAPHICS_SOURCES src/platform/sdl/video_gl.c src/platform/sdl/gl.c
     src/platform/sdl/render3d.c src/platform/sdl/switch_render.c ${MOON_FSR_SOURCES})
@@ -425,6 +431,14 @@ set(GLSLANG_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(glslang GIT_REPOSITORY https://github.com/KhronosGroup/glslang.git
   GIT_TAG 14.3.0 GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(volk glslang)
+# glslang 14.3.0 uses uint32_t without <cstdint>; GCC 15+ (Fedora 45) no longer gets it implicitly
+if(NOT MSVC)
+  foreach(t glslang SPIRV MachineIndependent GenericCodeGen OSDependent glslang-default-resource-limits)
+    if(TARGET ${t})
+      target_compile_options(${t} PRIVATE "SHELL:-include cstdint")
+    endif()
+  endforeach()
+endif()
 target_link_libraries(volk PUBLIC Vulkan::Headers)
 add_library(moon_vk_render STATIC src/platform/sdl/vk_recipes.cpp src/platform/sdl/vk_draw_state.cpp src/platform/sdl/vk_cache.cpp src/platform/sdl/vk_frames.cpp src/platform/sdl/vk_context.cpp
   src/platform/sdl/vk_pipeline.cpp src/platform/sdl/vk_commands.cpp)
@@ -4599,7 +4613,7 @@ if(MOON_TEST_DISC)
   endforeach()
 endif()
 
-if(TARGET moon_ee)
+if(TARGET moon_ee AND EXISTS "${CMAKE_SOURCE_DIR}/extracted/core.bin" AND EXISTS "${CMAKE_SOURCE_DIR}/splat/asm/core/text.s")
   set(gen_backfire_visual "${CMAKE_BINARY_DIR}/gen/backfire_visual.c")
   add_custom_command(OUTPUT ${gen_backfire_visual}
     COMMAND ${MOON_PYTHON} ${CMAKE_SOURCE_DIR}/tools/recomp/ee_recomp.py --out ${gen_backfire_visual} --root 0x00452F28
@@ -4626,7 +4640,7 @@ if(TARGET backfire_visual)
   set_tests_properties(backfire_visual_ground_negative PROPERTIES WILL_FAIL TRUE)
 endif()
 
-if(TARGET moon_ee AND MOON_TEST_DISC)
+if(TARGET moon_ee AND MOON_TEST_DISC AND EXISTS "${CMAKE_SOURCE_DIR}/extracted/core.bin" AND EXISTS "${CMAKE_SOURCE_DIR}/splat/asm/core/text.s")
   set(gen_photo_regions "${CMAKE_BINARY_DIR}/gen/photo_regions.c")
   add_custom_command(OUTPUT ${gen_photo_regions}
     COMMAND ${MOON_PYTHON} ${CMAKE_SOURCE_DIR}/tools/recomp/ee_recomp.py --out ${gen_photo_regions} --root 0x003FECB0 --extra-roots 0x003FFC68,0x003FEE08,0x00370EF8,0x00380C50,0x003DE268 --exclude 0x005A48D8,0x0057D008,0x0059D2A0,0x0057D380,0x00344798,0x003447F8,0x00344828,0x003448B8,0x00344858,0x00344888,0x003F3708,0x003F3720,0x003F3738,0x003F3748,0x004A0690,0x004A53F8,0x004A7454,0x004A7844,0x004A79B0,0x004A7988,0x004A79D8,0x004A5400,0x004A06F0,0x004A7AA8 --hooks

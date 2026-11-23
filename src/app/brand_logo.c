@@ -8,8 +8,8 @@
 #define STBI_NO_STDIO
 #include "../../third_party/stb/stb_image.h"
 
-extern const unsigned char moon_logo_black[], moon_logo_white[];
-extern const size_t moon_logo_black_size, moon_logo_white_size;
+extern const unsigned char moon_logo_black[], moon_logo_white[], moon_logo_icon[];
+extern const size_t moon_logo_black_size, moon_logo_white_size, moon_logo_icon_size;
 
 static uint8_t *pixels[2];
 static int sizes[2][2], tried[2];
@@ -42,4 +42,18 @@ plat_texture *brand_logo_texture(int variant, int *width, int *height)
     if (!textures[variant])
         textures[variant] = plat_texture_create(sizes[variant][0], sizes[variant][1], rgba);
     return textures[variant];
+}
+
+const uint8_t *brand_icon_rgba(int *width, int *height)
+{
+    static uint8_t *icon;
+    static int w, h, tried;
+    if (!tried) {
+        int n;
+        tried = 1;
+        icon = stbi_load_from_memory(moon_logo_icon, (int)moon_logo_icon_size, &w, &h, &n, 4);
+    }
+    *width = w;
+    *height = h;
+    return icon;
 }

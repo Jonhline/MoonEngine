@@ -11,6 +11,8 @@
    variant 0: dark lettering (light backgrounds), 1: white lettering (dark ones).
    Returns RGBA decoded once and kept; NULL if it cannot be decoded. */
 const uint8_t *brand_logo_rgba(int variant, int *width, int *height);
+/* The square icon (res/moonengine_icon.png), RGBA 256x256; for window icons. */
+const uint8_t *brand_icon_rgba(int *width, int *height);
 struct plat_texture;
 /* A cached platform texture of the same; NULL on failure. */
 struct plat_texture *brand_logo_texture(int variant, int *width, int *height);

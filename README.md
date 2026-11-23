@@ -17,8 +17,12 @@ Point it at your own disc and drive — sharper, smoother and still exactly the 
 
 <br/>
 
-[![Download for Windows](https://img.shields.io/badge/DOWNLOAD_FOR_WINDOWS-2EA043?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
+[![Download for Windows](https://img.shields.io/badge/WINDOWS-2EA043?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
 &nbsp;
+[![Download for Linux](https://img.shields.io/badge/LINUX-2EA043?style=for-the-badge&logo=linux&logoColor=white)](../../releases/latest)
+&nbsp;
+[![Download for Nintendo Switch](https://img.shields.io/badge/NINTENDO_SWITCH-2EA043?style=for-the-badge&logo=nintendoswitch&logoColor=white)](../../releases/latest)
+<br/><br/>
 [![How to start](https://img.shields.io/badge/HOW_TO_START-6C3CC1?style=for-the-badge)](#-start-playing-in-3-steps)
 &nbsp;
 [![FAQ](https://img.shields.io/badge/FAQ-E9C440?style=for-the-badge&logoColor=black)](#-questions)
@@ -27,7 +31,7 @@ Point it at your own disc and drive — sharper, smoother and still exactly the 
 
 ![Status](https://img.shields.io/badge/status-alpha-orange?style=flat-square)
 ![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=flat-square)
-![Linux](https://img.shields.io/badge/Linux-from%20source-FCC624?style=flat-square)
+![Linux](https://img.shields.io/badge/Linux-x86__64-FCC624?style=flat-square)
 ![Switch](https://img.shields.io/badge/Switch-experimental-E60012?style=flat-square)
 ![Android](https://img.shields.io/badge/Android-experimental-3DDC84?style=flat-square)
 ![License](https://img.shields.io/badge/code-GPLv3-blue?style=flat-square)
@@ -77,14 +81,22 @@ Any resolution, high frame rates, mouse and keyboard, any controller. One click 
 
 ### 1 · Download
 
-Get **`MoonEngine-<version>-win64.zip`** from the [latest release](../../releases/latest) and unzip it anywhere you like.
+Get your file from the [latest release](../../releases/latest):
+
+- **Windows:** `MoonEngine-<version>-win64.zip`
+- **Linux:** `MoonEngine-<version>-linux-x86_64.tar.gz`
+- **Switch:** `MoonEngine-<version>-switch.zip`
+
+Unzip it anywhere you like.
 
 </td>
 <td width="33%" valign="top">
 
 ### 2 · Choose your disc
 
-Open **MoonEngine.exe** and select your Gran Turismo 4 disc image (`.iso`). It stays where it is — nothing is copied or changed.
+Open **MoonEngine.exe** (Linux: `./MoonEngine`) and select your Gran Turismo 4 disc image (`.iso`). It stays where it is — nothing is copied or changed.
+
+On Switch, see [Switch setup](#switch-setup) below.
 
 </td>
 <td width="33%" valign="top">
@@ -97,7 +109,22 @@ Set video, sound and controls if you want, then press **Start**. Your saves, rep
 </tr>
 </table>
 
-**Updates take care of themselves.** When a new version comes out, Moon Engine downloads it in the background and installs it when you quit. Your saves and settings are never touched. (Don't want that? Set `updates.auto=0` in `options.ini`.)
+**On Windows, updates take care of themselves.** When a new version comes out, Moon Engine downloads it in the background and installs it when you quit. Your saves and settings are never touched. (Don't want that? Set `updates.auto=0` in `options.ini`.) On Linux and Switch, download the new release and replace the program.
+
+<details id="switch-setup">
+<summary><b>Switch setup</b></summary>
+
+<br/>
+
+You need a Switch that runs homebrew, an SD card formatted as **exFAT** (the disc image is bigger than 4 GB) and your own GT4 disc image.
+
+1. Copy the `switch` folder from the zip to the root of the SD card. The program ends up at `switch/moonengine/moonengine.nro`.
+2. Copy your disc image to `switch/moonengine/gt4.iso`.
+3. Open the Homebrew Menu **by holding R while launching a game** (full memory; the album applet does not have enough) and start Moon Engine.
+
+Saves stay in `switch/moonengine/`. Details and troubleshooting: [docs/SWITCH.md](docs/SWITCH.md).
+
+</details>
 
 <details>
 <summary><b>What do I need?</b></summary>
@@ -106,7 +133,7 @@ Set video, sound and controls if you want, then press **Start**. Your saves, rep
 
 | | |
 |---|---|
-| **Computer** | Windows 10 or 11, 64-bit (Linux: build from source) |
+| **Computer** | Windows 10 or 11, 64-bit; Linux x86-64 with OpenGL; or a Switch that runs homebrew |
 | **Graphics** | any card with OpenGL 3.3 or Vulkan |
 | **Game** | your own Gran Turismo 4 disc image, USA version (SCUS-97328), 1.01 or 2.00 |
 | **Controller** | recommended, any model; keyboard and mouse work everywhere too |
@@ -239,8 +266,8 @@ One engine, four systems. The game never talks to the hardware directly, so phys
 | | Status | Highlights |
 |---|---|---|
 | **Windows** | ![](https://img.shields.io/badge/main-2EA043?style=flat-square) | OpenGL and Vulkan, unlimited FPS, mouse and keyboard, automatic updates |
-| **Linux** | ![](https://img.shields.io/badge/from%20source-FCC624?style=flat-square) | OpenGL; build it yourself |
-| **Nintendo Switch** | ![](https://img.shields.io/badge/experimental-E3B341?style=flat-square) | its own deko3d renderer, touch menus in handheld, saves on SD |
+| **Linux** | ![](https://img.shields.io/badge/download-2EA043?style=flat-square) | OpenGL, the same game as on Windows |
+| **Nintendo Switch** | ![](https://img.shields.io/badge/download-2EA043?style=flat-square) | homebrew, its own deko3d renderer, touch menus in handheld, saves on SD |
 | **Android** | ![](https://img.shields.io/badge/experimental-E3B341?style=flat-square) | Vulkan, touch menus, optional on-screen race controls |
 
 More: [Switch](docs/SWITCH.md) · [Android](docs/ANDROID.md) · [Vulkan](docs/VULKAN.md)
@@ -257,6 +284,7 @@ Any controller works with the PlayStation layout, and everything can be remapped
 | Accelerate / brake | ✕ / □ | ↑ / ↓ |
 | Shift up / down | R2 / L2 | A / Z |
 | Handbrake | ○ | Space |
+| Reverse | △ | R |
 | Look back / change view | L1 / Select | V |
 | Pause | Start | Esc |
 | Menus | stick, ✕, ○ | mouse, arrows, Enter, Esc · Q/E switch tabs |
@@ -547,7 +575,7 @@ Purple is in progress, blue comes later. Stages, not promises: [docs/ROADMAP.md]
 - LAN play is not available.
 - Some sounds and visual details still differ from the PS2: a few night-lamp and start-gantry shadows, the backfire glow, parts of Photo Travel's collision.
 - Original PS2 recordings still need wider validation on real memory cards and other regions.
-- Vulkan, Switch and Android are experimental.
+- Vulkan and Android are experimental; the Switch build is new and still gets fixes.
 - Mods, the SDK and Custom Modes are not released yet.
 
 ## Contributing
@@ -556,7 +584,6 @@ Pull requests are not being accepted at the moment. Bug reports and suggestions 
 
 ## Credits
 
-- **Jonhline** — engine, fidelity and ports. **Mr. Dante** — launcher, Custom Modes and modding. **Or Golan** — Linux and rendering.
 - The Gran Turismo modding community, whose research made the game's formats understandable; in particular Nenkai's [PDTools](https://github.com/Nenkai/PDTools) (MIT).
 - [SDL2](https://www.libsdl.org/) (zlib), [miniz](https://github.com/richgel999/miniz) (MIT), [stb](https://github.com/nothings/stb) (MIT), AMD FidelityFX FSR 1 (MIT), [FFmpeg](https://ffmpeg.org/) (LGPL/GPL, with its own licence text).
 - `third_party/ps2float` from PCSX2 (LGPL-3.0-or-later): PS2 floating-point arithmetic.

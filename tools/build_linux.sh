@@ -64,7 +64,12 @@ echo "=== python: $PYTHON (pycparser $("$PYTHON" -c 'import pycparser; print(pyc
 # 3. configure + build.
 if [ "$RECONFIGURE" = 1 ] || [ ! -f "$BUILD/CMakeCache.txt" ]; then
     echo "=== configure: $BUILD ==="
-    cmake -S . -B "$BUILD" -DCMAKE_BUILD_TYPE=Release -DPython3_EXECUTABLE="$PYTHON"
+    # Ninja when present: CMake 4 refuses Makefiles for the Vulkan headers' C++ module target.
+    GENERATOR=
+    if command -v ninja >/dev/null 2>&1; then GENERATOR="-G Ninja"; fi
+    [ "$RECONFIGURE" = 1 ] && rm -rf "$BUILD"
+    # shellcheck disable=SC2086
+    cmake -S . -B "$BUILD" $GENERATOR -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_SCAN_FOR_MODULES=OFF -DPython3_EXECUTABLE="$PYTHON"
 else
     echo "=== configure: reusing $BUILD (--reconfigure to start over) ==="
 fi

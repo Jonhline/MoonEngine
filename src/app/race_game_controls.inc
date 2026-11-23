@@ -114,6 +114,9 @@ static void read_controls(race_game *g)
         pad.action[GT4_PAD_BRAKE] = state.axes[5];
         pad.analog |= (1u << GT4_PAD_LSTEER) | (1u << GT4_PAD_ACCEL) | (1u << GT4_PAD_BRAKE);
     }
+    /* P: the keyboard's R is the pad's reverse button (Triangle), held */
+    if (keys[SDL_SCANCODE_R])
+        pad.action[GT4_PAD_REVERSE] = 1.f;
     view = keys[SDL_SCANCODE_V] || pad.action[GT4_PAD_PLAYVIEW] > 0;
     g->look_back = pad.action[GT4_PAD_BACKVIEW] > 0;
     if (view && !g->view_held) {

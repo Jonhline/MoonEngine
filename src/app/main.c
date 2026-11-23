@@ -69,8 +69,8 @@
 #endif
 #ifndef __SWITCH__
 #include "renderer_startup.h"
-#include "platform/renderer_backend.h"
 #endif
+#include "platform/renderer_backend.h"
 #include "save_ui.h"
 #include "discord_presence.h"
 #include "save.h"
@@ -4195,11 +4195,13 @@ static double bench_cpu_seconds(void)
     u.LowPart = user.dwLowDateTime;
     u.HighPart = user.dwHighDateTime;
     return (double)(k.QuadPart + u.QuadPart) * 1e-7;
-#else
+#elif defined(CLOCK_PROCESS_CPUTIME_ID)
     struct timespec ts;
     if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts) != 0)
         return 0;
     return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+#else /* Switch (newlib): no process clock id */
+    return (double)clock() / CLOCKS_PER_SEC;
 #endif
 }
 
@@ -4719,6 +4721,19 @@ int main(int argc, char **argv)
         return 1;
     }
     moon_debug_overlay_init(); /* F4 / volume chord; off until toggled */
+#if !defined(_WIN32) && !defined(__SWITCH__) && !defined(__ANDROID__)
+    { /* the window's icon: Windows has it from moonengine.rc */
+        int iw = 0, ih = 0;
+        const uint8_t *icon = brand_icon_rgba(&iw, &ih);
+        SDL_Surface *s = icon ? SDL_CreateRGBSurfaceWithFormatFrom((void *)icon, iw, ih, 32, iw * 4,
+                                                                   SDL_PIXELFORMAT_ABGR8888)
+                              : NULL;
+        if (s && plat_sdl_window())
+            SDL_SetWindowIcon(plat_sdl_window(), s);
+        if (s)
+            SDL_FreeSurface(s);
+    }
+#endif
 #ifdef __SWITCH__
     video_switch_scene_resolution(settings.current.scene_resolution);
 #endif

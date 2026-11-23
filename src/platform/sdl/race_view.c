@@ -2899,11 +2899,15 @@ static void strike_draw_tube(race_view *v, const r3d_view *view, strike_gpu_mesh
             vv.color_add[1] = gpu->model.triangles[0].v[0].rgb[1];
             vv.color_add[2] = gpu->model.triangles[0].v[0].rgb[2];
             r3d_draw(gpu->mesh, &vv);
+#ifndef MOON_DEKO3D /* deko3d has no GL error state */
             if (!gl_checked) {
                 GLenum e = glGetError();
                 fprintf(stderr, "custom modes: strike glerror=%u\n", (unsigned)e);
                 gl_checked = 1;
             }
+#else
+            (void)gl_checked;
+#endif
         }
         if (getenv("MOON_STRIKE_TRACE"))
             fprintf(stderr,

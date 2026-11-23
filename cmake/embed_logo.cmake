@@ -1,8 +1,12 @@
-# Embeds the Moon Engine logo PNGs (res/logo_*.png, project art) as byte arrays.
+# Embeds the Moon Engine logo PNGs (res/logo_*.png, res/moonengine_icon.png; project art) as byte arrays.
 # Usage: cmake -DOUT=<file.c> -DDIR=<res folder> -P embed_logo.cmake
 set(content "/* Generated from res/logo_*.png. */\n#include <stddef.h>\n")
-foreach(name black white)
-  file(READ "${DIR}/logo_${name}.png" hex HEX)
+foreach(name black white icon)
+  if(name STREQUAL "icon")
+    file(READ "${DIR}/moonengine_icon.png" hex HEX)
+  else()
+    file(READ "${DIR}/logo_${name}.png" hex HEX)
+  endif()
   string(LENGTH "${hex}" len)
   math(EXPR bytes "${len} / 2")
   string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," hex "${hex}")
