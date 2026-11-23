@@ -876,16 +876,26 @@ void mlj_rename_draw(void)
     if (!mlj_rename.active || !wiz_font_init()) return;
     const uint8_t overlay[4] = {0,0,0,160}, panel[4] = {150,150,155,255}, title[4] = {60,58,56,255};
     const uint8_t black[4] = {20,20,22,255}, white[4] = {245,245,245,255}, dim[4] = {90,90,95,255};
+    const uint8_t box[4] = {205,205,210,255}, edge[4] = {110,110,115,255}, gold[4] = {255,204,64,255};
     plat_video_set_view(640, 480);
     plat_draw_quad(NULL, 0, 0, 640, 480, 0, 0, 1, 1, overlay);
-    plat_draw_quad(NULL, 70, 180, 500, 120, 0, 0, 1, 1, panel);
-    plat_draw_quad(NULL, 70, 180, 500, 30, 0, 0, 1, 1, title);
-    wiz_text("Rename song", 84, 194, .46f, white);
-    wiz_text("Name", 86, 226, .34f, black);
-    wiz_text(mlj_rename.name, 150, 226, .34f, black);
-    wiz_text("Enter saves  ·  Esc cancels", 86, 276, .30f, dim);
-    if (mlj_rename.warning[0]) wiz_text(mlj_rename.warning, 86, 252, .30f, black);
+    plat_draw_quad(NULL, 70, 160, 500, 160, 0, 0, 1, 1, panel);
+    plat_draw_quad(NULL, 70, 160, 500, 30, 0, 0, 1, 1, title);
+    wiz_text("Rename song", 84, 174, .46f, white);
+    wiz_text("Name", 86, 208, .34f, black);
+    plat_draw_quad(NULL, 140, 204, 340, 26, 0, 0, 1, 1, edge);
+    plat_draw_quad(NULL, 141, 205, 338, 24, 0, 0, 1, 1, box);
+    wiz_text(mlj_rename.name, 148, 210, .34f, black);
+    if (mlj_rename.warning[0]) wiz_text(mlj_rename.warning, 86, 240, .30f, black);
+    plat_draw_quad(NULL, 86, 276, 120, 26, 0, 0, 1, 1, edge);
+    plat_draw_quad(NULL, 87, 277, 118, 24, 0, 0, 1, 1, box);
+    wiz_text("Cancel", 116, 282, .34f, black);
+    plat_draw_quad(NULL, 420, 276, 120, 26, 0, 0, 1, 1, gold);
+    plat_draw_quad(NULL, 422, 278, 116, 22, 0, 0, 1, 1, box);
+    wiz_text("OK", 468, 282, .34f, black);
+    wiz_text("Enter saves  ·  Esc cancels", 86, 306, .28f, dim);
 }
+
 void mlj_jukebox_rename_now(void)
 {
     if (app_jukebox.page) mlj_rename_begin(app_jukebox.page);
@@ -941,9 +951,12 @@ static void mlj_file_buttons(menu *m)
         h->name = "MoonHint";
         free(h->text);
         h->text = strdup("Del: delete    Ctrl+R: rename");
-        h->x = 300.f;
-        h->y = 420.f;
-        h->scale_x = h->scale_y = .4f;
+        h->x = 250.f;
+        h->y = 418.f;
+        h->w = 360.f;
+        h->h = 22.f;
+        h->has_geometry = 1;
+        h->scale_x = h->scale_y = .34f;
         h->visible = 0;
         ui_widget_append(root, h);
     }
