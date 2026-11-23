@@ -23,6 +23,7 @@ static struct {
     SDL_mutex *lock;
     SDL_Thread *worker, *tool_worker;
     char tool[1200];
+    char music_dir[1300];
 } md;
 
 static void md_lock(void) { if (md.lock) SDL_LockMutex(md.lock); }
@@ -343,8 +344,10 @@ static int md_worker(void *unused)
 {
     (void)unused;
     char music[1300];
-    if (!app_video_settings || !app_music_folder(app_video_settings->store.path, music,
-                                                 sizeof music)) {
+    if (md.music_dir[0])
+        snprintf(music, sizeof music, "%s", md.music_dir);
+    else if (!app_video_settings || !app_music_folder(app_video_settings->store.path, music,
+                                                      sizeof music)) {
         md_log("could not open the Music folder");
         md_lock(); md.running = 0; md_unlock();
         return 0;
@@ -373,9 +376,30 @@ static int md_worker(void *unused)
         const ml_playlist *after = music_library_list(app_jukebox.library, app_jukebox.catalog);
         int now = after ? (int)after->count : 0;
         char folder[1300] = "";
-        if (app_video_settings)
+        if (md.music_dir[0])
+            snprintf(folder, sizeof folder, "%s", md.music_dir);
+        else if (app_video_settings)
             app_music_folder(app_video_settings->store.path, folder, sizeof folder);
-        md_log("Music: %d tracks added, %d in the library (folder %s)", now - was, now, folder);
+        int found = 0;
+        {
+            char *hit = strstr(folder, " [");
+            (void)hit;
+            DIR *d = opendir(folder);
+            if (d) {
+                struct dirent *e;
+                while ((e = readdir(d))) {
+                    if (e->d_name[0] == '.') continue;
+                    size_t l = strlen(e->d_name);
+                    if (l > 4 && (!strcasecmp(e->d_name + l - 4, ".mp3") ||
+                                  !strcasecmp(e->d_name + l - 4, ".m4a") ||
+                                  !strcasecmp(e->d_name + l - 4, ".ogg") ||
+                                  !strcasecmp(e->d_name + l - 4, ".flac")))
+                        found++;
+                }
+                closedir(d);
+            }
+        }
+        md_log("Music: %d tracks added, %d in the library (folder %s)", now - was, found, folder);
     }
     md_lock(); md.running = 0; md.progress = 1.f; md_unlock();
     return 0;
@@ -387,6 +411,13 @@ void app_music_download_open(void)
         md.lock = SDL_CreateMutex();
     md.active = 1;
     SDL_StartTextInput();
+    if ((!app_video_settings || !app_video_settings->store.path[0]) && !md.music_dir[0]) {
+        char pref[1200];
+        if (plat_pref_dir(pref, sizeof pref)) {
+            snprintf(md.music_dir, sizeof md.music_dir, "%sMusic", pref);
+            gt4_save_mkdir(md.music_dir);
+        }
+    }
     md.font[0] = 0;
     if (app_video_settings && app_video_settings->rows[34]) {
         ui_widget *label = ui_widget_child(app_video_settings->rows[34], "label");

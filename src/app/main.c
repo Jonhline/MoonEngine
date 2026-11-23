@@ -306,14 +306,15 @@ static void app_presence_poll(const char *mode, const char *course, menu *car_me
     }
 }
 
-#define DOCK_COUNT 4
+#define DOCK_COUNT 5
 #define DOCK_START 0
 #define DOCK_OPTIONS 1
-#define DOCK_MODS 2
-#define DOCK_EXIT 3
-static const char *const dock_names[DOCK_COUNT] = {"START", "OPTIONS", "MODS", "EXIT"};
+#define DOCK_MUSIC 2
+#define DOCK_MODS 3
+#define DOCK_EXIT 4
+static const char *const dock_names[DOCK_COUNT] = {"START", "OPTIONS", "MUSIC", "MODS", "EXIT"};
 /* START leads the row and is the largest; the others share the rest evenly. */
-static const float dock_weight[DOCK_COUNT] = {1.f, 1.f, 1.f, 1.f};
+static const float dock_weight[DOCK_COUNT] = {1.f, 1.f, 1.f, 1.f, 1.f};
 typedef struct {
     const char *pkg;
     const char *asset;
@@ -325,6 +326,7 @@ static dock_icon dock_band = {"/projects/gtmode/US/DealerRoot.gpb",
                               "image/gtmode/dealer/wall_usa.png", NULL, 0, 0};
 static dock_icon dock_icons[DOCK_COUNT] = {
     {"/projects/gtmode/US/CourseEntryRoot.gpb", "image/gtmode/course/icon_freerun.png", NULL, 0, 0},
+    {"/projects/gtmode/US/CarViewRoot.gpb", "image/gtmode/home/assessment.png", NULL, 0, 0},
     {"/projects/gtmode/US/CarViewRoot.gpb", "image/gtmode/home/assessment.png", NULL, 0, 0},
     {"/projects/gtmode/US/LicenseDetailRoot.gpb", "image/gtmode/license/coffee_gold.png", NULL, 0,
      0},
@@ -1332,6 +1334,72 @@ static void studio_mods_draw(const studio_dock *d, int row, float alpha, int arr
         }
     }
 }
+/* R7: the studio's MUSIC panel. Folder and count are read fresh on entry. */
+static int studio_music_folder(char *folder, size_t size)
+{
+    char pref[1200];
+    if (!plat_pref_dir(pref, sizeof pref)) return 0;
+    snprintf(folder, size, "%sMusic", pref);
+    return 1;
+}
+static int studio_music_count(const char *folder)
+{
+    int n = 0;
+    DIR *d = opendir(folder);
+    if (!d) return 0;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        if (e->d_name[0] == '.') continue;
+        size_t l = strlen(e->d_name);
+        if (l > 4 && (!strcasecmp(e->d_name + l - 4, ".mp3") ||
+                      !strcasecmp(e->d_name + l - 4, ".m4a") ||
+                      !strcasecmp(e->d_name + l - 4, ".ogg") ||
+                      !strcasecmp(e->d_name + l - 4, ".flac")))
+            n++;
+    }
+    closedir(d);
+    return n;
+}
+static void studio_music_draw(const studio_dock *d, int row, float alpha, int arrow)
+{
+    (void)arrow;
+    if (alpha <= 0) return;
+    const float S = d->scale > 0 ? d->scale : DOCK_SCALE;
+    studio_panel p = studio_panel_at(d, 4);
+    const uint8_t panel[4] = {12, 13, 16, (uint8_t)(175 * alpha)},
+                  edge[4] = {255, 255, 255, (uint8_t)(90 * alpha)},
+                  head[4] = {255, 255, 255, (uint8_t)(240 * alpha)},
+                  dim[4] = {160, 163, 170, (uint8_t)(220 * alpha)},
+                  hl[4] = {255, 255, 255, (uint8_t)(30 * alpha)},
+                  gold[4] = {255, 204, 64, (uint8_t)(255 * alpha)};
+    char folder[1400] = "";
+    studio_music_folder(folder, sizeof folder);
+    int tracks = studio_music_count(folder);
+    plat_draw_quad(NULL, p.x, p.y, p.w, p.h, 0, 0, 1, 1, panel);
+    plat_draw_quad(NULL, p.x, p.y, p.w, fmaxf(1.f, .7f * S), 0, 0, 1, 1, edge);
+    float tx = p.x + 12.f * S;
+    dock_text(d, "MUSIC", tx, p.tab_y, .9f, 0, head);
+    plat_draw_quad(NULL, tx, p.tab_y + 5.f * S,
+                   dock_text_width(&d->font, "MUSIC") * DOCK_NAME_SCALE * .9f * S,
+                   fmaxf(1.f, S), 0, 0, 1, 1, head);
+    dock_text(d, folder, tx, p.row0, .7f, 0, dim);
+    char line[64];
+    snprintf(line, sizeof line, "%d tracks", tracks);
+    dock_text(d, line, tx, p.row0 + p.pitch, .8f, 0, dim);
+    float ry = p.row0 + p.pitch * 2.f;
+    if (row == 0)
+        plat_draw_quad(NULL, p.x + 4.f * S, ry - p.pitch * .72f, p.w - 8.f * S, p.pitch * .95f,
+                       0, 0, 1, 1, hl);
+    dock_text(d, "Download music", tx, ry, .85f, 0, row == 0 ? head : dim);
+    dock_text(d, "Open", p.x + p.w - 14.f * S, ry, .8f, 2, row == 0 ? gold : dim);
+}
+static int studio_music_hit(const studio_dock *d, float px, float py)
+{
+    studio_panel p = studio_panel_at(d, 4);
+    if (px < p.x || px > p.x + p.w || py < p.y || py > p.y + p.h) return -1;
+    float ry = p.row0 + p.pitch * 2.f;
+    return py >= ry - p.pitch * .72f && py < ry + p.pitch * .28f ? 0 : -2;
+}
 /* the row under a framebuffer point, or -1 (inside the panel: -2) */
 static int studio_mods_hit(const studio_dock *d, int row, float px, float py)
 {
@@ -1349,6 +1417,7 @@ static int studio_mods_hit(const studio_dock *d, int row, float px, float py)
 /* The line under the bar that says what the chosen slot does (the game's tooltip strip). */
 static const char *const dock_captions[DOCK_COUNT] = {
     "Start: Begin Gran Turismo 4.", "Options: Video, sound and controller settings.",
+    "Music: Songs for the Jukebox.",
     "Mods: Choose the cars and courses to load with the game.", "Exit: Close Moon Engine."};
 static const char *dock_caption_override; /* the OPTIONS panel's help line, while it is open */
 static void dock_caption(const studio_dock *d, const char *text, float cx, float base,
@@ -3012,6 +3081,19 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
     float options_alpha = 0;
     int mods_open = 0, mods_row = 0, mods_arrow = 0; /* MODS: open or not, its row, the arrow */
     float mods_alpha = 0;
+    int music_open = 0, music_row = 0;
+    float music_alpha = 0;
+    if (getenv("MOONSTUDIO_MUSIC")) { /* dev: capture the MUSIC page */
+        music_open = 1;
+        music_alpha = 1;
+        dock_sel = DOCK_MUSIC;
+        char folder[1400] = "";
+        studio_music_folder(folder, sizeof folder);
+        printf("studio: music panel folder=%s tracks=%d\n", folder,
+               studio_music_count(folder));
+        if (getenv("MOONSTUDIO_MUSIC_POPUP"))
+            app_music_download_open();
+    }
     if (getenv("MOONSTUDIO_MODS")) { /* dev: capture the MODS page (2: the first one switched) */
         studio_mods_scan();
         if (atoi(getenv("MOONSTUDIO_MODS")) == 2 && studio_mods.n) {
@@ -3247,6 +3329,42 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                          k == SDLK_RETURN || k == SDLK_KP_ENTER)
                     STUDIO_OPTION_CHANGE(options_row, 1);
                 continue;
+            }
+            if (music_open && ev.type == SDL_KEYDOWN) {
+                int k = ev.key.keysym.sym;
+                if (k == SDLK_ESCAPE || k == SDLK_BACKSPACE) {
+                    music_open = 0;
+                    STUDIO_SOUND("cancel");
+                } else if ((k == SDLK_UP || k == SDLK_DOWN))
+                    music_row = 0;
+                else if (k == SDLK_LEFT || k == SDLK_RIGHT || k == SDLK_RETURN ||
+                         k == SDLK_KP_ENTER || k == SDLK_SPACE) {
+                    STUDIO_SOUND("ok");
+                    app_music_download_open();
+                }
+                continue;
+            }
+            if (music_open && (ev.type == SDL_MOUSEMOTION || ev.type == SDL_MOUSEBUTTONDOWN)) {
+                float px, py;
+                dock_window_to_pixels(ev.type == SDL_MOUSEMOTION ? ev.motion.x : ev.button.x,
+                                      ev.type == SDL_MOUSEMOTION ? ev.motion.y : ev.button.y, &px,
+                                      &py);
+                int r = studio_music_hit(&dock, px, py);
+                if (r >= 0 && r != music_row && ev.type == SDL_MOUSEMOTION) {
+                    music_row = r;
+                    STUDIO_SOUND("cursor");
+                }
+                if (ev.type == SDL_MOUSEBUTTONDOWN) {
+                    if (r >= 0) {
+                        STUDIO_SOUND("ok");
+                        app_music_download_open();
+                    } else if (r == -1 && !dock_hover(&dock, &dock_sel, ev.button.x, ev.button.y)) {
+                        music_open = 0;
+                        STUDIO_SOUND("cancel");
+                    }
+                }
+                if (ev.type == SDL_MOUSEMOTION || r != -1)
+                    continue;
             }
             if (mods_open && ev.type == SDL_KEYDOWN) {
                 int k = ev.key.keysym.sym, n = studio_mods_rows();
@@ -3490,6 +3608,22 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                     }
                     up_prev=up;down_prev=down;lb_prev=lb;rb_prev=rb;
                 }
+                if (music_open) {
+                    static int mmup_prev, mmdown_prev;
+                    int up = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP),
+                        down = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+                    (void)up; (void)down;
+                    mmup_prev = up; mmdown_prev = down;
+                    if (pressed & 7) {
+                        STUDIO_SOUND("ok");
+                        app_music_download_open();
+                    }
+                    if (pressed & 8) {
+                        music_open = 0;
+                        STUDIO_SOUND("cancel");
+                    }
+                    pressed = 0;
+                }
                 if (mods_open) {
                     int up = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP),
                         down = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN),
@@ -3545,6 +3679,16 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                 STUDIO_SOUND("ok");
                 options_open = !options_open;
                 options_row = 0;
+            } else if (dock_sel == DOCK_MUSIC) {
+                STUDIO_SOUND("ok");
+                music_open = !music_open;
+                music_row = 0;
+                if (music_open) {
+                    char folder[1400] = "";
+                    studio_music_folder(folder, sizeof folder);
+                    printf("studio: music panel folder=%s tracks=%d\n", folder,
+                           studio_music_count(folder));
+                }
             } else if (dock_sel == DOCK_MODS) {
                 STUDIO_SOUND("ok");
                 mods_open = !mods_open;
@@ -3834,6 +3978,7 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
         if (dock_sel != DOCK_MODS)
             mods_open = 0;
         mods_alpha += ((mods_open ? 1.f : 0.f) - mods_alpha) * (1 - expf(-dt * 14.f));
+        music_alpha += ((music_open ? 1.f : 0.f) - music_alpha) * (1 - expf(-dt * 14.f));
         last_sel = dock_sel;
 #ifndef __SWITCH__
         int music_level = getenv("MOONSTUDIO_MUTE") ? 0 : launcher_mixer_music(&mixer);
@@ -3863,7 +4008,7 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
         if (!cinematic) { /* the AFK cinematic shows only the room, the car and the clock */
             studio_info_draw(&dock);
 #ifndef __SWITCH__
-            if (options_open || mods_open)
+            if (options_open || mods_open || music_open)
                 mixer.open = 0; /* SOUND in OPTIONS has the volumes */
             studio_mixer_draw(&dock, &mixer, 1.f - fmaxf(options_alpha, mods_alpha));
             if (!mixer.open && !options_open && !mods_open) {
@@ -3876,13 +4021,16 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
             studio_options_paint(&dock, options_tab, options_row, theme, mood, options_alpha,
                                  options_arrow);
             studio_mods_draw(&dock, mods_row, mods_alpha, mods_arrow);
+            studio_music_draw(&dock, music_row, music_alpha, 0);
             if(options_open && studio_binding_picker.open)studio_binding_draw(&dock);
             dock_caption_override = options_open ? studio_tab_guided(options_tab)
                                                        ? guide_options_help(options_ids[options_row])
                                                        : studio_row_help(options_ids[options_row])
                                     : mods_open  ? studio_mods_help(mods_row)
+                                    : music_open ? "Music: Songs for the Jukebox."
                                                  : NULL;
             dock_draw(&dock, dock_sel, dock.mouse ? mouse_seen : 1);
+            music_download_draw();
         }
         /* one direction, eased: the wizard's white screen rises off the room ... */
         if (fade_in && i < FADE_FRAMES) {
