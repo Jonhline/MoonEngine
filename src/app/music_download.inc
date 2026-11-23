@@ -19,6 +19,8 @@ static struct {
     double tool_mb;
     char version[32];
     char font[64];
+    char pl_title[256];
+    int pl_count;
     int has_playlist;
     SDL_mutex *lock;
     SDL_Thread *worker, *tool_worker;
@@ -322,6 +324,32 @@ static void md_print_line(const char *line, void *user)
     (void)user;
     if (*line) md.has_playlist = 1;
 }
+static void md_title_line(const char *line, void *user)
+{
+    (void)user;
+    if (*line && strncmp(line, "WARNING", 7) && strncmp(line, "ERROR", 5) && line[0] != '[')
+        snprintf(md.pl_title, sizeof md.pl_title, "%s", line);
+}
+static void md_count_line(const char *line, void *user)
+{
+    (void)user;
+    if (*line && strncmp(line, "WARNING", 7) && strncmp(line, "ERROR", 5) && line[0] != '[')
+        md.pl_count++;
+}
+static void md_safe_name(const char *in, char *out, size_t size)
+{
+    size_t n = 0;
+    for (; *in && n + 1 < size; in++) {
+        unsigned char c = (unsigned char)*in;
+        if (c < 0x20 || c == 0x7f || c == '/' || c == '\\' || c == ':' || c == '*' ||
+            c == '?' || c == '"' || c == '<' || c == '>' || c == '|')
+            out[n++] = '_';
+        else
+            out[n++] = (char)c;
+    }
+    out[n] = 0;
+    while (n && out[n - 1] == ' ') out[--n] = 0;
+}
 
 #define MD_FILES 512
 static int md_audio_name(const char *n)
@@ -396,10 +424,35 @@ static int md_worker(void *unused)
     static char before_names[MD_FILES][512];
     int before = md_scan_music(music, "", before_names, MD_FILES, 0);
     md.last[0] = 0;
+    int playlist = strstr(md.job_url, "list=") != NULL;
+    char safe[256] = "";
+    char *tmpl = "%(title)s.%(ext)s";
+    if (playlist) {
+        md.pl_title[0] = 0;
+        md.pl_count = 0;
+        char *ptitle[] = {md.tool, "--no-warnings", "--flat-playlist", "--print",
+                          "%(playlist_title|)s", md.job_url, NULL};
+        md_spawn(ptitle, md_title_line, NULL);
+        char *pcount[] = {md.tool, "--no-warnings", "--flat-playlist", "--print", "%(id)s",
+                          md.job_url, NULL};
+        md_spawn(pcount, md_count_line, NULL);
+        if (!md.pl_title[0])
+            snprintf(md.pl_title, sizeof md.pl_title, "playlist");
+        md_safe_name(md.pl_title, safe, sizeof safe);
+        if (!safe[0])
+            snprintf(safe, sizeof safe, "playlist");
+        char folder[1400];
+        snprintf(folder, sizeof folder, "%s/%s", music, safe);
+        gt4_save_mkdir(folder);
+        fprintf(stderr, "music: playlist \"%s\" -> Music/%s/ (%d tracks)\n", md.pl_title,
+                safe, md.pl_count);
+        md_log("playlist \"%s\" -> Music/%s/ (%d tracks)", md.pl_title, safe, md.pl_count);
+        static char ptmpl[512];
+        snprintf(ptmpl, sizeof ptmpl, "%s/%%(title)s.%%(ext)s", safe);
+        tmpl = ptmpl;
+    }
     char *argv[] = {md.tool, "-f", "bestaudio[ext=m4a]/bestaudio", "--newline",
-                    "--paths", music, "-o",
-                    "%(playlist_title|)s%(playlist_title&/|)s%(title)s.%(ext)s",
-                    md.job_url, NULL};
+                    "--paths", music, "-o", tmpl, md.job_url, NULL};
     md_log("url: %s", md.job_url);
     int rc = md_spawn(argv, md_job_line, NULL);
     if (rc < 0) md_log("yt-dlp error: could not start %s", md.tool);
@@ -412,7 +465,8 @@ static int md_worker(void *unused)
         app_jukebox.library = app_music_library;
         app_jukebox.catalog = music_library_catalog(app_music_library);
     }
-    if (app_jukebox.library && app_jukebox.catalog >= 0)
+    if (app_video_settings && app_video_settings->store.path[0] &&
+        app_jukebox.library && app_jukebox.catalog >= 0)
         mlj_scan(&app_jukebox);
     static char after_names[MD_FILES][512];
     int after = md_scan_music(music, "", after_names, MD_FILES, 0);
