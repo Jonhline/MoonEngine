@@ -1676,7 +1676,6 @@ static void wiz_text_center(const char *s, float cx, float y, float sc, const ui
 {
     wiz_text(s, cx - wiz_text_width(s, sc) / 2.f, y, sc, col);
 }
-#include "music_download.inc"
 
 /* The AFK clock: a small piece of the room, not a HUD readout. Same baked
    launcher face as the wizard, with deliberate tracking; the colon breathes
@@ -2861,6 +2860,7 @@ static int studio_saved_car(const char *saves, gt4_vol *vol, char code[96], int 
     return found;
 }
 #include "music_library_ui.inc"
+#include "music_download.inc"
 #include "launcher_scene.inc"
 #include "launcher_guide.inc"
 
