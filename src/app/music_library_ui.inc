@@ -694,12 +694,9 @@ static void mlj_rename_commit(void)
     if (rename(mlj_rename.old, next) == 0) {
         fprintf(stderr, "jukebox: renamed %s -> %s\n", mlj_rename.old, next);
         mlj_log("jukebox: renamed %s -> %s", mlj_rename.old, next);
-        ml_playlist *cat = (ml_playlist *)music_library_list(app_jukebox.library,
-                                                             app_jukebox.catalog);
-        if (cat && mlj_rename.idx >= 0 && mlj_rename.idx < cat->count) {
-            snprintf(cat->tracks[mlj_rename.idx].path, ML_PATH, "%s", next);
-            snprintf(cat->tracks[mlj_rename.idx].title, sizeof cat->tracks[mlj_rename.idx].title,
-                     "%s%s", mlj_rename.name, mlj_rename.ext);
+        if (mlj_rename.idx >= 0) {
+            music_library_remove(app_jukebox.library, app_jukebox.catalog, mlj_rename.idx);
+            music_library_add(app_jukebox.library, app_jukebox.catalog, next, mlj_rename.name);
         }
         if (mlj_rename.owner) mlj_refresh(mlj_rename.owner, mlj_rename.row);
         mlj_rename.active = 0;
@@ -760,6 +757,21 @@ void mlj_rename_draw(void)
     wiz_text(mlj_rename.name, 150, 226, .34f, black);
     wiz_text("Enter saves  ·  Esc cancels", 86, 276, .30f, dim);
     if (mlj_rename.warning[0]) wiz_text(mlj_rename.warning, 86, 252, .30f, black);
+}
+int mlj_jukebox_hotkey(int sym)
+{
+    menu *m = app_jukebox.page;
+    if (!m) return 0;
+    ah_val ret;
+    if (sym == 0xffff || sym == 0xff08) {
+        mlj_delete_activate(NULL, NULL, m, 0, NULL, &ret);
+        return 1;
+    }
+    if (sym == 0xffbf) {
+        mlj_rename_begin(m);
+        return 1;
+    }
+    return 0;
 }
 static int mlj_jukebox_key(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
                            ah_val *ret)

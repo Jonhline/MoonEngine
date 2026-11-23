@@ -5568,6 +5568,10 @@ int main(int argc, char **argv)
 #endif
         uint64_t event_start = plat_time_ns();
         while (plat_sdl_poll(&ev)) {
+            if (mn && ev.key && menu_active_root(mn) >= 0 &&
+                !strcmp(ui_root_name(menu_ui(mn), menu_active_root(mn)), "MusicRoot") &&
+                mlj_jukebox_hotkey(ev.key))
+                continue;
             if (mlj_rename_active() && mlj_rename_event(&ev))
                 continue;
             if (music_download_active() && music_download_event(&ev))
@@ -7226,6 +7230,8 @@ int main(int argc, char **argv)
                 draw_pages(mn, &drawn, &skipped);
         }
         music_download_draw();
+        mlj_rename_draw(); /* the Jukebox's rename panel is drawn here too; without
+                              this call the panel sets .active but never appears */
         if ((photo_project(proj) || driving == 6 || (driving == 5 && proj == 21)) && !notice_active)
             photo_travel_feedback(presentation_photo);
         { /* P: opt-in filming input, the same shutter path as F5. A real
