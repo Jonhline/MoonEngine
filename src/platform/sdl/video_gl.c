@@ -258,6 +258,16 @@ static const char *fs2d =
 static int display_aspect;
 static int fill_window; /* the studio fills the window; the game keeps the disc's 4:3 */
 static float content_width, content_x, side_margin;
+static void report_view(void)
+{
+    static int lw = -1, lh = -1;
+    static float lx, ly, lox, loy;
+    if (lw == fb_w && lh == fb_h && lx == scale_x && ly == scale_y && lox == off_x && loy == off_y)
+        return;
+    lw = fb_w; lh = fb_h; lx = scale_x; ly = scale_y; lox = off_x; loy = off_y;
+    fprintf(stderr, "viewport: win=%dx%d view=%.0fx%.0f scale_x=%.4f scale_y=%.4f off=%.1f,%.1f\n",
+            fb_w, fb_h, view_w, view_h, scale_x, scale_y, off_x, off_y);
+}
 static void layout_view(void)
 {
     float aspect = display_aspect ? 16.f / 9.f : 4.f / 3.f;
@@ -267,6 +277,7 @@ static void layout_view(void)
         side_margin = view_w * (aspect / (4.f / 3.f) - 1) * .5f;
         scale_x = ui_panel_w / (view_w + 2 * side_margin);
         scale_y = ui_panel_h / view_h;
+        report_view();
         return;
     }
     if (fill_window) {
@@ -280,6 +291,7 @@ static void layout_view(void)
         off_x = 0;
         off_y = ((float)fb_h - content_h) * .5f;
         side_margin = 0;
+        report_view();
         return;
     }
     float height = fminf((float)fb_h, fb_w / aspect), width = height * aspect;
@@ -289,14 +301,10 @@ static void layout_view(void)
     side_margin = (width / scale_x - view_w) * .5f;
     off_x = content_x + side_margin * scale_x;
     off_y = (fb_h - height) * .5f;
-    /* Menu render context 00215FE0 +0x30..0xAC maps 640x480 to the
-       whole framebuffer. Its 2D widgets have no wide-mode compensation;
-       the PS2 display stretches this image. Race HUD has its own layout. */
-    if (menu_projection) {
-        scale_x = width / view_w;
-        side_margin = 0;
-        off_x = content_x;
-    }
+    /* Menu pages keep the same uniform scale as the world: the authored
+       640x480 page is centred and the leftover width is a pillar, never a
+       horizontal stretch. The anamorphic option is the only wide stretch. */
+    report_view();
 }
 
 static int ensure_framebuffer(void)
