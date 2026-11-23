@@ -728,7 +728,9 @@ static void mlj_rename_native_setup(void)
     ui_widget *positive = ui_widget_child(pair, "Yes"), *negative = ui_widget_child(pair, "No");
     if (!page || !pane || !title || !body || !buttons || !single || !pair || !positive ||
         !negative) return;
-    free(title->text); title->text = strdup("Rename song");
+    /* normal (non-warning) chrome, the way present_dialog styles every dialog —
+       without this the panel inherits whatever warning state the last dialog left */
+    moon_dialog_style(dialog_ui, page, 1, "Rename song");
     single->visible = 0; pair->visible = 1;
     free(ui_widget_child(positive, "label")->text);
     ui_widget_child(positive, "label")->text = strdup("OK");
