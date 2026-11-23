@@ -711,6 +711,38 @@ static struct {
     menu *owner;
     char name[256], old[1200], ext[32], warning[96];
 } mlj_rename;
+static int mlj_rename_root = -1;
+static void mlj_rename_native_setup(void)
+{
+    if (!dialog_ui) return;
+    if (mlj_rename_root < 0)
+        for (int i = 0; i < ui_root_count(dialog_ui); i++)
+            if (!strcmp(ui_root_name(dialog_ui, i), "ConfirmDialog"))
+                mlj_rename_root = i;
+    if (mlj_rename_root < 0) return;
+    ui_widget *page = ui_root_widget(dialog_ui, mlj_rename_root);
+    ui_widget *pane = ui_widget_child(page, "Dialog");
+    ui_widget *title = ui_widget_child(pane, "Title"), *body = ui_widget_child(pane, "Message"),
+              *buttons = ui_widget_child(pane, "Buttons");
+    ui_widget *single = ui_widget_child(buttons, "OK"), *pair = ui_widget_child(buttons, "YesNo");
+    ui_widget *positive = ui_widget_child(pair, "Yes"), *negative = ui_widget_child(pair, "No");
+    if (!page || !pane || !title || !body || !buttons || !single || !pair || !positive ||
+        !negative) return;
+    free(title->text); title->text = strdup("Rename song");
+    single->visible = 0; pair->visible = 1;
+    free(ui_widget_child(positive, "label")->text);
+    ui_widget_child(positive, "label")->text = strdup("OK");
+    free(ui_widget_child(negative, "label")->text);
+    ui_widget_child(negative, "label")->text = strdup("Cancel");
+    positive->focused = 1; negative->focused = 0;
+    buttons->y = body->y + body->h;
+    pane->h = buttons->y + buttons->h;
+    pane->y = (480 - pane->h) * .5f;
+    ui_widget *bg = ui_widget_child(pane, "bg");
+    if (bg) bg->h = pane->h;
+    page->opacity = 1;
+    page->visible = 1;
+}
 static void mlj_refresh(menu *m, int row)
 {
     const char *disc = studio_disc ? studio_disc : presentation_disc;
@@ -780,6 +812,7 @@ static void mlj_rename_begin(menu *m)
     snprintf(mlj_rename.ext, sizeof mlj_rename.ext, "%s", dot ? dot : "");
     mlj_rename.warning[0] = 0;
     mlj_rename.active = 1;
+    mlj_rename_native_setup();
     SDL_StartTextInput();
 }
 static int mlj_rename_activate(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
@@ -873,28 +906,33 @@ int mlj_rename_sdl_event(const SDL_Event *ev)
 }
 void mlj_rename_draw(void)
 {
-    if (!mlj_rename.active || !wiz_font_init()) return;
-    const uint8_t overlay[4] = {0,0,0,160}, panel[4] = {150,150,155,255}, title[4] = {60,58,56,255};
-    const uint8_t black[4] = {20,20,22,255}, white[4] = {245,245,245,255}, dim[4] = {90,90,95,255};
-    const uint8_t box[4] = {205,205,210,255}, edge[4] = {110,110,115,255}, gold[4] = {255,204,64,255};
-    plat_video_set_view(640, 480);
-    plat_draw_quad(NULL, 0, 0, 640, 480, 0, 0, 1, 1, overlay);
-    plat_draw_quad(NULL, 70, 160, 500, 160, 0, 0, 1, 1, panel);
-    plat_draw_quad(NULL, 70, 160, 500, 30, 0, 0, 1, 1, title);
-    wiz_text("Rename song", 84, 174, .46f, white);
-    wiz_text("Name", 86, 208, .34f, black);
-    plat_draw_quad(NULL, 140, 204, 340, 26, 0, 0, 1, 1, edge);
-    plat_draw_quad(NULL, 141, 205, 338, 24, 0, 0, 1, 1, box);
-    wiz_text(mlj_rename.name, 148, 210, .34f, black);
-    if (mlj_rename.warning[0]) wiz_text(mlj_rename.warning, 86, 240, .30f, black);
-    plat_draw_quad(NULL, 86, 276, 120, 26, 0, 0, 1, 1, edge);
-    plat_draw_quad(NULL, 87, 277, 118, 24, 0, 0, 1, 1, box);
-    wiz_text("Cancel", 116, 282, .34f, black);
-    plat_draw_quad(NULL, 420, 276, 120, 26, 0, 0, 1, 1, gold);
-    plat_draw_quad(NULL, 422, 278, 116, 22, 0, 0, 1, 1, box);
-    wiz_text("OK", 468, 282, .34f, black);
-    wiz_text("Enter saves  ·  Esc cancels", 86, 306, .28f, dim);
+    if (!mlj_rename.active || !dialog_ui || mlj_rename_root < 0) return;
+    ui_widget *page = ui_root_widget(dialog_ui, mlj_rename_root);
+    ui_widget *pane = ui_widget_child(page, "Dialog");
+    ui_widget *body = ui_widget_child(pane, "Message");
+    ui_widget *face = ui_widget_child(body, "message");
+    if (face) {
+        char text[512];
+        if (mlj_rename.warning[0])
+            snprintf(text, sizeof text, "%s\n%s", mlj_rename.name, mlj_rename.warning);
+        else
+            snprintf(text, sizeof text, "%s", mlj_rename.name);
+        free(face->text); face->text = strdup(text);
+        face->w = 300; face->h = 50;
+        face->scale_x = face->scale_y = 1;
+        ui_text_wrap(dialog_ui, face, 300);
+        ui_text_adjust_scale(dialog_ui, face);
+        float size[2];
+        ui_text_size(dialog_ui, face, size);
+        body->h = fmaxf(82, size[1] + 32);
+        ui_widget *buttons = ui_widget_child(pane, "Buttons");
+        buttons->y = body->y + body->h;
+        pane->h = buttons->y + buttons->h;
+        pane->y = (480 - pane->h) * .5f;
+    }
+    ui_draw_root(dialog_ui, mlj_rename_root, NULL, NULL);
 }
+
 
 void mlj_jukebox_rename_now(void)
 {
