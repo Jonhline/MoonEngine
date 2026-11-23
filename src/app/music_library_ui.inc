@@ -596,11 +596,31 @@ static int mlj_track_row(menu *m, int *widget_row)
             snprintf(title, sizeof title, "%s", cat->tracks[j].title);
             char *dot = strrchr(title, '.');
             if (dot && dot != title) *dot = 0;
-            if (!strcmp(title, text)) track = 1;
+            /* Rows print "<title> / <group>" and truncate with an ellipsis, so the
+               plain strcmp below never matched and every row counted as a group
+               header. Compare the part before " / ", and accept a truncated
+               prefix as well. Measured 2026-11-23: the row text is
+               "Glare - Blank / Sanest anti broccoli hair acti...". */
+            size_t n = strlen(text);
+            const char *sep = strstr(text, " / ");
+            if (sep) n = (size_t)(sep - text);
+            else if (n && (unsigned char)text[n - 1] == 0x85) n--; /* the ellipsis byte */
+            size_t want = strlen(title);
+            if (n && !strncmp(title, text, n < want ? n : want))
+                track = 1;
         }
         if (!track) headers++;
     }
     int shown = at - headers;
+    if (getenv("MLJ_DUMP")) {
+        int ci = shown >= 0 && shown < ML_TRACKS ? mlj_shown[shown] : -1;
+        const char *p = cat && ci >= 0 && ci < cat->count ? cat->tracks[ci].path : "(none)";
+        char text[256] = "";
+        if (list && at >= 0 && at < list->nkids)
+            mlj_cell_text(list->kids[at], text, sizeof text);
+        fprintf(stderr, "jukebox map: row=%d headers=%d shown=%d -> %s  [text=%s]\n",
+                at, headers, shown, p, text);
+    }
     return shown >= 0 && shown < ML_TRACKS ? mlj_shown[shown] : -1;
 }
 static const char *mlj_shown_tip(const ui_widget *w);
