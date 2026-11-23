@@ -98,6 +98,19 @@ static void mlj_group(const char *path, char *out, size_t size)
 }
 static const ml_playlist *mlj_sorting;
 static int mlj_shown[ML_TRACKS]; /* the Library's rows, catalog indices */
+static void mlj_clean_title(const char *in, char *out, size_t size)
+{
+    size_t n = 0;
+    for (; *in && n + 1 < size; in++) {
+        if (!strncmp(in, " / WARNING", 10) || !strncmp(in, " WARNING_", 9) ||
+            !strncmp(in, " [youtube", 9) || !strncmp(in, "yt-dlp", 6) ||
+            !strncmp(in, "WARNING_", 8))
+            break;
+        out[n++] = *in;
+    }
+    out[n] = 0;
+    while (n && (out[n - 1] == ' ' || out[n - 1] == '/')) out[--n] = 0;
+}
 static int mlj_group_order(const void *a, const void *b)
 {
     const ml_track *x = &mlj_sorting->tracks[*(const int *)a],
@@ -462,7 +475,8 @@ static int mlj_bind(ml_jukebox *j, menu *m, gt4_vol *vol)
         unsigned sequence;
         if (strncmp(catalog->tracks[i].path, "gt4:", 4)) {
             /* a file's name as its title, without the extension */
-            snprintf(information[i][0], sizeof information[i][0], "%s", catalog->tracks[i].title);
+            mlj_clean_title(catalog->tracks[i].title, information[i][0],
+                            sizeof information[i][0]);
             char *dot = strrchr(information[i][0], '.');
             if (dot && dot != information[i][0])
                 *dot = 0;
@@ -613,6 +627,7 @@ static void mlj_refresh(menu *m, int row)
     ui_widget *root = menu_jukebox_page_widget(m);
     ui_widget *list = root ? ui_widget_child(ui_widget_child(root, "List"), "list_box") : NULL;
     if (list) list->focus_index = row;
+    mlj_file_buttons(m);
 }
 static void mlj_rename_begin(menu *m)
 {
@@ -746,6 +761,24 @@ void mlj_rename_draw(void)
     wiz_text("Enter saves  ·  Esc cancels", 86, 276, .30f, dim);
     if (mlj_rename.warning[0]) wiz_text(mlj_rename.warning, 86, 252, .30f, black);
 }
+static int mlj_jukebox_key(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
+                           ah_val *ret)
+{
+    (void)vm; (void)self; (void)argc; (void)argv;
+    menu *m = data;
+    ah_val key;
+    *ret = ah_int(0);
+    if (argc < 2 || !ah_get_member(vm, argv[1].u.o, "keysym", &key)) return 0;
+    int sym = (int)key.u.i;
+    if (sym == 0xffff || sym == 0xff08) { /* Delete, Backspace */
+        mlj_delete_activate(vm, self, m, 0, NULL, ret);
+        *ret = ah_int(2);
+    } else if (sym == 0xffbf) { /* F2 */
+        mlj_rename_begin(m);
+        *ret = ah_int(2);
+    }
+    return 0;
+}
 static void mlj_file_buttons(menu *m)
 {
     ui_project *ui = menu_ui(m);
@@ -754,7 +787,12 @@ static void mlj_file_buttons(menu *m)
     ui_widget *ren = root ? ui_widget_child(root, "Append1") : NULL;
     ui_widget *lib = root ? ui_widget_child(root, "Library") : NULL;
     ui_widget *liblabel = lib ? ui_widget_child(lib, "label") : NULL;
-    if (!del || !ren || !liblabel || ui_widget_child(root, "MoonDelete")) return;
+    if (!del || !ren || !liblabel) return;
+    const char *old[4] = {"MoonDelete", "MoonRename", "MoonDeleteLabel", "MoonRenameLabel"};
+    for (int i = 0; i < 4; i++) {
+        ui_widget *w = ui_widget_child(root, old[i]);
+        if (w) ui_widget_detach(w);
+    }
     for (int i = 0; i < 2; i++) {
         ui_widget *b = ui_widget_copy(ui, i ? ren : del);
         b->name = i ? "MoonRename" : "MoonDelete";
@@ -763,6 +801,8 @@ static void mlj_file_buttons(menu *m)
         b->scale_x = b->scale_y = .5f;
         b->visible = 1;
         b->insensitive = 0;
+        b->has_focus_override = 1;
+        b->focus_override = 1;
         ui_widget_append(root, b);
         menu_native_method(m, b, "onActivate", i ? mlj_rename_activate : mlj_delete_activate, m);
         ui_widget *l = ui_widget_copy(ui, liblabel);
@@ -775,6 +815,7 @@ static void mlj_file_buttons(menu *m)
         l->visible = 1;
         ui_widget_append(root, l);
     }
+    menu_native_method(m, root, "onKeyPress", mlj_jukebox_key, m);
 }
 static void app_jukebox_attach(menu *m)
 {
