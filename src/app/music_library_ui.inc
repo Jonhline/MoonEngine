@@ -816,6 +816,25 @@ static void mlj_file_buttons(menu *m)
         ui_widget_append(root, l);
     }
     menu_native_method(m, root, "onKeyPress", mlj_jukebox_key, m);
+    ui_widget *klist = root ? ui_widget_child(ui_widget_child(root, "List"), "list_box") : NULL;
+    if (klist) menu_native_method(m, klist, "onKeyPress", mlj_jukebox_key, m);
+}
+static void mlj_prune(ml_jukebox *j)
+{
+    if (!j || !j->library || j->catalog < 0) return;
+    int again = 1;
+    while (again) {
+        again = 0;
+        const ml_playlist *cat = music_library_list(j->library, j->catalog);
+        for (int i = 0; cat && i < cat->count; i++) {
+            const char *path = cat->tracks[i].path;
+            if (strncmp(path, "gt4:", 4) && access(path, F_OK) != 0) {
+                music_library_remove(j->library, j->catalog, i);
+                again = 1;
+                break;
+            }
+        }
+    }
 }
 static void app_jukebox_attach(menu *m)
 {
@@ -857,6 +876,7 @@ static void app_jukebox_attach(menu *m)
         j.catalog = music_library_catalog(j.library);
     if (j.catalog >= 0) {
         mlj_scan(&j);
+        mlj_prune(&j);
         const ml_playlist *catalog = music_library_list(j.library, j.catalog);
         if (catalog)
             for (int i = 0; i < catalog->count && !local; i++)
