@@ -893,18 +893,10 @@ void mlj_jukebox_rename_now(void)
 static void mlj_tip_shortcuts(menu *m)
 {
     ui_widget *root = menu_jukebox_page_widget(m);
-    ui_widget *tip = root ? ui_widget_child(root, "Tooltip") : NULL;
-    if (!tip || !mlj_selected(m)) return;
-    for (int i = 0; i < tip->nkids; i++) {
-        ui_widget *c = tip->kids[i];
-        if (!c || !c->text || !c->type || strcmp(c->type, "TextFace")) continue;
-        if (strstr(c->text, "Ctrl+R")) return;
-        char buf[512];
-        snprintf(buf, sizeof buf, "%s   Del deletes, Ctrl+R renames", c->text);
-        free(c->text);
-        c->text = strdup(buf);
-        return;
-    }
+    ui_widget *hint = root ? ui_widget_child(root, "MoonHint") : NULL;
+    if (!hint) return;
+    const ml_track *t = mlj_selected(m);
+    hint->visible = t && strncmp(t->path, "gt4:", 4) && !mlj_rename.active;
 }
 int mlj_jukebox_hotkey(int sym)
 {
@@ -936,44 +928,29 @@ static void mlj_file_buttons(menu *m)
 {
     ui_project *ui = menu_ui(m);
     ui_widget *root = menu_jukebox_page_widget(m);
-    ui_widget *del = root ? ui_widget_child(root, "Trash") : NULL;
-    ui_widget *ren = root ? ui_widget_child(root, "Append1") : NULL;
     ui_widget *lib = root ? ui_widget_child(root, "Library") : NULL;
     ui_widget *liblabel = lib ? ui_widget_child(lib, "label") : NULL;
-    if (!del || !ren || !liblabel) return;
-    const char *old[4] = {"MoonDelete", "MoonRename", "MoonDeleteLabel", "MoonRenameLabel"};
-    for (int i = 0; i < 4; i++) {
-        ui_widget *w = ui_widget_child(root, old[i]);
+    const char *old[5] = {"MoonDelete", "MoonRename", "MoonDeleteLabel", "MoonRenameLabel", "MoonHint"};
+    for (int i = 0; i < 5; i++) {
+        ui_widget *w = root ? ui_widget_child(root, old[i]) : NULL;
         if (w) ui_widget_detach(w);
     }
-    for (int i = 0; i < 2; i++) {
-        ui_widget *b = ui_widget_copy(ui, i ? ren : del);
-        b->name = i ? "MoonRename" : "MoonDelete";
-        b->x = 563.f;
-        b->y = i ? 360.f : 330.f;
-        b->w = 34.f;
-        b->h = 24.f;
-        b->has_geometry = 1;
-        b->scale_x = b->scale_y = 1.f;
-        b->visible = 1;
-        b->insensitive = 0;
-        b->has_focus_override = 1;
-        b->focus_override = 1;
-        ui_widget_append(root, b);
-        menu_native_method(m, b, "onActivate", i ? mlj_rename_activate : mlj_delete_activate, m);
-        ui_widget *l = ui_widget_copy(ui, liblabel);
-        l->name = i ? "MoonRenameLabel" : "MoonDeleteLabel";
-        free(l->text);
-        l->text = strdup(i ? "Rename" : "Delete");
-        l->x = 560.f;
-        l->y = i ? 390.f : 368.f;
-        l->scale_x = l->scale_y = .45f;
-        l->visible = 1;
-        ui_widget_append(root, l);
+    if (root && liblabel) {
+        ui_widget *h = ui_widget_copy(ui, liblabel);
+        h->name = "MoonHint";
+        free(h->text);
+        h->text = strdup("Del: delete    Ctrl+R: rename");
+        h->x = 300.f;
+        h->y = 420.f;
+        h->scale_x = h->scale_y = .4f;
+        h->visible = 0;
+        ui_widget_append(root, h);
     }
-    menu_native_method(m, root, "onKeyPress", mlj_jukebox_key, m);
-    ui_widget *klist = root ? ui_widget_child(ui_widget_child(root, "List"), "list_box") : NULL;
-    if (klist) menu_native_method(m, klist, "onKeyPress", mlj_jukebox_key, m);
+    if (root) {
+        menu_native_method(m, root, "onKeyPress", mlj_jukebox_key, m);
+        ui_widget *klist = ui_widget_child(ui_widget_child(root, "List"), "list_box");
+        if (klist) menu_native_method(m, klist, "onKeyPress", mlj_jukebox_key, m);
+    }
 }
 static void mlj_prune(ml_jukebox *j)
 {
