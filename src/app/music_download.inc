@@ -294,7 +294,7 @@ static void md_start(void)
 {
     if (md.running || !md.tool_ready) return;
     if (!md_url_ok(md.url)) {
-        md_log("yt-dlp error: URL contains an unsupported shell character");
+        md_log("yt-dlp error: enter an http:// or https:// URL with no control characters");
         return;
     }
     md.running = 1;
@@ -307,11 +307,12 @@ static void md_start(void)
 
 static int md_url_ok(const char *u)
 {
-    if (!u || !*u) return 0;
-    if (strstr(u, "\"") || strstr(u, "'") || strstr(u, ";") || strstr(u, "&") ||
-        strstr(u, "|") || strstr(u, "`") || strstr(u, "\n") || strstr(u, "\r") ||
-        strstr(u, "$") || strstr(u, "<") || strstr(u, ">"))
-        return 0;
+    if (!u) return 0;
+    size_t n = strlen(u);
+    if (n < 8 || n >= sizeof md.url) return 0;
+    if (strncmp(u, "http://", 7) && strncmp(u, "https://", 8)) return 0;
+    for (size_t i = 0; i < n; i++)
+        if ((unsigned char)u[i] < 0x20 || u[i] == 0x7f) return 0;
     return 1;
 }
 
