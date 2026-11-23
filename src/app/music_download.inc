@@ -474,21 +474,6 @@ void music_download_close(void)
     SDL_StopTextInput();
 }
 
-int music_download_sdl_event(const SDL_Event *ev)
-{
-    if (!md.active || !ev) return 0;
-    plat_key_event k;
-    memset(&k, 0, sizeof k);
-    if (ev->type == SDL_TEXTINPUT) {
-        snprintf(k.text, sizeof k.text, "%s", ev->text.text);
-    } else if (ev->type == SDL_KEYDOWN) {
-        k.key = ev->key.keysym.sym;
-    } else {
-        return 0;
-    }
-    return music_download_event(&k);
-}
-
 int music_download_event(plat_key_event *ev)
 {
     if (!md.active) return 0;

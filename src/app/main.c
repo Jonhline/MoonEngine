@@ -3238,8 +3238,6 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
         app_music_tick();
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
-            if (music_download_active() && music_download_sdl_event(&ev))
-                continue;
             if (ev.type == SDL_QUIT)
                 goto done;
             if (ev.type == SDL_DROPFILE) {
