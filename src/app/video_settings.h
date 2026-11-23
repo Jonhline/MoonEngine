@@ -118,7 +118,4 @@ int video_settings_preset_export(video_settings *s, const char *path, const char
 int video_settings_preset_dialog(video_settings *s, int exporting, int draft);
 /* R1: Settings -> Music -> Download music popup (implemented in main.c). */
 void app_music_download_open(void);
-/* R2: the Controls page's live controller bars. */
-int video_settings_controller_active(void);
-void video_settings_controller_values(float *deadzone, float *range, int *curve);
 #endif

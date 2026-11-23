@@ -127,37 +127,6 @@ void plat_input_set_ffb(int index, float torque)
     if (force_id[index] >= 0)
         SDL_HapticRunEffect(forces[index], force_id[index], 1);
 }
-static float steer_deadzone, steer_range = 1.f;
-static int steer_curve;
-static float steer_map(float x, int *raw_out);
-void plat_sdl_steer_config(float deadzone, float range, int curve)
-{
-    steer_deadzone = deadzone < 0 ? 0 : deadzone > .4f ? .4f : deadzone;
-    steer_range = range < .5f ? .5f : range > 1.f ? 1.f : range;
-    steer_curve = curve < 0 ? 0 : curve > 2 ? 2 : curve;
-    const char *synth = getenv("MOON_PAD_SYNTH");
-    if (synth && *synth) {
-        int raw = atoi(synth);
-        float x = raw < 0 ? raw / 32768.f : raw / 32767.f;
-        float mapped = steer_map(x, &raw);
-        fprintf(stderr, "pad: raw=%+d mapped=%.3f (deadzone %d%%)\n", raw, mapped,
-                (int)(steer_deadzone * 100.f + .5f));
-    }
-}
-static float steer_map(float x, int *raw_out)
-{
-    int raw = (int)(x * 32767.f);
-    if (raw_out) *raw_out = raw;
-    float a = fabsf(x);
-    float dz = steer_deadzone > .10f ? steer_deadzone : .10f;
-    if (a <= dz) return 0.f;
-    float n = (a - dz) / (1.f - dz);
-    n /= steer_range;
-    if (n > 1.f) n = 1.f;
-    if (steer_curve == 1) n = n * n * (3.f - 2.f * n);
-    else if (steer_curve == 2) n = n * n;
-    return x < 0 ? -n : n;
-}
 int plat_input_poll(int index, plat_pad_state *out)
 {
     memset(out, 0, sizeof *out);
@@ -220,22 +189,9 @@ int plat_input_poll(int index, plat_pad_state *out)
         int v = SDL_GameControllerGetAxis(pad, (SDL_GameControllerAxis)k);
         out->axes[k] = v < 0 ? v / 32768.f : v / 32767.f;
     }
-    /* P: the left stick is the steering axis; deadzone/range/curve live here. */
-    {
-        int raw = 0;
-        float mapped = steer_map(out->axes[0], &raw);
-        static int last_raw;
-        static float last_mapped;
-        if (raw != last_raw || fabsf(mapped - last_mapped) > .0005f) {
-            fprintf(stderr, "pad: raw=%+d mapped=%.3f (deadzone %d%%)\n", raw, mapped,
-                    (int)(steer_deadzone * 100.f + .5f));
-            last_raw = raw;
-            last_mapped = mapped;
-        }
-        out->axes[0] = mapped;
-    }
-    /* P: keep the port's 8% dead zone on the other stick, 5% on triggers. */
-    for (int k = 1; k < 4; k++)
+    /* P: PC stick dead zone, independent of the untouched original solver.
+    Preserve the existing port's 8% stick / 5% trigger thresholds. */
+    for (int k = 0; k < 4; k++)
         if (out->axes[k] > -.08f && out->axes[k] < .08f)
             out->axes[k] = 0;
     for (int k = 4; k < 6; k++)

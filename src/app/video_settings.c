@@ -1349,10 +1349,7 @@ static const char *hints[] = {
     "Total cars when Phantom Opponents is on, including the player's six-car conductor.",
     "Soft blends sixteen shadow-map samples. Fast blends four over the same width: much less GPU time, slightly harder edges on the car body.",
     "Open the Preview Mode subpage.",
-    "Download songs or playlists from the internet into your Music folder.",
-    "Ignore small stick movement. 0% keeps the port's existing 8% stick dead zone.",
-    "Steering travel: 100% is the full stick, lower values reach full lock sooner.",
-    "Steering response: Linear, Soft or Hard."};
+    "Download songs or playlists from the internet into your Music folder."};
 static int music_download_row(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
                               ah_val *ret)
 {
@@ -1451,7 +1448,7 @@ static const int tab_rows[VIDEO_TAB_COUNT][16] = {
     {17, 18, 19, 20, 23, 12, 11, -1},
     /* UI row indices are separate from the launcher API's VS_* enum. */
     {25, 26, 39, 56, -1},
-    {7, 10, 14, 15, 13, 9, 16, 37, 38, 59, 60, 61, -1},
+    {7, 10, 14, 15, 13, 9, 16, 37, 38, -1},
     {34, 58, 35, 36, -1},
     {8, 31, 32, -1},
     {41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, -1}};
@@ -1469,8 +1466,6 @@ enum { VIDEO_TAB_PRESETS = 5 };
 #endif
 #ifndef __ANDROID__
 static float pc_pane_center; /* the authored pane's centre; each page is sized around it */
-static video_settings *controller_live;
-static int controller_open;
 #endif
 #ifdef __ANDROID__
 static float widget_abs_y(const ui_widget *w)
@@ -1812,7 +1807,6 @@ static int enter(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     (void)argc;
     (void)argv;
     video_settings *s = data;
-    controller_open = 1;
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
     SDL_Window *window = plat_sdl_window();
     if (window)
@@ -1919,11 +1913,6 @@ static int enter(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     s->choices[15]->focus_index = s->current.mobile.steering;
     s->choices[17]->focus_index = s->current.mobile.render_scale;
 #endif
-#if !defined(__SWITCH__) && !defined(__ANDROID__)
-    s->choices[59]->focus_index = moon_options_int(&s->store, "input.deadzone", 0, 0, 40) / 5;
-    s->choices[60]->focus_index = (moon_options_int(&s->store, "input.steer_range", 100, 50, 100) - 50) / 10;
-    s->choices[61]->focus_index = moon_options_int(&s->store, "input.steer_curve", 0, 0, 2);
-#endif
     quality(&s->current);
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
     /* the Options tile that opened the page; MOON_SETTINGS_PAGE for the tests */
@@ -2022,7 +2011,6 @@ static int leave(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     (void)self;
     (void)argc;
     (void)argv;
-    controller_open = 0;
     quality(&((video_settings *)data)->current);
     *ret = ah_int(0);
     return 0;
@@ -2034,7 +2022,6 @@ static int cancel(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *a
     (void)argc;
     (void)argv;
     video_settings *s = data;
-    controller_open = 0;
     menu_play_effect(s->owner, "cancel");
     quality(&s->current);
     menu_native_page(s->owner, s->option_root);
@@ -2090,28 +2077,11 @@ static int apply(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
 #ifndef __SWITCH__
     if(!s->current.input_hints) ui_input_hints(menu_ui(s->owner),0);
 #endif
-#if !defined(__SWITCH__) && !defined(__ANDROID__)
-    s->choices[59]->focus_index = moon_options_int(&s->store, "input.deadzone", 0, 0, 40) / 5;
-    s->choices[60]->focus_index = (moon_options_int(&s->store, "input.steer_range", 100, 50, 100) - 50) / 10;
-    s->choices[61]->focus_index = moon_options_int(&s->store, "input.steer_curve", 0, 0, 2);
-#endif
     quality(&s->current);
 #if !defined(__SWITCH__) && !defined(__ANDROID__)
     moon_options_set(&s->store, "audio.custom_music", s->choices[34]->focus_index ? "1" : "0");
     moon_options_set(&s->store, "audio.jukebox_folders", s->choices[35]->focus_index ? "1" : "0");
     moon_options_set(&s->store, "audio.jukebox_groups", s->choices[36]->focus_index ? "1" : "0");
-    {
-        char b[8];
-        snprintf(b, sizeof b, "%d", s->choices[59]->focus_index * 5);
-        moon_options_set(&s->store, "input.deadzone", b);
-        snprintf(b, sizeof b, "%d", 50 + s->choices[60]->focus_index * 10);
-        moon_options_set(&s->store, "input.steer_range", b);
-        snprintf(b, sizeof b, "%d", s->choices[61]->focus_index);
-        moon_options_set(&s->store, "input.steer_curve", b);
-        plat_sdl_steer_config((s->choices[59]->focus_index * 5) / 100.f,
-                              (50.f + s->choices[60]->focus_index * 10.f) / 100.f,
-                              s->choices[61]->focus_index);
-    }
 #endif
     save(s);
     apply_discord(s);
@@ -2123,19 +2093,6 @@ static int apply(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
     }
     *ret = ah_int(2);
     return 0;
-}
-int video_settings_controller_active(void)
-{
-    return controller_open && controller_live && controller_live->active_tab == 3;
-}
-void video_settings_controller_values(float *deadzone, float *range, int *curve)
-{
-    if (deadzone) *deadzone = controller_live && controller_live->choices[59]
-                                   ? controller_live->choices[59]->focus_index * .05f : 0.f;
-    if (range) *range = controller_live && controller_live->choices[60]
-                             ? (50.f + controller_live->choices[60]->focus_index * 10.f) / 100.f : 1.f;
-    if (curve) *curve = controller_live && controller_live->choices[61]
-                            ? controller_live->choices[61]->focus_index : 0;
 }
 void video_settings_attach(video_settings *s, menu *m)
 {
@@ -2153,7 +2110,6 @@ void video_settings_attach(video_settings *s, menu *m)
     if (s->root < 0 || s->option_root < 0)
         return;
     s->owner = m;
-    controller_live = s;
     s->page = ui_root_widget(ui, s->root);
     ui_widget *pane = ui_widget_child(s->page, "Pane"), *row = ui_widget_child(pane, "Wide"),
               *buttons = ui_widget_child(pane, "Buttons");
@@ -2169,7 +2125,7 @@ void video_settings_attach(video_settings *s, menu *m)
 #ifdef __ANDROID__
     const int rows = 18;
 #else
-    const int rows = 47;
+    const int rows = 44;
 #endif
 #endif
 #ifndef __SWITCH__
@@ -2226,7 +2182,7 @@ void video_settings_attach(video_settings *s, menu *m)
                            "TextureSmoothing", "TextureFiltering", "CarShadows", "MaterialShading", "ReflectionQuality", "ShadowMaps", "Lighting", "Daylight", "SolarTime", "DaylightCycle", "HDR", "SunRays", "PresetFiles", "SaveTransfer", "AmbientOcclusion",
                            "CustomMusic", "JukeboxFolders", "LibraryGroups", "GraphicsSwapKey",
                            "ControllerTiles", "CarLamps", "NightSky", "ShadowFilter", "PreviewMode",
-                           "DownloadMusic", "Deadzone", "SteeringRange", "SteeringCurve"};
+                           "DownloadMusic"};
     const char *titles[] = {
         "Aspect Ratio",      "Window Mode",   "Resolution",    "UI Filter",
         "Text Clarity",      "VSync",         "Upscaling",     "Desktop Input",
@@ -2235,7 +2191,7 @@ void video_settings_attach(video_settings *s, menu *m)
         "Compact Car Strip", "Anti-Aliasing", "3D Resolution", "Texture Smoothing", "Texture Filtering", "Car Shadows", "Material Shading", "Reflection Quality", "Shadow Maps", "Realistic Lighting", "Realistic Skybox", "Solar Time", "Sun / Moon Cycle", "HDR", "Sun Rays", "Preset Files", "Save Transfer", "Ambient Occlusion",
         "Custom Music", "Jukebox Folders", "Library Groups", "Graphics Swap Key",
         "Controller Tiles", "Realistic Car Lamps", "Night Sky", "Shadow Filter", "Preview Mode",
-        "Download Music", "Controller Deadzone", "Steering Range", "Steering Curve"};
+        "Download Music"};
     ui_widget *sample = ui_widget_copy(ui, row);
     for (int i = pane->nkids - 1; i >= 0; i--) {
         ui_widget *w = pane->kids[i];
@@ -2278,13 +2234,10 @@ void video_settings_attach(video_settings *s, menu *m)
 #endif
     const char *controller_tiles[] = {"Original", "By Player"};
     const char *one_open[] = {"Open", "Open"};
-    const char *vs_deadzone[] = {"0%","5%","10%","15%","20%","25%","30%","35%","40%"};
-    const char *vs_range[] = {"50%","60%","70%","80%","90%","100%"};
-    const char *vs_curve[] = {"Linear","Soft","Hard"};
     const char *const *lists[] = {
         ratios, modes,  resolutions, filters, clarity, toggle, upscalers, toggle, presets,  vs_fps,
-        toggle, toggle, toggle,      toggle,  toggle,  toggle, toggle,    vs_aa,  vs_scale, toggle, vs_texture_filtering, vs_car_shadows, vs_material_shading, vs_reflection_quality, vs_shadow_maps, vs_modern_lighting,vs_off_on,vs_hours,vs_cycle,vs_off_on,vs_rays,toggle,toggle,toggle,toggle,toggle,toggle,toggle,controller_tiles,toggle,toggle,vs_shadow_filter,vs_preview_mode,one_open,vs_deadzone,vs_range,vs_curve};
-    int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, VS_MENU_MODIFIED + 1, 9, 2, 2, 2, 2, 2, 2, 2, 5, 6, 2, 5, 2, 2, 3, 4, 2, 2, 25, 3, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 9, 6, 3};
+        toggle, toggle, toggle,      toggle,  toggle,  toggle, toggle,    vs_aa,  vs_scale, toggle, vs_texture_filtering, vs_car_shadows, vs_material_shading, vs_reflection_quality, vs_shadow_maps, vs_modern_lighting,vs_off_on,vs_hours,vs_cycle,vs_off_on,vs_rays,toggle,toggle,toggle,toggle,toggle,toggle,toggle,controller_tiles,toggle,toggle,vs_shadow_filter,vs_preview_mode,one_open};
+    int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, VS_MENU_MODIFIED + 1, 9, 2, 2, 2, 2, 2, 2, 2, 5, 6, 2, 5, 2, 2, 3, 4, 2, 2, 25, 3, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 #ifdef __SWITCH__
     const char *scene_sizes[]={"Classic","Balanced","Performance"};
     names[7]="SceneResolution"; titles[7]="3D Resolution"; titles[8]="Preset";
@@ -2318,8 +2271,7 @@ void video_settings_attach(video_settings *s, menu *m)
 #endif
     for (int i = 0; i < rows; i++) {
         /* row 41 of the list is Shadow Filter, kept after the Tweaks rows 41..55 */
-        const int at = i < 41 ? i : i == 41 ? 56 : i == 42 ? 57 : i == 43 ? 58
-                                                                  : i == 44 ? 59 : i == 45 ? 60 : 61;
+        const int at = i < 41 ? i : i == 41 ? 56 : i == 42 ? 57 : 58;
         ui_widget *w = ui_widget_copy(ui, sample);
         w->name = names[i];
 #ifndef __SWITCH__
