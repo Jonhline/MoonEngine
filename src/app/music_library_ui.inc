@@ -605,22 +605,30 @@ static void mlj_file_buttons(menu *m)
 {
     ui_project *ui = menu_ui(m);
     ui_widget *root = menu_jukebox_page_widget(m);
-    ui_widget *sample = root ? ui_widget_child(root, "Trash") : NULL;
-    if (!sample) sample = root ? ui_widget_child(root, "Append1") : NULL;
-    if (!sample || ui_widget_child(root, "MoonDelete")) return;
-    const char *names[2] = {"MoonDelete", "MoonRename"};
+    ui_widget *del = root ? ui_widget_child(root, "Trash") : NULL;
+    ui_widget *ren = root ? ui_widget_child(root, "Append1") : NULL;
+    ui_widget *lib = root ? ui_widget_child(root, "Library") : NULL;
+    ui_widget *liblabel = lib ? ui_widget_child(lib, "label") : NULL;
+    if (!del || !ren || !liblabel || ui_widget_child(root, "MoonDelete")) return;
     for (int i = 0; i < 2; i++) {
-        ui_widget *b = ui_widget_copy(ui, sample);
-        b->name = names[i];
+        ui_widget *b = ui_widget_copy(ui, i ? ren : del);
+        b->name = i ? "MoonRename" : "MoonDelete";
         b->x = 574.f;
         b->y = i ? 367.f : 345.f;
         b->scale_x = b->scale_y = .5f;
         b->visible = 1;
         b->insensitive = 0;
-        ui_widget *label = ui_widget_child(b, "label");
-        if (label) { free(label->text); label->text = strdup(i ? "Rename" : "Delete"); }
         ui_widget_append(root, b);
         menu_native_method(m, b, "onActivate", i ? mlj_rename_activate : mlj_delete_activate, m);
+        ui_widget *l = ui_widget_copy(ui, liblabel);
+        l->name = i ? "MoonRenameLabel" : "MoonDeleteLabel";
+        free(l->text);
+        l->text = strdup(i ? "Rename" : "Delete");
+        l->x = 560.f;
+        l->y = i ? 390.f : 368.f;
+        l->scale_x = l->scale_y = .45f;
+        l->visible = 1;
+        ui_widget_append(root, l);
     }
 }
 static void app_jukebox_attach(menu *m)
