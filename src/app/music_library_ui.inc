@@ -603,17 +603,56 @@ static int mlj_track_row(menu *m, int *widget_row)
     int shown = at - headers;
     return shown >= 0 && shown < ML_TRACKS ? mlj_shown[shown] : -1;
 }
+static const char *mlj_shown_tip(const ui_widget *w);
+static const ml_track *mlj_footer_track(menu *m, ui_widget *root)
+{
+    const ml_playlist *cat = music_library_list(app_jukebox.library, app_jukebox.catalog);
+    if (!cat || !root) return NULL;
+    ui_widget *tip = ui_widget_child(root, "Tooltip");
+    const char *text = NULL;
+    for (int i = 0; tip && i < tip->nkids; i++)
+        if (tip->kids[i] && tip->kids[i]->text) { text = tip->kids[i]->text; break; }
+    if (!text) text = mlj_shown_tip(root);
+    if (!text || !*text) return NULL;
+    const char *start = strstr(text, "Song Details:");
+    start = start ? start + 13 : text;
+    while (*start == ' ') start++;
+    const char *sep = strstr(start, " / ");
+    if (!sep) return NULL;
+    char title[160], group[ML_PATH];
+    size_t n = (size_t)(sep - start);
+    if (n >= sizeof title) n = sizeof title - 1;
+    memcpy(title, start, n); title[n] = 0;
+    const char *g = sep + 3;
+    const char *end = strstr(g, " /");
+    n = end ? (size_t)(end - g) : strlen(g);
+    if (n >= sizeof group) n = sizeof group - 1;
+    memcpy(group, g, n); group[n] = 0;
+    for (int i = 0; i < cat->count; i++) {
+        if (!strncmp(cat->tracks[i].path, "gt4:", 4)) continue;
+        char display[160], grp[ML_PATH];
+        snprintf(display, sizeof display, "%s", cat->tracks[i].title);
+        char *dot = strrchr(display, '.');
+        if (dot && dot != display) *dot = 0;
+        mlj_group(cat->tracks[i].path, grp, sizeof grp);
+        if (!strcmp(display, title) && !strcmp(grp, group) &&
+            access(cat->tracks[i].path, F_OK) == 0)
+            return &cat->tracks[i];
+    }
+    return NULL;
+}
 static const ml_track *mlj_selected(menu *m)
 {
     if (!m || m != app_jukebox.page || menu_active_root(m) < 0) return NULL;
     ui_widget *root = ui_root_widget(menu_ui(m), menu_active_root(m));
+    const ml_track *footer = mlj_footer_track(m, root);
+    if (footer) return footer;
     ui_widget *list = ui_widget_child(ui_widget_child(root, "List"), "list_box");
     const ml_playlist *cat = music_library_list(app_jukebox.library, app_jukebox.catalog);
     int row = list ? list->focus_index : -1;
     if (!cat || row < 0) return NULL;
     int idx = mlj_track_row(m, &row);
     if (idx < 0 || idx >= cat->count) return NULL;
-    /* group/folder headers are not tracks: their path does not exist on disk */
     if (strncmp(cat->tracks[idx].path, "gt4:", 4) &&
         access(cat->tracks[idx].path, F_OK) != 0)
         return NULL;
