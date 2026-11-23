@@ -663,6 +663,8 @@ static int studio_tab_rows(int tab, int rows[24])
     } else
         for (int k = 0; k < 12; k++)
             rows[n++] = 2000 + k;
+    if (tab == 3 && n < 24)
+        rows[n++] = -5; /* Download music: after the music/jukebox rows */
     return n;
 }
 /* Debug gate: both settings pages must expose the same ordered Tweaks rows.
@@ -711,6 +713,7 @@ static int studio_row_button(int id)
 static const char *studio_row_label(int id)
 {
     if (id == -4) return "Open Music Folder";
+    if (id == -5) return "Download music...";
     if (id>=3000) return id==3000 ? "Import preset..." : "Export preset...";
     if (id == -1)
         return "Theme";
@@ -727,6 +730,7 @@ static const char *studio_row_label(int id)
 static const char *studio_row_help(int id)
 {
     if (id == -4) return "Open Music Folder: Add WAV, MP3, FLAC, OGG or M4A files here, then reopen Jukebox.";
+    if (id == -5) return "Download Music: Paste a song or playlist link; the file lands in the Music folder.";
     static char line[192];
     if (id>=3000) return app_video_settings && app_video_settings->message[0] ? app_video_settings->message : "Import or export a personal preset file. Display and save paths stay local.";
     if (id == -1)
@@ -760,6 +764,7 @@ static int studio_field_size_warn(int id)
 static const char *studio_row_value(int id, int theme, int mood)
 {
     if (id == -4) return "Open Folder...";
+    if (id == -5) return "Open...";
     static char text[96];
     if (id>=3000) return id==3000 ? "Choose File..." : "Save As...";
     if (id == -1)
@@ -801,6 +806,11 @@ static const char *studio_row_value(int id, int theme, int mood)
 /* one row's change, for every kind of row except the launcher's own two */
 static void studio_row_change(int id, int delta)
 {
+    if (id == -5) {
+        fprintf(stderr, "studio: download music row\n");
+        app_music_download_open();
+        return;
+    }
     if (id == -4) {
 #ifdef _WIN32
         char folder[1100];
@@ -3055,7 +3065,7 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
 #define STUDIO_OPTION_CHANGE(row_, delta_)                                                         \
     do {                                                                                           \
         int id_ = options_ids[(row_)];                                                             \
-        if (id_ >= 0 || id_ == -4) {                                                                            \
+        if (id_ >= 0 || id_ == -4 || id_ == -5) {                                                                            \
             int was_group_ = id_ == video_setting_tweak_group();                                   \
             studio_row_change(id_, (delta_));                                                      \
             if (was_group_) {                                                                       \
@@ -3246,7 +3256,8 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                 else if (k == SDLK_LEFT && !studio_row_button(options_ids[options_row]))
                     STUDIO_OPTION_CHANGE(options_row, -1);
                 else if ((k == SDLK_RIGHT && !studio_row_button(options_ids[options_row])) ||
-                         k == SDLK_RETURN || k == SDLK_KP_ENTER)
+                         k == SDLK_RETURN || k == SDLK_KP_ENTER ||
+                         (k == SDLK_SPACE && options_ids[options_row] == -5))
                     STUDIO_OPTION_CHANGE(options_row, 1);
                 continue;
             }
@@ -3885,6 +3896,7 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                                     : mods_open  ? studio_mods_help(mods_row)
                                                  : NULL;
             dock_draw(&dock, dock_sel, dock.mouse ? mouse_seen : 1);
+            music_download_draw();
         }
         /* one direction, eased: the wizard's white screen rises off the room ... */
         if (fade_in && i < FADE_FRAMES) {
