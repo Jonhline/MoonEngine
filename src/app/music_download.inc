@@ -8,9 +8,15 @@
 #define MD_LINUX_URL "https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp_linux"
 #define MD_LINUX_BYTES 41166968ull
 #define MD_LINUX_SHA "767ba9dce7052aa196f8b12652f433d76de128ba168966fa84b6394d5e6c6795"
+#define MD_DENO_URL_LINUX "https://github.com/denoland/deno/releases/download/v2.9.8/deno-x86_64-unknown-linux-gnu.zip"
+#define MD_DENO_URL_WIN "https://github.com/denoland/deno/releases/download/v2.9.8/deno-x86_64-pc-windows-msvc.zip"
+#define MD_DENO_BYTES_LINUX 41963064ull
+#define MD_DENO_BYTES_WIN 42917472ull
+#define MD_DENO_SHA_LINUX "e890975bc2549807bbcc0b584ffafda72cc7c93349dd99c80483dd784f6c4609"
+#define MD_DENO_SHA_WIN "cba84b26e0df5ae7f74fc66b86a95b866872a86292ebd84fa1e959927edd93bf"
 
 static struct {
-    int active, running, started, tool_ready, tool_fetching;
+    int active, running, started, tool_ready, tool_fetching, deno_ready;
     char url[2048], job_url[2048], last[MD_LINE];
     char line[MD_LOG_LINES][MD_LINE];
     int at, count;
@@ -25,6 +31,7 @@ static struct {
     SDL_mutex *lock;
     SDL_Thread *worker, *tool_worker;
     char tool[1200];
+    char deno[1200];
 } md;
 
 static void md_lock(void) { if (md.lock) SDL_LockMutex(md.lock); }
@@ -105,14 +112,18 @@ static int md_spawn(char *const argv[], md_line_fn fn, void *user)
     CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
     return (int)code;
 }
-static int md_verify(const char *path)
+static int md_verify_manifest(const char *path, unsigned long long size, const char *sha)
 {
     wchar_t wide[1200];
     if (!MultiByteToWideChar(CP_UTF8, 0, path, -1, wide, 1200)) return 0;
     launcher_update_manifest m = {0};
-    m.size = MD_TOOL_BYTES;
-    snprintf(m.sha256, sizeof m.sha256, "%s", MD_TOOL_SHA);
+    m.size = size;
+    snprintf(m.sha256, sizeof m.sha256, "%s", sha);
     return launcher_update_verify(wide, &m);
+}
+static int md_verify(const char *path)
+{
+    return md_verify_manifest(path, MD_TOOL_BYTES, MD_TOOL_SHA);
 }
 #else
 #include <spawn.h>
@@ -190,12 +201,16 @@ static void md_version_line(const char *line, void *user)
     (void)user;
     if (*line) snprintf(md_version, sizeof md_version, "%s", line);
 }
-static int md_linux_verify(const char *path)
+static int md_linux_verify_sha(const char *path, const char *sha)
 {
     md_hash[0] = 0;
     char *argv[] = {"sha256sum", (char *)path, NULL};
     md_spawn(argv, md_hash_line, NULL);
-    return md_hash[0] && !strcasecmp(md_hash, MD_LINUX_SHA);
+    return md_hash[0] && !strcasecmp(md_hash, sha);
+}
+static int md_linux_verify(const char *path)
+{
+    return md_linux_verify_sha(path, MD_LINUX_SHA);
 }
 static void md_linux_version(int fetched)
 {
@@ -236,6 +251,33 @@ static int md_tool_worker(void *unused)
         md_log("tools: yt-dlp fetch failed (curl %d) or sha256 mismatch; removed", rc);
     }
     md.tool_fetching = 0;
+    /* deno: optional, never blocks the download */
+    md.tool_mb = 41.96;
+    if (GetFileAttributesA(md.deno) != INVALID_FILE_ATTRIBUTES) {
+        md.deno_ready = 1;
+        md_log("tools: deno sha256 ok (version 2.9.8)");
+    } else {
+        remove(md.deno);
+        char zip[1300];
+        snprintf(zip, sizeof zip, "%s.zip", md.deno);
+        remove(zip);
+        md_log("tools: fetching deno");
+        char *dargv[] = {"curl.exe", "-L", "--fail", "-o", zip, MD_DENO_URL_WIN, NULL};
+        int drc = md_spawn(dargv, md_tool_line, NULL);
+        if (drc == 0 && md_verify_manifest(zip, MD_DENO_BYTES_WIN, MD_DENO_SHA_WIN)) {
+            char dir[1200];
+            snprintf(dir, sizeof dir, "%s", md.deno);
+            char *slash = strrchr(dir, '/');
+            if (slash) *slash = 0;
+            if (studio_mods_unpack(zip, dir)) {
+                md.deno_ready = 1;
+                md_log("tools: deno sha256 ok (version 2.9.8)");
+            } else
+                md_log("tools: deno extract/verify failed; yt-dlp runs without it");
+        } else
+            md_log("tools: deno fetch failed; yt-dlp runs without it");
+        remove(zip);
+    }
 #else
     md.tool_mb = 41.2;
     if (md_linux_verify(md.tool)) {
@@ -263,6 +305,33 @@ static int md_tool_worker(void *unused)
         }
     }
     md.tool_fetching = 0;
+    md.tool_mb = 41.96;
+    if (access(md.deno, X_OK) == 0) {
+        md.deno_ready = 1;
+        md_log("tools: deno sha256 ok (version 2.9.8)");
+    } else {
+        remove(md.deno);
+        char zip[1300];
+        snprintf(zip, sizeof zip, "%s.zip", md.deno);
+        remove(zip);
+        md_log("tools: fetching deno");
+        char *dargv[] = {"curl", "-L", "--fail", "-o", zip, MD_DENO_URL_LINUX, NULL};
+        int drc = md_spawn(dargv, md_tool_line, NULL);
+        if (drc == 0 && md_linux_verify_sha(zip, MD_DENO_SHA_LINUX)) {
+            char dir[1200];
+            snprintf(dir, sizeof dir, "%s", md.deno);
+            char *slash = strrchr(dir, '/');
+            if (slash) *slash = 0;
+            if (studio_mods_unpack(zip, dir)) {
+                chmod(md.deno, 0755);
+                md.deno_ready = 1;
+                md_log("tools: deno sha256 ok (version 2.9.8)");
+            } else
+                md_log("tools: deno extract/verify failed; yt-dlp runs without it");
+        } else
+            md_log("tools: deno fetch failed; yt-dlp runs without it");
+        remove(zip);
+    }
     if (getenv("MOON_DOWNLOAD_START")) md_start();
 #endif
     return 0;
@@ -277,14 +346,20 @@ static void md_tools_begin(void)
     snprintf(manifest, sizeof manifest, "%s/manifest.json", dir);
     FILE *f = fopen(manifest, "wb");
     if (f) {
-        fputs("{\"name\":\"yt-dlp\",\"version\":\"2026.10.26\",\"sha256\":\"" MD_TOOL_SHA
-              "\",\"size\":23575744}\n", f);
+        fputs("[{\"name\":\"yt-dlp\",\"version\":\"2026.10.26\",\"sha256\":\"" MD_TOOL_SHA
+              "\",\"size\":23575744,\"url\":\"" MD_TOOL_URL "\"},"
+              "{\"name\":\"deno\",\"version\":\"2.9.8\",\"sha256_linux\":\"" MD_DENO_SHA_LINUX
+              "\",\"sha256_windows\":\"" MD_DENO_SHA_WIN "\",\"size_linux\":41963064,"
+              "\"size_windows\":42917472,\"url_linux\":\"" MD_DENO_URL_LINUX
+              "\",\"url_windows\":\"" MD_DENO_URL_WIN "\"}]\n", f);
         fclose(f);
     }
 #ifdef _WIN32
     snprintf(md.tool, sizeof md.tool, "%s/yt-dlp.exe", dir);
+    snprintf(md.deno, sizeof md.deno, "%s/deno.exe", dir);
 #else
     snprintf(md.tool, sizeof md.tool, "%s/yt-dlp", dir);
+    snprintf(md.deno, sizeof md.deno, "%s/deno", dir);
 #endif
     md_log("tools: %s", md.tool);
     md.tool_fetching = 1;
@@ -451,8 +526,22 @@ static int md_worker(void *unused)
         snprintf(ptmpl, sizeof ptmpl, "%s/%%(title)s.%%(ext)s", safe);
         tmpl = ptmpl;
     }
-    char *argv[] = {md.tool, "-f", "bestaudio[ext=m4a]/bestaudio", "--newline",
-                    "--paths", music, "-o", tmpl, md.job_url, NULL};
+    char jsbuf[1400];
+    char *argv[16];
+    int ai = 0;
+    argv[ai++] = md.tool;
+    argv[ai++] = "-f"; argv[ai++] = "bestaudio[ext=m4a]/bestaudio";
+    argv[ai++] = "--newline";
+    argv[ai++] = "--paths"; argv[ai++] = music;
+    argv[ai++] = "-o"; argv[ai++] = tmpl;
+    if (md.deno_ready) {
+        snprintf(jsbuf, sizeof jsbuf, "deno:%s", md.deno);
+        argv[ai++] = "--js-runtimes";
+        argv[ai++] = jsbuf;
+        md_log("js runtime deno %s", md.deno);
+    }
+    argv[ai++] = md.job_url;
+    argv[ai] = NULL;
     md_log("url: %s", md.job_url);
     int rc = md_spawn(argv, md_job_line, NULL);
     if (rc < 0) md_log("yt-dlp error: could not start %s", md.tool);
