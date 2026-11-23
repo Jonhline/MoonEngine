@@ -510,6 +510,8 @@ cmake --build build -j
 
 A normal build is a **dev build** (`MOON_DEV_BUILD=ON`, shown as "dev" next to the version): it keeps the developer shortcuts (PgUp/PgDn and F1/F2 to jump between screens, F4 debug overlay) and never looks for updates.
 
+Dev builds for Windows are also published as **pre-releases** (`vX.Y.Z-dev`) for testers; the updater never picks them.
+
 Releases are **stable builds**: configure with `-DMOON_DEV_BUILD=OFF`. They have no developer shortcuts and update themselves from this repository's GitHub releases. `tools/package_release.py` builds the `MoonEngine-<version>-win64.zip` that the updater looks for; upload it to the release under that exact name.
 
 </details>
