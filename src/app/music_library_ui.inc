@@ -612,8 +612,9 @@ static void mlj_file_buttons(menu *m)
     for (int i = 0; i < 2; i++) {
         ui_widget *b = ui_widget_copy(ui, sample);
         b->name = names[i];
-        b->x = i ? 563.f : 500.f;
-        b->y = 349.f;
+        b->x = 574.f;
+        b->y = i ? 367.f : 345.f;
+        b->scale_x = b->scale_y = .5f;
         b->visible = 1;
         b->insensitive = 0;
         ui_widget *label = ui_widget_child(b, "label");
