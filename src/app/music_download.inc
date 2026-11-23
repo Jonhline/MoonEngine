@@ -18,6 +18,7 @@ static struct {
     int tool_percent;
     double tool_mb;
     char version[32];
+    char font[64];
     int has_playlist;
     SDL_mutex *lock;
     SDL_Thread *worker, *tool_worker;
@@ -360,10 +361,22 @@ static int md_worker(void *unused)
         music_library_sync(app_music_library);
     if (md.last[0])
         md_log("yt-dlp: %s", md.last);
-    if (app_jukebox.library)
+    app_music_ensure(1);
+    if (!app_jukebox.library && app_music_library) {
+        app_jukebox.library = app_music_library;
+        app_jukebox.catalog = music_library_catalog(app_music_library);
+    }
+    if (app_jukebox.library && app_jukebox.catalog >= 0) {
+        const ml_playlist *before = music_library_list(app_jukebox.library, app_jukebox.catalog);
+        int was = before ? (int)before->count : 0;
         mlj_scan(&app_jukebox);
-    else
-        md_log("jukebox: not open yet; its added=N line prints when you enter the Jukebox");
+        const ml_playlist *after = music_library_list(app_jukebox.library, app_jukebox.catalog);
+        int now = after ? (int)after->count : 0;
+        char folder[1300] = "";
+        if (app_video_settings)
+            app_music_folder(app_video_settings->store.path, folder, sizeof folder);
+        md_log("Music: %d tracks added, %d in the library (folder %s)", now - was, now, folder);
+    }
     md_lock(); md.running = 0; md.progress = 1.f; md_unlock();
     return 0;
 }
@@ -374,6 +387,12 @@ void app_music_download_open(void)
         md.lock = SDL_CreateMutex();
     md.active = 1;
     SDL_StartTextInput();
+    md.font[0] = 0;
+    if (app_video_settings && app_video_settings->rows[34]) {
+        ui_widget *label = ui_widget_child(app_video_settings->rows[34], "label");
+        const char *face = label && label->src ? mp_string(label->src, "font") : NULL;
+        if (face) snprintf(md.font, sizeof md.font, "%s", face);
+    }
     const char *prefill = getenv("MOON_DOWNLOAD_URL");
     if (prefill && !md.url[0])
         snprintf(md.url, sizeof md.url, "%s", prefill);
@@ -419,32 +438,47 @@ int music_download_event(plat_key_event *ev)
 void music_download_draw(void)
 {
     if (!md.active) return;
-    const uint8_t black[4] = {0, 0, 0, 220}, panel[4] = {12, 16, 24, 245};
-    const uint8_t white[4] = {245, 245, 245, 255}, dim[4] = {150, 155, 165, 255};
-    const uint8_t bar[4] = {80, 150, 240, 255}, bar_bg[4] = {40, 44, 52, 255};
+    const uint8_t overlay[4] = {0, 0, 0, 160}, panel[4] = {150, 150, 155, 255};
+    const uint8_t title[4] = {60, 58, 56, 255}, black[4] = {20, 20, 22, 255};
+    const uint8_t white[4] = {245, 245, 245, 255}, dim[4] = {90, 90, 95, 255};
+    const uint8_t gold[4] = {180, 160, 110, 255}, track[4] = {105, 105, 110, 255};
+    ui_project *p = app_video_settings && app_video_settings->owner
+                        ? menu_ui(app_video_settings->owner) : NULL;
     plat_video_set_view(640, 480);
-    plat_draw_quad(NULL, 0, 0, 640, 480, 0, 0, 1, 1, black);
-    plat_draw_quad(NULL, 40, 36, 560, 408, 0, 0, 1, 1, panel);
-    if (!wiz_font_init()) return;
-    wiz_text("Download music", 58, 54, .55f, white);
-    wiz_text("URL (song or playlist):", 58, 92, .34f, dim);
-    wiz_text(md.url[0] ? md.url : "", 58, 118, .34f, white);
+    plat_draw_quad(NULL, 0, 0, 640, 480, 0, 0, 1, 1, overlay);
+    plat_draw_quad(NULL, 70, 52, 500, 372, 0, 0, 1, 1, panel);
+    plat_draw_quad(NULL, 70, 52, 500, 30, 0, 0, 1, 1, title);
+#define MDT(x, y, sc, col, str) do { \
+        if (p && md.font[0] && ui_string_height(p, md.font, (sc)) > 0) \
+            ui_draw_string(p, md.font, (x), (y), (sc), 0, (col), (str)); \
+        else { wiz_font_init(); wiz_text((str), (x), (y), (sc) * 1.2f, (col)); } \
+    } while (0)
+    MDT(84, 66, .46f, white, "Download music");
+    MDT(86, 104, .34f, black, "URL");
+    MDT(130, 104, .34f, black, md.url[0] ? md.url : "(paste a song or playlist URL)");
     if (md.running || md.tool_fetching) {
-        float p = md.running ? md.progress : md.tool_progress;
-        plat_draw_quad(NULL, 58, 152, 500, 10, 0, 0, 1, 1, bar_bg);
-        plat_draw_quad(NULL, 58, 152, 500 * p, 10, 0, 0, 1, 1, bar);
-        char s[64];
+        float pr = md.running ? md.progress : md.tool_progress;
+        plat_draw_quad(NULL, 86, 320, 468, 10, 0, 0, 1, 1, track);
+        plat_draw_quad(NULL, 86, 320, 468 * pr, 10, 0, 0, 1, 1, gold);
+        char s[96];
         snprintf(s, sizeof s, "%s %d%%", md.running ? "download" : "tools: fetching yt-dlp",
-                 (int)(p * 100));
-        wiz_text(s, 58, 168, .3f, dim);
+                 (int)(pr * 100));
+        MDT(86, 340, .30f, black, s);
     }
     md_lock();
-    int n = md.count < 12 ? md.count : 12;
+    int n = md.count < 10 ? md.count : 10;
     int first = (md.at - n + MD_LOG_LINES) % MD_LOG_LINES;
     for (int i = 0; i < n; i++) {
         int idx = (first + i) % MD_LOG_LINES;
-        wiz_text(md.line[idx], 58, 198.f + i * 19.f, .28f, white);
+        char show[76];
+        snprintf(show, sizeof show, "%.72s", md.line[idx]);
+        MDT(86, 142 + i * 17, .30f, black, show);
     }
     md_unlock();
-    wiz_text("Enter starts  ·  Esc closes (job keeps running)", 58, 424, .28f, dim);
+    const uint8_t edge[4] = {115, 115, 120, 255}, face[4] = {195, 195, 200, 255};
+    plat_draw_quad(NULL, 392, 372, 140, 26, 0, 0, 1, 1, edge);
+    plat_draw_quad(NULL, 393, 373, 138, 24, 0, 0, 1, 1, face);
+    MDT(400, 386, .34f, black, "Close");
+    MDT(86, 400, .30f, dim, "Enter starts  ·  Esc closes (job keeps running)");
+#undef MDT
 }
