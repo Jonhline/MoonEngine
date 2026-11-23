@@ -1347,7 +1347,32 @@ static const char *hints[] = {
     "Racing line with braking zones on every track and race.",
     "Off is the original six-car race. On adds extra cars in a second conductor; they can win.",
     "Total cars when Phantom Opponents is on, including the player's six-car conductor.",
-    "Soft blends sixteen shadow-map samples. Fast blends four over the same width: much less GPU time, slightly harder edges on the car body."};
+    "Soft blends sixteen shadow-map samples. Fast blends four over the same width: much less GPU time, slightly harder edges on the car body.",
+    "Open the Preview Mode subpage.",
+    "Download songs or playlists from the internet into your Music folder."};
+static int music_download_row(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
+                              ah_val *ret)
+{
+    (void)vm; (void)self; (void)data; (void)argc; (void)argv;
+    app_music_download_open();
+    *ret = ah_int(2);
+    return 0;
+}
+static int music_download_key(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
+                              ah_val *ret)
+{
+    (void)self; (void)data; (void)argc; (void)argv;
+    *ret = ah_int(0);
+    ah_val key;
+    if (argc < 2 || !ah_get_member(vm, argv[1].u.o, "keysym", &key))
+        return 0;
+    if (key.u.i == 13 || key.u.i == 10 || key.u.i == 0xff1b) {
+        if (key.u.i != 0xff1b)
+            app_music_download_open();
+        *ret = ah_int(2);
+    }
+    return 0;
+}
 static int focus(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv, ah_val *ret)
 {
     (void)vm;
@@ -1419,7 +1444,7 @@ static const int tab_rows[VIDEO_TAB_COUNT][16] = {
     /* UI row indices are separate from the launcher API's VS_* enum. */
     {25, 26, 39, 56, -1},
     {7, 10, 14, 15, 13, 9, 16, 37, 38, -1},
-    {34, 35, 36, -1},
+    {34, 58, 35, 36, -1},
     {8, 31, 32, -1},
     {41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, -1}};
 static const char *const page_tiles[VIDEO_TAB_COUNT] = {"", "PcGraphics", "PcLighting",
@@ -2066,6 +2091,9 @@ static int apply(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *ar
 }
 void video_settings_attach(video_settings *s, menu *m)
 {
+#ifdef __ANDROID__
+    fprintf(stderr, "music download: hidden, Android cannot execute a bundled yt-dlp\n");
+#endif
     ui_project *ui = menu_ui(m);
     s->root = s->option_root = -1;
     for (int i = 0; i < ui_root_count(ui); i++) {
@@ -2092,7 +2120,7 @@ void video_settings_attach(video_settings *s, menu *m)
 #ifdef __ANDROID__
     const int rows = 18;
 #else
-    const int rows = 43;
+    const int rows = 44;
 #endif
 #endif
 #ifndef __SWITCH__
@@ -2148,7 +2176,8 @@ void video_settings_attach(video_settings *s, menu *m)
                            "RenderScale",
                            "TextureSmoothing", "TextureFiltering", "CarShadows", "MaterialShading", "ReflectionQuality", "ShadowMaps", "Lighting", "Daylight", "SolarTime", "DaylightCycle", "HDR", "SunRays", "PresetFiles", "SaveTransfer", "AmbientOcclusion",
                            "CustomMusic", "JukeboxFolders", "LibraryGroups", "GraphicsSwapKey",
-                           "ControllerTiles", "CarLamps", "NightSky", "ShadowFilter", "PreviewMode"};
+                           "ControllerTiles", "CarLamps", "NightSky", "ShadowFilter", "PreviewMode",
+                           "DownloadMusic"};
     const char *titles[] = {
         "Aspect Ratio",      "Window Mode",   "Resolution",    "UI Filter",
         "Text Clarity",      "VSync",         "Upscaling",     "Desktop Input",
@@ -2156,7 +2185,8 @@ void video_settings_attach(video_settings *s, menu *m)
         "GPU Reflections",   "Main Menu",     "Smooth Cursor", "Hover Feedback",
         "Compact Car Strip", "Anti-Aliasing", "3D Resolution", "Texture Smoothing", "Texture Filtering", "Car Shadows", "Material Shading", "Reflection Quality", "Shadow Maps", "Realistic Lighting", "Realistic Skybox", "Solar Time", "Sun / Moon Cycle", "HDR", "Sun Rays", "Preset Files", "Save Transfer", "Ambient Occlusion",
         "Custom Music", "Jukebox Folders", "Library Groups", "Graphics Swap Key",
-        "Controller Tiles", "Realistic Car Lamps", "Night Sky", "Shadow Filter", "Preview Mode"};
+        "Controller Tiles", "Realistic Car Lamps", "Night Sky", "Shadow Filter", "Preview Mode",
+        "Download Music"};
     ui_widget *sample = ui_widget_copy(ui, row);
     for (int i = pane->nkids - 1; i >= 0; i--) {
         ui_widget *w = pane->kids[i];
@@ -2198,10 +2228,11 @@ void video_settings_attach(video_settings *s, menu *m)
     const char *presets[] = {"Classic", "Enhanced", "Modified"};
 #endif
     const char *controller_tiles[] = {"Original", "By Player"};
+    const char *one_open[] = {"Open"};
     const char *const *lists[] = {
         ratios, modes,  resolutions, filters, clarity, toggle, upscalers, toggle, presets,  vs_fps,
-        toggle, toggle, toggle,      toggle,  toggle,  toggle, toggle,    vs_aa,  vs_scale, toggle, vs_texture_filtering, vs_car_shadows, vs_material_shading, vs_reflection_quality, vs_shadow_maps, vs_modern_lighting,vs_off_on,vs_hours,vs_cycle,vs_off_on,vs_rays,toggle,toggle,toggle,toggle,toggle,toggle,toggle,controller_tiles,toggle,toggle,vs_shadow_filter,vs_preview_mode};
-    int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, VS_MENU_MODIFIED + 1, 9, 2, 2, 2, 2, 2, 2, 2, 5, 6, 2, 5, 2, 2, 3, 4, 2, 2, 25, 3, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
+        toggle, toggle, toggle,      toggle,  toggle,  toggle, toggle,    vs_aa,  vs_scale, toggle, vs_texture_filtering, vs_car_shadows, vs_material_shading, vs_reflection_quality, vs_shadow_maps, vs_modern_lighting,vs_off_on,vs_hours,vs_cycle,vs_off_on,vs_rays,toggle,toggle,toggle,toggle,toggle,toggle,toggle,controller_tiles,toggle,toggle,vs_shadow_filter,vs_preview_mode,one_open};
+    int counts[] = {2, 2, 7, 3, 5, 2, 5, 2, VS_MENU_MODIFIED + 1, 9, 2, 2, 2, 2, 2, 2, 2, 5, 6, 2, 5, 2, 2, 3, 4, 2, 2, 25, 3, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1};
 #ifdef __SWITCH__
     const char *scene_sizes[]={"Classic","Balanced","Performance"};
     names[7]="SceneResolution"; titles[7]="3D Resolution"; titles[8]="Preset";
@@ -2235,7 +2266,7 @@ void video_settings_attach(video_settings *s, menu *m)
 #endif
     for (int i = 0; i < rows; i++) {
         /* row 41 of the list is Shadow Filter, kept after the Tweaks rows 41..55 */
-        const int at = i < 41 ? i : i == 41 ? 56 : 57;
+        const int at = i < 41 ? i : i == 41 ? 56 : i == 42 ? 57 : 58;
         ui_widget *w = ui_widget_copy(ui, sample);
         w->name = names[i];
 #ifndef __SWITCH__
@@ -2277,6 +2308,11 @@ void video_settings_attach(video_settings *s, menu *m)
 #endif
         menu_native_method(m, choice, "onValueChanged", changed, s);
         menu_native_method(m, choice, "onFocusEnter", focus, s);
+        if (at == 58) {
+            menu_native_method(m, w, "onActivate", music_download_row, s);
+            menu_native_method(m, choice, "onActivate", music_download_row, s);
+            menu_native_method(m, choice, "onKeyPress", music_download_key, s);
+        }
     }
 #ifndef __SWITCH__
     {

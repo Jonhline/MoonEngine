@@ -1676,6 +1676,7 @@ static void wiz_text_center(const char *s, float cx, float y, float sc, const ui
 {
     wiz_text(s, cx - wiz_text_width(s, sc) / 2.f, y, sc, col);
 }
+#include "music_download.inc"
 
 /* The AFK clock: a small piece of the room, not a HUD readout. Same baked
    launcher face as the wizard, with deliberate tracking; the colon breathes
@@ -5468,6 +5469,8 @@ int main(int argc, char **argv)
 #endif
         uint64_t event_start = plat_time_ns();
         while (plat_sdl_poll(&ev)) {
+            if (music_download_active() && music_download_event(&ev))
+                continue;
 #ifdef __ANDROID__
             if (ev.lifecycle) {
                 if (driving == 2 && !race_game_is_paused(game))
@@ -7113,6 +7116,7 @@ int main(int argc, char **argv)
             else
                 draw_pages(mn, &drawn, &skipped);
         }
+        music_download_draw();
         if ((photo_project(proj) || driving == 6 || (driving == 5 && proj == 21)) && !notice_active)
             photo_travel_feedback(presentation_photo);
         { /* P: opt-in filming input, the same shutter path as F5. A real

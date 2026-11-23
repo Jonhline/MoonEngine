@@ -116,4 +116,6 @@ void video_options_realistic_lighting(pc_video_options *v, int enabled);
 int video_settings_preset_import(video_settings *s, const char *path, int draft);
 int video_settings_preset_export(video_settings *s, const char *path, const char *name, int draft);
 int video_settings_preset_dialog(video_settings *s, int exporting, int draft);
+/* R1: Settings -> Music -> Download music popup (implemented in main.c). */
+void app_music_download_open(void);
 #endif
