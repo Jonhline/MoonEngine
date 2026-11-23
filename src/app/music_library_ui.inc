@@ -564,6 +564,45 @@ static void mlj_scan(ml_jukebox *j)
 }
 /* GT Mode -> Jukebox (or a direct slide start): before the page is entered. With no
    local song the page stays exactly the disc's, on its PS2 playlist blobs. */
+static const char *mlj_cell_text(ui_widget *w, char *buf, size_t size)
+{
+    if (!w) return NULL;
+    if (w->text && w->type && !strcmp(w->type, "TextFace")) {
+        snprintf(buf, size, "%s", w->text);
+        return buf;
+    }
+    for (int i = 0; i < w->nkids; i++) {
+        const char *t = mlj_cell_text(w->kids[i], buf, size);
+        if (t) return t;
+    }
+    return NULL;
+}
+static int mlj_track_row(menu *m, int *widget_row)
+{
+    ui_widget *root = menu_jukebox_page_widget(m);
+    ui_widget *list = root ? ui_widget_child(ui_widget_child(root, "List"), "list_box") : NULL;
+    const ml_playlist *cat = music_library_list(app_jukebox.library, app_jukebox.catalog);
+    int at = list ? list->focus_index : -1;
+    if (widget_row) *widget_row = at;
+    if (!list || !cat || at < 0) return -1;
+    int headers = 0;
+    for (int i = 0; i < at && i < list->nkids; i++) {
+        char buf[256];
+        const char *text = mlj_cell_text(list->kids[i], buf, sizeof buf);
+        if (!text) continue;
+        int track = 0;
+        for (int j = 0; j < cat->count && !track; j++) {
+            char title[160];
+            snprintf(title, sizeof title, "%s", cat->tracks[j].title);
+            char *dot = strrchr(title, '.');
+            if (dot && dot != title) *dot = 0;
+            if (!strcmp(title, text)) track = 1;
+        }
+        if (!track) headers++;
+    }
+    int shown = at - headers;
+    return shown >= 0 && shown < ML_TRACKS ? mlj_shown[shown] : -1;
+}
 static const ml_track *mlj_selected(menu *m)
 {
     if (!m || m != app_jukebox.page || menu_active_root(m) < 0) return NULL;
@@ -571,8 +610,8 @@ static const ml_track *mlj_selected(menu *m)
     ui_widget *list = ui_widget_child(ui_widget_child(root, "List"), "list_box");
     const ml_playlist *cat = music_library_list(app_jukebox.library, app_jukebox.catalog);
     int row = list ? list->focus_index : -1;
-    if (!cat || row < 0 || row >= cat->count) return NULL;
-    int idx = row >= 0 && row < cat->count ? mlj_shown[row] : -1;
+    if (!cat || row < 0) return NULL;
+    int idx = mlj_track_row(m, &row);
     if (idx < 0 || idx >= cat->count) return NULL;
     /* group/folder headers are not tracks: their path does not exist on disk */
     if (strncmp(cat->tracks[idx].path, "gt4:", 4) &&
@@ -601,7 +640,7 @@ static int mlj_delete_activate(ah_vm *vm, ah_obj *self, void *data, int argc, co
             printf("jukebox: deleted %s\n", t->path);
             ui_widget *root = menu_jukebox_page_widget(m);
             ui_widget *list = root ? ui_widget_child(ui_widget_child(root, "List"), "list_box") : NULL;
-            int row = list ? list->focus_index : 0, idx = row >= 0 && row < ML_TRACKS ? mlj_shown[row] : -1;
+            int row = list ? list->focus_index : 0, idx = mlj_track_row(m, &row);
             if (idx >= 0) {
                 music_library_remove(app_jukebox.library, app_jukebox.catalog, idx);
                 menu_jukebox_drop_row(m, idx);
@@ -673,7 +712,7 @@ static void mlj_rename_begin(menu *m)
         ui_widget *root = menu_jukebox_page_widget(m);
         ui_widget *list = root ? ui_widget_child(ui_widget_child(root, "List"), "list_box") : NULL;
         mlj_rename.row = list ? list->focus_index : 0;
-        mlj_rename.idx = mlj_rename.row >= 0 && mlj_rename.row < ML_TRACKS ? mlj_shown[mlj_rename.row] : -1;
+        mlj_rename.idx = mlj_track_row(m, &mlj_rename.row);
     }
     snprintf(mlj_rename.old, sizeof mlj_rename.old, "%s", t->path);
     const char *base = strrchr(t->path, '/');
