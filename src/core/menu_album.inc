@@ -941,6 +941,31 @@ static void jukebox_folders_fill(menu *m)
         }
 }
 
+int menu_jukebox_retitle(menu *m, int row, const char *title)
+{
+    if (!m || row < 0 || !title) return 0;
+    ah_val v;
+    if (!ah_get_member(m->vm, game_object(m), "_local_music", &v)) return 0;
+    ah_obj *lib = ah_as_obj(v, AO_ARRAY);
+    if (!lib || row >= ah_array_size(lib)) return 0;
+    ah_obj *item = ah_as_obj(ah_array_get(lib, row), AO_ARRAY);
+    if (!item || ah_array_size(item) < 1) return 0;
+    ah_array_set(item, 0, ah_str(m->vm, title));
+    return 1;
+}
+int menu_jukebox_drop_row(menu *m, int row)
+{
+    if (!m || row < 0) return 0;
+    ah_val v;
+    if (!ah_get_member(m->vm, game_object(m), "_local_music", &v)) return 0;
+    ah_obj *lib = ah_as_obj(v, AO_ARRAY);
+    if (!lib || row >= ah_array_size(lib)) return 0;
+    ah_obj *next = ah_array_new(m->vm);
+    for (int i = 0; i < ah_array_size(lib); i++)
+        if (i != row) ah_array_push(m->vm, next, ah_array_get(lib, i));
+    ah_set_member(m->vm, game_object(m), "_local_music", ah_objv(next));
+    return 1;
+}
 void menu_jukebox_refresh(menu *m)
 {
     if (m) jukebox_folders_fill(m);

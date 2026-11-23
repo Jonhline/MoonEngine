@@ -287,6 +287,8 @@ void menu_jukebox_finish(menu *m);
 int menu_jukebox_folders(menu *m, const int *const ids[2], const int counts[2]);
 ui_widget *menu_jukebox_page_widget(menu *m);
 void menu_jukebox_refresh(menu *m);
+int menu_jukebox_retitle(menu *m, int row, const char *title);
+int menu_jukebox_drop_row(menu *m, int row);
 int menu_jukebox_folder_result(menu *m, int folder, int *ids, int capacity);
 /* P: the Library's rows in this order (main::default_library_playlist). */
 int menu_jukebox_library_order(menu *m, const int *order, int count);

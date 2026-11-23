@@ -602,7 +602,10 @@ static int mlj_delete_activate(ah_vm *vm, ah_obj *self, void *data, int argc, co
             ui_widget *root = menu_jukebox_page_widget(m);
             ui_widget *list = root ? ui_widget_child(ui_widget_child(root, "List"), "list_box") : NULL;
             int row = list ? list->focus_index : 0, idx = row >= 0 && row < ML_TRACKS ? mlj_shown[row] : -1;
-            if (idx >= 0) music_library_remove(app_jukebox.library, app_jukebox.catalog, idx);
+            if (idx >= 0) {
+                music_library_remove(app_jukebox.library, app_jukebox.catalog, idx);
+                menu_jukebox_drop_row(m, idx);
+            }
             mlj_refresh(m, row > 0 ? row - 1 : 0);
         } else
             mlj_log("jukebox: could not delete %s", t->path);
@@ -698,7 +701,10 @@ static void mlj_rename_commit(void)
             music_library_remove(app_jukebox.library, app_jukebox.catalog, mlj_rename.idx);
             music_library_add(app_jukebox.library, app_jukebox.catalog, next, mlj_rename.name);
         }
-        if (mlj_rename.owner) mlj_refresh(mlj_rename.owner, mlj_rename.row);
+        if (mlj_rename.owner) {
+            mlj_refresh(mlj_rename.owner, mlj_rename.row);
+            menu_jukebox_retitle(mlj_rename.owner, mlj_rename.idx, mlj_rename.name);
+        }
         mlj_rename.active = 0;
         SDL_StopTextInput();
     } else {
