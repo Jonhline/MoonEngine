@@ -890,6 +890,7 @@ void mlj_jukebox_rename_now(void)
 {
     if (app_jukebox.page) mlj_rename_begin(app_jukebox.page);
 }
+int mlj_jukebox_page_active(void) { return app_jukebox.page != NULL; }
 static void mlj_tip_shortcuts(menu *m)
 {
     ui_widget *root = menu_jukebox_page_widget(m);

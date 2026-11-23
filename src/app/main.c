@@ -5568,8 +5568,7 @@ int main(int argc, char **argv)
 #endif
         uint64_t event_start = plat_time_ns();
         while (plat_sdl_poll(&ev)) {
-            if (mn && ev.key && menu_active_root(mn) >= 0 &&
-                !strcmp(ui_root_name(menu_ui(mn), menu_active_root(mn)), "MusicRoot")) {
+            if (mn && ev.key && mlj_jukebox_page_active()) {
                 if ((SDL_GetModState() & KMOD_CTRL) && (ev.key == 'r' || ev.key == 'R')) {
                     mlj_jukebox_rename_now();
                     continue;
