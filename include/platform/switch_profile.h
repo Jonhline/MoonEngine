@@ -3,6 +3,15 @@
 #define MOON_SWITCH_PROFILE_H
 #include <stdint.h>
 
+/* Synchronous loading breadcrumbs: survive an abrupt GPU/process failure.
+   Kept outside the per-frame profiler queue deliberately. */
+#ifdef __SWITCH__
+void swp_checkpoint(const char *stage);
+#define SWP_CHECKPOINT(stage) swp_checkpoint(stage)
+#else
+#define SWP_CHECKPOINT(stage) ((void)0)
+#endif
+
 enum swp_stage {
     SWP_PHYSICS,
     SWP_SCENE,

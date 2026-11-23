@@ -50,6 +50,11 @@
 #include "vol.h"
 #include "platform/platform.h"
 #include "replay_file.h"
+/* Match the Arcade callback type on strict cross compilers. */
+static int arcade_ratings(void *context, const uint64_t *keys, int n, float *out)
+{
+    return gt4_car_ratings_get(context, keys, n, out);
+}
 #include "disc_replay.h"
 #include "disc_checkpoint.h"
 #include "race_split_layout.h"
@@ -167,6 +172,7 @@ struct race_game {
     float license_origin[4], license_people[3][4];
     unsigned license_camera_cycle;
     race_pause *pause; /* the pause menu while the race is held */
+    race_pause *pause_ready; /* resident resources, inactive between openings */
     int quit;          /* the pause menu chose to leave */
     int replay_back_held;
     SDL_JoystickID pad_id;
@@ -351,7 +357,7 @@ static void custom_thunder(unsigned serial)
     {
         static const char *const names[] = {"thunder1.wav", "thunder2.wav", "thunder3.wav",
                                             "thunder.wav"};
-        const int count = (int)(sizeof names / sizeof names[0]);
+        enum { count = (int)(sizeof names / sizeof names[0]) };
         char present[count][1200];
         int have = 0;
         for (int i = 0; i < count; i++) {
@@ -1217,6 +1223,8 @@ void race_game_stop(race_game *g)
     race_result_close(g->result);
     race_pause_close(g->pause);
     g->pause = NULL;
+    race_pause_close(g->pause_ready);
+    g->pause_ready = NULL;
     g->quit = 0;
     g->result = NULL;
     for (int i = 0; i < 3; i++) {
@@ -1469,7 +1477,7 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
             gt4_car_ratings *ratings = gt4_car_ratings_open(g->disc);
             gt4_arcade_enemy picked[MOON_MAX_PHANTOMS];
             if (arc && ratings && pool) {
-                got = gt4_arcade_pick_enemies(arc, gt4_car_ratings_get, ratings, car, pool,
+                got = gt4_arcade_pick_enemies(arc, arcade_ratings, ratings, car, pool,
                                               npool, pick_offset, pick_range, phantom_n, 0,
                                               picked);
                 if (got < phantom_n) {
@@ -1477,7 +1485,7 @@ static int race_game_start_impl(race_game *g, const char *course, const char *ca
                             "race: rated phantom pool supplied %d of %d at offset %.3f range "
                             "%.3f; widening to the nearest ratings\n",
                             got, phantom_n, pick_offset, pick_range);
-                    got = gt4_arcade_pick_enemies(arc, gt4_car_ratings_get, ratings, car, pool,
+                    got = gt4_arcade_pick_enemies(arc, arcade_ratings, ratings, car, pool,
                                                   npool, 0.f, 1.f, phantom_n, 0, picked);
                 }
             } else
@@ -1978,6 +1986,7 @@ static void start_smoke(race_game *g)
 }
 
 static int prepare_hud(race_game *g);
+static int prepare_pause(race_game *g);
 
 int race_game_poll(race_game *g)
 {
@@ -1988,9 +1997,14 @@ int race_game_poll(race_game *g)
     if (r == 0)
         return 0;
     if (r > 0) {
+        if (!g->hud_preparing)
+            SWP_CHECKPOINT("race GPU assets ready; prepare HUD/pause");
         g->hud_preparing = 1;
         if (!prepare_hud(g))
             return 0; /* One font/upload batch per loading frame, before reveal. */
+        if (!prepare_pause(g))
+            return 0;
+        SWP_CHECKPOINT("race HUD/pause ready");
         g->hud_preparing = 0;
     }
     g->loading = 0;
@@ -2072,6 +2086,7 @@ int race_game_poll(race_game *g)
         g->license_menu_distance = GT4_F32(gt4_race_run_car(g->run, 0) + 0x5a8);
     }
     start_smoke(g);
+    SWP_CHECKPOINT("race ready");
     return 1;
 }
 
@@ -3013,17 +3028,19 @@ static void split_camera_audio_update(race_game *g)
     g->start_cam_on = g->tv_on = 0;
     race_view_set_camera(g->view, g->split_eye[0], g->split_rows[0], g->split_projection[0][0],
                          g->split_projection[0][1], g->split_projection[0][2]);
-    /* A: shared audio mix retains player 1's listener; no second music. */
+    /* Original 003B5F44..D8 selects the human entry's viewport. */
     if (!g->audio)
         g->audio = race_audio_open_replay(g->disc, g->run, race_view_course(g->view), 0);
     if (g->audio)
         for (int i = 0; i < gt4_race_run_cars(g->run); i++)
             race_audio_set_exhaust_count(g->audio, (unsigned)i,
                                          race_view_exhaust_count(g->view, i));
-    if (g->audio)
-        race_audio_update(g->audio, g->run, g->split_eye[0], g->split_rows[0], g->camera,
-                          g->bgm_enabled && !g->music_muted ? g->bgm_volume : -1,
-                          g->se_volume);
+    if (g->audio) {
+        const int views[2] = {g->camera, g->camera_2p};
+        race_audio_update_split(g->audio, g->run, g->split_eye, g->split_rows, views,
+                                g->bgm_enabled && !g->music_muted ? g->bgm_volume : -1,
+                                g->se_volume);
+    }
 }
 static void race_camera_audio_update(race_game *g, double dt)
 {

@@ -48,10 +48,10 @@ typedef struct {
     menu *owner;
     ui_widget *page, *choices[64];
     ui_widget *field_size_row, *field_size_label, *field_size_warn[4];
+    int tweaks_open; /* also read by the shared launcher on Switch */
 #ifndef __SWITCH__
     ui_widget *rows[64], *tabs[8];
     int active_tab;
-    int tweaks_open;
     int scroll_focus_row; /* last row the pad focused, -1 after a tab change */
 #endif
     char path[1024], message[128];

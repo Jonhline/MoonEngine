@@ -866,8 +866,9 @@ static void custom_modes_attach(menu *m)
     if (template_common)
         template_common->visible = 1;
     ui_widget *event_root = ui_root_widget(ui, event);
+    const char *hall_bgm = mp_string(event_root ? event_root->src : NULL, "bgm");
     snprintf(custom_modes_hall_bgm, sizeof custom_modes_hall_bgm, "%s",
-             mp_string(event_root ? event_root->src : NULL, "bgm") ?: "HALL");
+             hall_bgm ? hall_bgm : "HALL");
     ui_load_package(ui, "/projects/gtmode", "EventHallRoot");
     ui_load_package(ui, "/projects/gtmode", "BeginnerHall");
     ui_widget *page_copy = event_root ? ui_widget_copy(ui, event_root) : NULL;

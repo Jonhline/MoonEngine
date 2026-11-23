@@ -7,6 +7,19 @@ static void pause_sound(void *user, const char *name)
     race_game *g = user;
     race_audio_menu_sound(g->audio, name, g->se_volume);
 }
+static int prepare_pause(race_game *g)
+{
+    if (g->replaying) return 1;
+    if (!g->pause_ready) {
+        int confirm = !g->split && g->last_prepared && g->last_desc.event_row && !g->last_desc.license;
+        g->pause_ready = race_pause_open(g->vol,
+            g->split || (g->last_prepared && license_exam(g)), !g->split,
+            confirm, NULL, NULL);
+        /* An unavailable asset must not keep the loading screen forever. */
+        if (!g->pause_ready) return 1;
+    }
+    return race_pause_prepare(g->pause_ready);
+}
 static void pause_toggle(race_game *g)
 {
     if (g->replaying) {
@@ -14,7 +27,7 @@ static void pause_toggle(race_game *g)
         return;
     } /* the replay: its own hold */
     if (g->pause) {
-        race_pause_close(g->pause);
+        g->pause_ready = g->pause;
         g->pause = NULL;
         race_audio_pause(g->audio, 0);
         return;
@@ -32,8 +45,16 @@ static void pause_toggle(race_game *g)
        Exit asks to confirm. */
     int confirm =
         (!g->split && g->last_prepared && g->last_desc.event_row && !g->last_desc.license);
-    g->pause = race_pause_open(g->vol, g->split || (g->last_prepared && license_exam(g)), !g->split,
-                               confirm, pause_sound, g);
+    if (g->pause_ready) {
+        g->pause = g->pause_ready;
+        g->pause_ready = NULL;
+        if (!race_pause_restart(g->pause, pause_sound, g)) {
+            race_pause_close(g->pause);
+            g->pause = NULL;
+        }
+    } else
+        g->pause = race_pause_open(g->vol, g->split || (g->last_prepared && license_exam(g)), !g->split,
+                                   confirm, pause_sound, g);
     if (g->pause) {
         race_audio_pause(g->audio, 1); /* 0038B428: the world's vt+0x2D0 */
         plat_input_set_ffb(0, 0);

@@ -1,8 +1,10 @@
 #ifndef MOON_LAUNCHER_UPDATE_H
 #define MOON_LAUNCHER_UPDATE_H
 #include <stdint.h>
+/* MOON_VERSION from the CMake cache (tools/configure_update.py -> generated/) */
+#include "launcher_release.h"
 #ifndef MOON_VERSION
-#define MOON_VERSION "0.2.0"
+#define MOON_VERSION "0.4.0"
 #endif
 typedef struct {
     char version[32], setup[160], sha256[65], notes[2048];

@@ -5,6 +5,16 @@
 #ifdef __SWITCH__
 #include <switch.h>
 #include <stdatomic.h>
+
+void swp_checkpoint(const char *stage)
+{
+    uint64_t used = 0, total = 0;
+    Result a = svcGetInfo(&used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0);
+    Result b = svcGetInfo(&total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0);
+    fprintf(stderr, "Switch checkpoint: %s used=%llu total=%llu memory_status=%08x/%08x\n",
+            stage, (unsigned long long)used, (unsigned long long)total, a, b);
+    fflush(stderr);
+}
 typedef atomic_uint_fast64_t counter;
 #define ADD(p, n) atomic_fetch_add_explicit(p, n, memory_order_relaxed)
 #define TAKE(p) atomic_exchange_explicit(p, 0, memory_order_relaxed)

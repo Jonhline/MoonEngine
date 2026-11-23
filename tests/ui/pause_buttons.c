@@ -34,7 +34,18 @@ int main(int argc, char **argv)
             game.vol = vol;
             game.split = port;
             game.finished = -1;
-            game.pause = race_pause_open(vol, 0, 1, 0, NULL, NULL);
+            int prepared = 0;
+            for (int i=0;i<80 && !prepared;i++) prepared=prepare_pause(&game);
+            CHECK(prepared && game.pause_ready);
+            race_pause *resident=game.pause_ready;
+            for (int visit=0;visit<3;visit++) {
+                pause_toggle(&game);
+                CHECK(game.pause==resident && !game.pause_ready);
+                CHECK(race_pause_state(game.pause)==RACE_PAUSE_OPEN);
+                pause_toggle(&game);
+                CHECK(!game.pause && game.pause_ready==resident);
+            }
+            pause_toggle(&game);
             CHECK(game.pause);
             for (int tick = 0; tick < 120; tick++)
                 race_pause_update(game.pause, 1.0 / 60);

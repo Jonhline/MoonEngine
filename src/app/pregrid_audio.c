@@ -4,6 +4,7 @@
 #include "music_override.h"
 #include "pcm_music.h"
 #include "platform/platform.h"
+#include "platform/switch_profile.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,6 +42,7 @@ static void render(int16_t *out, int frames, void *user)
 }
 static int prepare(void *user)
 {
+    SWP_CHECKPOINT("pregrid PCM worker begin");
     pregrid_audio *p = user;
     const char *error = NULL;
     gt4_vol *v = gt4_vol_open(p->disc, &error);
@@ -56,6 +58,7 @@ static int prepare(void *user)
         if (count)
             p->pcm = gt4_pcm_music_open(v, p->worker_group, sequence);
     }
+    SWP_CHECKPOINT("pregrid PCM decoded");
     p->sequence = sequence;
     snprintf(p->loaded_group, sizeof p->loaded_group, "%s", p->worker_group);
     gt4_pcm_music_once(p->pcm, !p->worker_repeat);
@@ -64,6 +67,7 @@ static int prepare(void *user)
     if (!p->pcm)
         fprintf(stderr, "music: cannot decode PCM/%s\n", p->worker_group);
     SDL_AtomicSet(&p->ready, 1);
+    SWP_CHECKPOINT("pregrid PCM worker ready");
     return 0;
 }
 pregrid_audio *pregrid_audio_create(const char *disc)

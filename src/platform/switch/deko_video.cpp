@@ -668,6 +668,33 @@ plat_texture *video_capture_frame(plat_texture *t)
 {
     return video_grab(t, 0, 0, view_w, view_h);
 }
+void video_scene_target_size(int *width, int *height)
+{
+    if (width) *width = scene ? (int)scene->width : 0;
+    if (height) *height = scene ? (int)scene->height : 0;
+}
+uint8_t *video_grab_pixels(const plat_texture *t, int *w, int *h, int *screen)
+{
+    if (!t || !t->image) return nullptr;
+    *w = t->image->width; *h = t->image->height;
+    *screen = t->screen_capture;
+    auto *pixels = (uint8_t *)std::malloc((size_t)*w * *h * 4);
+    if (pixels && !video_read_texture(t, pixels)) {
+        std::free(pixels); pixels = nullptr;
+    }
+    return pixels;
+}
+plat_texture *video_grab_restore(int w, int h, const uint8_t *rgba, int screen)
+{
+    if (!rgba || w <= 0 || h <= 0) return nullptr;
+    /* The shared cache stores GL-style bottom-up rows. Deko uploads top-down. */
+    std::vector<uint8_t> pixels((size_t)w * h * 4);
+    for (int y=0;y<h;y++)
+        std::memcpy(pixels.data()+(size_t)y*w*4,rgba+(size_t)(h-1-y)*w*4,(size_t)w*4);
+    plat_texture *t=plat_texture_create(w,h,pixels.data());
+    if (t) { t->screen_capture=screen != 0; t->gpu_capture=true; }
+    return t;
+}
 unsigned char *plat_sdl_read_pixels(int *w, int *h)
 {
     video_flush2d();

@@ -271,8 +271,8 @@ void gt4_car_sound_frame_build(gt4_car_sound_frame *frame, gt4_car_sound_state *
         gt4_car_sound_state_reset(state);
         out->restart = 1;
     }
-    /* A: the second viewport's camera switch (+0xC4..+0x158, cam+0x9B8
-       of 2 or more) is for split screen only. */
+    /* 003B5F44..D8: Battle2P selects the human entry's viewport before
+       building this frame. The host supplies that listener explicitly. */
     uint32_t car = GT4_U32(entry + 0x18), s4 = car + 0x104;
     float one = K(0x3f800000), f22 = one;
     float x = place(car, 0, 0), y = place(car, 1, 0), z = place(car, 2, 0);

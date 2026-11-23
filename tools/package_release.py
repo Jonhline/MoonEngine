@@ -2,12 +2,16 @@
 """Build the Windows release folder and zip from a release build.
 
 Usage:
-  cmake -S . -B build-release -G "Visual Studio 17 2022" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DSDL_FORCE_STATIC_VCRT=ON
+  cmake -S . -B build-release -G "Visual Studio 17 2022" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DSDL_FORCE_STATIC_VCRT=ON -DMOON_DEV_BUILD=OFF
   cmake --build build-release --config Release --target moonengine
   python tools/package_release.py VERSION --icons PATH
 
 The exe must link libav (MOON_LINKED_MOVIES, from tools/build_libav_msvc.cmd): the movies
 and the player's music decode inside it, so no ffmpeg.exe ships or is looked for.
+
+MOON_DEV_BUILD=OFF is the stable build: no developer keys or overlay, and it checks
+the GitHub releases for a newer MoonEngine-X.Y.Z-win64.zip (src/app/app_update.c).
+Upload this zip to the release as is: the updater looks for that exact name and its digest.
 
 The release holds no game data: the player supplies their own disc image.
 Output: dist/MoonEngine-VERSION-win64/ and dist/MoonEngine-VERSION-win64.zip

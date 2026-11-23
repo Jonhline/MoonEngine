@@ -1,7 +1,16 @@
 cmake_minimum_required(VERSION 3.20)
 project(moonengine LANGUAGES C CXX)
 
-set(MOON_VERSION "0.2.0" CACHE STRING "Release version (X.Y.Z)")
+set(MOON_VERSION "0.4.0" CACHE STRING "Release version (X.Y.Z)")
+# Dev build (default, what we work on): the developer keys (PgUp/PgDn projects,
+# F1/F2 menu roots) and the F4 debug overlay. Stable (OFF): what players get,
+# none of those, and the GitHub release check (src/app/app_update.c).
+option(MOON_DEV_BUILD "Developer build: debug keys and overlay; no release check" ON)
+if(MOON_DEV_BUILD)
+  add_compile_definitions(MOON_DEV_BUILD=1)
+else()
+  add_compile_definitions(MOON_DEV_BUILD=0)
+endif()
 set(MOON_UPDATE_CONFIG "$ENV{APPDATA}/MoonEngine/publish.ini" CACHE FILEPATH "External private update configuration")
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
@@ -239,6 +248,12 @@ add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/fsr_source.c
           -P ${CMAKE_SOURCE_DIR}/third_party/fsr1/embed.cmake
   DEPENDS ${CMAKE_SOURCE_DIR}/third_party/fsr1/ffx_a.h ${CMAKE_SOURCE_DIR}/third_party/fsr1/ffx_fsr1.h
           ${CMAKE_SOURCE_DIR}/third_party/fsr1/embed.cmake)
+# The Moon Engine logo (project art, res/logo_*.png) embedded for the title corners
+add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/moon_logo.c
+  COMMAND ${CMAKE_COMMAND} -DOUT=${CMAKE_BINARY_DIR}/moon_logo.c -DDIR=${CMAKE_SOURCE_DIR}/res
+          -P ${CMAKE_SOURCE_DIR}/cmake/embed_logo.cmake
+  DEPENDS ${CMAKE_SOURCE_DIR}/res/logo_black.png ${CMAKE_SOURCE_DIR}/res/logo_white.png
+          ${CMAKE_SOURCE_DIR}/cmake/embed_logo.cmake)
 if(NINTENDO_SWITCH OR ANDROID)
   set(MOON_FSR_SOURCES src/platform/sdl/fsr_disabled.c)
 else()
@@ -369,7 +384,8 @@ if(ANDROID)
 else()
   add_executable(moonengine)
 endif()
-target_sources(moonengine PRIVATE src/app/music_library.c src/app/main.c ${MOON_LAUNCHER_SOURCES} src/app/photo_travel.c src/app/pregrid_audio.c src/app/race_audio.c src/app/loading_screen.c src/app/video_settings.c src/app/desktop_input.c src/app/options_store.c src/app/save_ui.c src/app/save_package.c src/app/race_game.c src/app/discord_presence.c)
+target_sources(moonengine PRIVATE src/app/music_library.c src/app/main.c ${MOON_LAUNCHER_SOURCES} src/app/photo_travel.c src/app/pregrid_audio.c src/app/race_audio.c src/app/loading_screen.c src/app/video_settings.c src/app/desktop_input.c src/app/options_store.c src/app/save_ui.c src/app/save_package.c src/app/race_game.c src/app/discord_presence.c
+  src/app/brand_logo.c ${CMAKE_BINARY_DIR}/moon_logo.c src/app/app_update.c)
 set_target_properties(moonengine PROPERTIES OUTPUT_NAME MoonEngine)   # MoonEngine.exe
 target_link_libraries(moonengine PRIVATE moon_race_sound moon_career_vehicle ${MOON_SDL_STACK} moon_physics miniz SDL2::SDL2main)
 if(WIN32)
@@ -708,6 +724,16 @@ target_include_directories(launcher_update_tests PRIVATE src/app)
 if(WIN32)
   target_link_libraries(launcher_update_tests PRIVATE winhttp bcrypt)
 endif()
+add_executable(app_update_tests tests/ui/app_update_parse.c src/app/app_update.c)
+target_include_directories(app_update_tests PRIVATE src/app)
+target_link_libraries(app_update_tests PRIVATE miniz)
+target_compile_definitions(app_update_tests PRIVATE MOON_UPDATE_FORCE)
+if(WIN32)
+  target_link_libraries(app_update_tests PRIVATE winhttp bcrypt)
+endif()
+add_test(NAME app_update_parse COMMAND app_update_tests)
+add_test(NAME app_update_parse_negative COMMAND app_update_tests --negative)
+set_tests_properties(app_update_parse_negative PROPERTIES WILL_FAIL TRUE)
 add_test(NAME launcher_update COMMAND launcher_update_tests)
 add_test(NAME launcher_update_negative COMMAND launcher_update_tests --negative)
 set_tests_properties(launcher_update_negative PROPERTIES WILL_FAIL TRUE)
@@ -1623,6 +1649,23 @@ target_link_libraries(race_audio_probe PRIVATE moon_race_sound moon_physics ${MO
 add_executable(race_engine_bank_capture tests/ui/race_engine_bank_capture.c)
 target_link_libraries(race_engine_bank_capture PRIVATE moon_race_sound ${MOON_CORE_STACK})
 add_executable(race_audio_clock tests/ui/race_audio_clock.c src/app/video_settings.c src/app/options_store.c src/app/desktop_input.c src/app/discord_presence.c)
+add_executable(split_audio tests/ui/split_audio.c src/app/video_settings.c src/app/options_store.c src/app/desktop_input.c src/app/discord_presence.c)
+target_include_directories(split_audio PRIVATE src/app)
+target_link_libraries(split_audio PRIVATE moon_race_sound moon_physics ${MOON_SDL_STACK} moon_replay_state miniz SDL2::SDL2main)
+add_executable(pause_resident tests/ui/pause_resident.c)
+target_link_libraries(pause_resident PRIVATE ${MOON_SDL_STACK} miniz SDL2::SDL2main)
+if(MOON_TEST_DISC)
+  add_test(NAME split_audio COMMAND split_audio "${MOON_TEST_DISC}")
+  add_test(NAME split_audio_negative COMMAND split_audio "${MOON_TEST_DISC}" --negative)
+  set_tests_properties(split_audio_negative PROPERTIES WILL_FAIL TRUE)
+  foreach(api opengl vulkan)
+    add_test(NAME pause_resident_${api} COMMAND pause_resident "${MOON_TEST_DISC}")
+    add_test(NAME pause_resident_${api}_negative COMMAND pause_resident "${MOON_TEST_DISC}" --negative)
+    set_tests_properties(pause_resident_${api}_negative PROPERTIES WILL_FAIL TRUE ENVIRONMENT "MOON_GRAPHICS_API=${api};SDL_AUDIODRIVER=dummy;MOON_WINDOW_HIDDEN=1")
+    set_tests_properties(pause_resident_${api} PROPERTIES ENVIRONMENT "MOON_GRAPHICS_API=${api};SDL_AUDIODRIVER=dummy;MOON_WINDOW_HIDDEN=1")
+  endforeach()
+  set_tests_properties(split_audio split_audio_negative PROPERTIES ENVIRONMENT "SDL_AUDIODRIVER=dummy;MOON_WINDOW_HIDDEN=1")
+endif()
 target_include_directories(race_audio_clock PRIVATE src/app)
 target_link_libraries(race_audio_clock PRIVATE moon_race_sound moon_physics ${MOON_SDL_STACK} moon_replay_state miniz SDL2::SDL2main)
 add_executable(pit_scene_capture tests/ui/pit_scene_capture.c src/app/race_audio.c src/app/video_settings.c src/app/options_store.c src/app/desktop_input.c src/app/discord_presence.c)
