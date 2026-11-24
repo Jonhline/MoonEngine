@@ -4121,7 +4121,8 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                         if (st == 3) upd_fill = 1.f;
                         else upd_fill += (target - upd_fill) * .18f;
                         char left[64], right[16];
-                        snprintf(left, sizeof left, st == 3 ? "%s" : "Downloading %s", ver);
+                        if (st == 3) snprintf(left, sizeof left, "%s installed - 100%%", ver);
+                        else snprintf(left, sizeof left, "Downloading %d%%", pct);
                         snprintf(right, sizeof right, "%d%%", pct);
                         float sy = st == 2 ? cy - h/2 + 22 : cy - 14;
                         dock_text(&dock, left, cx - w/2 + 24, sy, .62f, 0, ink);
