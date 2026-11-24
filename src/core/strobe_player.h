@@ -57,6 +57,10 @@ typedef struct {
 strb_player *strb_open(gt4_vol *vol, const char *path, const gt4_rtext *rt, const char *page,
                        const strb_host *host);
 void strb_close(strb_player *p);
+/* Loading-phase font upload, one font per call. No movie clock advance. */
+int strb_prepare(strb_player *p);
+/* Fresh script/navigation state, retaining immutable movie, fonts and textures. */
+int strb_restart(strb_player *p);
 /* Runs the movie for dt seconds at its own rate */
 void strb_tick(strb_player *p, double dt);
 /* The confirm button: the buttons on screen run their press actions */

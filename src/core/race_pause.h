@@ -22,6 +22,9 @@ race_pause *race_pause_open(gt4_vol *vol, int retry, int screen, int confirm,
 race_pause *race_pause_open_display(gt4_vol *vol, int retry, int screen, int confirm,
                                     race_pause_sound sound, void *user, int replay);
 void race_pause_close(race_pause *p);
+/* Incremental loading-phase preparation. Keeps the movie clock at its start. */
+int race_pause_prepare(race_pause *p);
+int race_pause_restart(race_pause *p, race_pause_sound sound, void *user);
 /* a key going down, as Flash's Key codes (37..40 the arrows, 13 enter) */
 void race_pause_key(race_pause *p, int code);
 void race_pause_update(race_pause *p, double dt);

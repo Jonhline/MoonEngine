@@ -55,6 +55,8 @@
 #include "../platform/common/moon_dirent.h"
 #include "font_layout.h"
 #include "launcher_update.h"
+#include "brand_logo.h"
+#include "app_update.h"
 #include "mod_manifest.h"
 #ifdef _WIN32
 #include <windows.h>
@@ -67,8 +69,8 @@
 #endif
 #ifndef __SWITCH__
 #include "renderer_startup.h"
-#include "platform/renderer_backend.h"
 #endif
+#include "platform/renderer_backend.h"
 #include "save_ui.h"
 #include "discord_presence.h"
 #include "save.h"
@@ -540,10 +542,21 @@ static void studio_info_draw(const studio_dock *d)
                       shade[4][4] = {{0, 0, 0, top}, {0, 0, 0, top}, {0, 0, 0, 0}, {0, 0, 0, 0}};
         plat_draw_quad4(NULL, 0, 0, w, 165.f * S, 0, 0, 1, 1, shade);
     }
-    /* placeholder wordmark until the artist's logo exists */
-    dock_text(d, "MOON ENGINE", pad, pad + 22.f * S, 1.9f, 0, ink);
-    dock_text(d, "v" MOON_VERSION "   (logo placeholder)", pad + 1.f * S, pad + 36.f * S, .7f, 0,
-              soft);
+    { /* the logo (project art), the version beside its foot */
+        int lw = 0, lh = 0;
+        plat_texture *logo = brand_logo_texture(STUDIO_LIGHT_INK, &lw, &lh);
+        const float h = 46.f * S, lwf = lh > 0 ? h * lw / lh : 0;
+        static const uint8_t white[4] = {255, 255, 255, 255};
+        if (logo)
+            plat_draw_quad(logo, pad, pad - 6.f * S, lwf, h, 0, 0, 1, 1, white);
+        else
+            dock_text(d, "MOON ENGINE", pad, pad + 22.f * S, 1.9f, 0, ink);
+        dock_text(d, MOON_VERSION_LABEL, pad + (logo ? lwf + 6.f * S : 1.f * S),
+                  pad + (logo ? 38.f : 36.f) * S, .7f, 0, soft);
+        const char *update = app_update_status();
+        if (update)
+            dock_text(d, update, pad + 1.f * S, pad + 50.f * S, .62f, 0, soft);
+    }
     /* status, right-aligned; the disc first, with its light */
     float y = pad + 12.f * S, right = w - pad;
     const uint8_t lamp[4] = {studio_status.disc_ok ? 40 : 205, studio_status.disc_ok ? 170 : 50,
@@ -2475,9 +2488,18 @@ static int first_run_wizard(launcher_preferences *prefs)
                              warn[4] = {200, 70, 70, 255}, good[4] = {40, 150, 80, 255};
         const uint8_t *ink = wiz_dark ? ink_d : ink_l, *soft = wiz_dark ? soft_d : soft_l;
         /* the corner marks, as on the home screen */
-        wiz_text("MOON ENGINE", 16.f * S, 38.f * S, .9f * S / 1.5f, ink);
-        wiz_text("v" MOON_VERSION "   (logo placeholder)", 17.f * S, 52.f * S, .36f * S / 1.5f,
-                 soft);
+        {
+            int lw = 0, lh = 0;
+            plat_texture *logo = brand_logo_texture(wiz_dark, &lw, &lh);
+            const float h = 44.f * S, lwf = lh > 0 ? h * lw / lh : 0;
+            static const uint8_t white[4] = {255, 255, 255, 255};
+            if (logo)
+                plat_draw_quad(logo, 16.f * S, 12.f * S, lwf, h, 0, 0, 1, 1, white);
+            else
+                wiz_text("MOON ENGINE", 16.f * S, 38.f * S, .9f * S / 1.5f, ink);
+            wiz_text(MOON_VERSION_LABEL, logo ? 16.f * S + lwf + 6.f * S : 17.f * S,
+                     logo ? 54.f * S : 52.f * S, .36f * S / 1.5f, soft);
+        }
         {
             const char *line = valid ? "Gran Turismo 4 disc ready (SCUS-97328)" : "No disc chosen";
             float sc = .42f * S / 1.5f, w = wiz_text_width(line, sc), x = fw - 16.f * S - w;
@@ -4269,11 +4291,13 @@ static double bench_cpu_seconds(void)
     u.LowPart = user.dwLowDateTime;
     u.HighPart = user.dwHighDateTime;
     return (double)(k.QuadPart + u.QuadPart) * 1e-7;
-#else
+#elif defined(CLOCK_PROCESS_CPUTIME_ID)
     struct timespec ts;
     if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts) != 0)
         return 0;
     return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+#else /* Switch (newlib): no process clock id */
+    return (double)clock() / CLOCKS_PER_SEC;
 #endif
 }
 
@@ -4427,6 +4451,9 @@ int main(int argc, char **argv)
         discord_enabled,
         moon_options_get(&settings.store, "integrations.discord_app_id",
                          "1562846084085194752"));
+    /* stable builds: the GitHub release check (app_update.c); the swap happens at quit */
+    app_update_start(moon_options_int(&settings.store, "updates.auto", 1, 0, 1));
+    atexit(app_update_finish);
     char music_folder[1100];
     if (app_music_folder(settings.store.path, music_folder, sizeof music_folder))
         fprintf(stderr, "music: folder=%s\n", music_folder);
@@ -4790,6 +4817,19 @@ int main(int argc, char **argv)
         return 1;
     }
     moon_debug_overlay_init(); /* F4 / volume chord; off until toggled */
+#if !defined(_WIN32) && !defined(__SWITCH__) && !defined(__ANDROID__)
+    { /* the window's icon: Windows has it from moonengine.rc */
+        int iw = 0, ih = 0;
+        const uint8_t *icon = brand_icon_rgba(&iw, &ih);
+        SDL_Surface *s = icon ? SDL_CreateRGBSurfaceWithFormatFrom((void *)icon, iw, ih, 32, iw * 4,
+                                                                   SDL_PIXELFORMAT_ABGR8888)
+                              : NULL;
+        if (s && plat_sdl_window())
+            SDL_SetWindowIcon(plat_sdl_window(), s);
+        if (s)
+            SDL_FreeSurface(s);
+    }
+#endif
 #ifdef __SWITCH__
     video_switch_scene_resolution(settings.current.scene_resolution);
 #endif
@@ -5889,11 +5929,12 @@ int main(int argc, char **argv)
                 if (ev.ps2key)
                     menu_send_key(mn, ev.ps2key, ev.release);
             }
-            if (p && (ev.key == SDLK_F1 || ev.key == SDLK_F2)) {
+            /* developer keys: menu roots (F1/F2), projects (PgUp/PgDn); dev builds only */
+            if (MOON_DEV_BUILD && p && (ev.key == SDLK_F1 || ev.key == SDLK_F2)) {
                 root = (root + (ev.key == SDLK_F2 ? 1 : ui_root_count(p) - 1)) % ui_root_count(p);
                 menu_enter(mn, root);
             }
-            if (ev.key == SDLK_PAGEDOWN || ev.key == SDLK_PAGEUP) {
+            if (MOON_DEV_BUILD && (ev.key == SDLK_PAGEDOWN || ev.key == SDLK_PAGEUP)) {
                 proj = (proj + (ev.key == SDLK_PAGEDOWN ? 1 : NPROJECTS - 1)) % NPROJECTS;
                 if (!cache[proj])
                     cache[proj] = load(vol, proj);

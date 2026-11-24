@@ -61,6 +61,8 @@ struct race_audio {
     int cars, playing, frames;
     float eye_previous[3];
     int have_eye, camera_cut;
+    float second_eye[3], second_rows[9], second_previous[3];
+    int split_listener, second_view, second_have_eye, second_cut;
     uint32_t random;
     gt4_car_backfire backfire[6];
     unsigned exhaust_count[6];
@@ -627,8 +629,8 @@ static void music_update(race_audio *a, const gt4_race_run *run)
    previous race frame, the camera kind (vt+0x108 -> vt+0xA8: the views on
    the car 0, behind 2, the roof's +0x26C 1; the start and replay paths
    and the free camera 3). */
-static void listener(race_audio *a, gt4_car_listener *l, const float *eye, const float *rows,
-                     int view)
+static void listener_at(gt4_car_listener *l, const float *eye, const float *rows,
+                         int view, const float *previous, int have_eye, int cut)
 {
     memset(l, 0, sizeof *l);
     for (int k = 0; k < 3; k++) {
@@ -644,13 +646,18 @@ static void listener(race_audio *a, gt4_car_listener *l, const float *eye, const
            camera+7C (preceding eye). The legacy listener field names
            are reversed relative to their temporal meaning. */
         l->eye_previous[k] = eye[k];
-        l->eye[k] = a->have_eye ? a->eye_previous[k] : eye[k];
+        l->eye[k] = have_eye ? previous[k] : eye[k];
     }
     /* Original: func_003B5E80 +0x58..0xBC tests camera +0x16B.
        A cut restarts the voices and skips displacement-based Doppler. */
-    l->continuous = a->have_eye && !a->camera_cut;
+    l->continuous = have_eye && !cut;
     l->type = view == 0 ? 0 : view == 1 ? 2 : view == 6 ? 1 : 3;
     l->angle = 0;
+}
+static void listener(race_audio *a, gt4_car_listener *l, const float *eye, const float *rows,
+                     int view)
+{
+    listener_at(l, eye, rows, view, a->eye_previous, a->have_eye, a->camera_cut);
 }
 
 /* 00393428 -> 00463378 -> 00462A88 for a bank 2 sequence: left and right
@@ -687,8 +694,18 @@ static void tick(race_audio *a, const gt4_race_run *run, const float *eye, const
         GT4_U32(entry + 0x2890 + 0x64) = a->exhaust_count[i] ? pulse : 0;
         gt4_car_sound_frame f;
         gt4_car_sound_out out;
+        gt4_car_listener second;
+        const gt4_car_listener *camera = &l;
+        int target = i == 0 && view != -1;
+        if (a->split_listener && i == 1) {
+            /* 003B5F54..B8 maps entry+14 to the matching viewport. */
+            listener_at(&second, a->second_eye, a->second_rows, a->second_view,
+                        a->second_previous, a->second_have_eye, a->second_cut);
+            camera = &second;
+            target = a->second_view != -1;
+        }
         a->random = a->random * 1103515245u + 12345u; /* A: 00579358's draw */
-        gt4_car_sound_frame_build(&f, a->state + i, &out, entry, &l, i == 0 && view != -1, 0,
+        gt4_car_sound_frame_build(&f, a->state + i, &out, entry, camera, target, 0,
                                   a->random >> 16);
         if (out.restart) {
             for (int k = 0; k < 3; k++)
@@ -761,6 +778,11 @@ static void tick(race_audio *a, const gt4_race_run *run, const float *eye, const
     memcpy(a->eye_previous, eye, sizeof a->eye_previous);
     a->have_eye = 1;
     a->camera_cut = 0;
+    if (a->split_listener) {
+        memcpy(a->second_previous, a->second_eye, sizeof a->second_previous);
+        a->second_have_eye = 1;
+        a->second_cut = 0;
+    }
 }
 
 /* the sequences' notes due and the driver's tick (the IOP's, which runs
@@ -819,6 +841,7 @@ void race_audio_update(race_audio *a, const gt4_race_run *run, const float *eye,
 {
     if (!a || !run || !eye || !rows)
         return;
+    a->split_listener = 0;
     /* P: user-requested filming stems. Gate only the music stream, through
        its existing disabled option; engine/ambient/effect voices stay live. */
     if (getenv("MOON_CAPTURE_NO_MUSIC"))
@@ -849,8 +872,27 @@ void race_audio_update(race_audio *a, const gt4_race_run *run, const float *eye,
 
 void race_audio_camera_cut(race_audio *a)
 {
-    if (a)
+    if (a) {
         a->camera_cut = 1;
+        a->second_cut = 1;
+    }
+}
+void race_audio_update_split(race_audio *a, const gt4_race_run *run,
+                             const float eye[2][3], const float rows[2][9],
+                             const int view[2], int bgm, int se)
+{
+    if (!a || !run || !eye || !rows || !view)
+        return;
+    int was_split = a->split_listener;
+    race_audio_update(a, run, eye[0], rows[0], view[0], bgm, se);
+    if (!was_split || a->second_view != view[1]) {
+        a->second_have_eye = 0;
+        a->second_cut = 1;
+    }
+    memcpy(a->second_eye, eye[1], sizeof a->second_eye);
+    memcpy(a->second_rows, rows[1], sizeof a->second_rows);
+    a->second_view = view[1];
+    a->split_listener = 1;
 }
 
 void race_audio_step(race_audio *a, const gt4_race_run *run)

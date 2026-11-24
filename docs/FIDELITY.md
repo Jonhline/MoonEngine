@@ -1,5 +1,32 @@
 # Fidelity record
 
+## Switch Tsukuba diagnostic build (4 November 2026)
+
+Hardware result: the 32 MiB run completes the course, five opponent and
+six driver uploads, reaches race ready and driving=2, with six engine
+banks and racing music. The user confirms it runs. The corresponding
+8 MiB capture aborts with SharedMemoryTooSmall before those states.
+P: native driver capacity adaptation; the reproduced loading failure is
+resolved. Other courses/fields, long sessions, pause and 2P audio remain
+outside this confirmation. No PS2 rendering/physics equivalence claimed.
+
+Follow-up: hardware diagnostics captured nvMapCreate `0000235c` during an
+opponent mesh upload; local libnx maps it to SharedMemoryTooSmall. PCM was
+already ready. The native deko backend now reserves a 32 MiB nvdrv transfer
+arena instead of libnx's weak 8 MiB default. The new NRO compiled, was sent,
+and confirmed the new value plus passing startup GPU self-tests. The old
+8 MiB console run is a failing hardware negative; the repaired Tsukuba
+load has not yet been observed. A/open for crash closure, no PS2 image or
+physics fidelity claim. See docs/SWITCH.md for source and local log paths.
+
+A/open: the console disconnect was captured during race mesh installation,
+before its completion message. A concurrent ADS read is not a proven cause.
+Added flushed loading checkpoints with process memory usage around mesh,
+PCM and HUD/pause preparation, and built the diagnostic deko3d NRO.
+Three focused profiler regressions pass (including two WILL_FAIL negatives).
+No game/physics/rendering result is changed or newly claimed faithful;
+the cause and any repair still require another console reproduction.
+
 ## Supra boost HUD diagnostics (21 October 2026)
 
 C (host integration only): hud_boost tests load the four turbo racing
@@ -2125,7 +2152,7 @@ não equivale a implementação nem impede o usuário de selecionar o item.
 
 | Item | Nota | Evidência / teste |
 |---|---|---|
-| Atualização HTTPS e publicação PC | P | MOON_VERSION do CMake gravada no exe e VERSIONINFO. Worker WinHTTP com Bearer e TLS, sem bloquear janela; versão maior oferece Update, igual/menor/erro ficam silenciosos. Preferência check_updates persiste. Download temporário confere tamanho e SHA-256 BCrypt, inclusive antes de CreateProcess; setup /VERYSILENT /CURRENTUSER instala no diretório atual e reabre o jogo. publisher gera pacote/Inno/hash/latest.json, SCP .incoming e promoção SSH com manifesto por último. Domínio/token/SSH só em publish.ini externo e header ignorado no build, sem credenciais no repo. Rota estática configurada no Caddy do nuntius; demais rotas preservadas. 12/12 testes launcher, incluindo HTTPS real: 401 sem token/errado, download original e recusa de SHA adulterado; negativos de versão/hash/tamanho/JSON, UI e publicação. launcher_installer.py provou instalar/atualizar/reabrir em dois ciclos isolados, preservando arquivo existente; AppId de teste e sem atalhos, Files/Run originais. Release 0.3.0 publicado no Oracle. [Notas](notes/LAUNCHER.md). |
+| Atualização HTTPS e publicação PC | P | MOON_VERSION do CMake gravada no exe e VERSIONINFO. Worker WinHTTP com Bearer e TLS, sem bloquear janela; versão maior oferece Update, igual/menor/erro ficam silenciosos. Preferência check_updates persiste. Download temporário confere tamanho e SHA-256 BCrypt, inclusive antes de CreateProcess; setup /VERYSILENT /CURRENTUSER instala no diretório atual e reabre o jogo. publisher gera pacote/Inno/hash/latest.json, SCP .incoming e promoção SSH com manifesto por último. Domínio/token/SSH só em publish.ini externo e header ignorado no build, sem credenciais no repo. Rota estática num servidor privado. 12/12 testes launcher, incluindo HTTPS real: 401 sem token/errado, download original e recusa de SHA adulterado; negativos de versão/hash/tamanho/JSON, UI e publicação. launcher_installer.py provou instalar/atualizar/reabrir em dois ciclos isolados, preservando arquivo existente; AppId de teste e sem atalhos, Files/Run originais. Release 0.3.0 publicado no servidor privado. [Notas](notes/LAUNCHER.md). |
 
 ### Launcher presentation, mouse cursor and audio (13/10/2026)
 
@@ -4698,3 +4725,76 @@ state, 155 Vulkan/shadow tests pass. P, option: Shadow Filter Soft (Classic and
 Enhanced, unchanged image) or Fast (four taps; the Performance preset, PC only,
 is Enhanced with Fast). Fast is not the Enhanced image: it differs mostly on the
 car body's own shadow. A: other GPUs, Hong Kong gains nothing.
+
+
+## Battle2P independent audio listeners (3 November 2026)
+
+C (host camera/mixer integration): 003B5F44..D8 selects the human entry's
+viewport when camera-manager +9B8 has multiple views. The app previously
+passed only P1, and treated P2 as a remote opponent. The split bridge now
+passes both cameras, identifies each human as its own target, and keeps
+independent preceding-eye/cut state. Music, ambience and the 60 Hz sound
+driver remain single instances. Original sound formulas, banks and physics
+are unchanged. Single-view update clears split ownership.
+Disc-backed CR-X/Mustang test invokes the actual split-camera bridge, then
+moves only P1's listener 10,000 units: P2 engine request level stays 42,820.
+Negative reinstates P1-only routing: 35,947 falls to 88 and the test fails.
+The test also checks P2 history and leaving split mode. Audio clock, camera
+cuts and their negatives pass. A: no independent SPU2 waveform capture or
+hardware listening; ambient mixing still uses P1. Switch cross-compilation
+is separate from audible console validation.
+
+
+## Resident RacePause resources and Switch build (3 November 2026)
+
+C (host lifecycle): race_game_poll prepares the pause STRB/race text,
+fonts (one batch per loading call) and cursor before revealing a live race.
+Continue retains immutable resources; re-entry rebuilds script instances,
+arrays, focus/touch/navigation and timer state. Stop/Retry release the resident
+object. Source 003C31C8 loads the model, separately from RacePause init;
+upstream reference 122afce110f76738720f5c0dfdfc410c5d08a62e retains this split.
+The native timings and movie callbacks were not retuned. No physics edits.
+
+pause_resident closes its volume after preparation and opens/draws/continues
+six times for 1P and 2P on both GL/Vulkan. The negative skips reset and fails
+on retained CONTINUE state. pause_buttons tests the app resident-object
+handoff/reopening and both players' Cross/Circle; pause_confirm retains Exit
+confirmation. Thirteen focused audio/pause/regression checks pass, negatives
+included. Local screenshots build/nov03-pause-opengl-1p.png and -2p.png, with
+Vulkan counterparts; they are host captures, not equivalent PCSX2 frames.
+
+The deko3d Switch build and MoonEngine.nro packaging succeeded in
+build-switch/nov03. Initial attempts failed on stale /f/OpenGT4 build metadata,
+missing explicit host Python/icon arguments, then uncovered pre-existing
+cross-platform compile/link defects: desktop daylight queries on authored-sky
+backends, dlfcn include on Switch, shared-launcher tweaks field, strictly typed
+Arcade callback, desktop-only settings helpers/post effects and missing deko
+snapshot-cache/scene-size adapters. These are repaired at their host boundaries;
+the new deko cache helpers use existing readback/upload and row-orientation
+contracts. No new post effect is falsely claimed on Switch.
+
+A/open: the reported all-config Switch pause freeze was not reproduced on
+physical hardware. Moving file reads/uploads out of entry and resetting the
+resident runtime is a tested lifecycle fix, not a proven GPU-hang root cause.
+Hardware GPU fault logs, repeated Screen Settings/Retry/Exit under load,
+console audio listening, cache-helper pixels and memory/latency measurements
+remain required. PC tests do not certify Switch/deko pixels or ARM physics.
+
+
+## Classic audit against current decomp reference (3 November 2026)
+
+A (static audit, not a new runtime parity proof): reviewed the local fidelity,
+completion/physics/handoff/edition notes and active source boundaries against
+upstream gt4-decomp 122afce110f76738720f5c0dfdfc410c5d08a62e. Its matching
+percentages do not measure this native port. The new per-area audit separates
+absent paths, host adaptations and missing original-output evidence; it corrects
+historical claims that CRPM/PhotoPause restrictions or all film body/gadget
+consumers are still absent. Film detail_mode remains stored without a reviewed
+consumer; independent PS2 best-lap import and LAN remain distinct open paths.
+No complete suite, new full playthrough or equivalent PS2 image/audio capture
+was performed. Current task's 13 focused checks plus two screenshot reruns
+are evidence only for the reported sound/pause changes. Hardware hang cause,
+complete frame/sound parity and platform breadth remain open.
+See docs/notes/CLASSIC_FIDELITY_AUDIT_2026-11-03.md for source links, acceptance
+criteria and bounded estimates. The audit does not authorize implementation
+of every remaining system, publication or a push.

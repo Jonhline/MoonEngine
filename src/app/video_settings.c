@@ -57,12 +57,14 @@ void video_settings_speed_frame(float kmh, double dt)
     float a = dt > 0 ? (float)(dt / SPEED_FEEL_SMOOTH_SECONDS) : 1.f;
     a = a < 0.f ? 0.f : a > 1.f ? 1.f : a;
     speed_level += (target - speed_level) * a;
+#ifndef __SWITCH__
     const char *force = getenv("MOON_SPEED_FORCE_LEVEL");
     if (force) {
         float f = (float)atof(force);
         speed_level = f < 0.f ? 0.f : f > 1.f ? 1.f : f;
     }
     video_set_speed_level(speed_level);
+#endif
     if (getenv("MOON_SPEED_TRACE") && fabsf(speed_level - speed_traced) > .02f) {
         const pc_video_options *v = settings_active ? &settings_active->current : NULL;
         float fov = 60.f, blur = 0.f, vignette = 0.f, roar = 1.f;
@@ -110,8 +112,10 @@ static void quality(const pc_video_options *v)
     video_hdr_options(v->hdr,v->sun_rays);
     video_ambient_occlusion(v->ambient_occlusion);
 #endif
+#ifndef __SWITCH__
     video_set_speed_post(v->speed_blur, v->speed_blur_amount, v->speed_vignette);
     video_set_scene_scale(v->scene_scale);
+#endif
 }
 
 static void apply_discord(video_settings *s)
@@ -1127,8 +1131,8 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
     video_settings *s = data;
     read_draft(s);
     if (s->personal_preset[0]) s->personal_modified=1;
-    update_field_size_ui(s);
 #ifndef __SWITCH__
+    update_field_size_ui(s);
     ui_widget *sender = ah_host_data(self);
     if (sender == s->choices[41]) {
         s->tweaks_open = sender->focus_index;
@@ -1286,7 +1290,9 @@ static int changed(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *
     }
 #endif
     quality(&s->draft);
+#ifndef __SWITCH__
     tweaks_visibility(s);
+#endif
     *ret = ah_int(2);
     return 0;
 }

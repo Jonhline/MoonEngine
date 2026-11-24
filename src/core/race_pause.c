@@ -170,6 +170,29 @@ void race_pause_key(race_pause *p, int code)
         strb_key(p->movie, code);
     }
 }
+int race_pause_prepare(race_pause *p)
+{
+    if (!p) return 1;
+    if (!strb_prepare(p->movie)) return 0;
+    if (!p->cursor) {
+        char error[128];
+        p->cursor = ui_project_load(p->volume, "cursor", error, sizeof error);
+    }
+    return 1;
+}
+int race_pause_restart(race_pause *p, race_pause_sound sound, void *user)
+{
+    if (!p) return 0;
+    p->state = RACE_PAUSE_OPEN;
+    p->nav = 0;
+    p->pointer_active = 0;
+    memset(&p->touch, 0, sizeof p->touch);
+    p->sound = sound;
+    p->user = user;
+    if (!strb_restart(p->movie)) return 0;
+    strb_navigate(p->movie, p->nav != 1);
+    return 1;
+}
 void race_pause_update(race_pause *p, double dt)
 {
     if (p)

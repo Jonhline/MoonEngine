@@ -36,7 +36,7 @@
 #ifndef PDH_MORE_DATA
 #define PDH_MORE_DATA ((PDH_STATUS)0x800007D2L)
 #endif
-#else
+#elif !defined(__SWITCH__)
 #include <dlfcn.h>
 #include <unistd.h>
 #endif
@@ -807,6 +807,8 @@ void moon_debug_overlay_draw(void)
 /* ---- the toggle ---- */
 void moon_debug_overlay_toggle(void)
 {
+    if (!MOON_DEV_BUILD)
+        return;
     overlay_on = !overlay_on;
     reset_sampling();
 }
@@ -827,6 +829,8 @@ static int overlay_event_watch(void *user, SDL_Event *event)
 
 void moon_debug_overlay_init(void)
 {
+    if (!MOON_DEV_BUILD) /* stable builds: no developer overlay */
+        return;
     if (overlay_ready)
         return;
     overlay_ready = 1;

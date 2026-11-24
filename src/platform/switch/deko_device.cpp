@@ -18,6 +18,16 @@ extern "C" {
 #include <cstring>
 #include <vector>
 
+/* libnx nv.c exposes this weak configuration symbol (default 8 MiB).
+   nvdrv uses it for its own allocation bookkeeping, independently of texture
+   bytes in our heap. A six-car Tsukuba load exhausted the default arena:
+   nvMapCreate returned LibnxNvidiaError_SharedMemoryTooSmall (0000235c).
+   Reserve 32 MiB before the first dkDeviceCreate/nvInitialize, for all native
+   deko entry points, including render probes. This does not reduce assets. */
+extern "C" {
+uint32_t __nx_nv_transfermem_size = 32u * 1024u * 1024u;
+}
+
 namespace {
 constexpr unsigned Frames = 3, Images = 8192, StreamBytes = 16 * 1024 * 1024;
 struct Frame {
@@ -588,6 +598,7 @@ static bool upload_burst_probe()
 #endif
 int nd_init(unsigned width, unsigned height)
 {
+    std::fprintf(stderr, "Switch nvdrv transfer arena: %u bytes\n", __nx_nv_transfermem_size);
     boot_step("device");
     DkDeviceMaker device;
     dkDeviceMakerDefaults(&device);

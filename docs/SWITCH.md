@@ -1790,3 +1790,65 @@ installer. A read-only package folder falls back to the temporary log path.
 Nxlink now retries discovery five times and captures its stdout/stderr to
 nxlink.log; a failed launch reports its exit status and retains installed
 files. Actual Sphaira discovery on the user's network remains unverified.
+
+
+## 3 November 2026 test build: split audio and resident pause
+
+Local test artifact: `build-switch/nov03/MoonEngine.nro` (deko3d).
+The pause movie/fonts/cursor are prepared during race loading and reused
+across openings; each split-screen car uses its own camera for audio.
+PC positive/negative tests pass; the reported console hang has **not** been
+closed by a hardware reproduction. Test repeated Start/Continue, Screen
+Settings, Retry and Exit in both 1P/2P, and listen with cars far apart.
+Keep a GPU fault log if it still freezes. This build is not a public release.
+
+The older build directories still referenced `/f/OpenGT4`. This task used a
+fresh ignored build folder with the current toolchain, explicit host Python
+and existing local icon; no SDK or game assets were added to Git.
+
+## 4 November 2026: Tsukuba crash diagnosis
+
+The captured console log (`build/nov03-tsukuba-nxlink.log`, local only)
+ends after the course-object uploads, before the final `course: world=...`
+message in race_view.install. The PCM worker reads an ADS concurrently;
+that last read does not establish an audio fault. No exception or GPU fault
+was emitted. The cause remains open.
+
+The diagnostic NRO uses `MOON_DEKO_DIAGNOSTICS=ON` (debug deko SDK, game
+Release optimization). Synchronous loading checkpoints bracket the world,
+sky/scenery, cars, driver uploads, HUD/pause readiness and PCM decoding.
+Each includes process used/total memory and flushes stderr immediately,
+outside the asynchronous profiler queue. These are loading-only records,
+not per-frame logging. Build: `build/nov04-switch-diagnostic-build.log`.
+The three focused switch_profile tests pass, including existing negatives;
+they do not reproduce or certify a console crash fix.
+
+### Captured failure and nvdrv arena change
+
+The diagnostic reproduction reached world, scenery, player and two opponent
+uploads, then failed in nvMapCreate on another opponent: result `0000235c`,
+module 348, description 17. Local libnx result.h identifies this as
+`LibnxNvidiaError_SharedMemoryTooSmall`, not InsufficientMemory. The PCM
+worker had already reported ready. The SDK then aborted dkMemBlockCreate.
+Local log: `build/nov04-tsukuba-diagnostic-nxlink.log` (not committed).
+
+libnx nv.c exposes weak `__nx_nv_transfermem_size`, default 0x800000, used
+by nvInitialize to create the nvdrv transfer arena. The installed archive's
+data confirms that default. Native deko entry points now provide a strong
+32 MiB definition before initialization; this reserves driver bookkeeping
+space without altering textures, geometry or physics. Source reference:
+https://github.com/switchbrew/libnx/blob/master/nx/source/services/nv.c
+
+The NRO rebuilt and was sent to 192.168.0.116. Console startup confirms
+33554432 bytes and passes GPU upload-burst, image/blit, composition and DATE
+self-tests. The failing 8 MiB run is the hardware negative. A successful
+repeat of the six-car Tsukuba race is still required before closing this
+crash. Process used/total memory includes libnx's reserved heap and must
+not be read as available malloc heap or proof of general RAM exhaustion.
+
+Hardware follow-up: the user confirmed the new build runs. The captured
+32 MiB run completes all five opponent uploads, all six driver uploads,
+the 129554-triangle course, HUD/pause preparation, and enters driving=2
+with six engine banks and racing PCM active. This closes the reproduced
+Tsukuba loading abort; it does not certify every course/car combination,
+long-session allocation limits, pause navigation or split-screen audio.

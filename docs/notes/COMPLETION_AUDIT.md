@@ -1,5 +1,10 @@
 # Completion audit — 20 October 2026
 
+Current follow-up: [Classic fidelity audit — 3 November 2026](CLASSIC_FIDELITY_AUDIT_2026-11-03.md).
+It checks current source and the pinned upstream decomp reference; some missing
+items below are historical and have since gained implementations. Consult the
+follow-up before reopening an old F item.
+
 This was the approval list delivered on 20 October 2026. The user subsequently
 authorized continuation; the first completed follow-up is recorded below.
 No missing feature was implemented in the original audit commit. Physics formulas,

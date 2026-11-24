@@ -110,11 +110,9 @@ iscc = <caminho de ISCC.exe>
 ; ffmpeg e ffmpeg-license são opcionais
 ```
 
-Infraestrutura: rota estática no Caddy já existente do nuntius. Token
-independente do upload do nuntius; autenticação é executada antes do
-file_server dentro de route. Só latest.json e setups são servidos. Rota
-original do nuntius preservada; backup local/servidor feito antes da edição.
-Credenciais e Caddyfile com token não entram neste repositório.
+Infraestrutura: rota estática num servidor privado, com token próprio;
+a autenticação vem antes de servir os arquivos. Só latest.json e setups são
+servidos. Credenciais e configuração do servidor não entram neste repositório.
 
 Prova: 12/12 testes `ctest -R '^launcher_'`, incluindo launcher_update,
 negativo, launcher_publish, janela e HTTPS real. Casos: versão maior/igual,

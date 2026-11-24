@@ -978,6 +978,7 @@ static void make_car(car_meshes *m, const car_model *a)
 /* Main thread (GL context current): the meshes of a loaded course and car. */
 static void install(race_view *v, race_asset *a)
 {
+    SWP_CHECKPOINT("race install begin");
     drop_meshes(v);
     free(v->film_gadget_base);v->film_gadget_base=NULL;v->film_gadget_count=0;
     free_asset(v->now);
@@ -1012,18 +1013,24 @@ static void install(race_view *v, race_asset *a)
     gt4_grid g = gt4_course_grid(&a->course, 0);
     v->ground = g.pos[1];
     gt4_course_height(&a->course, g.pos[0], g.pos[2], g.pos[1] + 2, &v->ground);
+    SWP_CHECKPOINT("race upload world begin");
     v->world = r3d_mesh_create(a->world);
+    SWP_CHECKPOINT("race upload world end");
     v->photo_map = r3d_mesh_create(a->photo_map);
     gt4_model_free(a->photo_map);
     a->photo_map = NULL;
+    SWP_CHECKPOINT("race upload sky begin");
     v->sky_mesh = r3d_mesh_create(a->sky);
+    SWP_CHECKPOINT("race upload scenery begin");
     v->scenery = r3d_mesh_create(a->scenery);
     v->far = r3d_mesh_create(a->far);
     v->env_sky = r3d_mesh_create(a->env_sky);
     v->sheen_mask = r3d_mesh_create(a->sheen_mask);
     v->sheen_set = r3d_mesh_create(a->sheen_set);
     v->sheen_sky = r3d_mesh_create(a->sheen_sky);
+    SWP_CHECKPOINT("race upload player begin");
     make_car(&v->mine, a->car);
+    SWP_CHECKPOINT("race upload player end");
     v->smoke_tex = a->smoke_count > 0 ? r3d_sprite_texture_create(&a->smoke[0]) : NULL;
     for (int i = 0; i < 8; i++)
         v->leaf_tex[i] = a->bit_count > i + 1 ? r3d_sprite_texture_create(&a->bits[i + 1]) : NULL;
@@ -1031,10 +1038,13 @@ static void install(race_view *v, race_asset *a)
     memset(v->wheel_brake_glow, 0, sizeof v->wheel_brake_glow);
     memset(v->other_pose, 0, sizeof v->other_pose);
     for (int i = 0; i < OPPONENTS; i++) {
+        SWP_CHECKPOINT("race upload opponent begin");
         make_car(&v->other[i], a->other[i]);
+        SWP_CHECKPOINT("race upload opponent end");
         v->other_pose[i].on = 0;
     }
     for (int i = 0; i < a->drivers; i++) {
+        SWP_CHECKPOINT("race upload driver begin");
         driver_asset *d = &a->driver[i];
         d->skin_mesh = r3d_mesh_create(d->skin);
         r3d_mesh *textures = d->skin_mesh;
@@ -1055,6 +1065,7 @@ static void install(race_view *v, race_asset *a)
     }
     fprintf(stderr, "course: world=%d triangles, %d grid positions\n", a->world->count,
             a->course.grid_count);
+    SWP_CHECKPOINT("race uploads complete");
     /* Uploaded meshes own GPU data. Keep the course/RNW4 buffer for physics
        and surface queries, but release the large decoded CPU model copies. */
     if (v->world) {
@@ -2467,7 +2478,11 @@ static void course_reflection(race_view *v, const float centre[3], const r3d_vie
         if (v->env_sky) {
             r3d_view s = f;
             /* Reflection source has the retained half-intensity convention. */
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
             s.daylight=r3d_daylight_enabled() && (!v->now->time_zone || r3d_night_sky_enabled())?3:0;
+#else
+            s.daylight=0; /* This backend retains the authored sky. */
+#endif
             memcpy(s.rot, turn, sizeof turn);
             r3d_draw(v->env_sky, &s);
             r3d_clear_depth();
@@ -2884,11 +2899,15 @@ static void strike_draw_tube(race_view *v, const r3d_view *view, strike_gpu_mesh
             vv.color_add[1] = gpu->model.triangles[0].v[0].rgb[1];
             vv.color_add[2] = gpu->model.triangles[0].v[0].rgb[2];
             r3d_draw(gpu->mesh, &vv);
+#ifndef MOON_DEKO3D /* deko3d has no GL error state */
             if (!gl_checked) {
                 GLenum e = glGetError();
                 fprintf(stderr, "custom modes: strike glerror=%u\n", (unsigned)e);
                 gl_checked = 1;
             }
+#else
+            (void)gl_checked;
+#endif
         }
         if (getenv("MOON_STRIKE_TRACE"))
             fprintf(stderr,
@@ -3226,7 +3245,11 @@ static int draw_scene_box(race_view *v, int pregrid, int menu, int photo, float 
         r3d_view s = world;
         memset(s.cam, 0, sizeof s.cam);
         s.near_clip = .01f;
+#if !defined(__SWITCH__) && !defined(MOON_SWITCH_RENDER_TEST) && !defined(__ANDROID__)
         s.daylight=r3d_daylight_enabled() && (!v->now->time_zone || r3d_night_sky_enabled())?2:0;
+#else
+        s.daylight=0;
+#endif
         s.fog = 0; /* func_00396B80: the sky with the fog at distance 0 and floor 1, none */
         r3d_draw(v->sky_mesh, &s);
         /* The dome (some 40 m across) is behind everything: the distant

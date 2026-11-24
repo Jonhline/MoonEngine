@@ -26,11 +26,12 @@ target_sources(moon_platform_common PRIVATE src/platform/common/switch_file.c)
 
 target_compile_options(moonengine PRIVATE -ffp-contract=off -frounding-math)
 
-set(MOON_SWITCH_ICON "" CACHE FILEPATH "Local 256x256 JPEG project icon")
+# The Moon Engine logo (project art) as the homebrew menu icon, 256x256 JPEG
+set(MOON_SWITCH_ICON "${CMAKE_SOURCE_DIR}/res/moonengine_switch.jpg" CACHE FILEPATH "256x256 JPEG icon")
 if(NOT EXISTS "${MOON_SWITCH_ICON}")
   message(FATAL_ERROR "Set MOON_SWITCH_ICON to a local 256x256 JPEG")
 endif()
-nx_generate_nacp(OUTPUT moonengine.nacp NAME "Moon Engine" AUTHOR "Moon Engine" VERSION "0.1.0")
+nx_generate_nacp(OUTPUT moonengine.nacp NAME "Moon Engine" AUTHOR "Moon Engine" VERSION "${MOON_VERSION}")
 nx_create_nro(moonengine NACP moonengine.nacp ICON "${MOON_SWITCH_ICON}")
 
 add_executable(switch_fpu_probe tests/platform/switch_fpu.c src/app/switch_fpu.c)

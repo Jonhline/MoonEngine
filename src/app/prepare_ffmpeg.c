@@ -19,6 +19,7 @@
 #include "launcher_text.h"
 #include "launcher_fonts_data.h"
 #include "launcher_update.h"
+#include "brand_logo.h"
 #include "miniz.h"
 
 /* The rolling "latest" release of BtbN FFmpeg-Builds. The asset name is the same
@@ -330,9 +331,27 @@ static void prep_draw(prep_ui *u, prep_job *j)
     p_fill(u, 0, 0, (float)u->w, y0, wall[0], wall[1], wall[2], 255);
     p_ramp(u, y0, y1, wall, ground);
     p_fill(u, 0, y1, (float)u->w, u->h - y1, ground[0], ground[1], ground[2], 255);
-    /* the corner: the wordmark (placeholder until the artist's logo) */
-    p_text(u, mark, 16 * S, 38 * S, "MOON ENGINE", 0, 38, 40, 45, 255); /* where the setup has it */
-    p_text(u, note, 17 * S, 52 * S, "v" MOON_VERSION "   (logo placeholder)", 0, 110, 113, 120, 255);
+    /* the corner: the logo, where the setup has it */
+    {
+        static SDL_Texture *logo;
+        static int lw, lh;
+        if (!logo) {
+            const uint8_t *rgba = brand_logo_rgba(0, &lw, &lh);
+            if (rgba && (logo = SDL_CreateTexture(u->ren, SDL_PIXELFORMAT_ABGR8888,
+                                                  SDL_TEXTUREACCESS_STATIC, lw, lh))) {
+                SDL_UpdateTexture(logo, NULL, rgba, lw * 4);
+                SDL_SetTextureBlendMode(logo, SDL_BLENDMODE_BLEND);
+            }
+        }
+        const float h = 44 * S, w = lh > 0 ? h * lw / lh : 0;
+        if (logo) {
+            SDL_Rect rc = {(int)(16 * S), (int)(12 * S), (int)w, (int)h};
+            SDL_RenderCopy(u->ren, logo, NULL, &rc);
+        } else
+            p_text(u, mark, 16 * S, 38 * S, "MOON ENGINE", 0, 38, 40, 45, 255);
+        p_text(u, note, logo ? 22 * S + w : 17 * S, (logo ? 54 : 52) * S, MOON_VERSION_LABEL, 0, 110,
+               113, 120, 255);
+    }
 
     LONG state = prep_state(j);
     LONG err = prep_err(j);

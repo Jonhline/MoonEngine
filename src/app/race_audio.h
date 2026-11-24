@@ -12,6 +12,11 @@ race_audio *race_audio_open_replay(const char *disc, const gt4_race_run *run,
    1 behind, 6 roof; -1 the start's or the free camera), the volumes. */
 void race_audio_update(race_audio *audio, const gt4_race_run *run, const float eye[3],
                        const float rows[9], int view, int bgm, int se);
+/* Battle2P: each human entry uses its own viewport's camera (003B5F44..D8).
+   Music, driver tick and ambient mix remain shared. */
+void race_audio_update_split(race_audio *audio, const gt4_race_run *run,
+                             const float eye[2][3], const float rows[2][9],
+                             const int view[2], int bgm, int se);
 /* Each race frame (1/60 s), as the game's sound runs: the cars, the
    course's ambience and the driver, from the last camera given. */
 void race_audio_step(race_audio *audio, const gt4_race_run *run);

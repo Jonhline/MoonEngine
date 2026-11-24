@@ -77,6 +77,7 @@ struct strb_player {
     unsigned nbitmaps;
     strb_font *fonts;
     unsigned nfonts;
+    unsigned prepare_font;
     solid_fill *solids;      /* resident tessellation of immutable straight paths */
     int depth;               /* script nesting */
     int key;                 /* the key going down, for Key.getCode() */
@@ -1915,6 +1916,36 @@ strb_player *strb_open(gt4_vol *vol, const char *path, const gt4_rtext *rt, cons
     return p;
 }
 
+int strb_prepare(strb_player *p)
+{
+    if (!p) return 1;
+    if (p->prepare_font <= p->nfonts) {
+        font(p, p->prepare_font++);
+        return 0;
+    }
+    return 1;
+}
+int strb_restart(strb_player *p)
+{
+    if (!p || p->depth) return 0;
+    inst_free(p, p->root);
+    p->root = NULL;
+    while (p->dead) {
+        inst *k = p->dead; p->dead = k->next_dead; inst_free(p, k);
+    }
+    while (p->arrays) {
+        strb_array *a = p->arrays; p->arrays = a->next; free(a);
+    }
+    p->acc = 0;
+    p->key = p->buttons_on = p->nav_all = p->focus_shown = 0;
+    p->focus = NULL;
+    p->focus_place = -1;
+    p->root = inst_new(p, 0, NULL, -1);
+    if (!p->root) return 0;
+    sync_kids(p, p->root);
+    frame_actions(p, p->root);
+    return 1;
+}
 void strb_close(strb_player *p)
 {
     if (!p)
