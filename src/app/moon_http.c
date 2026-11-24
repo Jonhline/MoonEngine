@@ -3,11 +3,64 @@
 #include <stdlib.h>
 #include <string.h>
 #ifdef _WIN32
-/* The Windows updater keeps its WinHTTP path; the launcher check is Linux-first. */
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <winhttp.h>
+static int host_ok(const char *u)
+{
+    return !strncmp(u, "https://github.com/", 19) ||
+           !strncmp(u, "https://api.github.com/", 23) ||
+           !strncmp(u, "https://objects.githubusercontent.com/", 39);
+}
 unsigned char *moon_http_get(const char *url, size_t limit, size_t *got)
 {
-    (void)url; (void)limit; (void)got;
-    return NULL;
+    if (!url || !host_ok(url)) return NULL;
+    wchar_t wurl[1100], host[256], path[1024];
+    if (!MultiByteToWideChar(CP_UTF8, 0, url, -1, wurl, 1100)) return NULL;
+    URL_COMPONENTS u = {0};
+    u.dwStructSize = sizeof u;
+    u.lpszHostName = host; u.dwHostNameLength = 256;
+    u.lpszUrlPath = path; u.dwUrlPathLength = 1024;
+    u.dwUserNameLength = u.dwPasswordLength = (DWORD)-1;
+    if (!WinHttpCrackUrl(wurl, 0, 0, &u) || u.nScheme != INTERNET_SCHEME_HTTPS) return NULL;
+    HINTERNET session = WinHttpOpen(L"MoonEngine-updater", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                                    WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0),
+              connection = NULL, r = NULL;
+    unsigned char *data = NULL;
+    size_t n = 0;
+    int ok = 0;
+    if (!session) return NULL;
+    WinHttpSetTimeouts(session, 5000, 5000, 15000, 30000);
+    connection = WinHttpConnect(session, host, u.nPort, 0);
+    if (connection)
+        r = WinHttpOpenRequest(connection, L"GET", path, NULL, WINHTTP_NO_REFERER,
+                               WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+    if (r) {
+        DWORD redirect = WINHTTP_OPTION_REDIRECT_POLICY_DISALLOW_HTTPS_TO_HTTP;
+        WinHttpSetOption(r, WINHTTP_OPTION_REDIRECT_POLICY, &redirect, sizeof redirect);
+        DWORD status = 0, sn = sizeof status;
+        if (WinHttpSendRequest(r, L"Accept: application/vnd.github+json\r\n", (DWORD)-1,
+                               WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
+            WinHttpReceiveResponse(r, NULL) &&
+            WinHttpQueryHeaders(r, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, NULL,
+                                &status, &sn, NULL) && status == 200 && (data = malloc(limit + 1))) {
+            ok = 1;
+            for (;;) {
+                DWORD k = 0;
+                if (n >= limit) { unsigned char probe; if (WinHttpReadData(r, &probe, 1, &k) && k) ok = 0; break; }
+                if (!WinHttpReadData(r, data + n, (DWORD)(limit - n < 65536 ? limit - n : 65536), &k)) { ok = 0; break; }
+                if (!k) break;
+                n += k;
+            }
+        }
+    }
+    if (r) WinHttpCloseHandle(r);
+    if (connection) WinHttpCloseHandle(connection);
+    WinHttpCloseHandle(session);
+    if (!ok) { free(data); return NULL; }
+    data[n] = 0;
+    *got = n;
+    return data;
 }
 #else
 #include <curl/curl.h>

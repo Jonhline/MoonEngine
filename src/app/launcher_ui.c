@@ -681,6 +681,31 @@ static void *info_download_worker(void *user)
     int ok = extract_targz(data, got, u->base_path);
 #else
     int ok = 0;
+    mz_zip_archive z;
+    memset(&z, 0, sizeof z);
+    if (mz_zip_reader_init_mem(&z, data, got, 0)) {
+        char written[64][1400]; int count = 0;
+        ok = 1;
+        for (mz_uint i = 0; ok && i < mz_zip_reader_get_num_files(&z); i++) {
+            mz_zip_archive_file_stat st;
+            if (!mz_zip_reader_file_stat(&z, i, &st) || st.m_is_directory) continue;
+            const char *name = st.m_filename;
+            if (!name[0] || name[0] == '/' || strstr(name, "..")) { ok = 0; break; }
+            char rel[512]; snprintf(rel, sizeof rel, "%s", name);
+            while (rel[0] == '.' && rel[1] == '/') memmove(rel, rel + 2, strlen(rel + 2) + 1);
+            if (!strcmp(rel, "MoonEngine.exe")) snprintf(rel, sizeof rel, "MoonEngine.exe");
+            char out[1600]; snprintf(out, sizeof out, "%s%s.new", u->base_path, rel);
+            size_t sz = 0; void *bytes = mz_zip_reader_extract_to_heap(&z, i, &sz, 0);
+            FILE *f = bytes ? fopen(out, "wb") : NULL;
+            ok = f && fwrite(bytes, 1, sz, f) == sz;
+            if (f) fclose(f);
+            mz_free(bytes);
+            if (ok && count < 64) snprintf(written[count++], 1400, "%s", out);
+        }
+        mz_zip_reader_end(&z);
+        if (!ok) for (int i = 0; i < count; i++) remove(written[i]);
+        ok = ok && count > 0;
+    }
 #endif
     free(data);
     if (!ok) { snprintf(u->info_status,sizeof u->info_status,"Download failed"); u->info_downloading=0; return NULL; }
