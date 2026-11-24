@@ -632,7 +632,7 @@ int app_update_test_sweep(const wchar_t *dir, int step)
     return 1;
 }
 #endif
-#else
+#elif !defined(_WIN32)
 #include "app_update_linux.inc"
 void app_update_start(int enabled)
 {
@@ -678,4 +678,9 @@ void app_update_finish(void)
 {
     if (lup_state == LUP_READY) sweep(1);
 }
+#else
+/* Windows developer build: the updater is compiled only with MOON_UPDATE_FORCE. */
+void app_update_start(int enabled) { (void)enabled; }
+const char *app_update_status(void) { return NULL; }
+void app_update_finish(void) {}
 #endif

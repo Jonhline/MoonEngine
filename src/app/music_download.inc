@@ -607,6 +607,8 @@ void music_download_close(void)
     SDL_StopTextInput();
 }
 
+int music_download_event(plat_key_event *ev); /* defined just below this wrapper */
+
 int music_download_sdl_event(const SDL_Event *ev)
 {
     if (!md.active || !ev) return 0;
@@ -619,7 +621,7 @@ int music_download_sdl_event(const SDL_Event *ev)
     } else {
         return 0;
     }
-    return music_download_event(&k);
+    return music_download_event(&k); /* declared below; keep the prototype in sight */
 }
 
 int music_download_event(plat_key_event *ev)

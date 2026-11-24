@@ -714,6 +714,10 @@ static void *info_download_worker(void *user)
     u->info_downloading = 0;
     return NULL;
 }
+/* SDL threads, so the same workers run on Windows (mingw has no pthread) and Linux */
+static int moon_update_check_thread(void *p) { info_check_worker(p); return 0; }
+static int moon_update_download_thread(void *p) { info_download_worker(p); return 0; }
+
 static void draw_page(struct ui *u)
 {
     if(u->open<0)return;
@@ -1054,16 +1058,16 @@ static void key(struct ui *u,SDL_Keycode k)
         if (u->info_version[0] && !u->info_downloading) {
             u->info_downloading = 1;
             snprintf(u->info_status,sizeof u->info_status,"Downloading...");
-            pthread_t th;
-            if (pthread_create(&th,NULL,info_download_worker,u)!=0) {
+            SDL_Thread *th = SDL_CreateThread(moon_update_download_thread, "moon-update-download", u);
+            if (!th) {
                 u->info_downloading=0;
                 snprintf(u->info_status,sizeof u->info_status,"Download failed: thread");
-            } else pthread_detach(th);
+            } else SDL_DetachThread(th);
         } else if (!u->info_checking) {
             u->info_checking = 1;
             snprintf(u->info_status,sizeof u->info_status,"Checking...");
-            pthread_t th;
-            if (pthread_create(&th,NULL,info_check_worker,u)==0) pthread_detach(th);
+            SDL_Thread *th = SDL_CreateThread(moon_update_check_thread, "moon-update-check", u);
+            if (th) SDL_DetachThread(th);
             else { u->info_checking=0; snprintf(u->info_status,sizeof u->info_status,"Check failed: thread"); }
         }
         return;
