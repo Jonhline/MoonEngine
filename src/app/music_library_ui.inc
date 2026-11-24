@@ -1004,6 +1004,16 @@ void mlj_tip_refresh(menu *m)
     const ml_track *t = mlj_selected(m);
     hint->visible = t && strncmp(t->path, "gt4:", 4) && !mlj_rename.active;
 }
+static ui_widget *mlj_text_widget(ui_widget *w, const char *needle)
+{
+    if (!w) return NULL;
+    if (w->text && strstr(w->text, needle)) return w;
+    for (int i = 0; i < w->nkids; i++) {
+        ui_widget *r = mlj_text_widget(w->kids[i], needle);
+        if (r) return r;
+    }
+    return NULL;
+}
 static void mlj_empty_activate(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
                                ah_val *ret)
 {
@@ -1031,6 +1041,16 @@ static void mlj_empty_activate(ah_vm *vm, ah_obj *self, void *data, int argc, co
         int li = !strcmp(name, "Race") ? 1 : !strcmp(name, "Slideshow") ? 2
                  : !strcmp(name, "Menu") ? 3 : 4;
         menu_jukebox_clear_list(m, li);
+        menu_jukebox_set_mode(m, li);
+        ui_widget *fr = menu_jukebox_page_widget(m);
+        ui_widget *tw = mlj_text_widget(fr, "No. of songs:");
+        if (tw) {
+            char buf[256];
+            snprintf(buf, sizeof buf, "%s", tw->text);
+            char *colon = strstr(buf, "No. of songs:");
+            if (colon) snprintf(colon + 13, sizeof buf - (size_t)(colon + 13 - buf), "0");
+            free(tw->text); tw->text = strdup(buf);
+        }
         printf("jukebox: emptied category %s (marker %s=1)\n", name, key);
         fflush(stdout);
         mlj_log("jukebox: emptied category %s", name);
