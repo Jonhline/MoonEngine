@@ -534,6 +534,12 @@ static int mlj_bind(ml_jukebox *j, menu *m, gt4_vol *vol)
             shuffle[k] = list ? list->shuffle : 0;
         }
     }
+    if (app_video_settings &&
+        moon_options_int(&app_video_settings->store, "audio.jukebox_empty_Race", 0, 0, 1))
+        for (int i = 0; i < catalog->count; i++) entries[i].order[0] = -1;
+    if (app_video_settings &&
+        moon_options_int(&app_video_settings->store, "audio.jukebox_empty_Slideshow", 0, 0, 1))
+        for (int i = 0; i < catalog->count; i++) entries[i].order[1] = -1;
     int listed[2] = {0, 0};
     for (int i = 0; i < catalog->count; i++)
         for (int k = 0; k < 2; k++)
@@ -572,6 +578,12 @@ static int mlj_bind(ml_jukebox *j, menu *m, gt4_vol *vol)
                 if (row >= 0)
                     rows[k][counts[k]++] = row;
             }
+        }
+        if (app_video_settings) {
+            if (moon_options_int(&app_video_settings->store, "audio.jukebox_empty_Menu", 0, 0, 1))
+                counts[0] = 0;
+            if (moon_options_int(&app_video_settings->store, "audio.jukebox_empty_Replay", 0, 0, 1))
+                counts[1] = 0;
         }
         menu_jukebox_folders(m, ids, counts);
         printf("jukebox: folders menu=%d replay=%d\n", counts[0], counts[1]);
@@ -1001,13 +1013,10 @@ static void mlj_empty_activate(ah_vm *vm, ah_obj *self, void *data, int argc, co
     if (!list) return;
     ui_widget *root = menu_jukebox_page_widget(m);
     const char *foot = root ? mlj_find_text(root, "No. of songs:") : NULL;
-    (void)foot;
-    int shown = (int)list->count;
+    int shown = foot ? atoi(strstr(foot, "No. of songs:") + 13) : (int)list->count;
     char msg[256];
     snprintf(msg, sizeof msg, "Remove all %d songs from %s?", shown, name);
     if (menu_confirm(m, "Empty category", msg)) {
-        while (music_library_list(app_jukebox.library, id)->count > 0)
-            music_library_remove(app_jukebox.library, id, 0);
         char key[64];
         snprintf(key, sizeof key, "audio.jukebox_empty_%s", name);
         if (app_video_settings) {
@@ -1250,31 +1259,11 @@ static void app_jukebox_attach(menu *m)
     } else {
         mlj_log("jukebox: Music folder not scanned, catalog unavailable");
     }
-    {
-        const char *names[4] = {"Race", "Slideshow", "Menu", "Replay"};
-        int ids[4] = {j.race, j.slide, j.folder[0], j.folder[1]};
-        for (int k = 0; k < 4; k++) if (ids[k] >= 0) {
-            char key[64]; snprintf(key, sizeof key, "audio.jukebox_empty_%s", names[k]);
-            if (app_video_settings && moon_options_int(&app_video_settings->store, key, 0, 0, 1))
-                while (music_library_list(j.library, ids[k])->count > 0)
-                    music_library_remove(j.library, ids[k], 0);
-        }
-    }
     /* the folders keep their lists in the library, disc songs included */
     if (!local && j.folder[0] < 0)
         printf("jukebox: native disc-only entry\n");
     else if (mlj_bind(&j, m, vol)) {
         mlj_apply_hidden(m);
-        {
-            const char *names[4] = {"Race", "Slideshow", "Menu", "Replay"};
-            int ids[4] = {j.race, j.slide, j.folder[0], j.folder[1]};
-            for (int k = 0; k < 4; k++) if (ids[k] >= 0) {
-                char key[64]; snprintf(key, sizeof key, "audio.jukebox_empty_%s", names[k]);
-                if (moon_options_int(&app_video_settings->store, key, 0, 0, 1))
-                    while (music_library_list(j.library, ids[k])->count > 0)
-                        music_library_remove(j.library, ids[k], 0);
-            }
-        }
         app_jukebox.library = j.library;
         app_jukebox.page = j.page;
         app_jukebox.race = j.race;
