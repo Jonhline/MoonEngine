@@ -640,6 +640,9 @@ static int studio_tab_rows(int tab, int rows[24])
     }
     if (tab == 3) {
         for (int k = 0; k < 7; k++) rows[n++] = 1000 + k;
+        if (app_video_settings && *moon_options_get(&app_video_settings->store,
+                                                    "audio.jukebox_hidden", ""))
+            rows[n++] = -9;
 #ifdef _WIN32
         rows[n++] = -4; /* Open the actual custom-music folder. */
 #endif
@@ -735,6 +738,7 @@ static const char *studio_row_label(int id)
     if (id == -6) return "Version";
     if (id == -7) return "Update channel";
     if (id == -8) return "Check for update";
+    if (id == -9) return "Restore jukebox categories";
     if (id>=3000) return id==3000 ? "Import preset..." : "Export preset...";
     if (id == -1)
         return "Theme";
@@ -755,6 +759,7 @@ static const char *studio_row_help(int id)
     if (id == -6) return "Version: The Moon Engine build this program was compiled from.";
     if (id == -7) return "Update channel: Stable follows published releases; Nightly follows prereleases.";
     if (id == -8) return "Check for update: Ask GitHub for the newest release on this channel.";
+    if (id == -9) return "Restore jukebox categories: Show every category hidden with Ctrl+H again.";
     static char line[192];
     if (id>=3000) return app_video_settings && app_video_settings->message[0] ? app_video_settings->message : "Import or export a personal preset file. Display and save paths stay local.";
     if (id == -1)
@@ -792,6 +797,7 @@ static const char *studio_row_value(int id, int theme, int mood)
     if (id == -6) return MOON_VERSION;
     if (id == -7) return studio_prefs && !strcasecmp(studio_prefs->channel, "nightly") ? "Nightly" : "Stable";
     if (id == -8) return studio_info_status[0] ? studio_info_status : "Check now";
+    if (id == -9) return "Restore";
     static char text[96];
     if (id>=3000) return id==3000 ? "Choose File..." : "Save As...";
     if (id == -1)
@@ -836,6 +842,13 @@ static void studio_row_change(int id, int delta)
     if (id == -5) {
         fprintf(stderr, "studio: download music row\n");
         app_music_download_open();
+        return;
+    }
+    if (id == -9) {
+        if (app_video_settings) {
+            moon_options_set(&app_video_settings->store, "audio.jukebox_hidden", "");
+            moon_options_save(&app_video_settings->store);
+        }
         return;
     }
     if (id == -7) {
@@ -3152,7 +3165,7 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
 #define STUDIO_OPTION_CHANGE(row_, delta_)                                                         \
     do {                                                                                           \
         int id_ = options_ids[(row_)];                                                             \
-        if (id_ >= 0 || id_ == -4 || id_ == -5 || id_ == -6 || id_ == -7 || id_ == -8) {                                                                            \
+        if (id_ >= 0 || id_ == -4 || id_ == -5 || id_ == -6 || id_ == -7 || id_ == -8 || id_ == -9) {                                                                            \
             int was_group_ = id_ == video_setting_tweak_group();                                   \
             studio_row_change(id_, (delta_));                                                      \
             if (was_group_) {                                                                       \

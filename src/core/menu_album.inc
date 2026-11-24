@@ -953,6 +953,16 @@ int menu_jukebox_retitle(menu *m, int row, const char *title)
     ah_array_set(item, 0, ah_str(m->vm, title));
     return 1;
 }
+const char *menu_jukebox_row_group(menu *m, int row)
+{
+    ah_val v;
+    if (!m || row < 0 || !ah_get_member(m->vm, game_object(m), "_local_music", &v)) return NULL;
+    ah_obj *lib = ah_as_obj(v, AO_ARRAY);
+    if (!lib || row >= ah_array_size(lib)) return NULL;
+    ah_obj *item = ah_as_obj(ah_array_get(lib, row), AO_ARRAY);
+    if (!item || ah_array_size(item) < 2) return NULL;
+    return ah_cstr(ah_array_get(item, 1));
+}
 int menu_jukebox_drop_row(menu *m, int row)
 {
     if (!m || row < 0) return 0;

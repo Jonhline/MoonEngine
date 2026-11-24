@@ -949,6 +949,39 @@ void mlj_tip_refresh(menu *m)
     const ml_track *t = mlj_selected(m);
     hint->visible = t && strncmp(t->path, "gt4:", 4) && !mlj_rename.active;
 }
+static int mlj_hidden_has(const char *cat)
+{
+    if (!app_video_settings || !cat || !*cat) return 0;
+    const char *h = moon_options_get(&app_video_settings->store, "audio.jukebox_hidden", "");
+    size_t n = strlen(cat);
+    for (const char *p = h; p && *p;) {
+        const char *e = strchr(p, ',');
+        size_t k = e ? (size_t)(e - p) : strlen(p);
+        if (k == n && !strncmp(p, cat, n)) return 1;
+        p = e ? e + 1 : NULL;
+    }
+    return 0;
+}
+static void mlj_hidden_add(const char *cat)
+{
+    if (!app_video_settings || !cat || !*cat || mlj_hidden_has(cat)) return;
+    char h[512];
+    snprintf(h, sizeof h, "%s%s%s", moon_options_get(&app_video_settings->store,
+                                                    "audio.jukebox_hidden", ""),
+             *moon_options_get(&app_video_settings->store, "audio.jukebox_hidden", "") ? "," : "",
+             cat);
+    moon_options_set(&app_video_settings->store, "audio.jukebox_hidden", h);
+    moon_options_save(&app_video_settings->store);
+}
+static void mlj_apply_hidden(menu *m)
+{
+    const ml_playlist *cat = music_library_list(app_jukebox.library, app_jukebox.catalog);
+    if (!cat) return;
+    for (int i = cat->count - 1; i >= 0; i--) {
+        const char *g = menu_jukebox_row_group(m, i);
+        if (g && mlj_hidden_has(g)) menu_jukebox_drop_row(m, i);
+    }
+}
 void mlj_jukebox_remove_category(void)
 {
     menu *m = app_jukebox.page;
@@ -971,27 +1004,29 @@ void mlj_jukebox_remove_category(void)
     if (!cat || !group[0]) return;
     int count = 0;
     for (int i = 0; i < cat->count; i++) {
-        char cg[ML_PATH] = "";
-        if (strncmp(cat->tracks[i].path, "gt4:", 4))
-            mlj_group(cat->tracks[i].path, cg, sizeof cg);
-        else {
-            char buf[256];
-            const char *display = cat->tracks[i].title;
-            (void)buf; (void)display;
+        const char *cg = menu_jukebox_row_group(m, i);
+        char local[ML_PATH] = "";
+        if (!cg && !strncmp(cat->tracks[i].path, "gt4:", 4) == 0) {
+            mlj_group(cat->tracks[i].path, local, sizeof local);
+            cg = local;
         }
-        if (!strncmp(cat->tracks[i].path, "gt4:", 4) || !strcmp(cg, group)) count++;
+        if (cg && !strcmp(cg, group)) count++;
     }
     char msg[256];
     snprintf(msg, sizeof msg, "Remove category \"%s\" (%d songs)?", group, count);
     if (menu_confirm(m, "Remove category", msg)) {
         for (int i = cat->count - 1; i >= 0; i--) {
-            char cg[ML_PATH] = "";
-            if (!strncmp(cat->tracks[i].path, "gt4:", 4) || !strcmp((mlj_group(cat->tracks[i].path, cg, sizeof cg), cg), group))
-                music_library_remove(app_jukebox.library, app_jukebox.catalog, i);
+            const char *cg = menu_jukebox_row_group(m, i);
+            char local[ML_PATH] = "";
+            if (!cg && strncmp(cat->tracks[i].path, "gt4:", 4)) {
+                mlj_group(cat->tracks[i].path, local, sizeof local);
+                cg = local;
+            }
+            if (cg && !strcmp(cg, group)) menu_jukebox_drop_row(m, i);
         }
-        mlj_refresh(m, 0);
-        printf("jukebox: removed category %s\n", group);
-        mlj_log("jukebox: removed category %s", group);
+        mlj_hidden_add(group);
+        printf("jukebox: removed category %s (%d songs)\n", group, count);
+        mlj_log("jukebox: removed category %s (%d songs)", group, count);
     }
 }
 int mlj_jukebox_hotkey(int sym)
@@ -1035,7 +1070,7 @@ static void mlj_file_buttons(menu *m)
         ui_widget *h = ui_widget_copy(ui, liblabel);
         h->name = "MoonHint";
         free(h->text);
-        h->text = strdup("Del: delete    Ctrl+R: rename");
+        h->text = strdup("Del: delete   Ctrl+R: rename   Ctrl+H: remove category");
         h->x = 250.f;
         h->y = 418.f;
         h->w = 360.f;
@@ -1120,6 +1155,7 @@ static void app_jukebox_attach(menu *m)
     if (!local && j.folder[0] < 0)
         printf("jukebox: native disc-only entry\n");
     else if (mlj_bind(&j, m, vol)) {
+        mlj_apply_hidden(m);
         app_jukebox.library = j.library;
         app_jukebox.page = j.page;
         app_jukebox.race = j.race;
