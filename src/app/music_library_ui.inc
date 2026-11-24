@@ -1076,8 +1076,16 @@ static void mlj_apply_hidden(menu *m)
 void mlj_jukebox_empty_category(void)
 {
     ah_val ret;
-    void mlj_jukebox_empty_category(void);
+    fprintf(stderr, "jukebox Ctrl+E fired\n"); fflush(stderr);
     mlj_empty_activate(NULL, NULL, app_jukebox.page, 0, NULL, &ret);
+}
+void mlj_jukebox_empty_click(float u, float v)
+{
+    if (u < 500 || u > 534 || v < 415 || v > 439) return;
+    char name[64];
+    if (mlj_category_id(app_jukebox.page, name, sizeof name) < 0) return;
+    fprintf(stderr, "jukebox Empty click %.1f,%.1f -> %s\n", u, v, name); fflush(stderr);
+    mlj_jukebox_empty_category();
 }
 void mlj_jukebox_remove_category(void)
 {
