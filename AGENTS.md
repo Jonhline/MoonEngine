@@ -16,3 +16,15 @@ Applies to every dish in this project. Read it before you report anything.
    work".
 5. **Cuts both ways.** If you claim something is impossible, show the measurement
    that proves it (file:line, struct field, hash) — no vibes.
+
+## Launcher law — ONE launcher, and it is the new one
+
+The old front door (`src/app/launcher.c`, the pre-INFO dock with its own update
+checker) is **dead**. `--launcher` must open the new launcher (`launcher_ui.c`:
+DISC MODS OPTIONS MUSIC START INFO EXIT). Never:
+- add a feature to the old front door,
+- bring back a `--launcher-v2` / `--launcher-v1` split, or
+- leave a second update path alive.
+
+If a change cannot be reached with plain `--launcher`, it does not exist.
+
