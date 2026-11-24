@@ -144,7 +144,7 @@ void video_settings_init(video_settings *s, int persist, const char *config_file
     s->current.touch_menu = 1;
     moon_options_load(&s->store,NULL,NULL);
 #else
-    s->current.video = (plat_video_desc){1280, 960, 0, 1, 0};
+    s->current.video = (plat_video_desc){1600, 900, 0, 1, 0};
 #endif
     /* Classic starts with texture/glyph coverage from the disc. Optional
        PC sharpening remains available and existing preferences still load. */
