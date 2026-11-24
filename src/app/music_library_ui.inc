@@ -985,50 +985,55 @@ static void mlj_apply_hidden(menu *m)
 void mlj_jukebox_remove_category(void)
 {
     menu *m = app_jukebox.page;
-    if (!m || menu_active_root(m) < 0) return;
-    ui_widget *root = ui_root_widget(menu_ui(m), menu_active_root(m));
-    ui_widget *tip = ui_widget_child(root, "Tooltip");
-    const char *text = NULL;
-    for (int i = 0; tip && i < tip->nkids; i++)
-        if (tip->kids[i] && tip->kids[i]->text) { text = tip->kids[i]->text; break; }
-    if (!text) text = mlj_shown_tip(root);
-    const char *sep = text ? strstr(text, " / ") : NULL;
-    if (!sep) return;
-    char group[ML_PATH];
-    const char *g = sep + 3;
-    const char *end = strstr(g, " /");
-    size_t n = end ? (size_t)(end - g) : strlen(g);
-    if (n >= sizeof group) n = sizeof group - 1;
-    memcpy(group, g, n); group[n] = 0;
+    fprintf(stderr, "jukebox Ctrl+H: page=%p\n", (void *)m);
+    if (!m || menu_active_root(m) < 0) { fprintf(stderr, "jukebox Ctrl+H: no page\n"); fflush(stderr); return; }
+    const ml_track *t = mlj_selected(m);
+    if (!t) { fprintf(stderr, "jukebox Ctrl+H: no track\n"); fflush(stderr); return; }
     const ml_playlist *cat = music_library_list(app_jukebox.library, app_jukebox.catalog);
-    if (!cat || !group[0]) return;
+    if (!cat) { fprintf(stderr, "jukebox Ctrl+H: no list\n"); fflush(stderr); return; }
+    int idx = -1;
+    for (int i = 0; i < cat->count; i++)
+        if (&cat->tracks[i] == t) { idx = i; break; }
+    char group[ML_PATH] = "";
+    if (strncmp(t->path, "gt4:", 4))
+        mlj_group(t->path, group, sizeof group);
+    else {
+        const char *g = idx >= 0 ? menu_jukebox_row_group(m, idx) : NULL;
+        if (g) snprintf(group, sizeof group, "%s", g);
+    }
+    fprintf(stderr, "jukebox Ctrl+H: track=%s path=%s idx=%d group=%s\n",
+            t->title, t->path, idx, group);
+    if (!group[0]) { fprintf(stderr, "jukebox Ctrl+H: no group\n"); fflush(stderr); return; }
     int count = 0;
     for (int i = 0; i < cat->count; i++) {
         const char *cg = menu_jukebox_row_group(m, i);
         char local[ML_PATH] = "";
-        if (!cg && !strncmp(cat->tracks[i].path, "gt4:", 4) == 0) {
+        if (!cg && strncmp(cat->tracks[i].path, "gt4:", 4)) {
             mlj_group(cat->tracks[i].path, local, sizeof local);
             cg = local;
         }
         if (cg && !strcmp(cg, group)) count++;
     }
+    fprintf(stderr, "jukebox Ctrl+H: count=%d\n", count); fflush(stderr);
     char msg[256];
     snprintf(msg, sizeof msg, "Remove category \"%s\" (%d songs)?", group, count);
-    if (menu_confirm(m, "Remove category", msg)) {
-        for (int i = cat->count - 1; i >= 0; i--) {
-            const char *cg = menu_jukebox_row_group(m, i);
-            char local[ML_PATH] = "";
-            if (!cg && strncmp(cat->tracks[i].path, "gt4:", 4)) {
-                mlj_group(cat->tracks[i].path, local, sizeof local);
-                cg = local;
-            }
-            if (cg && !strcmp(cg, group)) menu_jukebox_drop_row(m, i);
+    int yes = menu_confirm(m, "Remove category", msg);
+    fprintf(stderr, "jukebox Ctrl+H: %s\n", yes ? "confirm shown/accepted" : "cancelled"); fflush(stderr);
+    if (!yes) return;
+    for (int i = cat->count - 1; i >= 0; i--) {
+        const char *cg = menu_jukebox_row_group(m, i);
+        char local[ML_PATH] = "";
+        if (!cg && strncmp(cat->tracks[i].path, "gt4:", 4)) {
+            mlj_group(cat->tracks[i].path, local, sizeof local);
+            cg = local;
         }
-        mlj_hidden_add(group);
-        printf("jukebox: removed category %s (%d songs)\n", group, count);
-        mlj_log("jukebox: removed category %s (%d songs)", group, count);
+        if (cg && !strcmp(cg, group)) menu_jukebox_drop_row(m, i);
     }
+    mlj_hidden_add(group);
+    printf("jukebox: removed category %s (%d songs)\n", group, count);
+    mlj_log("jukebox: removed category %s (%d songs)", group, count);
 }
+
 int mlj_jukebox_hotkey(int sym)
 {
     menu *m = app_jukebox.page;
