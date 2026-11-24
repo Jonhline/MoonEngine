@@ -1043,6 +1043,10 @@ static void mlj_empty_activate(ah_vm *vm, ah_obj *self, void *data, int argc, co
         menu_jukebox_clear_list(m, li);
         menu_jukebox_set_mode(m, li);
         ui_widget *fr = menu_jukebox_page_widget(m);
+        ui_widget *box = fr ? ui_widget_child(ui_widget_child(fr, "List"), "list_box") : NULL;
+        if (box)
+            for (int i = box->nkids - 1; i >= 0; i--)
+                ui_widget_detach(box->kids[i]);
         ui_widget *tw = mlj_text_widget(fr, "No. of songs:");
         if (tw) {
             char buf[256];
