@@ -8,7 +8,11 @@
 #include <string.h>
 
 #define UPDATE_REPO "Jonhline/MoonEngine"
+#ifdef _WIN32
 #define UPDATE_ASSET_SUFFIX "-win64.zip"
+#else
+#define UPDATE_ASSET_SUFFIX "-linux-x86_64.tar.gz"
+#endif
 
 /* X.Y.Z, no leading zeros; 1 when remote is newer than local */
 static int version_parts(const char *s, unsigned v[3])
