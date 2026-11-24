@@ -6,6 +6,7 @@
 #include "launcher_ui.h"
 #include "launcher_update.h"
 #include "moon_http.h"
+#include "miniz.h"
 #ifndef _WIN32
 #include <pthread.h>
 #endif
@@ -559,6 +560,74 @@ static void *info_check_worker(void *user)
     u->info_checking = 0;
     return NULL;
 }
+#ifndef _WIN32
+static unsigned long long tar_octal(const unsigned char *p, int n)
+{
+    unsigned long long v = 0;
+    while (n-- && *p >= '0' && *p <= '7') v = v * 8 + (unsigned)(*p++ - '0');
+    return v;
+}
+static int tar_header_ok(const unsigned char *h)
+{
+    unsigned sum = 0;
+    for (int i = 0; i < 512; i++) sum += i >= 148 && i < 156 ? ' ' : h[i];
+    return sum == tar_octal(h + 148, 8);
+}
+static int write_member(const char *base, const char *name, const unsigned char *data, size_t n,
+                        char written[][1400], int *count)
+{
+    char rel[512];
+    snprintf(rel, sizeof rel, "%s", name);
+    if (!strncmp(rel, "MoonEngine-", 11)) { char *sl = strchr(rel, '/'); if (sl) memmove(rel, sl + 1, strlen(sl + 1) + 1); }
+    while (rel[0] == '.' && rel[1] == '/') memmove(rel, rel + 2, strlen(rel + 2) + 1);
+    if (!rel[0] || rel[0] == '/' || strstr(rel, "..")) return 0;
+    if (!strcmp(rel, "MoonEngine")) snprintf(rel, sizeof rel, "MoonEngine");
+    char out[1600];
+    snprintf(out, sizeof out, "%s%s.new", base, rel);
+    FILE *f = fopen(out, "wb");
+    if (!f) return 0;
+    int ok = fwrite(data, 1, n, f) == n;
+    fclose(f);
+    if (ok && *count < 64) snprintf(written[(*count)++], 1400, "%s", out);
+    return ok;
+}
+static int extract_targz(const unsigned char *tgz, size_t n, const char *base)
+{
+    if (n < 18 || tgz[0] != 0x1f || tgz[1] != 0x8b) return 0;
+    size_t hdr = 10; int flags = tgz[3];
+    if (flags & 4) hdr += 2 + (tgz[hdr] | (tgz[hdr + 1] << 8));
+    if (flags & 8) while (hdr < n && tgz[hdr++]) {}
+    if (flags & 16) while (hdr < n && tgz[hdr++]) {}
+    if (flags & 2) hdr += 2;
+    size_t raw_n = 0;
+    void *raw = tinfl_decompress_mem_to_heap(tgz + hdr, n - hdr - 8, &raw_n, 0);
+    if (!raw) return 0;
+    const unsigned char *t = raw;
+    char written[64][1400]; int count = 0, ok = 1;
+    char longname[512] = "";
+    for (size_t at = 0; at + 512 <= raw_n && ok;) {
+        const unsigned char *h = t + at;
+        if (!h[0]) break;
+        if (!tar_header_ok(h)) { ok = 0; break; }
+        char name[512];
+        snprintf(name, sizeof name, "%s", longname[0] ? longname : (const char *)h);
+        unsigned long long sz = tar_octal(h + 124, 12);
+        char type = (char)h[156];
+        const unsigned char *data = h + 512;
+        if (type == 'L') {
+            size_t k = sz < sizeof longname - 1 ? (size_t)sz : sizeof longname - 1;
+            memcpy(longname, data, k); longname[k] = 0;
+        } else if (type == '0' || type == 0) {
+            ok = write_member(base, name, data, (size_t)sz, written, &count);
+        }
+        longname[0] = 0;
+        at += 512 + ((sz + 511) & ~511ULL);
+    }
+    free(raw);
+    if (!ok) for (int i = 0; i < count; i++) remove(written[i]);
+    return ok && count;
+}
+#endif
 static void *info_download_worker(void *user)
 {
     struct ui *u = user;
@@ -589,25 +658,32 @@ static void *info_download_worker(void *user)
     unsigned char *data = moon_http_get(asset, (size_t)(asize ? asize : (256u << 20)), &got);
     if (!data) { snprintf(u->info_status,sizeof u->info_status,"Download failed"); u->info_downloading=0; return NULL; }
     if (asize && got != asize) { free(data); snprintf(u->info_status,sizeof u->info_status,"Download size mismatch"); u->info_downloading=0; return NULL; }
-    char path[1400];
-    snprintf(path, sizeof path, "%sMoonEngine.new", u->base_path);
-    FILE *f = fopen(path, "wb");
-    int ok = f && fwrite(data, 1, got, f) == got;
-    if (f) fclose(f);
-    free(data);
-    if (!ok) { snprintf(u->info_status,sizeof u->info_status,"Download write failed"); u->info_downloading=0; return NULL; }
     if (sha[0]) {
-        char cmd[1600], out[256] = "";
-        snprintf(cmd, sizeof cmd, "sha256sum '%s' 2>/dev/null", path);
-        FILE *h = popen(cmd, "r");
-        if (h) { if (!fgets(out, sizeof out, h)) out[0] = 0; pclose(h); }
-        if (strncasecmp(out, sha, 64)) {
-            remove(path);
-            snprintf(u->info_status,sizeof u->info_status,"Download failed");
-            u->info_downloading=0;
-            return NULL;
+        char tmp[] = "/tmp/moon-dl-XXXXXX";
+        int fd = mkstemp(tmp);
+        int ok = 0;
+        if (fd >= 0) {
+            size_t w = write(fd, data, got);
+            close(fd);
+            ok = w == got;
+            if (ok) {
+                char cmd[1600], out[256] = "";
+                snprintf(cmd, sizeof cmd, "sha256sum '%s' 2>/dev/null", tmp);
+                FILE *h = popen(cmd, "r");
+                if (h) { if (!fgets(out, sizeof out, h)) out[0] = 0; pclose(h); }
+                ok = !strncasecmp(out, sha, 64);
+            }
+            remove(tmp);
         }
+        if (!ok) { free(data); snprintf(u->info_status,sizeof u->info_status,"Download failed"); u->info_downloading=0; return NULL; }
     }
+#ifndef _WIN32
+    int ok = extract_targz(data, got, u->base_path);
+#else
+    int ok = 0;
+#endif
+    free(data);
+    if (!ok) { snprintf(u->info_status,sizeof u->info_status,"Download failed"); u->info_downloading=0; return NULL; }
     u->info_ready = 1;
     snprintf(u->info_status,sizeof u->info_status,"Restart to finish (%llu bytes)", asize);
     u->info_downloading = 0;
