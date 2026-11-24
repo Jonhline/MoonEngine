@@ -258,11 +258,6 @@ static const char *fs2d =
 static int display_aspect;
 static int fill_window; /* the studio fills the window; the game keeps the disc's 4:3 */
 static float content_width, content_x, side_margin;
-static float menu_page_w = 640.f, menu_page_h = 480.f;
-void video_set_menu_page_size(float width, float height)
-{
-    if (width > 0 && height > 0) { menu_page_w = width; menu_page_h = height; }
-}
 static void report_view(void)
 {
     static int lw = -1, lh = -1;
@@ -312,14 +307,14 @@ static void layout_view(void)
     if (menu_projection) {
         /* The menu page is 640x480. Fit it inside the drawable area at one
            scale, centred on both axes; never crop the transport column. */
-        float s = fminf((float)fb_w / menu_page_w, (float)fb_h / menu_page_h);
+        float s = fminf((float)fb_w / 640.f, (float)fb_h / 480.f);
         if (s > 0) {
             scale_x = scale_y = s;
-            content_width = menu_page_w * s;
+            content_width = 640.f * s;
             content_x = ((float)fb_w - content_width) * .5f;
             side_margin = 0;
             off_x = content_x;
-            off_y = ((float)fb_h - menu_page_h * s) * .5f;
+            off_y = ((float)fb_h - 480.f * s) * .5f;
         }
     }
     report_view();
