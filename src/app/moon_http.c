@@ -8,6 +8,9 @@
 #include <winhttp.h>
 static int host_ok(const char *u)
 {
+#if MOON_DEV_BUILD
+    if (getenv("MOON_UPDATE_FAKE") && !strncmp(u, "http://127.0.0.1:", 17)) return 1;
+#endif
     return !strncmp(u, "https://github.com/", 19) ||
            !strncmp(u, "https://api.github.com/", 23) ||
            !strncmp(u, "https://objects.githubusercontent.com/", 39);
@@ -64,6 +67,22 @@ unsigned char *moon_http_get(const char *url, size_t limit, size_t *got)
 }
 #else
 #include <curl/curl.h>
+static volatile int up_progress = -1;
+int moon_http_progress(void) { return up_progress; }
+void moon_http_reset_progress(void) { up_progress = -1; }
+static int xfer(void *p, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow)
+{
+    (void)p; (void)ultotal; (void)ulnow;
+    if (dltotal > 0) {
+        int pct = (int)(dlnow * 100 / dltotal), old = up_progress;
+        up_progress = pct;
+        if (old < 10 && pct >= 10) { fprintf(stderr, "update: downloading %d%%\n", pct); fflush(stderr); }
+        else if (old < 50 && pct >= 50) { fprintf(stderr, "update: downloading %d%%\n", pct); fflush(stderr); }
+        else if (old < 90 && pct >= 90) { fprintf(stderr, "update: downloading %d%%\n", pct); fflush(stderr); }
+    }
+    else if (dlnow > 0) up_progress = -1;
+    return 0;
+}
 typedef struct { unsigned char *p; size_t n, cap; } buf;
 static size_t wr(void *data, size_t sz, size_t nm, void *user)
 {
@@ -80,6 +99,9 @@ static size_t wr(void *data, size_t sz, size_t nm, void *user)
 }
 static int host_ok(const char *u)
 {
+#if MOON_DEV_BUILD
+    if (getenv("MOON_UPDATE_FAKE") && !strncmp(u, "http://127.0.0.1:", 17)) return 1;
+#endif
     return !strncmp(u, "https://github.com/", 19) ||
            !strncmp(u, "https://api.github.com/", 23) ||
            !strncmp(u, "https://objects.githubusercontent.com/", 39);
@@ -100,6 +122,9 @@ unsigned char *moon_http_get(const char *url, size_t limit, size_t *got)
     curl_easy_setopt(c, CURLOPT_USERAGENT, "MoonEngine-updater");
     curl_easy_setopt(c, CURLOPT_HTTPHEADER, h);
     curl_easy_setopt(c, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)limit);
+    moon_http_reset_progress();
+    curl_easy_setopt(c, CURLOPT_XFERINFOFUNCTION, xfer);
+    curl_easy_setopt(c, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, wr);
     curl_easy_setopt(c, CURLOPT_WRITEDATA, &b);
     CURLcode r = curl_easy_perform(c);

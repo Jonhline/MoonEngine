@@ -158,12 +158,56 @@ static void sweep(int apply)
     fclose(f);
     unlink(list);
 }
+static void *update_thread(void *unused);
+static int begin_started;
+void app_update_begin(int auto_check)
+{
+    (void)auto_check;
+    if (begin_started) return;
+    begin_started = 1;
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    pthread_t th;
+    if (pthread_create(&th, NULL, update_thread, NULL) == 0) pthread_detach(th);
+}
+int app_update_state(void)
+{
+    switch (lup_state) {
+    case LUP_CHECKING: return 1;
+    case LUP_DOWNLOADING: return 2;
+    case LUP_READY: return 3;
+    case LUP_NONE: return 4;
+    case LUP_ERROR: return 5;
+    default: return 0;
+    }
+}
+int app_update_progress(void) { return lup_state == LUP_DOWNLOADING ? moon_http_progress() : (lup_state == LUP_READY ? 100 : 0); }
+const char *app_update_message(void) { return lup_status; }
+int app_update_available(char *ver, size_t n)
+{
+    if (!ver || !n || lup_state < LUP_READY) return 0;
+    snprintf(ver, n, "%s", lup_release.version);
+    return 1;
+}
+int app_update_download(void)
+{
+    if (lup_state == LUP_IDLE || lup_state == LUP_NONE || lup_state == LUP_ERROR) {
+        lup_state = LUP_IDLE;
+        begin_started = 0;
+        app_update_begin(0);
+        return 1;
+    }
+    return 0;
+}
 static void *update_thread(void *unused)
 {
     (void)unused;
     size_t n = 0;
-    unsigned char *json = fetch("https://api.github.com/repos/Jonhline/MoonEngine/releases/latest", 1 << 20, &n);
+    const char *feed = getenv("MOON_UPDATE_FEED");
+    const char *jsonurl = feed && *feed ? feed
+        : "https://api.github.com/repos/Jonhline/MoonEngine/releases/latest";
+    unsigned char *json = fetch(jsonurl, 1 << 20, &n);
     if (!json) { snprintf(lup_status, sizeof lup_status, "Update check failed."); lup_state = LUP_ERROR; return NULL; }
+    fprintf(stderr, "update: state checking\n"); fflush(stderr);
     if (!app_update_parse_release((char *)json, UPDATE_ASSET_SUFFIX, &lup_release)) {
         free(json); snprintf(lup_status, sizeof lup_status, "No update for this platform."); lup_state = LUP_NONE; return NULL;
     }
@@ -171,7 +215,9 @@ static void *update_thread(void *unused)
     if (!newer(lup_release.version, MOON_VERSION)) {
         snprintf(lup_status, sizeof lup_status, "Moon Engine is up to date."); lup_state = LUP_NONE; return NULL;
     }
+    fprintf(stderr, "update: state available %s\n", lup_release.version); fflush(stderr);
     lup_state = LUP_DOWNLOADING;
+    fprintf(stderr, "update: state downloading 0%%\n"); fflush(stderr);
     unsigned char *tar = fetch(lup_release.url, (size_t)lup_release.size, &n);
     if (!tar || n != lup_release.size) { free(tar); snprintf(lup_status, sizeof lup_status, "Update download failed."); lup_state = LUP_ERROR; return NULL; }
     char tmp[] = "/tmp/moon-update-XXXXXX";
@@ -184,9 +230,11 @@ static void *update_thread(void *unused)
         unlink(tmp);
     }
     if (!ok) { free(tar); snprintf(lup_status, sizeof lup_status, "Update digest mismatch."); lup_state = LUP_ERROR; return NULL; }
+    fprintf(stderr, "update: state downloading 100%%\n"); fflush(stderr);
     if (!tar_unpack(tar, n)) { free(tar); snprintf(lup_status, sizeof lup_status, "Update unpack failed."); lup_state = LUP_ERROR; return NULL; }
     free(tar);
     snprintf(lup_status, sizeof lup_status, "Update %s ready; it applies on exit.", lup_release.version);
     lup_state = LUP_READY;
+    fprintf(stderr, "update: state ready %s\n", lup_release.version); fflush(stderr);
     return NULL;
 }

@@ -19,4 +19,11 @@ typedef struct {
     unsigned long long size;
 } app_update_release;
 int app_update_parse_release(const char *json, const char *asset_suffix, app_update_release *out);
+/* async job for the studio (state: 0 idle, 1 checking, 2 downloading, 3 ready, 4 none, 5 error) */
+void app_update_begin(int auto_check);
+int app_update_state(void);
+int app_update_progress(void);
+const char *app_update_message(void);
+int app_update_available(char *ver, size_t n);
+int app_update_download(void);
 #endif

@@ -262,10 +262,16 @@ int app_update_parse_release(const char *json, const char *asset_suffix, app_upd
     if (!jobject(&s, release_member, &r) || !r.found || strcmp(r.asset.name, want))
         return 0;
     /* only GitHub's own HTTPS download, a known size and its SHA-256 */
-    if (strncmp(r.asset.url, "https://github.com/" UPDATE_REPO "/releases/download/",
-                strlen("https://github.com/" UPDATE_REPO "/releases/download/")) ||
-        strstr(r.asset.url, "..") || !r.asset.size || strncmp(r.asset.digest, "sha256:", 7) ||
-        strlen(r.asset.digest + 7) != 64)
+#if MOON_DEV_BUILD
+    int dev_fake = getenv("MOON_UPDATE_FAKE") && !strncmp(r.asset.url, "http://127.0.0.1:", 17);
+#else
+    int dev_fake = 0;
+#endif
+    if (!dev_fake &&
+        (strncmp(r.asset.url, "https://github.com/" UPDATE_REPO "/releases/download/",
+                 strlen("https://github.com/" UPDATE_REPO "/releases/download/")) ||
+         strstr(r.asset.url, "..") || !r.asset.size || strncmp(r.asset.digest, "sha256:", 7) ||
+         strlen(r.asset.digest + 7) != 64))
         return 0;
     for (int i = 0; i < 64; i++)
         if (!isxdigit((unsigned char)r.asset.digest[7 + i]))
