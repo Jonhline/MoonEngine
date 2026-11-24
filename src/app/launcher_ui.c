@@ -99,7 +99,8 @@ struct ui {
     char mod_full[MAX_MODS][1400];   /* each mod's own path, so a tick can be handed over */
     char status[256];
     char info_status[160];
-    int info_checking;
+    char info_version[32];
+    int info_checking, info_downloading, info_ready;
     int quit, result;
 };
 
@@ -550,11 +551,66 @@ static void *info_check_worker(void *user)
         return NULL;
     }
     const char *ver = tag[0] == 'v' || tag[0] == 'V' ? tag + 1 : tag;
-    if (launcher_update_newer(ver, MOON_VERSION))
-        snprintf(u->info_status, sizeof u->info_status, "%s available", ver);
-    else
+    if (launcher_update_newer(ver, MOON_VERSION)) {
+        snprintf(u->info_version, sizeof u->info_version, "%s", ver);
+        snprintf(u->info_status, sizeof u->info_status, "Download %s (Enter)", ver);
+    } else
         snprintf(u->info_status, sizeof u->info_status, "Up to date (%s)", MOON_VERSION);
     u->info_checking = 0;
+    return NULL;
+}
+static void *info_download_worker(void *user)
+{
+    struct ui *u = user;
+    const char *ch = u->start->preferences.channel;
+    int nightly = !strcasecmp(ch, "nightly");
+    const char *url = nightly ? "https://api.github.com/repos/Jonhline/MoonEngine/releases"
+                              : "https://api.github.com/repos/Jonhline/MoonEngine/releases/latest";
+    size_t n = 0;
+    unsigned char *json = moon_http_get(url, 1 << 20, &n);
+    if (!json) { snprintf(u->info_status,sizeof u->info_status,"Download failed"); u->info_downloading=0; return NULL; }
+    char want[128];
+    snprintf(want, sizeof want, "MoonEngine-%s-linux-x86_64.tar.gz", u->info_version);
+    char *p = strstr((char *)json, want);
+    if (!p) { free(json); snprintf(u->info_status,sizeof u->info_status,"No Linux asset"); u->info_downloading=0; return NULL; }
+    char *uurl = strstr(p, "\"browser_download_url\":\"");
+    char *size = strstr(p, "\"size\":");
+    char *digest = strstr(p, "\"digest\":\"sha256:");
+    if (!uurl || !size) { free(json); snprintf(u->info_status,sizeof u->info_status,"Asset parse failed"); u->info_downloading=0; return NULL; }
+    uurl += 24; char *ue = strchr(uurl, '"');
+    char asset[1024]; size_t k = ue ? (size_t)(ue - uurl) : 0;
+    if (!k || k >= sizeof asset) { free(json); snprintf(u->info_status,sizeof u->info_status,"Asset URL bad"); u->info_downloading=0; return NULL; }
+    memcpy(asset, uurl, k); asset[k] = 0;
+    unsigned long long asize = strtoull(size + 7, NULL, 10);
+    char sha[65] = "";
+    if (digest) { digest += 19; memcpy(sha, digest, 64); sha[64] = 0; }
+    free(json);
+    size_t got = 0;
+    unsigned char *data = moon_http_get(asset, (size_t)(asize ? asize : (256u << 20)), &got);
+    if (!data) { snprintf(u->info_status,sizeof u->info_status,"Download failed"); u->info_downloading=0; return NULL; }
+    if (asize && got != asize) { free(data); snprintf(u->info_status,sizeof u->info_status,"Download size mismatch"); u->info_downloading=0; return NULL; }
+    char path[1400];
+    snprintf(path, sizeof path, "%sMoonEngine.new", u->base_path);
+    FILE *f = fopen(path, "wb");
+    int ok = f && fwrite(data, 1, got, f) == got;
+    if (f) fclose(f);
+    free(data);
+    if (!ok) { snprintf(u->info_status,sizeof u->info_status,"Download write failed"); u->info_downloading=0; return NULL; }
+    if (sha[0]) {
+        char cmd[1600], out[256] = "";
+        snprintf(cmd, sizeof cmd, "sha256sum '%s' 2>/dev/null", path);
+        FILE *h = popen(cmd, "r");
+        if (h) { if (!fgets(out, sizeof out, h)) out[0] = 0; pclose(h); }
+        if (strncasecmp(out, sha, 64)) {
+            remove(path);
+            snprintf(u->info_status,sizeof u->info_status,"Download failed");
+            u->info_downloading=0;
+            return NULL;
+        }
+    }
+    u->info_ready = 1;
+    snprintf(u->info_status,sizeof u->info_status,"Restart to finish (%llu bytes)", asize);
+    u->info_downloading = 0;
     return NULL;
 }
 static void draw_page(struct ui *u)
@@ -893,7 +949,16 @@ static void key(struct ui *u,SDL_Keycode k)
         }
     }
     if((k==SDLK_RETURN || k==SDLK_KP_ENTER) && u->open==PAGE_INFO) {
-        if (!u->info_checking) {
+        if (u->info_ready) return;
+        if (u->info_version[0] && !u->info_downloading) {
+            u->info_downloading = 1;
+            snprintf(u->info_status,sizeof u->info_status,"Downloading...");
+            pthread_t th;
+            if (pthread_create(&th,NULL,info_download_worker,u)!=0) {
+                u->info_downloading=0;
+                snprintf(u->info_status,sizeof u->info_status,"Download failed: thread");
+            } else pthread_detach(th);
+        } else if (!u->info_checking) {
             u->info_checking = 1;
             snprintf(u->info_status,sizeof u->info_status,"Checking...");
             pthread_t th;

@@ -1,7 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
 project(moonengine LANGUAGES C CXX)
 
-set(MOON_VERSION "0.4.0" CACHE STRING "Release version (X.Y.Z)")
+# The source default wins over a stale cache; an explicit override still works.
+if(DEFINED MOON_VERSION_OVERRIDE)
+  set(MOON_VERSION "${MOON_VERSION_OVERRIDE}" CACHE STRING "Release version (X.Y.Z)" FORCE)
+else()
+  set(MOON_VERSION "0.4.0" CACHE STRING "Release version (X.Y.Z)" FORCE)
+endif()
 # Dev build (default, what we work on): the developer keys (PgUp/PgDn projects,
 # F1/F2 menu roots) and the F4 debug overlay. Stable (OFF): what players get,
 # none of those, and the GitHub release check (src/app/app_update.c).
