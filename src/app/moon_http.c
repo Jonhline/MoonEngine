@@ -76,9 +76,7 @@ static int xfer(void *p, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultota
     if (dltotal > 0) {
         int pct = (int)(dlnow * 100 / dltotal), old = up_progress;
         up_progress = pct;
-        if (old < 10 && pct >= 10) { fprintf(stderr, "update: downloading %d%%\n", pct); fflush(stderr); }
-        else if (old < 50 && pct >= 50) { fprintf(stderr, "update: downloading %d%%\n", pct); fflush(stderr); }
-        else if (old < 90 && pct >= 90) { fprintf(stderr, "update: downloading %d%%\n", pct); fflush(stderr); }
+        (void)old;
     }
     else if (dlnow > 0) up_progress = -1;
     return 0;

@@ -5,7 +5,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-enum { LUP_IDLE, LUP_CHECKING, LUP_DOWNLOADING, LUP_READY, LUP_NONE, LUP_ERROR };
+enum { LUP_IDLE, LUP_CHECKING, LUP_AVAILABLE, LUP_DOWNLOADING, LUP_READY, LUP_NONE, LUP_ERROR };
 static volatile int lup_state = LUP_IDLE;
 static app_update_release lup_release;
 static char lup_status[160], lup_dir[1024], lup_exe[256];
@@ -173,6 +173,7 @@ int app_update_state(void)
 {
     switch (lup_state) {
     case LUP_CHECKING: return 1;
+    case LUP_AVAILABLE: return 6;
     case LUP_DOWNLOADING: return 2;
     case LUP_READY: return 3;
     case LUP_NONE: return 4;
@@ -184,19 +185,18 @@ int app_update_progress(void) { return lup_state == LUP_DOWNLOADING ? moon_http_
 const char *app_update_message(void) { return lup_status; }
 int app_update_available(char *ver, size_t n)
 {
-    if (!ver || !n || lup_state < LUP_READY) return 0;
+    if (!ver || !n || (lup_state != LUP_AVAILABLE && lup_state != LUP_READY)) return 0;
     snprintf(ver, n, "%s", lup_release.version);
     return 1;
 }
+static void *download_thread(void *unused);
 int app_update_download(void)
 {
-    if (lup_state == LUP_IDLE || lup_state == LUP_NONE || lup_state == LUP_ERROR) {
-        lup_state = LUP_IDLE;
-        begin_started = 0;
-        app_update_begin(0);
-        return 1;
-    }
-    return 0;
+    if (lup_state != LUP_AVAILABLE) return 0;
+    pthread_t th;
+    if (pthread_create(&th, NULL, download_thread, NULL) != 0) return 0;
+    pthread_detach(th);
+    return 1;
 }
 static void *update_thread(void *unused)
 {
@@ -216,6 +216,14 @@ static void *update_thread(void *unused)
         snprintf(lup_status, sizeof lup_status, "Moon Engine is up to date."); lup_state = LUP_NONE; return NULL;
     }
     fprintf(stderr, "update: state available %s\n", lup_release.version); fflush(stderr);
+    snprintf(lup_status, sizeof lup_status, "Update %s is available.", lup_release.version);
+    lup_state = LUP_AVAILABLE;
+    return NULL;
+}
+static void *download_thread(void *unused)
+{
+    (void)unused;
+    size_t n = 0;
     lup_state = LUP_DOWNLOADING;
     fprintf(stderr, "update: state downloading 0%%\n"); fflush(stderr);
     unsigned char *tar = fetch(lup_release.url, (size_t)lup_release.size, &n);

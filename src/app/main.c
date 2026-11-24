@@ -3275,7 +3275,8 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             if (upd_popup && ev.type == SDL_KEYDOWN) {
-                int k = ev.key.keysym.sym;
+                int k = ev.key.keysym.sym, st = app_update_state();
+                if (st == 2) { continue; }
                 if (k == SDLK_LEFT || k == SDLK_RIGHT) { upd_choice ^= 1; continue; }
                 if (k == SDLK_ESCAPE) {
                     if (app_video_settings) {
@@ -3296,24 +3297,26 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                         }
                         upd_popup = 0; continue;
                     }
-                    /* Restart: swap .moon-new into place, then exec it. */
-                    char exe[1024], fresh[1200], old[1200];
-                    ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
-                    if (n > 0) {
-                        exe[n] = 0;
-                        snprintf(fresh, sizeof fresh, "%s.moon-new", exe);
-                        snprintf(old, sizeof old, "%s.moon-old", exe);
-                        unlink(old);
-                        if (rename(exe, old) == 0 && rename(fresh, exe) == 0) {
-                            chmod(exe, 0755);
-                            pid_t c = fork();
-                            if (c == 0) { sleep(10); unlink(old); _exit(0); }
-                            execv(exe, studio_argv);
-                            rename(exe, fresh);
-                            rename(old, exe);
+                    if (st == 6) { app_update_download(); upd_choice = 0; continue; }
+                    if (st == 3) {
+                        char exe[1024], fresh[1200], old[1200];
+                        ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+                        if (n > 0) {
+                            exe[n] = 0;
+                            snprintf(fresh, sizeof fresh, "%s.moon-new", exe);
+                            snprintf(old, sizeof old, "%s.moon-old", exe);
+                            unlink(old);
+                            if (rename(exe, old) == 0 && rename(fresh, exe) == 0) {
+                                chmod(exe, 0755);
+                                pid_t c = fork();
+                                if (c == 0) { sleep(10); unlink(old); _exit(0); }
+                                execv(exe, studio_argv);
+                                rename(exe, fresh);
+                                rename(old, exe);
+                            }
                         }
+                        continue;
                     }
-                    continue;
                 }
                 continue;
             }
@@ -4075,9 +4078,11 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
             {
                 int st = app_update_state();
                 char ver[32] = "";
-                if (st == 3 && app_update_available(ver, sizeof ver)) {
+                if (app_update_available(ver, sizeof ver)) {
                     const char *skipped = app_video_settings ? moon_options_get(&app_video_settings->store, "updates.skipped", "") : "";
-                    if (strcmp(skipped, ver)) upd_popup = 1;
+                    if (st == 3 || st == 2) upd_popup = 1;
+                    else if (st == 6 && strcmp(skipped, ver)) upd_popup = 1;
+                    else if (st == 6) upd_popup = 0;
                 }
                 if (upd_popup) {
                     const uint8_t pan[4] = {18,19,22,235}, edge[4] = {255,255,255,110},
@@ -4087,17 +4092,24 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                     plat_draw_quad(NULL, cx-w/2, cy-h/2, w, h, 0,0,1,1, pan);
                     plat_draw_quad(NULL, cx-w/2, cy-h/2, w, 1.5f, 0,0,1,1, edge);
                     char line[256];
-                    dock_text(&dock, "Update available", cx, cy - h/2 + 22, .85f, 1, ink);
-                    snprintf(line, sizeof line, "Moon Engine %s is available (you have %s).", ver, MOON_VERSION);
-                    dock_text(&dock, line, cx, cy - 10, .65f, 1, dim);
-                    const char *labels[2] = {"Download", "Later"};
-                    for (int i = 0; i < 2; i++) {
-                        float bx = cx + (i ? 80.f : -160.f), by = cy + 45.f;
-                        if (i == upd_choice) {
-                            plat_draw_quad(NULL, bx-70, by-14, 140, 28, 0,0,1,1, gold);
-                            dock_text(&dock, labels[i], bx, by, .75f, 1, pan);
-                        } else
-                            dock_text(&dock, labels[i], bx, by, .75f, 1, dim);
+                    if (st == 3) strcpy(line, "Update ready - restart to finish");
+                    else if (st == 2) snprintf(line, sizeof line, "Downloading %s ... %d%%", ver, app_update_progress());
+                    else strcpy(line, "Update available");
+                    dock_text(&dock, line, cx, cy - h/2 + 22, .85f, 1, ink);
+                    if (st == 6) {
+                        snprintf(line, sizeof line, "Moon Engine %s is available (you have %s).", ver, MOON_VERSION);
+                        dock_text(&dock, line, cx, cy - 10, .65f, 1, dim);
+                    }
+                    if (st != 2) {
+                        const char *labels[2] = {st == 3 ? "Restart" : "Download", "Later"};
+                        for (int i = 0; i < 2; i++) {
+                            float bx = cx + (i ? 80.f : -160.f), by = cy + 45.f;
+                            if (i == upd_choice) {
+                                plat_draw_quad(NULL, bx-70, by-14, 140, 28, 0,0,1,1, gold);
+                                dock_text(&dock, labels[i], bx, by, .75f, 1, pan);
+                            } else
+                                dock_text(&dock, labels[i], bx, by, .75f, 1, dim);
+                        }
                     }
                 }
             }
