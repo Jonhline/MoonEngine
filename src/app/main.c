@@ -640,8 +640,14 @@ static int studio_tab_rows(int tab, int rows[24])
     }
     if (tab == 3) {
         for (int k = 0; k < 7; k++) rows[n++] = 1000 + k;
-        if (app_video_settings && *moon_options_get(&app_video_settings->store,
-                                                    "audio.jukebox_hidden", ""))
+        /* the restore row exists while anything is hidden OR emptied, so it is
+           never a row the captain can see in the file but not reach by keys */
+        if (app_video_settings &&
+            (*moon_options_get(&app_video_settings->store, "audio.jukebox_hidden", "") ||
+             *moon_options_get(&app_video_settings->store, "audio.jukebox_empty_Race", "") ||
+             *moon_options_get(&app_video_settings->store, "audio.jukebox_empty_Slideshow", "") ||
+             *moon_options_get(&app_video_settings->store, "audio.jukebox_empty_Menu", "") ||
+             *moon_options_get(&app_video_settings->store, "audio.jukebox_empty_Replay", "")))
             rows[n++] = -9;
 #ifdef _WIN32
         rows[n++] = -4; /* Open the actual custom-music folder. */
