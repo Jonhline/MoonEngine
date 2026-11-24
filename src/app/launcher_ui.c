@@ -583,7 +583,7 @@ static void *info_download_worker(void *user)
     memcpy(asset, uurl, k); asset[k] = 0;
     unsigned long long asize = strtoull(size + 7, NULL, 10);
     char sha[65] = "";
-    if (digest) { digest += 19; memcpy(sha, digest, 64); sha[64] = 0; }
+    if (digest) { digest += 17; memcpy(sha, digest, 64); sha[64] = 0; }
     free(json);
     size_t got = 0;
     unsigned char *data = moon_http_get(asset, (size_t)(asize ? asize : (256u << 20)), &got);
