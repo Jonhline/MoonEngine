@@ -492,7 +492,7 @@ cmake --build build --config Release --target moonengine
 </td>
 <td valign="top">
 
-GCC or Clang, CMake 3.20+, OpenGL dev libraries, `ffmpeg`
+GCC or Clang, CMake 3.20+, OpenGL dev libraries, `ffmpeg`, Python 3 with `pycparser==3.0` (`python3 -m pip install --user pycparser==3.0`)
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
