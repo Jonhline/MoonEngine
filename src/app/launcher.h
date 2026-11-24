@@ -14,7 +14,7 @@ typedef struct {
     int theme;      /* the launcher room: 0 light, 1 dark */
     int mood;       /* the room's light colour (an index into the launcher's list) */
     char scene[32]; /* what stands behind the car: "" the room, else a course (/crs) */
-    char channel[16]; /* release channel: "stable" (default) or "playtest" */
+    char channel[16]; /* release channel: "stable" (default) or "nightly" */
 } launcher_preferences;
 typedef struct {
     int width,height,fullscreen,vsync,upscale,filter,text,aspect;

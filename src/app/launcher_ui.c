@@ -5,6 +5,10 @@
    Prototype scope: DISC and MODS work; OPTIONS names its limitation. */
 #include "launcher_ui.h"
 #include "launcher_update.h"
+#include "moon_http.h"
+#ifndef _WIN32
+#include <pthread.h>
+#endif
 #include "launcher_text.h"
 #include "launcher_fonts_data.h"
 #include "mod_manifest.h"
@@ -94,6 +98,8 @@ struct ui {
     char mods[MAX_MODS][256]; int nmods, mod_tick[MAX_MODS];
     char mod_full[MAX_MODS][1400];   /* each mod's own path, so a tick can be handed over */
     char status[256];
+    char info_status[160];
+    int info_checking;
     int quit, result;
 };
 
@@ -509,6 +515,48 @@ static void activate(struct ui *u)
 }
 
 /* ---- the open page, drawn as a panel over the dock ---- */
+static void *info_check_worker(void *user)
+{
+    struct ui *u = user;
+    const char *ch = u->start->preferences.channel;
+    int nightly = !strcasecmp(ch, "nightly");
+    const char *url = nightly ? "https://api.github.com/repos/Jonhline/MoonEngine/releases"
+                              : "https://api.github.com/repos/Jonhline/MoonEngine/releases/latest";
+    size_t n = 0;
+    unsigned char *json = moon_http_get(url, 1 << 20, &n);
+    if (!json) {
+        snprintf(u->info_status, sizeof u->info_status, "Check failed: network");
+        u->info_checking = 0;
+        return NULL;
+    }
+    char tag[64] = "";
+    char *p = (char *)json;
+    while ((p = strstr(p, "\"tag_name\":\"")) != NULL) {
+        p += 12;
+        char *end = strchr(p, '"');
+        if (!end) break;
+        size_t k = (size_t)(end - p);
+        if (k >= sizeof tag) k = sizeof tag - 1;
+        memcpy(tag, p, k); tag[k] = 0;
+        const char *next = strstr(end, "\"tag_name\":\"");
+        const char *pre = strstr(end, "\"prerelease\":true");
+        if (!nightly || (pre && (!next || pre < next))) break;
+        p = end;
+    }
+    free(json);
+    if (!tag[0]) {
+        snprintf(u->info_status, sizeof u->info_status, "Check failed: no release");
+        u->info_checking = 0;
+        return NULL;
+    }
+    const char *ver = tag[0] == 'v' || tag[0] == 'V' ? tag + 1 : tag;
+    if (launcher_update_newer(ver, MOON_VERSION))
+        snprintf(u->info_status, sizeof u->info_status, "%s available", ver);
+    else
+        snprintf(u->info_status, sizeof u->info_status, "Up to date (%s)", MOON_VERSION);
+    u->info_checking = 0;
+    return NULL;
+}
 static void draw_page(struct ui *u)
 {
     if(u->open<0)return;
@@ -641,10 +689,10 @@ static void draw_page(struct ui *u)
         snprintf(line,sizeof line,"Version: Moon Engine %s",MOON_VERSION);
         text(u,tx,list_y,line,1,C_TEXT_R,C_TEXT_G,C_TEXT_B);list_y+=34;
         const char *ch=u->start->preferences.channel[0]?u->start->preferences.channel:"stable";
-        snprintf(line,sizeof line,"Channel: %s",!strcasecmp(ch,"playtest")?"Playtest":"Stable");
+        snprintf(line,sizeof line,"Channel: %s",!strcasecmp(ch,"nightly")?"Nightly":"Stable");
         text(u,tx,list_y,line,1,C_DIM_R,C_DIM_G,C_DIM_B);list_y+=34;
         text(u,tx,list_y,"Left/Right changes the channel",0,C_FAINT_R,C_FAINT_G,C_FAINT_B);list_y+=34;
-        text(u,tx,list_y,"Check for update: not available in this build",0,C_FAINT_R,C_FAINT_G,C_FAINT_B);
+        text(u,tx,list_y,u->info_checking ? "Checking..." : (u->info_status[0] ? u->info_status : "Check for update (Enter)"),0,C_FAINT_R,C_FAINT_G,C_FAINT_B);
     }else if(u->open==PAGE_START){
         text_fit(u,tx,list_y,u->start->preferences.disc[0]?u->start->preferences.disc:"NO DISC CHOSEN",
                  1,w-56,C_TEXT_R,C_TEXT_G,C_TEXT_B);
@@ -807,7 +855,7 @@ static void key(struct ui *u,SDL_Keycode k)
     if((k==SDLK_RIGHT||k==SDLK_LEFT) && u->open==PAGE_INFO){
         const char *cur=u->start->preferences.channel;
         snprintf(u->start->preferences.channel,sizeof u->start->preferences.channel,"%s",
-                 !strcasecmp(cur,"playtest")?"stable":"playtest");
+                 !strcasecmp(cur,"nightly")?"stable":"nightly");
         launcher_preferences_save(&u->start->preferences);
         printf("launcher: channel %s\n",u->start->preferences.channel);
         return;
@@ -843,6 +891,16 @@ static void key(struct ui *u,SDL_Keycode k)
                 return;
             }
         }
+    }
+    if((k==SDLK_RETURN || k==SDLK_KP_ENTER) && u->open==PAGE_INFO) {
+        if (!u->info_checking) {
+            u->info_checking = 1;
+            snprintf(u->info_status,sizeof u->info_status,"Checking...");
+            pthread_t th;
+            if (pthread_create(&th,NULL,info_check_worker,u)==0) pthread_detach(th);
+            else { u->info_checking=0; snprintf(u->info_status,sizeof u->info_status,"Check failed: thread"); }
+        }
+        return;
     }
     if(k==SDLK_RETURN || k==SDLK_KP_ENTER)activate(u);
 }

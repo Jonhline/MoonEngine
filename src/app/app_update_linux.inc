@@ -10,59 +10,10 @@ static volatile int lup_state = LUP_IDLE;
 static app_update_release lup_release;
 static char lup_status[160], lup_dir[1024], lup_exe[256];
 
-typedef struct { unsigned char *p; size_t n, cap; } up_buf;
-static size_t up_write(void *data, size_t sz, size_t nm, void *user)
-{
-    up_buf *b = user;
-    size_t n = sz * nm;
-    if (b->n + n + 1 > b->cap) {
-        size_t cap = b->cap ? b->cap * 2 : 65536;
-        while (cap < b->n + n + 1) cap *= 2;
-        unsigned char *p = realloc(b->p, cap);
-        if (!p) return 0;
-        b->p = p; b->cap = cap;
-    }
-    memcpy(b->p + b->n, data, n);
-    b->n += n;
-    b->p[b->n] = 0;
-    return n;
-}
-static int up_host_ok(const char *url)
-{
-    return !strncmp(url, "https://github.com/", 19) ||
-           !strncmp(url, "https://api.github.com/", 23) ||
-           !strncmp(url, "https://objects.githubusercontent.com/", 39);
-}
+#include "moon_http.h"
 static unsigned char *fetch(const char *url, size_t limit, size_t *got)
 {
-    if (!url || !up_host_ok(url)) return NULL;
-    CURL *c = curl_easy_init();
-    if (!c) return NULL;
-    up_buf b = {0};
-    char ua[] = "MoonEngine-updater";
-    struct curl_slist *h = curl_slist_append(NULL, "Accept: application/vnd.github+json, application/octet-stream");
-    curl_easy_setopt(c, CURLOPT_URL, url);
-    curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
-    curl_easy_setopt(c, CURLOPT_TIMEOUT, 30L);
-    curl_easy_setopt(c, CURLOPT_LOW_SPEED_LIMIT, 1L);
-    curl_easy_setopt(c, CURLOPT_LOW_SPEED_TIME, 15L);
-    curl_easy_setopt(c, CURLOPT_USERAGENT, ua);
-    curl_easy_setopt(c, CURLOPT_HTTPHEADER, h);
-    curl_easy_setopt(c, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)limit);
-    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, up_write);
-    curl_easy_setopt(c, CURLOPT_WRITEDATA, &b);
-    CURLcode r = curl_easy_perform(c);
-    long code = 0;
-    curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &code);
-    curl_slist_free_all(h);
-    curl_easy_cleanup(c);
-    if (r != CURLE_OK || code != 200 || b.n > limit) {
-        free(b.p);
-        return NULL;
-    }
-    *got = b.n;
-    return b.p;
+    return moon_http_get(url, limit, got);
 }
 static int sha256_file(const char *path, const char *want)
 {
