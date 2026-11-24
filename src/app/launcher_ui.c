@@ -825,7 +825,7 @@ static void draw_page(struct ui *u)
     }else if(u->open==PAGE_OPTIONS){
         text_fit(u,tx,list_y,"MOON ENGINE LIMITATION: video, audio and pad options still",1,w-56,C_DIM_R,C_DIM_G,C_DIM_B);
         list_y+=30;
-        text_fit(u,tx,list_y,"live in the engine's own screen (--launcher-v1). They move",1,w-56,C_DIM_R,C_DIM_G,C_DIM_B);
+        text_fit(u,tx,list_y,"live in the game's own Settings. They move",1,w-56,C_DIM_R,C_DIM_G,C_DIM_B);
         list_y+=30;
         text_fit(u,tx,list_y,"here next; nothing is silently dropped.",1,w-56,C_DIM_R,C_DIM_G,C_DIM_B);
         list_y+=44;
@@ -1201,6 +1201,23 @@ int launcher_ui_run(launcher_startup *startup)
                     if(x>=px && x<=px+w && row>=0 && idx<n){u.cursor[u.open]=idx;clamp(&u);activate(&u);}
                     else if(u.open==PAGE_START && x>=px && x<=px+w && y>=list_y)hand_over(&u);
                 }
+            }
+        }
+        {
+            static int prev[5];
+            SDL_GameController *pad = plat_sdl_pad(0);
+            if (pad) {
+                int now[5] = {
+                    SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT),
+                    SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT),
+                    SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A),
+                    SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_B),
+                    SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_START)};
+                if (now[0] && !prev[0]) key(&u, SDLK_LEFT);
+                if (now[1] && !prev[1]) key(&u, SDLK_RIGHT);
+                if (now[2] && !prev[2]) key(&u, SDLK_RETURN);
+                if ((now[3] && !prev[3]) || (now[4] && !prev[4])) key(&u, SDLK_ESCAPE);
+                memcpy(prev, now, sizeof now);
             }
         }
         draw(&u);              /* once per frame: resizing and the picture need it */
