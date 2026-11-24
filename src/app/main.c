@@ -3000,6 +3000,8 @@ static void studio_options_ink_check(const studio_dock *d, int theme, int mood)
     fprintf(stderr, "STUDIO_PANEL_INK_TOTAL %d\n", total);
 }
 
+static int upd_popup, upd_choice;
+static char **studio_argv;
 static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char *shot, int color,
                       int fade_in)
 {
@@ -3272,6 +3274,49 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
         app_music_tick();
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
+            if (upd_popup && ev.type == SDL_KEYDOWN) {
+                int k = ev.key.keysym.sym;
+                if (k == SDLK_LEFT || k == SDLK_RIGHT) { upd_choice ^= 1; continue; }
+                if (k == SDLK_ESCAPE) {
+                    if (app_video_settings) {
+                        char v[32]; if (app_update_available(v, sizeof v)) {
+                            moon_options_set(&app_video_settings->store, "updates.skipped", v);
+                            moon_options_save(&app_video_settings->store);
+                        }
+                    }
+                    upd_popup = 0; continue;
+                }
+                if (k == SDLK_RETURN || k == SDLK_KP_ENTER) {
+                    if (upd_choice == 1) {
+                        if (app_video_settings) {
+                            char v[32]; if (app_update_available(v, sizeof v)) {
+                                moon_options_set(&app_video_settings->store, "updates.skipped", v);
+                                moon_options_save(&app_video_settings->store);
+                            }
+                        }
+                        upd_popup = 0; continue;
+                    }
+                    /* Restart: swap .moon-new into place, then exec it. */
+                    char exe[1024], fresh[1200], old[1200];
+                    ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+                    if (n > 0) {
+                        exe[n] = 0;
+                        snprintf(fresh, sizeof fresh, "%s.moon-new", exe);
+                        snprintf(old, sizeof old, "%s.moon-old", exe);
+                        unlink(old);
+                        if (rename(exe, old) == 0 && rename(fresh, exe) == 0) {
+                            chmod(exe, 0755);
+                            pid_t c = fork();
+                            if (c == 0) { sleep(10); unlink(old); _exit(0); }
+                            execv(exe, studio_argv);
+                            rename(exe, fresh);
+                            rename(old, exe);
+                        }
+                    }
+                    continue;
+                }
+                continue;
+            }
             if (music_download_active() && music_download_sdl_event(&ev))
                 continue;
             if (ev.type == SDL_QUIT)
@@ -4027,6 +4072,35 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                                     : mods_open  ? studio_mods_help(mods_row)
                                                  : NULL;
             dock_draw(&dock, dock_sel, dock.mouse ? mouse_seen : 1);
+            {
+                int st = app_update_state();
+                char ver[32] = "";
+                if (st == 3 && app_update_available(ver, sizeof ver)) {
+                    const char *skipped = app_video_settings ? moon_options_get(&app_video_settings->store, "updates.skipped", "") : "";
+                    if (strcmp(skipped, ver)) upd_popup = 1;
+                }
+                if (upd_popup) {
+                    const uint8_t pan[4] = {18,19,22,235}, edge[4] = {255,255,255,110},
+                                  ink[4] = {235,237,240,255}, dim[4] = {170,175,185,255},
+                                  gold[4] = {255,204,64,255};
+                    float cx = dock.fw * .5f, cy = dock.fh * .42f, w = 520.f, h = 170.f;
+                    plat_draw_quad(NULL, cx-w/2, cy-h/2, w, h, 0,0,1,1, pan);
+                    plat_draw_quad(NULL, cx-w/2, cy-h/2, w, 1.5f, 0,0,1,1, edge);
+                    char line[256];
+                    dock_text(&dock, "Update available", cx, cy - h/2 + 22, .85f, 1, ink);
+                    snprintf(line, sizeof line, "Moon Engine %s is available (you have %s).", ver, MOON_VERSION);
+                    dock_text(&dock, line, cx, cy - 10, .65f, 1, dim);
+                    const char *labels[2] = {"Download", "Later"};
+                    for (int i = 0; i < 2; i++) {
+                        float bx = cx + (i ? 80.f : -160.f), by = cy + 45.f;
+                        if (i == upd_choice) {
+                            plat_draw_quad(NULL, bx-70, by-14, 140, 28, 0,0,1,1, gold);
+                            dock_text(&dock, labels[i], bx, by, .75f, 1, pan);
+                        } else
+                            dock_text(&dock, labels[i], bx, by, .75f, 1, dim);
+                    }
+                }
+            }
             music_download_draw();
         }
         /* one direction, eased: the wizard's white screen rises off the room ... */
@@ -4359,6 +4433,7 @@ static double bench_cpu_seconds(void)
 
 int main(int argc, char **argv)
 {
+    studio_argv = argv;
 #ifdef __ANDROID__
     moon_android_init();
     /* No arguments is the launcher's own first-run wizard / studio room, exactly as on
