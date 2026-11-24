@@ -3276,8 +3276,10 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
     uint64_t pend_at = 0; /* raster width, rebuilt on a debounced resize */
     if (start_shot_prefix || start_launch_env)
         dock_sel = DOCK_START;
+#if !defined(_WIN32) || !MOON_DEV_BUILD
     app_update_set_channel(studio_prefs && !strcasecmp(studio_prefs->channel, "nightly"));
     app_update_begin(1); /* the popup the loop below draws exists only because of this */
+#endif
     for (int i = 0; frames == 0 || i < frames; i++) {
         app_music_tick();
         SDL_Event ev;
@@ -3307,6 +3309,7 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                     }
                     if (st == 6) { app_update_download(); upd_choice = 0; continue; }
                     if (st == 3) {
+#ifndef _WIN32
                         char exe[1024], fresh[1200], old[1200];
                         ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
                         if (n > 0) {
@@ -3333,6 +3336,7 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                                 rename(old, exe);
                             }
                         }
+#endif
                         continue;
                     }
                 }
