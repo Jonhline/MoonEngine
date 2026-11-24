@@ -4,6 +4,7 @@
    his own picture behind everything. Pages open as a panel over the dock.
    Prototype scope: DISC and MODS work; OPTIONS names its limitation. */
 #include "launcher_ui.h"
+#include "launcher_update.h"
 #include "launcher_text.h"
 #include "launcher_fonts_data.h"
 #include "mod_manifest.h"
@@ -42,7 +43,7 @@
 #define UI_H 800
 #define MAX_ENTRIES 256
 #define MAX_MODS 32
-#define DOCK_ITEMS 6              /* DISC MODS OPTIONS MUSIC START ... EXIT */
+#define DOCK_ITEMS 7              /* DISC MODS OPTIONS MUSIC START ... EXIT */
 #define DOCK_ICON 44
 #define DOCK_SLOT 132
 #define DOCK_Y_FROM_BOTTOM 156
@@ -70,8 +71,8 @@
 #define C_RULE_G 47
 #define C_RULE_B 56
 
-enum { PAGE_DISC=0, PAGE_MODS, PAGE_OPTIONS, PAGE_MUSIC, PAGE_START, PAGE_COUNT };
-static const char *const page_names[PAGE_COUNT]={"DISC","MODS","OPTIONS","MUSIC","START"};
+enum { PAGE_DISC=0, PAGE_MODS, PAGE_OPTIONS, PAGE_MUSIC, PAGE_START, PAGE_INFO, PAGE_COUNT };
+static const char *const page_names[PAGE_COUNT]={"DISC","MODS","OPTIONS","MUSIC","START","INFO"};
 
 typedef struct { char name[512]; int is_dir; } entry;
 
@@ -487,7 +488,7 @@ static void announce_page(struct ui *u)
 static int install_zip(struct ui *u,int idx);     /* defined with the other actions */
 static void activate(struct ui *u)
 {
-    if(u->dock==4){u->result=0;u->quit=1;return;}          /* EXIT */
+    if(u->dock==DOCK_ITEMS-1){u->result=0;u->quit=1;return;}          /* EXIT */
     if(u->open>=0){
         if(u->open==PAGE_DISC)browse_enter(u);
         else if(u->open==PAGE_MODS){
@@ -635,6 +636,15 @@ static void draw_page(struct ui *u)
         rule(u,tx,list_y-10,w-56);
         text(u,tx,list_y,"Download music",2,C_ACCENT_R,C_ACCENT_G,C_ACCENT_B);list_y+=34;
         text_fit(u,tx,list_y,"The download popup is not wired on the launcher yet.",0,w-56,C_FAINT_R,C_FAINT_G,C_FAINT_B);
+    }else if(u->open==PAGE_INFO){
+        char line[256];
+        snprintf(line,sizeof line,"Version: Moon Engine %s",MOON_VERSION);
+        text(u,tx,list_y,line,1,C_TEXT_R,C_TEXT_G,C_TEXT_B);list_y+=34;
+        const char *ch=u->start->preferences.channel[0]?u->start->preferences.channel:"stable";
+        snprintf(line,sizeof line,"Channel: %s",!strcasecmp(ch,"playtest")?"Playtest":"Stable");
+        text(u,tx,list_y,line,1,C_DIM_R,C_DIM_G,C_DIM_B);list_y+=34;
+        text(u,tx,list_y,"Left/Right changes the channel",0,C_FAINT_R,C_FAINT_G,C_FAINT_B);list_y+=34;
+        text(u,tx,list_y,"Check for update: not available in this build",0,C_FAINT_R,C_FAINT_G,C_FAINT_B);
     }else if(u->open==PAGE_START){
         text_fit(u,tx,list_y,u->start->preferences.disc[0]?u->start->preferences.disc:"NO DISC CHOSEN",
                  1,w-56,C_TEXT_R,C_TEXT_G,C_TEXT_B);
@@ -672,6 +682,7 @@ static void draw_dock(struct ui *u)
             case 2:icon_gear(u,cx,cy,r,g,b);break;
             case 3:icon_gear(u,cx,cy,r,g,b);break;
             case 4:icon_play(u,cx,cy,r,g,b);break;
+            case 5:icon_gear(u,cx,cy,r,g,b);break;
             default:icon_power(u,cx,cy,r,g,b);break;
         }
         int tw=text_w(u,name,1);
@@ -792,6 +803,14 @@ static void key(struct ui *u,SDL_Keycode k)
     if(k==SDLK_ESCAPE){
         if(u->open>=0){u->open=-1;return;}
         u->status[0]=0;u->result=0;u->quit=1;return;
+    }
+    if((k==SDLK_RIGHT||k==SDLK_LEFT) && u->open==PAGE_INFO){
+        const char *cur=u->start->preferences.channel;
+        snprintf(u->start->preferences.channel,sizeof u->start->preferences.channel,"%s",
+                 !strcasecmp(cur,"playtest")?"stable":"playtest");
+        launcher_preferences_save(&u->start->preferences);
+        printf("launcher: channel %s\n",u->start->preferences.channel);
+        return;
     }
     if(k==SDLK_RIGHT||k==SDLK_LEFT){
         if(u->open>=0)return;                       /* the page holds the arrows */
