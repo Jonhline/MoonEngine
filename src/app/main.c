@@ -55,6 +55,7 @@
 #include "../platform/common/moon_dirent.h"
 #include "font_layout.h"
 #include "launcher_update.h"
+#include "moon_http.h"
 #include "brand_logo.h"
 #include "app_update.h"
 #include "mod_manifest.h"
@@ -628,6 +629,9 @@ static int studio_tab_rows(int tab, int rows[24])
         rows[n++] = -1;
         rows[n++] = -2;
         rows[n++] = -3;
+        rows[n++] = -6;
+        rows[n++] = -7;
+        rows[n++] = -8;
 #ifdef _WIN32
         if (app_video_settings && app_video_settings->current.preset_tools) {
             rows[n++]=3000; rows[n++]=3001;
@@ -723,10 +727,14 @@ static int studio_row_button(int id)
 {
     return id == -4 || id >= 3000;
 }
+static char studio_info_status[128];
 static const char *studio_row_label(int id)
 {
     if (id == -4) return "Open Music Folder";
     if (id == -5) return "Download music...";
+    if (id == -6) return "Version";
+    if (id == -7) return "Update channel";
+    if (id == -8) return "Check for update";
     if (id>=3000) return id==3000 ? "Import preset..." : "Export preset...";
     if (id == -1)
         return "Theme";
@@ -744,6 +752,9 @@ static const char *studio_row_help(int id)
 {
     if (id == -4) return "Open Music Folder: Add WAV, MP3, FLAC, OGG or M4A files here, then reopen Jukebox.";
     if (id == -5) return "Download Music: Paste a song or playlist link; the file lands in the Music folder.";
+    if (id == -6) return "Version: The Moon Engine build this program was compiled from.";
+    if (id == -7) return "Update channel: Stable follows published releases; Nightly follows prereleases.";
+    if (id == -8) return "Check for update: Ask GitHub for the newest release on this channel.";
     static char line[192];
     if (id>=3000) return app_video_settings && app_video_settings->message[0] ? app_video_settings->message : "Import or export a personal preset file. Display and save paths stay local.";
     if (id == -1)
@@ -778,6 +789,9 @@ static const char *studio_row_value(int id, int theme, int mood)
 {
     if (id == -4) return "Open Folder...";
     if (id == -5) return "Open...";
+    if (id == -6) return MOON_VERSION;
+    if (id == -7) return studio_prefs && !strcasecmp(studio_prefs->channel, "nightly") ? "Nightly" : "Stable";
+    if (id == -8) return studio_info_status[0] ? studio_info_status : "Check now";
     static char text[96];
     if (id>=3000) return id==3000 ? "Choose File..." : "Save As...";
     if (id == -1)
@@ -822,6 +836,31 @@ static void studio_row_change(int id, int delta)
     if (id == -5) {
         fprintf(stderr, "studio: download music row\n");
         app_music_download_open();
+        return;
+    }
+    if (id == -7) {
+        if (studio_prefs)
+            snprintf(studio_prefs->channel, sizeof studio_prefs->channel, "%s",
+                     !strcasecmp(studio_prefs->channel, "nightly") ? "stable" : "nightly");
+        if (studio_prefs) launcher_preferences_save(studio_prefs);
+        return;
+    }
+    if (id == -8) {
+        size_t n = 0;
+        const char *url = studio_prefs && !strcasecmp(studio_prefs->channel, "nightly")
+                              ? "https://api.github.com/repos/Jonhline/MoonEngine/releases"
+                              : "https://api.github.com/repos/Jonhline/MoonEngine/releases/latest";
+        unsigned char *json = moon_http_get(url, 1 << 20, &n);
+        if (!json) { snprintf(studio_info_status, sizeof studio_info_status, "Check failed: network"); return; }
+        char tag[64] = "";
+        char *p = strstr((char *)json, "\"tag_name\":\"");
+        if (p) { p += 12; char *e = strchr(p, '"'); if (e) { size_t k = (size_t)(e - p); if (k >= sizeof tag) k = sizeof tag - 1; memcpy(tag, p, k); tag[k] = 0; } }
+        free(json);
+        const char *v = tag[0] == 'v' || tag[0] == 'V' ? tag + 1 : tag;
+        if (!*v) snprintf(studio_info_status, sizeof studio_info_status, "Check failed: no release");
+        else if (launcher_update_newer(v, MOON_VERSION)) snprintf(studio_info_status, sizeof studio_info_status, "%s available", v);
+        else snprintf(studio_info_status, sizeof studio_info_status, "Up to date (%s)", MOON_VERSION);
+        printf("studio info: check %s -> %s\n", v, studio_info_status);
         return;
     }
     if (id == -4) {

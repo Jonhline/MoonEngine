@@ -21,12 +21,11 @@ extern const char *moon_android_startup_disc(void); /* android_host.c */
    is created here; the suite can drive it with no disc and no display. */
 int launcher_bootstrap(int *argc,char ***argv,launcher_startup *start)
 {
-    if(*argc>1 && strcmp((*argv)[1],"--launcher") && strcmp((*argv)[1],"--launcher-v2"))return 1;
+    if(*argc>1 && strcmp((*argv)[1],"--launcher"))return 1;
     int v2=0;const char *file=NULL,*disc=NULL;
     for(int i=2;i<*argc;i++){
         const char *arg=(*argv)[i];
         if(!strcmp(arg,"--launcher-config") && i+1<*argc)file=(*argv)[++i];
-        else if(!strcmp(arg,"--launcher-v2"))v2=1;
         else if(!strcmp(arg,"--launcher-v1"))v2=0;
         else if(!strcmp(arg,"--launcher-page") && i+1<*argc)snprintf(start->page,sizeof start->page,"%s",(*argv)[++i]);
         else if(!strcmp(arg,"--launcher-shot") && i+1<*argc)snprintf(start->shot,sizeof start->shot,"%s",(*argv)[++i]);
