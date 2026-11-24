@@ -96,6 +96,28 @@ static void mlj_group(const char *path, char *out, size_t size)
     else
         *out = 0;
 }
+static const char *mlj_shown_tip(const ui_widget *w);
+static int mlj_category_id(menu *m, char *name, size_t size)
+{
+    ui_widget *root = menu_jukebox_page_widget(m);
+    ui_widget *tip = root ? ui_widget_child(root, "Tooltip") : NULL;
+    const char *text = NULL;
+    for (int i = 0; tip && i < tip->nkids; i++)
+        if (tip->kids[i] && tip->kids[i]->text) { text = tip->kids[i]->text; break; }
+    if (!text) text = mlj_shown_tip(root);
+    const char *sep = text ? strstr(text, " / ") : NULL;
+    if (!sep) return -1;
+    const char *g = sep + 3;
+    const char *end = strstr(g, " /");
+    size_t n = end ? (size_t)(end - g) : strlen(g);
+    if (!n || n >= size) return -1;
+    memcpy(name, g, n); name[n] = 0;
+    if (!strcmp(name, "Race")) return app_jukebox.race;
+    if (!strcmp(name, "Slideshow")) return app_jukebox.slide;
+    if (!strcmp(name, "Menu") && app_jukebox.folder[0] >= 0) return app_jukebox.folder[0];
+    if (!strcmp(name, "Replay") && app_jukebox.folder[1] >= 0) return app_jukebox.folder[1];
+    return -1;
+}
 static const ml_playlist *mlj_sorting;
 static int mlj_shown[ML_TRACKS]; /* the Library's rows, catalog indices */
 static void mlj_clean_title(const char *in, char *out, size_t size)
@@ -948,6 +970,37 @@ void mlj_tip_refresh(menu *m)
     if (!hint) return;
     const ml_track *t = mlj_selected(m);
     hint->visible = t && strncmp(t->path, "gt4:", 4) && !mlj_rename.active;
+    ui_widget *empty = root ? ui_widget_child(root, "MoonEmpty") : NULL;
+    if (empty) {
+        char name[64];
+        empty->visible = mlj_category_id(m, name, sizeof name) >= 0 && !mlj_rename.active;
+    }
+}
+static void mlj_empty_activate(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
+                               ah_val *ret)
+{
+    (void)vm; (void)self; (void)argc; (void)argv;
+    *ret = ah_int(2);
+    menu *m = data;
+    char name[64];
+    int id = mlj_category_id(m, name, sizeof name);
+    if (id < 0) return;
+    const ml_playlist *list = music_library_list(app_jukebox.library, id);
+    if (!list) return;
+    char msg[256];
+    snprintf(msg, sizeof msg, "Remove all %d songs from %s?", (int)list->count, name);
+    if (menu_confirm(m, "Empty category", msg)) {
+        while (music_library_list(app_jukebox.library, id)->count > 0)
+            music_library_remove(app_jukebox.library, id, 0);
+        char key[64];
+        snprintf(key, sizeof key, "audio.jukebox_empty_%s", name);
+        if (app_video_settings) {
+            moon_options_set(&app_video_settings->store, key, "1");
+            moon_options_save(&app_video_settings->store);
+        }
+        printf("jukebox: emptied category %s\n", name);
+        mlj_log("jukebox: emptied category %s", name);
+    }
 }
 static int mlj_hidden_has(const char *cat)
 {
@@ -981,6 +1034,12 @@ static void mlj_apply_hidden(menu *m)
         const char *g = menu_jukebox_row_group(m, i);
         if (g && mlj_hidden_has(g)) menu_jukebox_drop_row(m, i);
     }
+}
+void mlj_jukebox_empty_category(void)
+{
+    ah_val ret;
+    void mlj_jukebox_empty_category(void);
+    mlj_empty_activate(NULL, NULL, app_jukebox.page, 0, NULL, &ret);
 }
 void mlj_jukebox_remove_category(void)
 {
@@ -1075,7 +1134,7 @@ static void mlj_file_buttons(menu *m)
         ui_widget *h = ui_widget_copy(ui, liblabel);
         h->name = "MoonHint";
         free(h->text);
-        h->text = strdup("Del: delete   Ctrl+R: rename   Ctrl+H: remove category");
+        h->text = strdup("Del: delete   Ctrl+R: rename   Ctrl+H: remove category   Ctrl+E: empty this category");
         h->x = 250.f;
         h->y = 418.f;
         h->w = 360.f;
@@ -1086,6 +1145,15 @@ static void mlj_file_buttons(menu *m)
         ui_widget_append(root, h);
     }
     if (root) {
+        ui_widget *del = ui_widget_child(root, "Trash");
+        if (del && !ui_widget_child(root, "MoonEmpty")) {
+            ui_widget *b = ui_widget_copy(ui, del);
+            b->name = "MoonEmpty";
+            b->x = 563.f; b->y = 300.f; b->w = 34.f; b->h = 24.f;
+            b->has_geometry = 1; b->visible = 0; b->scale_x = b->scale_y = 1.f;
+            ui_widget_append(root, b);
+            menu_native_method(m, b, "onActivate", mlj_empty_activate, m);
+        }
         menu_native_method(m, root, "onKeyPress", mlj_jukebox_key, m);
         ui_widget *klist = ui_widget_child(ui_widget_child(root, "List"), "list_box");
         if (klist) menu_native_method(m, klist, "onKeyPress", mlj_jukebox_key, m);
@@ -1161,6 +1229,16 @@ static void app_jukebox_attach(menu *m)
         printf("jukebox: native disc-only entry\n");
     else if (mlj_bind(&j, m, vol)) {
         mlj_apply_hidden(m);
+        {
+            const char *names[4] = {"Race", "Slideshow", "Menu", "Replay"};
+            int ids[4] = {j.race, j.slide, j.folder[0], j.folder[1]};
+            for (int k = 0; k < 4; k++) if (ids[k] >= 0) {
+                char key[64]; snprintf(key, sizeof key, "audio.jukebox_empty_%s", names[k]);
+                if (moon_options_int(&app_video_settings->store, key, 0, 0, 1))
+                    while (music_library_list(j.library, ids[k])->count > 0)
+                        music_library_remove(j.library, ids[k], 0);
+            }
+        }
         app_jukebox.library = j.library;
         app_jukebox.page = j.page;
         app_jukebox.race = j.race;

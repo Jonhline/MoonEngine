@@ -847,6 +847,9 @@ static void studio_row_change(int id, int delta)
     if (id == -9) {
         if (app_video_settings) {
             moon_options_set(&app_video_settings->store, "audio.jukebox_hidden", "");
+            const char *keys[4] = {"audio.jukebox_empty_Race", "audio.jukebox_empty_Slideshow",
+                                   "audio.jukebox_empty_Menu", "audio.jukebox_empty_Replay"};
+            for (int k = 0; k < 4; k++) moon_options_set(&app_video_settings->store, keys[k], "");
             moon_options_save(&app_video_settings->store);
         }
         return;
@@ -5668,6 +5671,10 @@ int main(int argc, char **argv)
                 }
                 if ((SDL_GetModState() & KMOD_CTRL) && (ev.key == 'h' || ev.key == 'H')) {
                     mlj_jukebox_remove_category();
+                    continue;
+                }
+                if ((SDL_GetModState() & KMOD_CTRL) && (ev.key == 'e' || ev.key == 'E')) {
+                    mlj_jukebox_empty_category();
                     continue;
                 }
                 if (mlj_jukebox_hotkey(ev.key))
