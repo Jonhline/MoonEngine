@@ -776,6 +776,26 @@ static void pump_loading_work(void *user)
 
 #include "storage_present.inc"
 
+static void menu_page_bounds_walk(const ui_widget *w, float ox, float oy, float *mw, float *mh)
+{
+    if (!w || !w->visible) return;
+    float x = ox + w->x, y = oy + w->y;
+    if (x + w->w > *mw) *mw = x + w->w;
+    if (y + w->h > *mh) *mh = y + w->h;
+    for (int i = 0; i < w->nkids; i++)
+        menu_page_bounds_walk(w->kids[i], x, y, mw, mh);
+}
+static void menu_page_measure(menu *m)
+{
+    if (!m) return;
+    float bw = 0, bh = 0;
+    for (int i = 0; i < ui_root_count(menu_ui(m)); i++)
+        menu_page_bounds_walk(ui_root_widget(menu_ui(m), i), 0, 0, &bw, &bh);
+    if (bw > 0 && bh > 0) {
+        fprintf(stderr, "menu: page bounds %.0fx%.0f\n", bw, bh);
+        video_set_menu_page_size(bw, bh);
+    }
+}
 static menu *load(gt4_vol *v, int k)
 {
     SWP_LOAD_BEGIN(projects[k]);
@@ -806,6 +826,7 @@ static menu *load(gt4_vol *v, int k)
         menu_set_car_rater(m, rate_cars, app_car_ratings);
     if (m && k == 3 && app_video_settings)
         video_settings_attach(app_video_settings, m);
+    if (m) menu_page_measure(m);
     /* every project's ModelFace: the map's icons, the event prize's trophy */
     if (m)
         ui_set_model_renderer(menu_ui(m),

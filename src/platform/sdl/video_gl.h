@@ -44,6 +44,8 @@ uint64_t video_frame_late_count(void);
 int video_export_fixed_step(void);
 /* Menu 2D maps to the whole PS2 framebuffer; race HUD has wide layout. */
 void video_set_menu_projection(int enabled);
+/* The authored menu page's real content box, measured from the widget tree. */
+void video_set_menu_page_size(float width, float height);
 GLuint video_texture_id(const plat_texture *t);
 GLuint video_draw_framebuffer(void);
 /* Native or FSR 1 ultra quality / quality / balanced / performance (0..4). */
