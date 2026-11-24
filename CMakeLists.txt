@@ -394,6 +394,10 @@ target_sources(moonengine PRIVATE src/app/music_library.c src/app/main.c ${MOON_
   src/app/brand_logo.c ${CMAKE_BINARY_DIR}/moon_logo.c src/app/app_update.c)
 set_target_properties(moonengine PROPERTIES OUTPUT_NAME MoonEngine)   # MoonEngine.exe
 target_link_libraries(moonengine PRIVATE moon_race_sound moon_career_vehicle ${MOON_SDL_STACK} moon_physics miniz SDL2::SDL2main)
+if(NOT WIN32)
+  find_package(CURL REQUIRED)
+  target_link_libraries(moonengine PRIVATE CURL::libcurl)
+endif()
 if(WIN32)
   target_link_libraries(moonengine PRIVATE winhttp bcrypt)
   # ONE FILE: link the GCC/C++ runtime statically so a fresh Windows machine does

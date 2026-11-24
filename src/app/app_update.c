@@ -633,15 +633,49 @@ int app_update_test_sweep(const wchar_t *dir, int step)
 }
 #endif
 #else
+#include "app_update_linux.inc"
 void app_update_start(int enabled)
 {
-    (void)enabled;
+    const char *tf = getenv("MOON_UPDATE_TEST_TAR");
+    if (tf && *tf) {
+        snprintf(lup_dir, sizeof lup_dir, "/tmp/moon-update-test");
+        snprintf(lup_exe, sizeof lup_exe, "MoonEngine");
+        mkdir(lup_dir, 0755);
+        FILE *f = fopen(tf, "rb");
+        if (!f) return;
+        fseek(f, 0, SEEK_END);
+        long n = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        unsigned char *p = n > 0 ? malloc((size_t)n) : NULL;
+        int ok = p && fread(p, 1, (size_t)n, f) == (size_t)n;
+        fclose(f);
+        if (ok) {
+            fprintf(stderr, "tar test: %s %ld bytes\n", tf, n);
+            tar_unpack(p, (size_t)n);
+        }
+        free(p);
+        return;
+    }
+    if (!enabled) return;
+    char exe[1024];
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    if (n <= 0) return;
+    exe[n] = 0;
+    snprintf(lup_dir, sizeof lup_dir, "%s", exe);
+    char *slash = strrchr(lup_dir, '/');
+    if (slash) *slash = 0;
+    snprintf(lup_exe, sizeof lup_exe, "%s", slash ? slash + 1 : "MoonEngine");
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    pthread_t th;
+    if (pthread_create(&th, NULL, update_thread, NULL) == 0)
+        pthread_detach(th);
 }
 const char *app_update_status(void)
 {
-    return NULL;
+    return lup_state == LUP_IDLE ? NULL : lup_status;
 }
 void app_update_finish(void)
 {
+    if (lup_state == LUP_READY) sweep(1);
 }
 #endif
