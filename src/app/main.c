@@ -861,6 +861,7 @@ static void studio_row_change(int id, int delta)
         else if (launcher_update_newer(v, MOON_VERSION)) snprintf(studio_info_status, sizeof studio_info_status, "%s available", v);
         else snprintf(studio_info_status, sizeof studio_info_status, "Up to date (%s)", MOON_VERSION);
         printf("studio info: check %s -> %s\n", v, studio_info_status);
+        fflush(stdout);
         return;
     }
     if (id == -4) {
@@ -3151,7 +3152,7 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
 #define STUDIO_OPTION_CHANGE(row_, delta_)                                                         \
     do {                                                                                           \
         int id_ = options_ids[(row_)];                                                             \
-        if (id_ >= 0 || id_ == -4 || id_ == -5) {                                                                            \
+        if (id_ >= 0 || id_ == -4 || id_ == -5 || id_ == -6 || id_ == -7 || id_ == -8) {                                                                            \
             int was_group_ = id_ == video_setting_tweak_group();                                   \
             studio_row_change(id_, (delta_));                                                      \
             if (was_group_) {                                                                       \
