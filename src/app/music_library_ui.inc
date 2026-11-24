@@ -1001,7 +1001,8 @@ static void mlj_empty_activate(ah_vm *vm, ah_obj *self, void *data, int argc, co
     if (!list) return;
     ui_widget *root = menu_jukebox_page_widget(m);
     const char *foot = root ? mlj_find_text(root, "No. of songs:") : NULL;
-    int shown = foot ? atoi(strstr(foot, "No. of songs:") + 12) : (int)list->count;
+    (void)foot;
+    int shown = (int)list->count;
     char msg[256];
     snprintf(msg, sizeof msg, "Remove all %d songs from %s?", shown, name);
     if (menu_confirm(m, "Empty category", msg)) {
