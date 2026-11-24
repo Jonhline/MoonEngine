@@ -2511,6 +2511,10 @@ void menu_option_context(menu *m, menu *source)
 /* gtmode.ad MusicTheater -> exit_kick_project("slide"): its page
    (next_menu_arg) and the way back (major_menu_*), carried into the
    slide project's own VM */
+void menu_bind_widget(menu *m, ui_widget *w)
+{
+    if (m && w) bind_tree(m, w);
+}
 void menu_jukebox_context(menu *m, menu *source)
 {
     if (!m || !source)

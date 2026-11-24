@@ -1017,6 +1017,7 @@ static void mlj_empty_activate(ah_vm *vm, ah_obj *self, void *data, int argc, co
 {
     (void)vm; (void)self; (void)argc; (void)argv;
     *ret = ah_int(2);
+    fprintf(stderr, "jukebox Empty activate\n"); fflush(stderr);
     menu *m = data;
     char name[64];
     int id = mlj_category_id(m, name, sizeof name);
@@ -1198,6 +1199,7 @@ static void mlj_file_buttons(menu *m)
             b->x = 500.f; b->y = 415.f; b->w = 34.f; b->h = 24.f;
             b->has_geometry = 1; b->visible = 0; b->scale_x = b->scale_y = 1.f;
             ui_widget_append(root, b);
+            menu_bind_widget(m, b);
             menu_native_method(m, b, "onActivate", mlj_empty_activate, m);
             ui_widget *lib = ui_widget_child(root, "Library");
             ui_widget *liblabel = lib ? ui_widget_child(lib, "label") : NULL;
