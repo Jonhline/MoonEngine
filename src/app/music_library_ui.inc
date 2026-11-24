@@ -97,27 +97,36 @@ static void mlj_group(const char *path, char *out, size_t size)
         *out = 0;
 }
 static const char *mlj_shown_tip(const ui_widget *w);
+static const char *mlj_find_text(ui_widget *w, const char *needle)
+{
+    if (!w) return NULL;
+    if (w->text && strstr(w->text, needle))
+        return w->text;
+    for (int i = 0; i < w->nkids; i++) {
+        const char *t = mlj_find_text(w->kids[i], needle);
+        if (t) return t;
+    }
+    return NULL;
+}
 static int mlj_category_id(menu *m, char *name, size_t size)
 {
     ui_widget *root = menu_jukebox_page_widget(m);
-    ui_widget *tip = root ? ui_widget_child(root, "Tooltip") : NULL;
-    const char *text = NULL;
-    for (int i = 0; tip && i < tip->nkids; i++)
-        if (tip->kids[i] && tip->kids[i]->text) { text = tip->kids[i]->text; break; }
-    if (!text) text = mlj_shown_tip(root);
-    const char *sep = text ? strstr(text, " / ") : NULL;
-    if (!sep) return -1;
-    const char *g = sep + 3;
-    const char *end = strstr(g, " /");
-    size_t n = end ? (size_t)(end - g) : strlen(g);
-    if (!n || n >= size) return -1;
-    memcpy(name, g, n); name[n] = 0;
+    if (!root) return -1;
+    const char *t = mlj_find_text(root, "No. of songs");
+    if (t && getenv("MLJ_DUMP")) fprintf(stderr, "jukebox category text: %s\n", t);
+    if (!t) return -1;
+    if (strstr(t, "Racing")) snprintf(name, size, "Race");
+    else if (strstr(t, "Slideshow")) snprintf(name, size, "Slideshow");
+    else if (strstr(t, "Menu")) snprintf(name, size, "Menu");
+    else if (strstr(t, "Replay")) snprintf(name, size, "Replay");
+    else return -1;
     if (!strcmp(name, "Race")) return app_jukebox.race;
     if (!strcmp(name, "Slideshow")) return app_jukebox.slide;
     if (!strcmp(name, "Menu") && app_jukebox.folder[0] >= 0) return app_jukebox.folder[0];
     if (!strcmp(name, "Replay") && app_jukebox.folder[1] >= 0) return app_jukebox.folder[1];
     return -1;
 }
+
 static const ml_playlist *mlj_sorting;
 static int mlj_shown[ML_TRACKS]; /* the Library's rows, catalog indices */
 static void mlj_clean_title(const char *in, char *out, size_t size)
@@ -1223,6 +1232,16 @@ static void app_jukebox_attach(menu *m)
                 local = strncmp(catalog->tracks[i].path, "gt4:", 4) != 0;
     } else {
         mlj_log("jukebox: Music folder not scanned, catalog unavailable");
+    }
+    {
+        const char *names[4] = {"Race", "Slideshow", "Menu", "Replay"};
+        int ids[4] = {j.race, j.slide, j.folder[0], j.folder[1]};
+        for (int k = 0; k < 4; k++) if (ids[k] >= 0) {
+            char key[64]; snprintf(key, sizeof key, "audio.jukebox_empty_%s", names[k]);
+            if (app_video_settings && moon_options_int(&app_video_settings->store, key, 0, 0, 1))
+                while (music_library_list(j.library, ids[k])->count > 0)
+                    music_library_remove(j.library, ids[k], 0);
+        }
     }
     /* the folders keep their lists in the library, disc songs included */
     if (!local && j.folder[0] < 0)
