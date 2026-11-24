@@ -4103,31 +4103,41 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                     plat_draw_quad(NULL, cx-w/2, cy-h/2, w, h, 0,0,1,1, pan);
                     plat_draw_quad(NULL, cx-w/2, cy-h/2, w, 1.5f, 0,0,1,1, edge);
                     char line[256];
-                    if (st == 3) strcpy(line, "Update ready - restart to finish");
-                    else if (st == 2) strcpy(line, "Downloading");
-                    else strcpy(line, "Update available");
-                    dock_text(&dock, line, cx, cy - h/2 + 22, .85f, 1, ink);
+                    if (st == 2) {
+                        /* one status line only; no duplicate "Downloading" title */
+                    } else if (st == 3) {
+                        dock_text(&dock, "Update ready - restart to finish", cx, cy - h/2 + 22, .85f, 1, ink);
+                    } else
+                        dock_text(&dock, "Update available", cx, cy - h/2 + 22, .85f, 1, ink);
                     if (st == 6) {
                         snprintf(line, sizeof line, "Moon Engine %s is available (you have %s).", ver, MOON_VERSION);
                         dock_text(&dock, line, cx, cy - 10, .65f, 1, dim);
                     }
                     if (st == 2 || st == 3) {
                         int pct = st == 3 ? 100 : app_update_progress();
+                        if (pct < 0) pct = 0;
+                        if (pct > 100) pct = 100;
                         float target = pct / 100.f;
-                        upd_fill += (target - upd_fill) * .18f;
+                        if (st == 3) upd_fill = 1.f;
+                        else upd_fill += (target - upd_fill) * .18f;
                         char left[64], right[16];
-                        snprintf(left, sizeof left, "Downloading %s", ver);
+                        snprintf(left, sizeof left, st == 3 ? "%s" : "Downloading %s", ver);
                         snprintf(right, sizeof right, "%d%%", pct);
-                        dock_text(&dock, left, cx - w/2 + 24, cy - 14, .62f, 0, ink);
-                        dock_text(&dock, right, cx + w/2 - 24, cy - 14, .62f, 2, gold);
-                        float bx = cx - w/2 + 24, by = cy + 4, bw = w - 48, bh = 7.f;
+                        float sy = st == 2 ? cy - h/2 + 22 : cy - 14;
+                        dock_text(&dock, left, cx - w/2 + 24, sy, .62f, 0, ink);
+                        dock_text(&dock, right, cx + w/2 - 24, sy, .62f, 2, gold);
+                        float bx = cx - w/2 + 24, by = st == 2 ? cy + 4 : cy + 4, bw = w - 48, bh = 7.f;
                         const uint8_t track[4] = {40,42,48,220};
                         plat_draw_quad(NULL, bx, by, bw, bh, 0,0,1,1, track);
                         float fw = bw * upd_fill;
                         if (fw > 0) {
-                            plat_draw_quad(NULL, bx, by, fw, bh, 0,0,1,1, gold);
+                            const uint8_t gold_lo[4] = {196,168,86,255};
+                            plat_draw_quad(NULL, bx, by, fw, bh, 0,0,1,1, gold_lo);
+                            plat_draw_quad(NULL, bx, by, fw, bh * .5f, 0,0,1,1, gold);
                             const uint8_t hi[4] = {255,245,210,120};
                             plat_draw_quad(NULL, bx, by, fw, 1.5f, 0,0,1,1, hi);
+                            const uint8_t lead[4] = {255,250,220,235};
+                            plat_draw_quad(NULL, bx + fw - 1.5f, by, 1.5f, bh, 0,0,1,1, lead);
                             float sx = bx + fmodf((float)(plat_time_ns() / 1000000 % 1600) / 1600.f * (bw + 80), bw + 80) - 40;
                             if (sx > bx && sx < bx + fw) {
                                 const uint8_t sheen[4] = {255,255,255,55};
