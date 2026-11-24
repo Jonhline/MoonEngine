@@ -976,6 +976,12 @@ int menu_jukebox_drop_row(menu *m, int row)
     ah_set_member(m->vm, game_object(m), "_local_music", ah_objv(next));
     return 1;
 }
+int menu_jukebox_set_mode(menu *m, int mode)
+{
+    ah_val args[2] = {ah_nil(), ah_int(mode)}, ret;
+    return m && m->jukebox_root &&
+           ah_call_member(m->vm, m->jukebox_root, "set_mode", 2, args, &ret) >= 0;
+}
 int menu_jukebox_clear_list(menu *m, int index)
 {
     ah_val lists, maps;
