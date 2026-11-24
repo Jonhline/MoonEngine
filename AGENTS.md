@@ -17,14 +17,17 @@ Applies to every dish in this project. Read it before you report anything.
 5. **Cuts both ways.** If you claim something is impossible, show the measurement
    that proves it (file:line, struct field, hash) — no vibes.
 
-## Launcher law — ONE launcher, and it is the new one
+## Launcher law — ONE launcher: the studio room
 
-The old front door (`src/app/launcher.c`, the pre-INFO dock with its own update
-checker) is **dead**. `--launcher` must open the new launcher (`launcher_ui.c`:
-DISC MODS OPTIONS MUSIC START INFO EXIT). Never:
-- add a feature to the old front door,
-- bring back a `--launcher-v2` / `--launcher-v1` split, or
-- leave a second update path alive.
+The captain's front door is the **studio room** (3D car + dock START / OPTIONS /
+MOD), reached by opening `MoonEngine` with no arguments (`launcher.c` returns 2 →
+`main.c` front-end). That is the only launcher.
 
-If a change cannot be reached with plain `--launcher`, it does not exist.
+`--launcher-v2` (`src/app/launcher_ui.c`, the plain "your own disc - no game
+files" icon dock) is the **wrong** one — it is on its way out. Never:
+- add a feature to `launcher_ui.c` or to that dock,
+- make the plain dock the default,
+- leave a second launcher or a second update path alive.
+
+Anything the captain must be able to reach belongs in the studio room.
 
