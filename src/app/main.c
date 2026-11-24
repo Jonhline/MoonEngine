@@ -5652,6 +5652,10 @@ int main(int argc, char **argv)
                     mlj_jukebox_rename_now();
                     continue;
                 }
+                if ((SDL_GetModState() & KMOD_CTRL) && (ev.key == 'h' || ev.key == 'H')) {
+                    mlj_jukebox_remove_category();
+                    continue;
+                }
                 if (mlj_jukebox_hotkey(ev.key))
                     continue;
             }

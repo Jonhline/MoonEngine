@@ -949,6 +949,51 @@ void mlj_tip_refresh(menu *m)
     const ml_track *t = mlj_selected(m);
     hint->visible = t && strncmp(t->path, "gt4:", 4) && !mlj_rename.active;
 }
+void mlj_jukebox_remove_category(void)
+{
+    menu *m = app_jukebox.page;
+    if (!m || menu_active_root(m) < 0) return;
+    ui_widget *root = ui_root_widget(menu_ui(m), menu_active_root(m));
+    ui_widget *tip = ui_widget_child(root, "Tooltip");
+    const char *text = NULL;
+    for (int i = 0; tip && i < tip->nkids; i++)
+        if (tip->kids[i] && tip->kids[i]->text) { text = tip->kids[i]->text; break; }
+    if (!text) text = mlj_shown_tip(root);
+    const char *sep = text ? strstr(text, " / ") : NULL;
+    if (!sep) return;
+    char group[ML_PATH];
+    const char *g = sep + 3;
+    const char *end = strstr(g, " /");
+    size_t n = end ? (size_t)(end - g) : strlen(g);
+    if (n >= sizeof group) n = sizeof group - 1;
+    memcpy(group, g, n); group[n] = 0;
+    const ml_playlist *cat = music_library_list(app_jukebox.library, app_jukebox.catalog);
+    if (!cat || !group[0]) return;
+    int count = 0;
+    for (int i = 0; i < cat->count; i++) {
+        char cg[ML_PATH] = "";
+        if (strncmp(cat->tracks[i].path, "gt4:", 4))
+            mlj_group(cat->tracks[i].path, cg, sizeof cg);
+        else {
+            char buf[256];
+            const char *display = cat->tracks[i].title;
+            (void)buf; (void)display;
+        }
+        if (!strncmp(cat->tracks[i].path, "gt4:", 4) || !strcmp(cg, group)) count++;
+    }
+    char msg[256];
+    snprintf(msg, sizeof msg, "Remove category \"%s\" (%d songs)?", group, count);
+    if (menu_confirm(m, "Remove category", msg)) {
+        for (int i = cat->count - 1; i >= 0; i--) {
+            char cg[ML_PATH] = "";
+            if (!strncmp(cat->tracks[i].path, "gt4:", 4) || !strcmp((mlj_group(cat->tracks[i].path, cg, sizeof cg), cg), group))
+                music_library_remove(app_jukebox.library, app_jukebox.catalog, i);
+        }
+        mlj_refresh(m, 0);
+        printf("jukebox: removed category %s\n", group);
+        mlj_log("jukebox: removed category %s", group);
+    }
+}
 int mlj_jukebox_hotkey(int sym)
 {
     menu *m = app_jukebox.page;
