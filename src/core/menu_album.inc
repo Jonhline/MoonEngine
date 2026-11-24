@@ -976,6 +976,23 @@ int menu_jukebox_drop_row(menu *m, int row)
     ah_set_member(m->vm, game_object(m), "_local_music", ah_objv(next));
     return 1;
 }
+int menu_jukebox_clear_list(menu *m, int index)
+{
+    ah_val lists, maps;
+    if (!m || index < 0 || !ah_get_member(m->vm, m->jukebox_root, "music_list", &lists) ||
+        !ah_get_member(m->vm, m->jukebox_root, "music_map", &maps))
+        return 0;
+    ah_obj *list = ah_as_obj(lists, AO_ARRAY), *map = ah_as_obj(maps, AO_ARRAY);
+    if (!list || !map || index >= ah_array_size(list) || index >= ah_array_size(map)) return 0;
+    ah_obj *empty = ah_array_new(m->vm);
+    ah_array_set(list, index, ah_objv(empty));
+    ah_obj *zero = ah_array_new(m->vm);
+    ah_obj *base = ah_as_obj(ah_array_get(map, 0), AO_ARRAY);
+    int n = base ? ah_array_size(base) : 0;
+    for (int i = 0; i < n; i++) ah_array_push(m->vm, zero, ah_int(0));
+    ah_array_set(map, index, ah_objv(zero));
+    return 1;
+}
 void menu_jukebox_refresh(menu *m)
 {
     if (m) jukebox_folders_fill(m);

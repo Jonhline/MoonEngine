@@ -291,6 +291,7 @@ int menu_jukebox_retitle(menu *m, int row, const char *title);
 int menu_jukebox_drop_row(menu *m, int row);
 const char *menu_jukebox_row_group(menu *m, int row);
 void menu_bind_widget(menu *m, ui_widget *w);
+int menu_jukebox_clear_list(menu *m, int index);
 int menu_jukebox_folder_result(menu *m, int folder, int *ids, int capacity);
 /* P: the Library's rows in this order (main::default_library_playlist). */
 int menu_jukebox_library_order(menu *m, const int *order, int count);

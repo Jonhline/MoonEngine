@@ -1028,6 +1028,9 @@ static void mlj_empty_activate(ah_vm *vm, ah_obj *self, void *data, int argc, co
             moon_options_set(&app_video_settings->store, key, "1");
             moon_options_save(&app_video_settings->store);
         }
+        int li = !strcmp(name, "Race") ? 1 : !strcmp(name, "Slideshow") ? 2
+                 : !strcmp(name, "Menu") ? 3 : 4;
+        menu_jukebox_clear_list(m, li);
         printf("jukebox: emptied category %s (marker %s=1)\n", name, key);
         fflush(stdout);
         mlj_log("jukebox: emptied category %s", name);
