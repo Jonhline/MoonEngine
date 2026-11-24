@@ -5673,7 +5673,8 @@ int main(int argc, char **argv)
                     mlj_jukebox_remove_category();
                     continue;
                 }
-                if ((SDL_GetModState() & KMOD_CTRL) && (ev.key == 'e' || ev.key == 'E')) {
+                if (((SDL_GetModState() & KMOD_CTRL) && (ev.key == 'e' || ev.key == 'E')) ||
+                    ev.key == 5 || ev.text[0] == 5) {
                     mlj_jukebox_empty_category();
                     continue;
                 }

@@ -1003,14 +1003,6 @@ void mlj_tip_refresh(menu *m)
     if (!hint) return;
     const ml_track *t = mlj_selected(m);
     hint->visible = t && strncmp(t->path, "gt4:", 4) && !mlj_rename.active;
-    ui_widget *empty = root ? ui_widget_child(root, "MoonEmpty") : NULL;
-    if (empty) {
-        char name[64];
-        int on = mlj_category_id(m, name, sizeof name) >= 0 && !mlj_rename.active;
-        empty->visible = on;
-        ui_widget *label = root ? ui_widget_child(root, "MoonEmptyLabel") : NULL;
-        if (label) label->visible = on;
-    }
 }
 static void mlj_empty_activate(ah_vm *vm, ah_obj *self, void *data, int argc, const ah_val *argv,
                                ah_val *ret)
@@ -1192,26 +1184,6 @@ static void mlj_file_buttons(menu *m)
         ui_widget_append(root, h);
     }
     if (root) {
-        ui_widget *del = ui_widget_child(root, "Trash");
-        if (del && !ui_widget_child(root, "MoonEmpty")) {
-            ui_widget *b = ui_widget_copy(ui, del);
-            b->name = "MoonEmpty";
-            b->x = 500.f; b->y = 415.f; b->w = 34.f; b->h = 24.f;
-            b->has_geometry = 1; b->visible = 0; b->scale_x = b->scale_y = 1.f;
-            ui_widget_append(root, b);
-            menu_bind_widget(m, b);
-            menu_native_method(m, b, "onActivate", mlj_empty_activate, m);
-            ui_widget *lib = ui_widget_child(root, "Library");
-            ui_widget *liblabel = lib ? ui_widget_child(lib, "label") : NULL;
-            if (liblabel) {
-                ui_widget *l = ui_widget_copy(ui, liblabel);
-                l->name = "MoonEmptyLabel";
-                free(l->text); l->text = strdup("Empty");
-                l->x = 506.f; l->y = 442.f;
-                l->scale_x = l->scale_y = .45f; l->visible = 0;
-                ui_widget_append(root, l);
-            }
-        }
         menu_native_method(m, root, "onKeyPress", mlj_jukebox_key, m);
         ui_widget *klist = ui_widget_child(ui_widget_child(root, "List"), "list_box");
         if (klist) menu_native_method(m, klist, "onKeyPress", mlj_jukebox_key, m);
