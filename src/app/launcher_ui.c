@@ -970,11 +970,54 @@ static void key(struct ui *u,SDL_Keycode k)
     if(k==SDLK_RETURN || k==SDLK_KP_ENTER)activate(u);
 }
 
+/* Apply a downloaded MoonEngine.new before anything is drawn. The running
+   image is renamed to .moon-old, the new one takes its place, and the new
+   binary starts on the next launch. The .moon-old is removed on the start
+   after the new version is already running. */
+static void launcher_apply_pending_update(const char *base)
+{
+#ifdef _WIN32
+    char exe[1024];
+    DWORD n = GetModuleFileNameA(NULL, exe, sizeof exe);
+    if (!n || n >= sizeof exe) return;
+#else
+    char exe[1024];
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    if (n <= 0) return;
+    exe[n] = 0;
+#endif
+    char fresh[1200], old[1200];
+    snprintf(fresh, sizeof fresh, "%s.new", exe);
+    snprintf(old, sizeof old, "%s.moon-old", exe);
+    FILE *f = fopen(fresh, "rb");
+    if (!f) {
+        /* already swapped last start: the old copy has served its rollback */
+        remove(old);
+        return;
+    }
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fclose(f);
+    if (size <= 0) return;
+    remove(old);
+#ifdef _WIN32
+    if (!MoveFileExA(exe, old, MOVEFILE_REPLACE_EXISTING) ||
+        !MoveFileExA(fresh, exe, MOVEFILE_REPLACE_EXISTING))
+        fprintf(stderr, "launcher: update pending, could not swap %s\n", fresh);
+#else
+    if (rename(exe, old) != 0 || rename(fresh, exe) != 0)
+        fprintf(stderr, "launcher: update pending, could not swap %s\n", fresh);
+    else
+        chmod(exe, 0755);
+#endif
+    (void)base;
+}
 int launcher_ui_run(launcher_startup *startup)
 {
     struct ui u;memset(&u,0,sizeof u);u.start=startup;u.result=0;u.open=-1;
     char *base=SDL_GetBasePath();
     snprintf(u.base_path,sizeof u.base_path,"%s",base?base:"");
+    launcher_apply_pending_update(u.base_path);
     if(base)SDL_free(base);
     /* Mods live with the user's data, not beside the program (the captain's call,
        2026-10-16): saves, config and mods in one folder. */
