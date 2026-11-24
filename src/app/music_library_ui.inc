@@ -1001,8 +1001,16 @@ void mlj_tip_refresh(menu *m)
     ui_widget *root = menu_jukebox_page_widget(m);
     ui_widget *hint = root ? ui_widget_child(root, "MoonHint") : NULL;
     if (!hint) return;
-    const ml_track *t = mlj_selected(m);
-    hint->visible = t && strncmp(t->path, "gt4:", 4) && !mlj_rename.active;
+    char cat[64];
+    int in_category = mlj_category_id(m, cat, sizeof cat) >= 0;
+    const char *text = in_category
+        ? "Del: delete   Ctrl+R: rename   Ctrl+H: hide category   Ctrl+E: empty this category"
+        : "Del: delete   Ctrl+R: rename   Ctrl+H: hide category";
+    if (!hint->text || strcmp(hint->text, text)) {
+        free(hint->text);
+        hint->text = strdup(text);
+    }
+    hint->visible = 1;
 }
 static ui_widget *mlj_text_widget(ui_widget *w, const char *needle)
 {
@@ -1201,12 +1209,12 @@ static void mlj_file_buttons(menu *m)
         h->name = "MoonHint";
         free(h->text);
         h->text = strdup("Del: delete   Ctrl+R: rename   Ctrl+H: remove category   Ctrl+E: empty this category");
-        h->x = 250.f;
-        h->y = 418.f;
-        h->w = 360.f;
+        h->x = 24.f;
+        h->y = 420.f;
+        h->w = 520.f;
         h->h = 22.f;
         h->has_geometry = 1;
-        h->scale_x = h->scale_y = .34f;
+        h->scale_x = h->scale_y = .32f;
         h->visible = 0;
         ui_widget_append(root, h);
     }
