@@ -385,7 +385,13 @@ static void mlj_store(ml_jukebox *j)
     if (!tracks)
         return;
     int ids[2] = {j->race, j->slide}, shared = 0;
+    const char *empty_names[2] = {"Race", "Slideshow"};
     for (int k = 0; k < 2; k++) {
+        char empty_key[64];
+        snprintf(empty_key, sizeof empty_key, "audio.jukebox_empty_%s", empty_names[k]);
+        if (app_video_settings &&
+            moon_options_int(&app_video_settings->store, empty_key, 0, 0, 1))
+            continue;
         int order[ML_TRACKS], enabled[ML_TRACKS], shuffle = 0;
         int n = menu_jukebox_playlist_result(j->page, k, order, enabled, ML_TRACKS, &shuffle),
             count = 0;
@@ -409,6 +415,12 @@ static void mlj_store(ml_jukebox *j)
     }
     /* Menu and Replay: one play mode for every folder, as the page has */
     for (int k = 0; k < 2 && j->folder[0] >= 0; k++) {
+        const char *folder_name = k ? "Replay" : "Menu";
+        char empty_key[64];
+        snprintf(empty_key, sizeof empty_key, "audio.jukebox_empty_%s", folder_name);
+        if (app_video_settings &&
+            moon_options_int(&app_video_settings->store, empty_key, 0, 0, 1))
+            continue;
         int rows[ML_TRACKS], n = menu_jukebox_folder_result(j->page, k, rows, ML_TRACKS), count = 0;
         if (n < 0)
             continue;
