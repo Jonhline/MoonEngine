@@ -185,7 +185,8 @@ int app_update_progress(void) { return lup_state == LUP_DOWNLOADING ? moon_http_
 const char *app_update_message(void) { return lup_status; }
 int app_update_available(char *ver, size_t n)
 {
-    if (!ver || !n || (lup_state != LUP_AVAILABLE && lup_state != LUP_READY)) return 0;
+    if (!ver || !n || (lup_state != LUP_AVAILABLE && lup_state != LUP_DOWNLOADING &&
+                       lup_state != LUP_READY)) return 0;
     snprintf(ver, n, "%s", lup_release.version);
     return 1;
 }
