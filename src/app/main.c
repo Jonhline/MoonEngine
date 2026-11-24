@@ -3308,6 +3308,16 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
                             unlink(old);
                             if (rename(exe, old) == 0 && rename(fresh, exe) == 0) {
                                 chmod(exe, 0755);
+                                { /* the unpack list is ours; don't leave it beside the exe */
+                                    char lst[1300];
+                                    snprintf(lst, sizeof lst, "%s", exe);
+                                    char *sl = strrchr(lst, '/');
+                                    if (sl) {
+                                        *sl = 0;
+                                        strncat(lst, "/moon-update.list", sizeof lst - strlen(lst) - 1);
+                                        unlink(lst);
+                                    }
+                                }
                                 pid_t c = fork();
                                 if (c == 0) { sleep(10); unlink(old); _exit(0); }
                                 execv(exe, studio_argv);
