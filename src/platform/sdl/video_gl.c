@@ -304,6 +304,19 @@ static void layout_view(void)
     /* Menu pages keep the same uniform scale as the world: the authored
        640x480 page is centred and the leftover width is a pillar, never a
        horizontal stretch. The anamorphic option is the only wide stretch. */
+    if (menu_projection) {
+        /* The menu page is 640x480. Fit it inside the drawable area at one
+           scale, centred on both axes; never crop the transport column. */
+        float s = fminf((float)fb_w / 640.f, (float)fb_h / 480.f);
+        if (s > 0) {
+            scale_x = scale_y = s;
+            content_width = 640.f * s;
+            content_x = ((float)fb_w - content_width) * .5f;
+            side_margin = 0;
+            off_x = content_x;
+            off_y = ((float)fb_h - 480.f * s) * .5f;
+        }
+    }
     report_view();
 }
 
