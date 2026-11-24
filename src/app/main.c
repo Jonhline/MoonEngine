@@ -859,13 +859,12 @@ static void studio_row_change(int id, int delta)
             snprintf(studio_prefs->channel, sizeof studio_prefs->channel, "%s",
                      !strcasecmp(studio_prefs->channel, "nightly") ? "stable" : "nightly");
         if (studio_prefs) launcher_preferences_save(studio_prefs);
+        app_update_set_channel(studio_prefs && !strcasecmp(studio_prefs->channel, "nightly"));
         return;
     }
     if (id == -8) {
         size_t n = 0;
-        const char *url = studio_prefs && !strcasecmp(studio_prefs->channel, "nightly")
-                              ? "https://api.github.com/repos/Jonhline/MoonEngine/releases"
-                              : "https://api.github.com/repos/Jonhline/MoonEngine/releases/latest";
+        const char *url = app_update_feed();
         unsigned char *json = moon_http_get(url, 1 << 20, &n);
         if (!json) { snprintf(studio_info_status, sizeof studio_info_status, "Check failed: network"); return; }
         char tag[64] = "";
@@ -3271,6 +3270,8 @@ static int studio_run(showroom *cars, gt4_vol *vol, const char *code, const char
     uint64_t pend_at = 0; /* raster width, rebuilt on a debounced resize */
     if (start_shot_prefix || start_launch_env)
         dock_sel = DOCK_START;
+    app_update_set_channel(studio_prefs && !strcasecmp(studio_prefs->channel, "nightly"));
+    app_update_begin(1); /* the popup the loop below draws exists only because of this */
     for (int i = 0; frames == 0 || i < frames; i++) {
         app_music_tick();
         SDL_Event ev;

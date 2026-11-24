@@ -203,13 +203,11 @@ static void *update_thread(void *unused)
 {
     (void)unused;
     size_t n = 0;
-    const char *feed = getenv("MOON_UPDATE_FEED");
-    const char *jsonurl = feed && *feed ? feed
-        : "https://api.github.com/repos/Jonhline/MoonEngine/releases/latest";
+    const char *jsonurl = app_update_feed();
     unsigned char *json = fetch(jsonurl, 1 << 20, &n);
     if (!json) { snprintf(lup_status, sizeof lup_status, "Update check failed."); lup_state = LUP_ERROR; return NULL; }
     fprintf(stderr, "update: state checking\n"); fflush(stderr);
-    if (!app_update_parse_release((char *)json, UPDATE_ASSET_SUFFIX, &lup_release)) {
+    if (!app_update_parse_release_ex((char *)json, UPDATE_ASSET_SUFFIX, update_nightly, &lup_release)) {
         free(json); snprintf(lup_status, sizeof lup_status, "No update for this platform."); lup_state = LUP_NONE; return NULL;
     }
     free(json);

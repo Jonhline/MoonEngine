@@ -14,6 +14,28 @@
 #define UPDATE_ASSET_SUFFIX "-linux-x86_64.tar.gz"
 #endif
 
+/* Which feed the studio reads. Stable = GitHub's "latest" release, which
+   GitHub never answers with a pre-release; nightly = the newest release of any
+   kind, so a pre-release is the nightly and stable users never see it. */
+static int update_nightly;
+void app_update_set_channel(int nightly) { update_nightly = nightly ? 1 : 0; }
+const char *app_update_feed(void)
+{
+#if MOON_DEV_BUILD
+    const char *env = getenv("MOON_UPDATE_FEED"); /* tests: point at a local feed */
+    if (env && *env)
+        return env;
+#endif
+    return update_nightly ? "https://api.github.com/repos/" UPDATE_REPO "/releases?per_page=1"
+                          : "https://api.github.com/repos/" UPDATE_REPO "/releases/latest";
+}
+/* a list answer ("[{...}]") starts at its first object; a single release is
+   already an object, so both start at the first '{' */
+static const char *release_object(const char *json)
+{
+    return json ? strchr(json, '{') : NULL;
+}
+
 /* X.Y.Z, no leading zeros; 1 when remote is newer than local */
 static int version_parts(const char *s, unsigned v[3])
 {
@@ -240,14 +262,18 @@ static int release_member(void *ctx, const char *key, const char **s)
     return 0;
 }
 int app_update_parse_release(const char *json, const char *asset_suffix, app_update_release *out)
+{ return app_update_parse_release_ex(json, asset_suffix, 0, out); }
+int app_update_parse_release_ex(const char *json, const char *asset_suffix, int allow_prerelease,
+                                app_update_release *out)
 {
     release_fields r;
     memset(&r, 0, sizeof r);
     memset(out, 0, sizeof *out);
+    json = release_object(json);
     const char *s = json, *tag;
     if (!json || !asset_suffix)
         return 0;
-    if (!jobject(&s, release_member, &r) || r.draft || r.prerelease)
+    if (!jobject(&s, release_member, &r) || r.draft || (r.prerelease && !allow_prerelease))
         return 0;
     tag = r.tag[0] == 'v' || r.tag[0] == 'V' ? r.tag + 1 : r.tag;
     if (strlen(tag) >= sizeof out->version || !newer(tag, "0.0.0"))
@@ -554,10 +580,10 @@ static DWORD WINAPI worker(void *unused)
 {
     (void)unused;
     size_t n = 0;
-    unsigned char *json =
-        fetch("https://api.github.com/repos/" UPDATE_REPO "/releases/latest", 1 << 20, &n);
+    unsigned char *json = fetch(app_update_feed(), 1 << 20, &n);
     app_update_release r;
-    if (!json || memchr(json, 0, n) || !app_update_parse_release((char *)json, UPDATE_ASSET_SUFFIX, &r) ||
+    if (!json || memchr(json, 0, n) ||
+        !app_update_parse_release_ex((char *)json, UPDATE_ASSET_SUFFIX, update_nightly, &r) ||
         !newer(r.version, MOON_VERSION)) {
         free(json);
         InterlockedExchange(&state, UP_NONE);
